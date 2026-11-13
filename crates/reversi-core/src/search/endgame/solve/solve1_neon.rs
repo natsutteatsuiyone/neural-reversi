@@ -1,13 +1,14 @@
 //! AArch64-specialized last-empty-square scoring for the shared tables.
 
-use crate::constants::SCORE_MAX;
+use crate::score::DISC_SCORE_MAX;
+use crate::score::DiscScore;
 use crate::square::Square;
-use crate::types::Score;
 
 use super::solve1_tables::{COUNT_PAIR, META_HAS_D9, MULT_D9, NEON_PARAMS};
 
 #[inline(always)]
-pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
+pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
+    let alpha = alpha.value();
     let pp = unsafe { NEON_PARAMS.get_unchecked(sq.index()) };
     let meta = pp.meta;
     let c0 = ((meta >> 8) & 0xff) as usize;
@@ -34,10 +35,10 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         let idx3 = ((player & pp.mask_d9).wrapping_mul(MULT_D9) >> 56) as usize;
         packed += unsafe { *pair.get_unchecked(c3).get_unchecked(idx3) as u32 };
     }
-    let nf = (packed & 0xff) as Score;
-    let nf2 = (packed >> 8) as Score;
+    let nf = (packed & 0xff) as i32;
+    let nf2 = (packed >> 8) as i32;
 
-    let score_base = 2 * player.count_ones() as Score - SCORE_MAX + 2;
+    let score_base = 2 * player.count_ones() as i32 - DISC_SCORE_MAX.value() + 2;
     let sip = if score_base > 0 {
         score_base
     } else {
@@ -51,5 +52,5 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         sip
     };
 
-    if nf != 0 { score_base + nf } else { zero_path }
+    DiscScore::new(if nf != 0 { score_base + nf } else { zero_path })
 }

@@ -1,3 +1,5 @@
+use reversi_core::score::Score;
+
 #[derive(Clone, Copy)]
 pub(super) enum ScorePrecision {
     Whole,
@@ -6,15 +8,21 @@ pub(super) enum ScorePrecision {
 }
 
 // Rounds halves toward positive infinity, including negative half scores.
-pub(super) fn whole_score(score: f32) -> i32 {
-    (score + 0.5).floor() as i32
+pub(super) fn whole_score(score: Score) -> i32 {
+    (score.to_disc_diff_f32() + 0.5).floor() as i32
 }
 
-pub(super) fn display_score(score: f32, precision: ScorePrecision) -> String {
+// Rounds halves away from zero; `{:.1}` alone would round x.x5 to even.
+pub(super) fn tenth_score(score: Score) -> f32 {
+    (score.to_disc_diff_f32() * 10.0).round() / 10.0
+}
+
+pub(super) fn display_score(score: Score, precision: ScorePrecision) -> String {
+    let tenth = tenth_score(score);
     let mut reduced = match precision {
         ScorePrecision::Whole => format!("{:+}", whole_score(score)),
-        ScorePrecision::Tenth => format!("{score:+.1}"),
-        ScorePrecision::Raw => format!("{score:+}"),
+        ScorePrecision::Tenth => format!("{tenth:+.1}"),
+        ScorePrecision::Raw => format!("{tenth:+}"),
     };
     if matches!(reduced.as_str(), "+0" | "-0" | "+0.0" | "-0.0") {
         reduced.remove(0);

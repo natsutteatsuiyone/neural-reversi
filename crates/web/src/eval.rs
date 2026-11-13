@@ -5,7 +5,7 @@ use std::io;
 use reversi_core::{
     board::Board,
     eval::{eval_cache::EvalCache, pattern_feature::PatternFeature},
-    types::ScaledScore,
+    score::Score,
 };
 
 use crate::{eval::network::Network, search::context::SearchContext};
@@ -43,7 +43,7 @@ impl Eval {
     }
 
     /// Returns the cached evaluation score, computing it via the network on a cache miss.
-    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> ScaledScore {
+    pub fn evaluate(&self, ctx: &SearchContext, board: &Board) -> Score {
         let key = board.hash();
         self.cache.get_or_insert_with(key, || {
             self.network.evaluate(ctx.pattern_feature(), ctx.ply())
@@ -52,11 +52,7 @@ impl Eval {
 
     /// Evaluates a precomputed pattern feature without cache or search context overhead.
     #[inline(always)]
-    pub(crate) fn evaluate_network(
-        &self,
-        pattern_feature: &PatternFeature,
-        ply: usize,
-    ) -> ScaledScore {
+    pub(crate) fn evaluate_network(&self, pattern_feature: &PatternFeature, ply: usize) -> Score {
         self.network.evaluate(pattern_feature, ply)
     }
 }

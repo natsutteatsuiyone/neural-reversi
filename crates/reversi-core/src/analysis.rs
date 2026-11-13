@@ -9,8 +9,8 @@
 //! handler in `crates/gui/src/engine.rs` is the reference consumer.
 
 use crate::board::Board;
+use crate::score::Score;
 use crate::square::Square;
-use crate::types::Scoref;
 
 /// What the injected engine Search returns for one Position that has Legal
 /// Moves.
@@ -18,7 +18,7 @@ pub struct Analysis {
     /// Engine principal variation for the scored position, best move first.
     pub pv: Vec<Square>,
     pub best_move: Square,
-    pub score: Scoref,
+    pub score: Score,
 }
 
 /// One per-move Game Analysis result (CONTEXT.md → Game Analysis, Played
@@ -28,9 +28,9 @@ pub struct GameAnalysisProgress {
     /// Engine principal variation for the scored position, best move first.
     pub pv: Vec<Square>,
     pub best_move: Square,
-    pub best_score: Scoref,
-    pub played_score: Scoref,
-    pub score_loss: Scoref,
+    pub best_score: Score,
+    pub played_score: Score,
+    pub score_loss: Score,
 }
 
 /// One move of the analyzed Game: a played square or a Pass.
@@ -48,9 +48,9 @@ pub enum GameAnalysisMove {
 ///   the analysis stops and returns `Ok(())`.
 /// - `on_progress` receives each per-move result.
 ///
-/// Scores must already be at the caller's reporting precision: the seed and
-/// each `Analysis::score` are propagated verbatim (the terminal `solve()` path
-/// returns an exact whole-number Final Score, which needs no rounding).
+/// The seed and each `Analysis::score` are propagated verbatim, so Played
+/// Score and Score Loss carry the search's sub-disc precision; callers that
+/// display them round each value on its own.
 ///
 /// # Errors
 ///
@@ -68,7 +68,7 @@ pub fn analyze_game(
         return Ok(());
     }
 
-    let mut score: Scoref = match classify_seed(&final_board) {
+    let mut score: Score = match classify_seed(&final_board) {
         SeedPosition::Searchable => {
             let analysis = search(&final_board)?;
             if is_cancelled() {
@@ -86,7 +86,7 @@ pub fn analyze_game(
             }
             -analysis.score
         }
-        SeedPosition::Terminal => final_board.solve(final_board.empty_count()) as Scoref,
+        SeedPosition::Terminal => final_board.solve_scaled(final_board.empty_count()),
     };
 
     for (move_index, step) in steps.iter().enumerate().rev() {
@@ -203,9 +203,9 @@ fn classify_seed(board: &Board) -> SeedPosition {
 /// The negamax step that turns a Position's best Score and the Score of the
 /// resulting Position (`prev`, from the next ply's Side To Move) into the
 /// Played Score, the Score Loss, and the Score to carry to the shallower ply.
-fn propagate_step(best: Scoref, prev: Scoref) -> (Scoref, Scoref, Scoref) {
+fn propagate_step(best: Score, prev: Score) -> (Score, Score, Score) {
     let played = -prev;
-    let loss = (best - played).max(0.0);
+    let loss = (best - played).max(Score::ZERO);
     let next = best.max(played);
     (played, loss, next)
 }
@@ -214,6 +214,7 @@ fn propagate_step(best: Scoref, prev: Scoref) -> (Scoref, Scoref, Scoref) {
 mod tests {
     use super::*;
     use crate::player_color::PlayerColor;
+    use crate::score::DiscScore;
     use std::cell::Cell;
 
     fn play(square: Square) -> GameAnalysisMove {
@@ -224,7 +225,7 @@ mod tests {
         GameAnalysisMove::Pass
     }
 
-    fn analysis(best_move: Square, score: Scoref) -> Analysis {
+    fn analysis(best_move: Square, score: Score) -> Analysis {
         Analysis {
             pv: Vec::new(),
             best_move,
@@ -235,9 +236,33 @@ mod tests {
     #[test]
     fn propagate_step_handles_score_relations() {
         for (best, prev, expected) in [
-            (3.0, 2.0, (-2.0, 5.0, 3.0)),
-            (1.0, -5.0, (5.0, 0.0, 5.0)),
-            (4.0, -1.0, (1.0, 3.0, 4.0)),
+            (
+                Score::from_disc_diff(DiscScore::new(3)),
+                Score::from_disc_diff(DiscScore::new(2)),
+                (
+                    Score::from_disc_diff(DiscScore::new(-2)),
+                    Score::from_disc_diff(DiscScore::new(5)),
+                    Score::from_disc_diff(DiscScore::new(3)),
+                ),
+            ),
+            (
+                Score::from_disc_diff(DiscScore::new(1)),
+                Score::from_disc_diff(DiscScore::new(-5)),
+                (
+                    Score::from_disc_diff(DiscScore::new(5)),
+                    Score::from_disc_diff(DiscScore::new(0)),
+                    Score::from_disc_diff(DiscScore::new(5)),
+                ),
+            ),
+            (
+                Score::from_disc_diff(DiscScore::new(4)),
+                Score::from_disc_diff(DiscScore::new(-1)),
+                (
+                    Score::from_disc_diff(DiscScore::new(1)),
+                    Score::from_disc_diff(DiscScore::new(3)),
+                    Score::from_disc_diff(DiscScore::new(4)),
+                ),
+            ),
         ] {
             assert_eq!(propagate_step(best, prev), expected);
         }
@@ -324,12 +349,12 @@ mod tests {
             call += 1;
             // call 0: final board (seed); call 1: boards[1] (i=1); call 2: boards[0] (i=0)
             Ok(match i {
-                0 => analysis(Square::A1, 2.0),
+                0 => analysis(Square::A1, Score::from_disc_diff(DiscScore::new(2))),
                 1 => Analysis {
                     pv: vec![Square::G8, Square::H8],
-                    ..analysis(Square::D3, 3.0)
+                    ..analysis(Square::D3, Score::from_disc_diff(DiscScore::new(3)))
                 },
-                _ => analysis(Square::C4, 1.0),
+                _ => analysis(Square::C4, Score::from_disc_diff(DiscScore::new(1))),
             })
         };
 
@@ -341,16 +366,34 @@ mod tests {
         // seed score = 2.0; i=1: played=-2.0, loss=max(3-(-2),0)=5.0, next=max(3,-2)=3.0
         assert_eq!(emitted[0].move_index, 1);
         assert_eq!(emitted[0].best_move, Square::D3);
-        assert_eq!(emitted[0].best_score, 3.0);
-        assert_eq!(emitted[0].played_score, -2.0);
-        assert_eq!(emitted[0].score_loss, 5.0);
+        assert_eq!(
+            emitted[0].best_score,
+            Score::from_disc_diff(DiscScore::new(3))
+        );
+        assert_eq!(
+            emitted[0].played_score,
+            Score::from_disc_diff(DiscScore::new(-2))
+        );
+        assert_eq!(
+            emitted[0].score_loss,
+            Score::from_disc_diff(DiscScore::new(5))
+        );
         assert_eq!(emitted[0].pv, vec![Square::G8, Square::H8]);
 
         // score now 3.0; i=0: played=-3.0, loss=max(1-(-3),0)=4.0
         assert_eq!(emitted[1].move_index, 0);
-        assert_eq!(emitted[1].best_score, 1.0);
-        assert_eq!(emitted[1].played_score, -3.0);
-        assert_eq!(emitted[1].score_loss, 4.0);
+        assert_eq!(
+            emitted[1].best_score,
+            Score::from_disc_diff(DiscScore::new(1))
+        );
+        assert_eq!(
+            emitted[1].played_score,
+            Score::from_disc_diff(DiscScore::new(-3))
+        );
+        assert_eq!(
+            emitted[1].score_loss,
+            Score::from_disc_diff(DiscScore::new(4))
+        );
     }
 
     #[test]
@@ -364,8 +407,8 @@ mod tests {
             call.set(i + 1);
             // call 0: final board (seed) = 4.0; call 1: boards[0] (i=0)
             Ok(match i {
-                0 => analysis(Square::A1, 4.0),
-                _ => analysis(Square::C1, 0.0),
+                0 => analysis(Square::A1, Score::from_disc_diff(DiscScore::new(4))),
+                _ => analysis(Square::C1, Score::from_disc_diff(DiscScore::new(0))),
             })
         };
         let mut emitted: Vec<GameAnalysisProgress> = Vec::new();
@@ -382,7 +425,10 @@ mod tests {
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].move_index, 0);
         // seed 4.0 -> pass flips to -4.0 -> played = -(-4.0) = 4.0 (pass negation observed).
-        assert_eq!(emitted[0].played_score, 4.0);
+        assert_eq!(
+            emitted[0].played_score,
+            Score::from_disc_diff(DiscScore::new(4))
+        );
     }
 
     #[test]
@@ -404,8 +450,8 @@ mod tests {
             // call 0: forced-pass seed, scored on the switched Position = 2.0;
             // call 1: the board H8 was played from = 5.0.
             Ok(match i {
-                0 => analysis(Square::A1, 2.0),
-                _ => analysis(Square::D3, 5.0),
+                0 => analysis(Square::A1, Score::from_disc_diff(DiscScore::new(2))),
+                _ => analysis(Square::D3, Score::from_disc_diff(DiscScore::new(5))),
             })
         };
 
@@ -423,9 +469,18 @@ mod tests {
         assert_eq!(emitted[0].move_index, 0);
         // seed = -2.0 (negated switched-Position score); played = -seed = 2.0;
         // loss = max(best 5.0 - played 2.0, 0) = 3.0.
-        assert_eq!(emitted[0].best_score, 5.0);
-        assert_eq!(emitted[0].played_score, 2.0);
-        assert_eq!(emitted[0].score_loss, 3.0);
+        assert_eq!(
+            emitted[0].best_score,
+            Score::from_disc_diff(DiscScore::new(5))
+        );
+        assert_eq!(
+            emitted[0].played_score,
+            Score::from_disc_diff(DiscScore::new(2))
+        );
+        assert_eq!(
+            emitted[0].score_loss,
+            Score::from_disc_diff(DiscScore::new(3))
+        );
     }
 
     #[test]
@@ -437,7 +492,10 @@ mod tests {
         let search = |board: &Board| -> Result<Analysis, String> {
             assert_eq!(*board, initial, "terminal seed must not be searched");
             calls.set(calls.get() + 1);
-            Ok(analysis(Square::C1, 64.0))
+            Ok(analysis(
+                Square::C1,
+                Score::from_disc_diff(DiscScore::new(64)),
+            ))
         };
         let mut emitted = Vec::new();
         analyze_game(
@@ -450,8 +508,14 @@ mod tests {
         .unwrap();
         assert_eq!(calls.get(), 1);
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0].played_score, 64.0);
-        assert_eq!(emitted[0].score_loss, 0.0);
+        assert_eq!(
+            emitted[0].played_score,
+            Score::from_disc_diff(DiscScore::new(64))
+        );
+        assert_eq!(
+            emitted[0].score_loss,
+            Score::from_disc_diff(DiscScore::new(0))
+        );
     }
 
     #[test]
@@ -492,7 +556,10 @@ mod tests {
                     &moves,
                     |_b| {
                         searches.set(searches.get() + 1);
-                        Ok(analysis(Square::A1, 1.0))
+                        Ok(analysis(
+                            Square::A1,
+                            Score::from_disc_diff(DiscScore::new(1)),
+                        ))
                     },
                     is_cancelled,
                     |_p| emitted += 1,

@@ -1,8 +1,4 @@
-use reversi_core::{
-    board::Board,
-    search::node_type::NonPV,
-    types::{Depth, ScaledScore},
-};
+use reversi_core::{board::Board, score::Score, search::node_type::NonPV, types::Depth};
 
 use crate::probcut as web_probcut;
 
@@ -23,24 +19,24 @@ pub(crate) trait SearchStrategy: Copy + Clone + 'static {
     const DEPTH_TO_SHALLOW: Depth;
 
     /// Evaluates a leaf position.
-    fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore;
+    fn evaluate(ctx: &SearchContext, board: &Board) -> Score;
 
     /// Performs a shallow search for NonPV nodes.
     fn shallow_search(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: ScaledScore,
-        beta: ScaledScore,
-    ) -> ScaledScore;
+        alpha: Score,
+        beta: Score,
+    ) -> Score;
 
     /// Attempts a strategy-specific ProbCut.
     fn try_probcut(
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
-    ) -> Option<ScaledScore>;
+        beta: Score,
+    ) -> Option<Score>;
 }
 
 /// Midgame search strategy marker.
@@ -58,7 +54,7 @@ impl SearchStrategy for MidGameStrategy {
     const DEPTH_TO_SHALLOW: Depth = 3;
 
     #[inline(always)]
-    fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
+    fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
         super::evaluate(ctx, board)
     }
 
@@ -67,9 +63,9 @@ impl SearchStrategy for MidGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: ScaledScore,
-        beta: ScaledScore,
-    ) -> ScaledScore {
+        alpha: Score,
+        beta: Score,
+    ) -> Score {
         match depth {
             0 => super::evaluate(ctx, board),
             1 => super::evaluate_depth1(ctx, board, alpha, beta),
@@ -83,8 +79,8 @@ impl SearchStrategy for MidGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
-    ) -> Option<ScaledScore> {
+        beta: Score,
+    ) -> Option<Score> {
         web_probcut::probcut_midgame(ctx, board, depth, beta)
     }
 }
@@ -96,7 +92,7 @@ impl SearchStrategy for EndGameStrategy {
     const DEPTH_TO_SHALLOW: Depth = endgame::DEPTH_TO_NWS;
 
     #[inline(always)]
-    fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {
+    fn evaluate(_ctx: &SearchContext, board: &Board) -> Score {
         board.final_score_scaled()
     }
 
@@ -105,11 +101,11 @@ impl SearchStrategy for EndGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         _depth: Depth,
-        alpha: ScaledScore,
-        _beta: ScaledScore,
-    ) -> ScaledScore {
+        alpha: Score,
+        _beta: Score,
+    ) -> Score {
         let score = endgame::null_window_search(ctx, board, alpha.to_disc_diff());
-        ScaledScore::from_disc_diff(score)
+        Score::from_disc_diff(score)
     }
 
     #[inline(always)]
@@ -117,8 +113,8 @@ impl SearchStrategy for EndGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
-    ) -> Option<ScaledScore> {
+        beta: Score,
+    ) -> Option<Score> {
         web_probcut::probcut_endgame(ctx, board, depth, beta)
     }
 }

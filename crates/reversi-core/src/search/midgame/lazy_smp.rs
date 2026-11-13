@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use crate::board::Board;
 use crate::eval::{Eval, EvalMode};
 use crate::probcut::Selectivity;
+use crate::score::{DiscScore, Score};
 use crate::search::SearchTask;
 use crate::search::context::SearchContext;
 use crate::search::correction_history::CorrectionHistories;
@@ -25,7 +26,7 @@ use crate::search::counters::SearchCounters;
 use crate::search::result::Iteration;
 use crate::search::threading::{HelperJob, Thread, ThreadPool};
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 use super::{aspiration_search, aspiration_window};
 
@@ -36,14 +37,14 @@ const SKIP_SIZE: [Depth; 20] = [1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 
 const SKIP_PHASE: [Depth; 20] = [0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7];
 
 /// Extra aspiration window width per step of a helper's index.
-const ASPIRATION_STEP: ScaledScore = ScaledScore::from_raw(ScaledScore::SCALE / 4);
+const ASPIRATION_STEP: Score = Score::from_raw(Score::SCALE / 4);
 
 /// Number of distinct aspiration window widths; see
 /// [`Helper::aspiration_widening`].
 const ASPIRATION_CYCLE: usize = 8;
 
 /// Vote margin added to every score so the worst candidate still counts.
-const VOTE_MARGIN: ScaledScore = ScaledScore::from_disc_diff(1);
+const VOTE_MARGIN: Score = Score::from_disc_diff(DiscScore::new(1));
 
 /// A Lazy SMP helper thread, identified by its index in the pool.
 #[derive(Clone, Copy)]
@@ -64,9 +65,9 @@ impl Helper {
     /// Returns how much wider than the main thread's this helper opens its
     /// aspiration windows, so the threads fail high and low at different
     /// scores.
-    pub(super) fn aspiration_widening(self) -> ScaledScore {
+    pub(super) fn aspiration_widening(self) -> Score {
         let steps = (self.0.get() % ASPIRATION_CYCLE) as i32;
-        ScaledScore::from_raw(ASPIRATION_STEP.value() * steps)
+        Score::from_raw(ASPIRATION_STEP.value() * steps)
     }
 }
 
@@ -245,7 +246,7 @@ mod tests {
     fn vote_prefers_the_move_backed_by_more_and_deeper_iterations() {
         let iteration = |sq, discs, depth| {
             let mut rm = RootMove::new(sq);
-            rm.score = ScaledScore::from_disc_diff(discs);
+            rm.score = Score::from_disc_diff(DiscScore::new(discs));
             Iteration {
                 root_moves: vec![rm],
                 depth,

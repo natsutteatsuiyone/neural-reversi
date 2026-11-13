@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 
 use super::app::{App, BitboardField, BoardEditTab, GameMode, UiMode};
 use super::widgets::BoardWidget;
@@ -229,7 +230,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(Color::White),
             ),
         ]));
-        let score = result.score().unwrap_or(0.0);
+        let score = result.score().unwrap_or(Score::ZERO).to_disc_diff_f32();
         lines.push(Line::from(vec![
             Span::raw("  Eval:  "),
             Span::styled(
@@ -389,8 +390,8 @@ fn render_hints_popup(frame: &mut Frame, app: &App) {
                 Style::default().fg(Color::Cyan),
             ),
             Span::styled(
-                format!("{:+6.2} ", hint.score),
-                Style::default().fg(if hint.score >= 0.0 {
+                format!("{:+6.2} ", hint.score.to_disc_diff_f32()),
+                Style::default().fg(if hint.score >= Score::ZERO {
                     Color::Green
                 } else {
                     Color::Red

@@ -6,9 +6,10 @@
 use crate::board::Board;
 use crate::constants::CACHE_LINE_SIZE;
 use crate::probcut::Selectivity;
+use crate::score::Score;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 use crate::util::aligned_buffer::AlignedBuffer;
 use std::{
     hint::{Locality, prefetch_read},
@@ -46,11 +47,7 @@ impl Bound {
     /// - [`Bound::Exact`] if `alpha < best_score < beta` and node is PV.
     /// - [`Bound::Upper`] otherwise (fail-low or non-PV exact-ish value).
     #[inline(always)]
-    pub fn classify<NT: NodeType>(
-        best_score: ScaledScore,
-        alpha: ScaledScore,
-        beta: ScaledScore,
-    ) -> Bound {
+    pub fn classify<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -178,7 +175,7 @@ impl TTEntryData {
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn new(
-        score: ScaledScore,
+        score: Score,
         best_move: Option<Square>,
         bound: Bound,
         depth: Depth,
@@ -209,8 +206,8 @@ impl TTEntryData {
 
     /// Returns the cached search score.
     #[inline(always)]
-    pub fn score(&self) -> ScaledScore {
-        ScaledScore::from_raw(self.score as i32)
+    pub fn score(&self) -> Score {
+        Score::from_raw(self.score as i32)
     }
 
     /// Returns the best move found for this position, if one is stored.
@@ -270,7 +267,7 @@ impl TTEntryData {
     #[inline(always)]
     pub fn can_cut(
         &self,
-        beta: ScaledScore,
+        beta: Score,
         depth: Depth,
         selectivity: Selectivity,
         require_endgame_entry: bool,
@@ -849,7 +846,7 @@ impl TranspositionTable {
         &self,
         slot: TTSlot,
         board: &Board,
-        score: ScaledScore,
+        score: Score,
         bound: Bound,
         depth: Depth,
         best_move: Option<Square>,

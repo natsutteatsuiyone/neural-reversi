@@ -5,13 +5,13 @@ use std::fmt;
 use std::hash::Hash;
 
 use crate::bitboard::Bitboard;
-use crate::constants::SCORE_MAX;
 use crate::disc::Disc;
 use crate::flip;
 use crate::legal_moves::LegalMoves;
 use crate::player_color::PlayerColor;
+use crate::score::DISC_SCORE_MAX;
+use crate::score::{DiscScore, Score};
 use crate::square::Square;
-use crate::types::{ScaledScore, Score};
 
 /// A Reversi board represented as player/opponent [`Bitboard`] pairs.
 ///
@@ -174,8 +174,8 @@ impl Board {
 
     /// Returns the disc-difference score without any assertions.
     #[inline(always)]
-    fn disc_score(&self) -> Score {
-        self.player_count() as Score * 2 - SCORE_MAX
+    fn disc_score(&self) -> DiscScore {
+        DiscScore::new(self.player_count() as i32 * 2 - DISC_SCORE_MAX.value())
     }
 
     /// Returns the final score (disc difference) from the current player's perspective.
@@ -186,7 +186,7 @@ impl Board {
     /// In release builds, empty squares produce an incorrect score without panicking.
     /// Use [`solve`](Self::solve) if the board may have empty squares.
     #[inline(always)]
-    pub fn final_score(&self) -> Score {
+    pub fn final_score(&self) -> DiscScore {
         debug_assert!(
             self.empty_squares().is_empty(),
             "final_score requires no empty squares; use solve() for boards with empties"
@@ -194,12 +194,12 @@ impl Board {
         self.disc_score()
     }
 
-    /// Returns the final score as a [`ScaledScore`].
+    /// Returns the final score as a [`Score`].
     ///
-    /// This is equivalent to `ScaledScore::from_disc_diff(self.final_score())`.
+    /// This is equivalent to `Score::from_disc_diff(self.final_score())`.
     #[inline(always)]
-    pub fn final_score_scaled(&self) -> ScaledScore {
-        ScaledScore::from_disc_diff(self.final_score())
+    pub fn final_score_scaled(&self) -> Score {
+        Score::from_disc_diff(self.final_score())
     }
 
     /// Calculates the final score when both players have passed.
@@ -208,28 +208,28 @@ impl Board {
     /// empties by awarding them to the player with more discs.
     /// The caller must pass the actual empty count; no validation is performed.
     #[inline(always)]
-    pub fn solve(&self, n_empties: u32) -> Score {
+    pub fn solve(&self, n_empties: u32) -> DiscScore {
         debug_assert!(
             n_empties == self.empty_count(),
             "n_empties ({n_empties}) does not match actual empty count ({})",
             self.empty_count()
         );
-        let score = self.disc_score();
-        let diff = score + n_empties as Score;
+        let score = self.disc_score().value();
+        let diff = score + n_empties as i32;
 
-        match diff.cmp(&0) {
+        DiscScore::new(match diff.cmp(&0) {
             Ordering::Equal => diff,
-            Ordering::Greater => diff + n_empties as Score,
+            Ordering::Greater => diff + n_empties as i32,
             Ordering::Less => score,
-        }
+        })
     }
 
-    /// Calculates the final score as a [`ScaledScore`] when both players have passed.
+    /// Calculates the final score as a [`Score`] when both players have passed.
     ///
-    /// This is equivalent to `ScaledScore::from_disc_diff(self.solve(n_empties))`.
+    /// This is equivalent to `Score::from_disc_diff(self.solve(n_empties))`.
     #[inline(always)]
-    pub fn solve_scaled(&self, n_empties: u32) -> ScaledScore {
-        ScaledScore::from_disc_diff(self.solve(n_empties))
+    pub fn solve_scaled(&self, n_empties: u32) -> Score {
+        Score::from_disc_diff(self.solve(n_empties))
     }
 
     /// Returns a new [`Board`] with the player and opponent swapped.
@@ -701,15 +701,15 @@ mod tests {
     fn test_final_score() {
         // Player wins 64-0
         let board = Board::from_bitboards(u64::MAX, 0);
-        assert_eq!(board.final_score(), 64);
+        assert_eq!(board.final_score().value(), 64);
 
         // Opponent wins 0-64
         let board = Board::from_bitboards(0, u64::MAX);
-        assert_eq!(board.final_score(), -64);
+        assert_eq!(board.final_score().value(), -64);
 
         // Draw 32-32
         let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
-        assert_eq!(board.final_score(), 0);
+        assert_eq!(board.final_score().value(), 0);
     }
 
     #[test]
@@ -724,7 +724,7 @@ mod tests {
         let n_empties = 64 - player_count - opponent_count;
         let score = board.solve(n_empties);
         // Player ahead: gets all empty squares (diff 20 + 4 empties).
-        assert_eq!(score, 24);
+        assert_eq!(score.value(), 24);
     }
 
     #[test]
@@ -739,7 +739,7 @@ mod tests {
         let n_empties = 64 - player_count - opponent_count;
         let score = board.solve(n_empties);
         // Opponent ahead: player gets no empty squares.
-        assert_eq!(score, -24);
+        assert_eq!(score.value(), -24);
     }
 
     #[test]
@@ -761,7 +761,7 @@ mod tests {
 
         // When diff == 0, empties are split, score is 0
         let score = board.solve(n_empties);
-        assert_eq!(score, 0);
+        assert_eq!(score.value(), 0);
     }
 
     #[test]

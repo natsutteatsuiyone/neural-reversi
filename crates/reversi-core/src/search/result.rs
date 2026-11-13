@@ -4,19 +4,20 @@ use crate::{
     board::Board,
     eval::{Eval, EvalMode},
     probcut::Selectivity,
+    score::Score,
     search::context::SearchContext,
     search::counters::SearchCounters,
     search::root_move::RootMove,
     square::Square,
     transposition_table::TranspositionTable,
-    types::{Depth, Scoref},
+    types::Depth,
 };
 
 /// A single move with its evaluation score for Multi-PV results.
 #[derive(Clone, Debug)]
 pub struct PvMove {
     pub sq: Square,
-    pub score: Scoref,
+    pub score: Score,
     pub pv_line: Vec<Square>,
 }
 
@@ -25,7 +26,7 @@ pub enum SearchResult {
     /// Search completed with a playable move.
     BestMove {
         sq: Square,
-        score: Scoref,
+        score: Score,
         n_nodes: u64,
         pv_line: Vec<Square>,
         depth: Depth,
@@ -148,7 +149,7 @@ fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
     let sq = data.best_move()?;
     board.is_legal_move(sq).then(|| SearchResult::BestMove {
         sq,
-        score: data.score().to_disc_diff_f32(),
+        score: data.score(),
         n_nodes: 0,
         pv_line: vec![sq],
         depth: data.depth(),
@@ -178,7 +179,7 @@ pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
 
     SearchResult::BestMove {
         sq: best_move,
-        score: best_score.to_disc_diff_f32(),
+        score: best_score,
         n_nodes: moves.count() as u64,
         pv_line: vec![best_move],
         depth: 1,
@@ -194,7 +195,7 @@ impl SearchResult {
     pub fn new_random_move(mv: Square) -> Self {
         Self::BestMove {
             sq: mv,
-            score: 0.0,
+            score: Score::ZERO,
             n_nodes: 0,
             pv_line: vec![],
             depth: 0,
@@ -217,14 +218,14 @@ impl SearchResult {
             .iter()
             .map(|rm| PvMove {
                 sq: rm.sq,
-                score: rm.score.to_disc_diff_f32(),
+                score: rm.score,
                 pv_line: rm.pv.clone(),
             })
             .collect();
 
         Self::BestMove {
             sq: best_move.sq,
-            score: best_move.score.to_disc_diff_f32(),
+            score: best_move.score,
             n_nodes: counters.n_nodes,
             pv_line: best_move.pv.clone(),
             depth,
@@ -246,7 +247,7 @@ impl SearchResult {
 
     /// Returns the best move score, if the search produced one.
     #[inline]
-    pub fn score(&self) -> Option<Scoref> {
+    pub fn score(&self) -> Option<Score> {
         match self {
             SearchResult::BestMove { score, .. } => Some(*score),
             SearchResult::NoLegalMove => None,
@@ -329,8 +330,8 @@ mod tests {
 
     use super::*;
     use crate::constants::MAX_PLY;
+    use crate::score::{DiscScore, Score};
     use crate::transposition_table::Bound;
-    use crate::types::ScaledScore;
 
     fn context(board: &Board) -> SearchContext {
         let eval =
@@ -353,7 +354,7 @@ mod tests {
         ctx.tt.store(
             probe.slot(),
             &board,
-            ScaledScore::from_disc_diff(3),
+            Score::from_disc_diff(DiscScore::new(3)),
             Bound::Exact,
             20,
             Some(tt_sq),
@@ -380,8 +381,12 @@ mod tests {
         let pv = [None; MAX_PLY];
         for (pv_idx, discs) in [(0, -2), (1, 6)] {
             ctx.root_moves.set_pv_idx(pv_idx);
-            ctx.root_moves
-                .update(order[pv_idx], ScaledScore::from_disc_diff(discs), true, &pv);
+            ctx.root_moves.update(
+                order[pv_idx],
+                Score::from_disc_diff(DiscScore::new(discs)),
+                true,
+                &pv,
+            );
             completed.line_completed(&ctx, 10, true);
         }
 

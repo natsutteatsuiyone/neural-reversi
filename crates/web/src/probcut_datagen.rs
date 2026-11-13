@@ -10,7 +10,9 @@ use std::rc::Rc;
 use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
-use reversi_core::{board::Board, player_color::PlayerColor, square::Square, types::Depth};
+use reversi_core::{
+    board::Board, player_color::PlayerColor, score::Score, square::Square, types::Depth,
+};
 
 use crate::{
     eval::Eval, level::Level, probcut::Selectivity, search::Search,
@@ -46,18 +48,18 @@ struct ProbCutSample {
     /// Shallow search depth
     shallow_depth: Depth,
     /// Score from shallow search
-    shallow_score: f32,
+    shallow_score: Score,
     /// Deep search depth
     deep_depth: Depth,
     /// Score from deep search
-    deep_score: f32,
+    deep_score: Score,
 }
 
 /// A pending endgame sample whose deep score is resolved once the final game result is known.
 struct EndgameSample {
     ply: u32,
     shallow_depth: Depth,
-    shallow_score: f32,
+    shallow_score: Score,
     deep_depth: Depth,
     side_to_move: PlayerColor,
 }
@@ -107,7 +109,7 @@ impl ProbCutDatagenResult {
 #[wasm_bindgen]
 pub struct ProbCutDatagen {
     search: Search,
-    score_cache: HashMap<(Board, Depth), f32>,
+    score_cache: HashMap<(Board, Depth), Score>,
     cache_hits: usize,
     cache_misses: usize,
     positions: u32,
@@ -343,7 +345,7 @@ impl ProbCutDatagen {
         }
 
         // The deep score is the exact final result, oriented to each sample's side to move.
-        let final_score = board.solve(board.empty_count()) as f32;
+        let final_score = board.solve_scaled(board.empty_count());
         let samples = pending
             .into_iter()
             .map(|p| {
@@ -369,7 +371,7 @@ impl ProbCutDatagen {
     ///
     /// The transposition table is cleared first so the score reflects a clean
     /// fixed-depth search, uncontaminated by deeper entries from earlier positions.
-    fn search_endgame_shallow(&mut self, board: &Board) -> f32 {
+    fn search_endgame_shallow(&mut self, board: &Board) -> Score {
         self.positions += 1;
         self.search.init();
         let level = Level {
@@ -383,7 +385,7 @@ impl ProbCutDatagen {
     }
 
     /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
-    fn search_all_depths(&mut self, board: &Board) -> Vec<(Depth, f32)> {
+    fn search_all_depths(&mut self, board: &Board) -> Vec<(Depth, Score)> {
         self.positions += 1;
         (0..=NUM_SEARCH_DEPTHS)
             .map(|d| {
@@ -395,7 +397,7 @@ impl ProbCutDatagen {
     }
 
     /// Searches at a specific depth, using the cache if available.
-    fn search_at_depth(&mut self, board: &Board, depth: Depth) -> f32 {
+    fn search_at_depth(&mut self, board: &Board, depth: Depth) -> Score {
         let cache_key = (board.unique(), depth);
 
         if let Some(&cached) = self.score_cache.get(&cache_key) {
@@ -447,10 +449,15 @@ impl ProbCutDatagen {
         let mut csv = String::from("ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n");
 
         for s in samples {
-            let diff = s.deep_score - s.shallow_score;
+            let diff = (s.deep_score - s.shallow_score).to_disc_diff_f32();
             csv.push_str(&format!(
                 "{},{},{},{},{},{}\n",
-                s.ply, s.shallow_depth, s.shallow_score, s.deep_depth, s.deep_score, diff
+                s.ply,
+                s.shallow_depth,
+                s.shallow_score.to_disc_diff_f32(),
+                s.deep_depth,
+                s.deep_score.to_disc_diff_f32(),
+                diff
             ));
         }
 

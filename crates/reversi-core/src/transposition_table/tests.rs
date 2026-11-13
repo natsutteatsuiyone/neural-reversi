@@ -5,8 +5,8 @@ const START_PLAYER: u64 = 0x0000_0008_1000_0000;
 const START_OPPONENT: u64 = 0x0000_0010_0800_0000;
 const CLUSTER_FIXTURE_SEARCH_LIMIT: u64 = 1_000_000;
 
-fn raw_score(raw_value: i32) -> ScaledScore {
-    ScaledScore::from_raw(raw_value)
+fn raw_score(raw_value: i32) -> Score {
+    Score::from_raw(raw_value)
 }
 
 fn sq(idx: usize) -> Option<Square> {
@@ -155,7 +155,7 @@ mod tt_entry_data {
     #[test]
     fn packing_roundtrip_preserves_every_field() {
         let original = TTEntryData::new(
-            ScaledScore::MIN,
+            Score::MIN,
             sq(63),
             Bound::Exact,
             60,
@@ -167,7 +167,7 @@ mod tt_entry_data {
 
         let unpacked = TTEntryData::from_u64(original.to_u64());
 
-        assert_eq!(unpacked.score(), ScaledScore::MIN);
+        assert_eq!(unpacked.score(), Score::MIN);
         assert_eq!(unpacked.best_move(), sq(63));
         assert_eq!(unpacked.bound(), Bound::Exact);
         assert_eq!(unpacked.depth(), 60);

@@ -9,6 +9,7 @@ use crate::board::Board;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut::Selectivity;
+use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::midgame;
@@ -17,7 +18,7 @@ use crate::search::strategy::{EndGameStrategy, SearchStrategy};
 use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
 use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TTSlot};
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 const IIR_MIN_DEPTH: Depth = 6;
 
@@ -25,7 +26,7 @@ const IIR_MIN_DEPTH: Depth = 6;
 const TT_PROBCUT_DEPTH_SLACK: Depth = 4;
 
 /// Margin a shallower TT lower bound must clear above beta to cut.
-const TT_PROBCUT_MARGIN: ScaledScore = ScaledScore::from_disc_diff(4);
+const TT_PROBCUT_MARGIN: Score = Score::from_disc_diff(DiscScore::new(4));
 
 /// Minimum node depth at which a TT entry whose bound cannot cut is penalized.
 const TT_PENALIZE_MIN_DEPTH: Depth = 6;
@@ -35,11 +36,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     mut depth: Depth,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
+    mut alpha: Score,
+    beta: Score,
     thread: &Arc<Thread>,
     cut_node: bool,
-) -> ScaledScore {
+) -> Score {
     let all_node = !NT::PV_NODE && !cut_node;
     let org_alpha = alpha;
 
@@ -56,7 +57,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {
             ctx.counters.increment_stability_cut();
-            return ScaledScore::from_disc_diff(score);
+            return Score::from_disc_diff(score);
         }
     }
 
@@ -86,11 +87,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
-            ctx.update_root_move(sq, ScaledScore::MAX, true);
+            ctx.update_root_move(sq, Score::MAX, true);
         } else if NT::PV_NODE {
             ctx.update_pv(sq);
         }
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
 
     let use_etc = !NT::PV_NODE && depth >= SS::MIN_ETC_DEPTH;
@@ -192,7 +193,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     let n_moves = move_list.count();
     let mut best_move = None;
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     let mut move_count: usize = 0;
 
     if !NT::PV_NODE && (n_moves == 1 || tt_move.is_some()) {
@@ -222,7 +223,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         ctx.undo(sq);
 
         if thread.should_stop() {
-            return ScaledScore::ZERO;
+            return Score::ZERO;
         }
 
         best_score = score;
@@ -290,7 +291,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.counters.merge(&c);
 
             if thread.should_stop() {
-                return ScaledScore::ZERO;
+                return Score::ZERO;
             }
 
             break; // Split consumed all remaining moves
@@ -310,7 +311,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let move_count = idx;
         ctx.update(mv.sq, mv.flipped);
 
-        let mut score = -ScaledScore::INF;
+        let mut score = -Score::INF;
 
         if !NT::PV_NODE || move_count > 1 {
             let reduction = compute_lmr_reduction::<NT, SS>(
@@ -356,7 +357,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
         // Abort check
         if thread.should_stop() {
-            return ScaledScore::ZERO;
+            return Score::ZERO;
         }
 
         // Root move update
@@ -377,7 +378,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
                 if NT::PV_NODE && score < beta {
                     alpha = score;
-                    if alpha >= ScaledScore::MAX {
+                    if alpha >= Score::MAX {
                         break;
                     }
                 } else {
@@ -425,7 +426,7 @@ pub(super) fn search_split_point<NT: NodeType>(
     depth: Depth,
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
-) -> ScaledScore {
+) -> Score {
     // One acquisition synchronizes with initialize_split_point; the split
     // parameters and the move iterator stay stable until every helper clears
     // its helpers_mask bit.
@@ -470,7 +471,7 @@ pub(super) fn search_split_point<NT: NodeType>(
         // Abort check
         if thread.should_stop() {
             split_point.state().set_all_helpers_searching(false);
-            return ScaledScore::ZERO;
+            return Score::ZERO;
         }
 
         let sp = split_point.state();
@@ -495,7 +496,7 @@ pub(super) fn search_split_point<NT: NodeType>(
 
                 if NT::PV_NODE && score < beta {
                     sp.set_alpha(score);
-                    cutoff = score >= ScaledScore::MAX;
+                    cutoff = score >= Score::MAX;
                 } else {
                     cutoff = true;
                 }
@@ -524,10 +525,10 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     board: &Board,
     move_list: &MoveList,
     depth: Depth,
-    alpha: ScaledScore,
+    alpha: Score,
     tt_entry_index: TTSlot,
     tt_pv: bool,
-) -> Option<ScaledScore> {
+) -> Option<Score> {
     let etc_depth = depth - 1;
 
     for mv in move_list.iter() {
@@ -631,7 +632,7 @@ fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     cut_node: bool,
     tt_pv: bool,
     move_value: i32,
-    alpha: ScaledScore,
+    alpha: Score,
 ) -> Depth {
     if SS::IS_ENDGAME
         || NT::PV_NODE
@@ -708,8 +709,8 @@ mod tests {
             n_moves,
             cut_node,
             false,
-            ScaledScore::ZERO.value(),
-            ScaledScore::ZERO,
+            Score::ZERO.value(),
+            Score::ZERO,
         )
     }
 
@@ -773,8 +774,8 @@ mod tests {
                 20,
                 true,
                 false,
-                ScaledScore::from_disc_diff(-shortfall_discs).value(),
-                ScaledScore::ZERO,
+                Score::from_disc_diff(DiscScore::new(-shortfall_discs)).value(),
+                Score::ZERO,
             )
         };
 

@@ -8,8 +8,8 @@
 
 use std::sync::OnceLock;
 
+use crate::score::Score;
 use crate::types::Depth;
-use crate::types::ScaledScore;
 
 mod endgame;
 
@@ -142,7 +142,7 @@ impl ProbcutMidgameParams {
 const NUM_PLY: usize = 60;
 const NUM_DEPTH: usize = 60;
 
-const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
+const SCORE_SCALE_F64: f64 = Score::SCALE as f64;
 
 /// Returns the shallow search depth midgame ProbCut verifies with.
 #[inline(always)]
@@ -217,24 +217,17 @@ pub unsafe fn midgame_coefficients(ply: usize, deep: Depth) -> &'static ProbcutC
 
 /// Computes the ProbCut beta threshold for verification search.
 #[inline]
-pub fn compute_probcut_beta(beta: ScaledScore, t: f64, pc: &ProbcutCoefficients) -> ScaledScore {
-    ScaledScore::from_raw((beta.value() as f64 + t * pc.sigma - pc.mean).ceil() as i32)
+pub fn compute_probcut_beta(beta: Score, t: f64, pc: &ProbcutCoefficients) -> Score {
+    Score::from_raw((beta.value() as f64 + t * pc.sigma - pc.mean).ceil() as i32)
 }
 
 /// Computes the evaluation threshold for ProbCut pre-screening.
 #[inline(always)]
-pub fn compute_eval_beta(
-    beta: ScaledScore,
-    t: f64,
-    pc: &ProbcutCoefficients,
-    cut_node: bool,
-) -> ScaledScore {
+pub fn compute_eval_beta(beta: Score, t: f64, pc: &ProbcutCoefficients, cut_node: bool) -> Score {
     let eval_mean = 0.5 * pc.mean0 + pc.mean;
     let eval_sigma = t * 0.5 * pc.sigma0 + pc.sigma;
     let all_node_margin = if cut_node { 0.0 } else { pc.sigma0 * 1.5 };
-    ScaledScore::from_raw(
-        (beta.value() as f64 - eval_sigma - eval_mean + all_node_margin).floor() as i32,
-    )
+    Score::from_raw((beta.value() as f64 - eval_sigma - eval_mean + all_node_margin).floor() as i32)
 }
 
 /// Statistical parameters for midgame ProbCut indexed by ply.
@@ -787,6 +780,7 @@ const _: () = assert!(PROBCUT_PARAMS.len() == NUM_PLY);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score::DiscScore;
 
     #[test]
     fn midgame_model_credits_half_the_deep_parity_and_uses_sqrt_for_sigma() {
@@ -828,19 +822,23 @@ mod tests {
         };
         // raw value 2560; 2560 + 2.0*1.0 - 0.5 = 2561.5 -> ceil -> 2562
         assert_eq!(
-            compute_probcut_beta(ScaledScore::from_disc_diff(10), 2.0, &pc(0.5, 1.0)),
-            ScaledScore::from_raw(2562)
+            compute_probcut_beta(
+                Score::from_disc_diff(DiscScore::new(10)),
+                2.0,
+                &pc(0.5, 1.0)
+            ),
+            Score::from_raw(2562)
         );
         // 0 + 1.0*0.4 - 0.0 = 0.4 -> ceil -> 1
         assert_eq!(
-            compute_probcut_beta(ScaledScore::ZERO, 1.0, &pc(0.0, 0.4)),
-            ScaledScore::from_raw(1)
+            compute_probcut_beta(Score::ZERO, 1.0, &pc(0.0, 0.4)),
+            Score::from_raw(1)
         );
     }
 
     #[test]
     fn compute_eval_beta_blends_models_and_gates_the_all_node_margin() {
-        let beta = ScaledScore::from_disc_diff(20); // raw value 5120
+        let beta = Score::from_disc_diff(DiscScore::new(20)); // raw value 5120
         let t = 2.0;
         let pc = ProbcutCoefficients {
             mean: 1.0,
@@ -851,14 +849,11 @@ mod tests {
         // eval_mean = 0.5*mean0 + mean = 3; eval_sigma = t*0.5*sigma0 + sigma = 5
 
         // cut node: margin 0 -> floor(5120 - 5 - 3 + 0) = 5112
-        assert_eq!(
-            compute_eval_beta(beta, t, &pc, true),
-            ScaledScore::from_raw(5112)
-        );
+        assert_eq!(compute_eval_beta(beta, t, &pc, true), Score::from_raw(5112));
         // all node: margin sigma0*1.5 = 4.5 -> floor(5120 - 5 - 3 + 4.5) = 5116
         assert_eq!(
             compute_eval_beta(beta, t, &pc, false),
-            ScaledScore::from_raw(5116)
+            Score::from_raw(5116)
         );
     }
 

@@ -5,9 +5,10 @@
 
 use reversi_core::{
     board::Board,
+    score::Score,
     search::node_type::{NodeType, NonPV, PV},
     stability,
-    types::{Depth, ScaledScore},
+    types::Depth,
 };
 
 use crate::move_list::MoveList;
@@ -23,12 +24,12 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
     let org_alpha = alpha;
     let mut best_move = None;
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     let n_empties = ctx.empty_list.count();
 
     if NT::PV_NODE {
@@ -38,7 +39,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     } else {
         if n_empties == depth && depth <= DEPTH_MIDGAME_TO_ENDGAME {
             let score = endgame::null_window_search(ctx, board, alpha.to_disc_diff());
-            return ScaledScore::from_disc_diff(score);
+            return Score::from_disc_diff(score);
         }
 
         if depth <= SS::DEPTH_TO_SHALLOW {
@@ -66,9 +67,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
     } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {
-            ctx.update_root_move(sq, ScaledScore::MAX, 1, alpha);
+            ctx.update_root_move(sq, Score::MAX, 1, alpha);
         }
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
 
     // Look up position in transposition table
@@ -119,7 +120,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         ctx.update(mv.sq, mv.flipped);
 
-        let mut score = -ScaledScore::INF;
+        let mut score = -Score::INF;
         if !NT::PV_NODE || move_count > 1 {
             score = -search::<NonPV, SS>(ctx, &next, depth - 1, -(alpha + 1), -alpha);
         }
@@ -164,9 +165,9 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 }
 
 /// Returns a stability-based cutoff score, or [`None`] if no cutoff applies.
-fn stability_cutoff(board: &Board, n_empties: Depth, alpha: ScaledScore) -> Option<ScaledScore> {
+fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Score> {
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha.to_disc_diff()) {
-        return Some(ScaledScore::from_disc_diff(score));
+        return Some(Score::from_disc_diff(score));
     }
     None
 }
@@ -178,10 +179,10 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     board: &Board,
     move_list: &MoveList,
     depth: u32,
-    alpha: ScaledScore,
+    alpha: Score,
     tt_key: u64,
     tt_entry_index: TTSlot,
-) -> Option<ScaledScore> {
+) -> Option<Score> {
     let etc_depth = depth - 1;
     for mv in move_list.iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);

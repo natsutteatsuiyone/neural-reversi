@@ -14,7 +14,7 @@ pub use network_small::NetworkSmall;
 
 use crate::board::Board;
 use crate::constants::INITIAL_EMPTY_COUNT;
-use crate::types::ScaledScore;
+use crate::score::Score;
 
 use self::network_small::ENDGAME_START_PLY;
 use self::pattern_feature::PatternFeature;
@@ -159,7 +159,7 @@ impl Eval {
         board: &Board,
         ply: usize,
         key: u64,
-    ) -> ScaledScore {
+    ) -> Score {
         self.cache
             .get_or_insert_with(key, || self.network.evaluate(board, feature, ply))
     }
@@ -169,7 +169,7 @@ impl Eval {
     /// `feature` must be the side to move's pattern feature at `ply`.
     /// Intended for the small-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn evaluate_small(&self, feature: &PatternFeature, ply: usize) -> ScaledScore {
+    pub fn evaluate_small(&self, feature: &PatternFeature, ply: usize) -> Score {
         self.network_sm.evaluate(feature, ply)
     }
 
@@ -178,7 +178,7 @@ impl Eval {
     /// Selects the network via [`should_use_main_network`](Self::should_use_main_network),
     /// bypasses the eval cache, and returns the exact final score when the board
     /// has no empties.
-    pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> ScaledScore {
+    pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> Score {
         let n_empties = board.empty_count() as usize;
         if n_empties == 0 {
             return board.final_score_scaled();

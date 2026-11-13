@@ -4,9 +4,9 @@
 
 use std::arch::x86_64::_pext_u64;
 
-use crate::constants::SCORE_MAX;
+use crate::score::DISC_SCORE_MAX;
+use crate::score::DiscScore;
 use crate::square::Square;
-use crate::types::Score;
 use crate::util::align::Align64;
 
 use super::solve1_tables::{COUNT_FLIP, COUNT_FLIP_RAW};
@@ -242,10 +242,11 @@ static DIAG_UNION_COUNT: Align64<[u8; DIAG_UNION_COUNT_LEN]> = Align64(build_dia
 
 /// Scores a position with exactly one empty square.
 #[inline(always)]
-pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
+pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
+    let alpha = alpha.value();
     let sq_idx = sq.index();
     // Start POPCNT before the independent table-address work.
-    let score_base = 2 * player.count_ones() as Score - SCORE_MAX + 2;
+    let score_base = 2 * player.count_ones() as i32 - DISC_SCORE_MAX.value() + 2;
 
     // SAFETY: `solve1` is called with a real board square. This module is
     // compiled only when BMI2 is enabled, and all table offsets/indices come
@@ -270,7 +271,7 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         let score = score_base + n_flipped;
 
         if n_flipped != 0 {
-            return score;
+            return DiscScore::new(score);
         }
 
         let score_if_opp_passes = if score_base > 0 {
@@ -278,7 +279,7 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         } else {
             score_base - 2
         };
-        if score_if_opp_passes <= alpha {
+        DiscScore::new(if score_if_opp_passes <= alpha {
             score_if_opp_passes
         } else {
             let opp_row_idx = row_idx ^ 0xff;
@@ -293,6 +294,6 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
             } else {
                 score_if_opp_passes
             }
-        }
+        })
     }
 }

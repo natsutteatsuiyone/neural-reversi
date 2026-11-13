@@ -12,7 +12,7 @@ use reversi_core::level::Level;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
-use reversi_core::types::{Depth, Scoref};
+use reversi_core::types::Depth;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
@@ -44,7 +44,7 @@ pub struct RandomMoveChoice {
     /// Maximum number of best moves to draw from.
     pub top: usize,
     /// Maximum score loss, in discs, of a candidate against the best move.
-    pub margin: Scoref,
+    pub margin: f32,
     /// Number of leading random moves drawn uniformly from all legal moves
     /// instead.
     pub uniform_moves: u8,
@@ -360,7 +360,7 @@ fn play_game(
     if !game_records.is_empty() {
         let final_side_to_move = game.side_to_move();
         let final_board = *game.board();
-        let final_score = final_board.solve(final_board.empty_count()) as i8;
+        let final_score = final_board.solve(final_board.empty_count()).value() as i8;
 
         for record in game_records.iter_mut() {
             record.game_score = if record.side_to_move == final_side_to_move {
@@ -401,7 +401,10 @@ fn search_record(
         game_id,
         ply: 60 - board.empty_count() as u8,
         board,
-        score: result.score().expect("search returned no legal move"),
+        score: result
+            .score()
+            .expect("search returned no legal move")
+            .to_disc_diff_f32(),
         game_score: 0,
         side_to_move: game.side_to_move(),
         is_random,
@@ -421,11 +424,15 @@ fn candidate_move(board: &Board, search: &mut search::Search, choice: RandomMove
     let level = Level::uniform(choice.depth, choice.depth);
     let result = search.run(board, &SearchRunOptions::with_level(level).multi_pv(true));
     let moves = result.pv_moves();
-    let best_score = moves.first().expect("search returned no legal move").score;
+    let best_score = moves
+        .first()
+        .expect("search returned no legal move")
+        .score
+        .to_disc_diff_f32();
     moves
         .iter()
         .take(choice.top)
-        .take_while(|m| m.score >= best_score - choice.margin)
+        .take_while(|m| m.score.to_disc_diff_f32() >= best_score - choice.margin)
         .choose(&mut rand::rng())
         .expect("search returned no legal move")
         .sq

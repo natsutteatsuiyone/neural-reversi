@@ -12,7 +12,7 @@
 //!
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/board.c>
 use crate::{
-    bitboard::Bitboard, board::Board, constants::SCORE_MAX, types::Score, util::align::Align64,
+    bitboard::Bitboard, board::Board, score::DISC_SCORE_MAX, score::DiscScore, util::align::Align64,
 };
 
 /// Size of the edge stability lookup table (256 * 256 for all possible edge configurations).
@@ -347,7 +347,7 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
     99, 99, 99, 99, 99, 99, 99, 99   // 56-63 empties (no stable squares)
 ];
 
-const STABILITY_CUTOFF_DISC_MARGIN: Score = 8;
+const STABILITY_CUTOFF_DISC_MARGIN: i32 = 8;
 
 /// Returns whether the opponent has enough discs that stability can plausibly
 /// prove `score <= alpha`.
@@ -357,8 +357,9 @@ const STABILITY_CUTOFF_DISC_MARGIN: Score = 8;
 /// far fewer stable discs than `opponent.count()`, so the sweep is skipped
 /// when surplus is thin.
 #[inline(always)]
-fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: Score) -> bool {
-    2 * opponent_count as Score >= SCORE_MAX - alpha + 2 * STABILITY_CUTOFF_DISC_MARGIN
+fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: DiscScore) -> bool {
+    2 * opponent_count as i32
+        >= DISC_SCORE_MAX.value() - alpha.value() + 2 * STABILITY_CUTOFF_DISC_MARGIN
 }
 
 /// Attempts to prove an alpha cutoff using stability analysis.
@@ -369,14 +370,16 @@ fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: Score) -> bo
 /// Returns [`None`] if the cutoff cannot be proven.
 ///
 #[inline(always)]
-pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: Score) -> Option<Score> {
-    if alpha >= NWS_STABILITY_THRESHOLD[n_empties as usize] as Score {
+pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: DiscScore) -> Option<DiscScore> {
+    if alpha.value() >= NWS_STABILITY_THRESHOLD[n_empties as usize] as i32 {
         if !has_enough_opponent_discs_for_cutoff(board.opponent().count(), alpha) {
             return None;
         }
 
-        let score =
-            SCORE_MAX - 2 * get_stable_discs(board.opponent(), board.player()).count() as Score;
+        let score = DiscScore::new(
+            DISC_SCORE_MAX.value()
+                - 2 * get_stable_discs(board.opponent(), board.player()).count() as i32,
+        );
         if score <= alpha {
             return Some(score);
         }
@@ -481,10 +484,22 @@ mod tests {
     #[test]
     fn stability_cutoff_candidate_uses_disc_margin_heuristic() {
         let m = STABILITY_CUTOFF_DISC_MARGIN as u32;
-        assert!(!has_enough_opponent_discs_for_cutoff(31 + m, 1));
-        assert!(has_enough_opponent_discs_for_cutoff(31 + m, 2));
-        assert!(!has_enough_opponent_discs_for_cutoff(8 + m, 47));
-        assert!(has_enough_opponent_discs_for_cutoff(8 + m, 48));
+        assert!(!has_enough_opponent_discs_for_cutoff(
+            31 + m,
+            DiscScore::new(1)
+        ));
+        assert!(has_enough_opponent_discs_for_cutoff(
+            31 + m,
+            DiscScore::new(2)
+        ));
+        assert!(!has_enough_opponent_discs_for_cutoff(
+            8 + m,
+            DiscScore::new(47)
+        ));
+        assert!(has_enough_opponent_discs_for_cutoff(
+            8 + m,
+            DiscScore::new(48)
+        ));
     }
 
     #[test]

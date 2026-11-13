@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 
 use crate::{
     board::Board,
-    constants::{SCORE_MAX, SCORE_MIN},
-    types::Score,
+    score::DiscScore,
+    score::{DISC_SCORE_MAX, DISC_SCORE_MIN},
 };
 
 /// Raw cache entry.
@@ -22,8 +22,8 @@ struct RawEntry {
 }
 
 impl RawEntry {
-    const LOWER_UNSET: i8 = (SCORE_MIN - 1) as i8;
-    const UPPER_UNSET: i8 = (SCORE_MAX + 1) as i8;
+    const LOWER_UNSET: i8 = (DISC_SCORE_MIN.value() - 1) as i8;
+    const UPPER_UNSET: i8 = (DISC_SCORE_MAX.value() + 1) as i8;
 
     const EMPTY: Self = RawEntry {
         player: 0,
@@ -33,13 +33,13 @@ impl RawEntry {
     };
 
     #[inline(always)]
-    fn score_for_alpha(self, alpha: Score) -> Option<Score> {
-        let lower = self.lower as Score;
+    fn score_for_alpha(self, alpha: DiscScore) -> Option<DiscScore> {
+        let lower = DiscScore::new(self.lower as i32);
         if lower > alpha {
             return Some(lower);
         }
 
-        let upper = self.upper as Score;
+        let upper = DiscScore::new(self.upper as i32);
         if upper <= alpha {
             return Some(upper);
         }
@@ -48,16 +48,16 @@ impl RawEntry {
     }
 
     #[inline(always)]
-    fn store_nws_result(&mut self, alpha: Score, score: Score) {
+    fn store_nws_result(&mut self, alpha: DiscScore, score: DiscScore) {
         if score > alpha {
-            self.lower = self.lower.max(score as i8);
+            self.lower = self.lower.max(score.value() as i8);
         } else {
-            self.upper = self.upper.min(score as i8);
+            self.upper = self.upper.min(score.value() as i8);
         }
     }
 
     #[inline(always)]
-    fn overwrite(&mut self, board: &Board, alpha: Score, score: Score) {
+    fn overwrite(&mut self, board: &Board, alpha: DiscScore, score: DiscScore) {
         self.player = board.player().bits();
         self.opponent = board.opponent().bits();
         self.lower = Self::LOWER_UNSET;
@@ -120,7 +120,7 @@ impl<K> EndGameCache<K> {
     ///
     /// Returns a cached cutoff score if the stored bounds cut at `alpha`.
     #[inline(always)]
-    pub fn probe(&self, slot: CacheSlot<K>, board: &Board, alpha: Score) -> Option<Score> {
+    pub fn probe(&self, slot: CacheSlot<K>, board: &Board, alpha: DiscScore) -> Option<DiscScore> {
         debug_assert!(slot.0 < self.table.len());
         // SAFETY: only `slot` creates a `CacheSlot`, with an index below the
         // `table.len()` of the cache that issued it.
@@ -135,7 +135,7 @@ impl<K> EndGameCache<K> {
 
     /// Stores or merges an entry at a precomputed `slot`.
     #[inline(always)]
-    pub fn store(&mut self, slot: CacheSlot<K>, board: &Board, alpha: Score, score: Score) {
+    pub fn store(&mut self, slot: CacheSlot<K>, board: &Board, alpha: DiscScore, score: DiscScore) {
         debug_assert!(slot.0 < self.table.len());
         // SAFETY: as in `probe`.
         let entry = unsafe { self.table.get_unchecked_mut(slot.0) };
@@ -168,10 +168,10 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 11, 12);
+        cache.store(cache_idx, &board, DiscScore::new(11), DiscScore::new(12));
 
-        let result = cache.probe(cache_idx, &board, 11);
-        assert_eq!(result, Some(12));
+        let result = cache.probe(cache_idx, &board, DiscScore::new(11));
+        assert_eq!(result, Some(DiscScore::new(12)));
     }
 
     #[test]
@@ -180,10 +180,10 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 11, 12);
+        cache.store(cache_idx, &board, DiscScore::new(11), DiscScore::new(12));
 
         // Lower bound from alpha=11 does not cut at alpha=12.
-        assert_eq!(cache.probe(cache_idx, &board, 12), None);
+        assert_eq!(cache.probe(cache_idx, &board, DiscScore::new(12)), None);
     }
 
     #[test]
@@ -192,9 +192,12 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 11, 12);
+        cache.store(cache_idx, &board, DiscScore::new(11), DiscScore::new(12));
 
-        assert_eq!(cache.probe(cache_idx, &board, 5), Some(12));
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(5)),
+            Some(DiscScore::new(12))
+        );
     }
 
     #[test]
@@ -203,9 +206,12 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 11, 8);
+        cache.store(cache_idx, &board, DiscScore::new(11), DiscScore::new(8));
 
-        assert_eq!(cache.probe(cache_idx, &board, 12), Some(8));
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(12)),
+            Some(DiscScore::new(8))
+        );
     }
 
     #[test]
@@ -214,11 +220,17 @@ mod tests {
         let board = make_board(0x0000000810000000, 0x0000001008000000);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 8, 11);
-        cache.store(cache_idx, &board, 11, 11);
+        cache.store(cache_idx, &board, DiscScore::new(8), DiscScore::new(11));
+        cache.store(cache_idx, &board, DiscScore::new(11), DiscScore::new(11));
 
-        assert_eq!(cache.probe(cache_idx, &board, 10), Some(11));
-        assert_eq!(cache.probe(cache_idx, &board, 11), Some(11));
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(10)),
+            Some(DiscScore::new(11))
+        );
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(11)),
+            Some(DiscScore::new(11))
+        );
     }
 
     #[test]
@@ -229,13 +241,24 @@ mod tests {
         let cache_idx1 = cache.slot(board1.hash());
         let cache_idx2 = cache.slot(board2.hash());
 
-        cache.store(cache_idx1, &board1, 11, 12);
-        assert!(cache.probe(cache_idx2, &board2, -8).is_none());
+        cache.store(cache_idx1, &board1, DiscScore::new(11), DiscScore::new(12));
+        assert!(
+            cache
+                .probe(cache_idx2, &board2, DiscScore::new(-8))
+                .is_none()
+        );
 
-        cache.store(cache_idx2, &board2, -8, -8);
+        cache.store(cache_idx2, &board2, DiscScore::new(-8), DiscScore::new(-8));
 
-        assert!(cache.probe(cache_idx1, &board1, 11).is_none());
-        assert_eq!(cache.probe(cache_idx2, &board2, -8), Some(-8));
+        assert!(
+            cache
+                .probe(cache_idx1, &board1, DiscScore::new(11))
+                .is_none()
+        );
+        assert_eq!(
+            cache.probe(cache_idx2, &board2, DiscScore::new(-8)),
+            Some(DiscScore::new(-8))
+        );
     }
 
     #[test]
@@ -244,11 +267,17 @@ mod tests {
         let board = make_board(0x000f, 0x00f0);
         let cache_idx = cache.slot(board.hash());
 
-        cache.store(cache_idx, &board, 63, 64);
-        assert_eq!(cache.probe(cache_idx, &board, 63), Some(64));
+        cache.store(cache_idx, &board, DiscScore::new(63), DiscScore::new(64));
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(63)),
+            Some(DiscScore::new(64))
+        );
 
         cache.clear();
-        cache.store(cache_idx, &board, -65, -64);
-        assert_eq!(cache.probe(cache_idx, &board, -65), Some(-64));
+        cache.store(cache_idx, &board, DiscScore::new(-65), DiscScore::new(-64));
+        assert_eq!(
+            cache.probe(cache_idx, &board, DiscScore::new(-65)),
+            Some(DiscScore::new(-64))
+        );
     }
 }

@@ -6,11 +6,7 @@
 
 use std::cell::Cell;
 
-use reversi_core::{
-    search::node_type::NodeType,
-    square::Square,
-    types::{Depth, ScaledScore},
-};
+use reversi_core::{score::Score, search::node_type::NodeType, square::Square, types::Depth};
 
 use crate::probcut::Selectivity;
 
@@ -38,11 +34,7 @@ impl Bound {
     /// Returns [`Bound::Lower`] on a fail-high, [`Bound::Exact`] when the score
     /// improves `alpha` inside a PV node, and [`Bound::Upper`] otherwise.
     #[inline(always)]
-    pub fn classify<NT: NodeType>(
-        best_score: ScaledScore,
-        alpha: ScaledScore,
-        beta: ScaledScore,
-    ) -> Bound {
+    pub fn classify<NT: NodeType>(best_score: Score, alpha: Score, beta: Score) -> Bound {
         if best_score >= beta {
             return Bound::Lower;
         }
@@ -75,7 +67,7 @@ const _: () = assert!(std::mem::size_of::<TTData>() == 8);
 /// ergonomic field types.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TTEntryData {
-    pub score: ScaledScore,
+    pub score: Score,
     pub best_move: Option<Square>,
     pub bound: Bound,
     pub depth: Depth,
@@ -87,7 +79,7 @@ impl TTEntryData {
     /// Returns whether this entry allows an immediate cutoff in a
     /// null-window search with target `beta`.
     #[inline(always)]
-    pub fn can_cut(&self, beta: ScaledScore) -> bool {
+    pub fn can_cut(&self, beta: Score) -> bool {
         let required = if self.score >= beta {
             Bound::Lower as u8
         } else {
@@ -101,7 +93,7 @@ impl From<TTData> for TTEntryData {
     #[inline(always)]
     fn from(d: TTData) -> Self {
         TTEntryData {
-            score: ScaledScore::from_raw(d.score as i32),
+            score: Score::from_raw(d.score as i32),
             best_move: d.best_move,
             bound: d.bound,
             depth: d.depth as Depth,
@@ -297,7 +289,7 @@ impl TranspositionTable {
         &self,
         slot: TTSlot,
         key: u64,
-        score: ScaledScore,
+        score: Score,
         bound: Bound,
         depth: Depth,
         best_move: Option<Square>,
@@ -379,7 +371,7 @@ mod tests {
     fn test_store_and_probe_hit() {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
-        let score = ScaledScore::from_raw(42);
+        let score = Score::from_raw(42);
 
         let probe = tt.probe(key);
         assert!(matches!(probe, TTProbeResult::Miss { .. }));
@@ -409,7 +401,7 @@ mod tests {
     fn test_store_and_lookup() {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0xDEADBEEFCAFEBABE;
-        let score = ScaledScore::from_raw(-100);
+        let score = Score::from_raw(-100);
 
         assert!(tt.lookup(key).is_none());
 
@@ -442,7 +434,7 @@ mod tests {
         tt.store(
             idx,
             key1,
-            ScaledScore::from_raw(10),
+            Score::from_raw(10),
             Bound::Upper,
             3,
             None,
@@ -472,7 +464,7 @@ mod tests {
         tt.store(
             idx1,
             base_key,
-            ScaledScore::from_raw(10),
+            Score::from_raw(10),
             Bound::Exact,
             5,
             Some(Square::A1),
@@ -484,7 +476,7 @@ mod tests {
         tt.store(
             idx2,
             key2,
-            ScaledScore::from_raw(20),
+            Score::from_raw(20),
             Bound::Lower,
             8,
             Some(Square::B2),
@@ -494,11 +486,11 @@ mod tests {
 
         // Both should be retrievable
         let data1 = tt.probe(base_key).data().unwrap();
-        assert_eq!(data1.score, ScaledScore::from_raw(10));
+        assert_eq!(data1.score, Score::from_raw(10));
         assert_eq!(data1.best_move, Some(Square::A1));
 
         let data2 = tt.probe(key2).data().unwrap();
-        assert_eq!(data2.score, ScaledScore::from_raw(20));
+        assert_eq!(data2.score, Score::from_raw(20));
         assert_eq!(data2.best_move, Some(Square::B2));
     }
 
@@ -515,7 +507,7 @@ mod tests {
             tt.store(
                 idx1,
                 key1,
-                ScaledScore::from_raw(10),
+                Score::from_raw(10),
                 Bound::Exact,
                 3,
                 Some(Square::A1),
@@ -527,7 +519,7 @@ mod tests {
             tt.store(
                 idx2,
                 key2,
-                ScaledScore::from_raw(20),
+                Score::from_raw(20),
                 Bound::Exact,
                 10,
                 Some(Square::B2),
@@ -543,7 +535,7 @@ mod tests {
             tt.store(
                 idx3,
                 key3,
-                ScaledScore::from_raw(30),
+                Score::from_raw(30),
                 Bound::Exact,
                 7,
                 Some(Square::C3),
@@ -555,7 +547,7 @@ mod tests {
             assert!(tt.lookup(key1).is_none());
             assert!(tt.lookup(key2).is_some());
             let data3 = tt.lookup(key3).unwrap();
-            assert_eq!(data3.score, ScaledScore::from_raw(30));
+            assert_eq!(data3.score, Score::from_raw(30));
         }
     }
 
@@ -568,7 +560,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             15,
             Some(Square::D3),
@@ -582,7 +574,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(50),
+            Score::from_raw(50),
             Bound::Upper,
             5,
             Some(Square::E4),
@@ -591,7 +583,7 @@ mod tests {
         );
 
         let data = tt.lookup(key).unwrap();
-        assert_eq!(data.score, ScaledScore::from_raw(100));
+        assert_eq!(data.score, Score::from_raw(100));
         assert_eq!(data.depth, 15);
     }
 
@@ -604,7 +596,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             10,
             Some(Square::D3),
@@ -617,7 +609,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(50),
+            Score::from_raw(50),
             Bound::Upper,
             9,
             Some(Square::E4),
@@ -626,7 +618,7 @@ mod tests {
         );
 
         let data = tt.lookup(key).unwrap();
-        assert_eq!(data.score, ScaledScore::from_raw(50));
+        assert_eq!(data.score, Score::from_raw(50));
         assert_eq!(data.depth, 9);
     }
 
@@ -639,7 +631,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             15,
             Some(Square::D3),
@@ -652,7 +644,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(50),
+            Score::from_raw(50),
             Bound::Exact,
             5,
             Some(Square::E4),
@@ -661,7 +653,7 @@ mod tests {
         );
 
         let data = tt.lookup(key).unwrap();
-        assert_eq!(data.score, ScaledScore::from_raw(50));
+        assert_eq!(data.score, Score::from_raw(50));
         assert_eq!(data.bound, Bound::Exact);
     }
 
@@ -674,7 +666,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             10,
             Some(Square::D3),
@@ -687,7 +679,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(80),
+            Score::from_raw(80),
             Bound::Upper,
             10,
             None,
@@ -697,7 +689,7 @@ mod tests {
 
         let data = tt.lookup(key).unwrap();
         assert_eq!(data.best_move, Some(Square::D3));
-        assert_eq!(data.score, ScaledScore::from_raw(80));
+        assert_eq!(data.score, Score::from_raw(80));
     }
 
     #[test]
@@ -709,7 +701,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(50),
+            Score::from_raw(50),
             Bound::Exact,
             8,
             Some(Square::A1),
@@ -731,7 +723,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             10,
             None,
@@ -740,8 +732,8 @@ mod tests {
         );
 
         let data = tt.probe(key).data().unwrap();
-        assert!(data.can_cut(ScaledScore::from_raw(50)));
-        assert!(!data.can_cut(ScaledScore::from_raw(200)));
+        assert!(data.can_cut(Score::from_raw(50)));
+        assert!(!data.can_cut(Score::from_raw(200)));
     }
 
     #[test]
@@ -756,7 +748,7 @@ mod tests {
         tt.store(
             idx1,
             key1,
-            ScaledScore::from_raw(10),
+            Score::from_raw(10),
             Bound::Lower,
             20,
             Some(Square::A1),
@@ -774,7 +766,7 @@ mod tests {
         tt.store(
             idx2,
             key2,
-            ScaledScore::from_raw(20),
+            Score::from_raw(20),
             Bound::Lower,
             5,
             Some(Square::B2),
@@ -788,7 +780,7 @@ mod tests {
         tt.store(
             idx3,
             key3,
-            ScaledScore::from_raw(30),
+            Score::from_raw(30),
             Bound::Exact,
             1,
             Some(Square::C3),
@@ -810,7 +802,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(100),
+            Score::from_raw(100),
             Bound::Lower,
             15,
             Some(Square::D3),
@@ -826,7 +818,7 @@ mod tests {
         tt.store(
             idx,
             key,
-            ScaledScore::from_raw(50),
+            Score::from_raw(50),
             Bound::Upper,
             5,
             Some(Square::E4),
@@ -835,7 +827,7 @@ mod tests {
         );
 
         let data = tt.lookup(key).unwrap();
-        assert_eq!(data.score, ScaledScore::from_raw(50));
+        assert_eq!(data.score, Score::from_raw(50));
         assert_eq!(data.depth, 5);
     }
 }

@@ -5,7 +5,7 @@ use reversi_core::{
     eval::pattern_feature::{
         INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
     },
-    types::ScaledScore,
+    score::Score,
 };
 
 const NN_DIMS: usize = 256;
@@ -361,7 +361,7 @@ impl Network {
     /// # Panics
     ///
     /// Panics if `ply` is out of range for the layer stacks.
-    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
+    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> Score {
         let layer_stack = &self.layer_stacks[ply];
         let score: i64;
 
@@ -377,8 +377,8 @@ impl Network {
 
         let raw_score =
             (score >> OUTPUT_WEIGHT_SCALE_BITS).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        let score = ScaledScore::from_raw(raw_score);
-        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+        let score = Score::from_raw(raw_score);
+        score.clamp(Score::MIN + 1, Score::MAX - 1)
     }
 
     #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]

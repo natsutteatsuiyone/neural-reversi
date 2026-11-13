@@ -7,9 +7,10 @@ use reversi_core::{
     board::Board,
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
+    score::Score,
     search::{root_move::RootMove, side_to_move::SideToMove},
     square::Square,
-    types::{Depth, ScaledScore, Scoref},
+    types::Depth,
 };
 
 use crate::transposition_table::TranspositionTable;
@@ -141,17 +142,11 @@ impl SearchContext {
     }
 
     /// Updates a root move with its search score.
-    pub fn update_root_move(
-        &mut self,
-        sq: Square,
-        score: ScaledScore,
-        move_count: usize,
-        alpha: ScaledScore,
-    ) {
+    pub fn update_root_move(&mut self, sq: Square, score: Score, move_count: usize, alpha: Score) {
         let is_pv = move_count == 1 || score > alpha;
 
         let rm = self.root_moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
-        rm.average_score = if rm.average_score == -ScaledScore::INF {
+        rm.average_score = if rm.average_score == -Score::INF {
             score
         } else {
             (rm.average_score + score) / 2
@@ -160,7 +155,7 @@ impl SearchContext {
         if is_pv {
             rm.score = score;
         } else {
-            rm.score = -ScaledScore::INF;
+            rm.score = -Score::INF;
         }
     }
 
@@ -222,7 +217,7 @@ impl SearchContext {
     pub fn notify_progress(
         &self,
         depth: Depth,
-        score: Scoref,
+        score: Score,
         best_move: Square,
         selectivity: Selectivity,
     ) {
@@ -235,7 +230,7 @@ impl SearchContext {
         let _ = Reflect::set(
             &payload,
             &JsValue::from_str("score"),
-            &JsValue::from_f64(score as f64),
+            &JsValue::from_f64(score.to_disc_diff_f32() as f64),
         );
         let _ = Reflect::set(
             &payload,

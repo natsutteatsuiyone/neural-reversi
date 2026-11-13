@@ -347,6 +347,7 @@ mod tests {
     use crate::level::Level;
     use crate::player_color::PlayerColor;
     use crate::probcut::{self, Selectivity};
+    use crate::score::Score;
     use crate::transposition_table::TranspositionTable;
 
     fn task(
@@ -407,7 +408,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(600))
             .expect("search waited on a claimed child");
         drop(claims);
-        assert_eq!(solved.score(), Some(0.0));
+        assert_eq!(solved.score(), Some(Score::ZERO));
         assert_eq!(solved.best_move(), Some(Square::H4));
     }
 

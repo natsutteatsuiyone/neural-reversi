@@ -7,8 +7,8 @@ use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
 use crate::move_list::MoveList;
+use crate::score::Score;
 use crate::square::Square;
-use crate::types::ScaledScore;
 
 /// A root move with its search results and statistics.
 #[derive(Clone, Debug)]
@@ -16,12 +16,12 @@ pub struct RootMove {
     /// The move square.
     pub sq: Square,
     /// Current best score for this move in the current iteration.
-    pub score: ScaledScore,
+    pub score: Score,
     /// Score from the previous iteration, used for aspiration windows.
-    pub previous_score: ScaledScore,
+    pub previous_score: Score,
     /// Running average score across iterations, used to center the aspiration
     /// window.
-    pub average_score: ScaledScore,
+    pub average_score: Score,
     /// Running average of score × |score| across iterations, used to size
     /// the aspiration window.
     pub mean_squared_score: i64,
@@ -34,9 +34,9 @@ impl RootMove {
     pub fn new(sq: Square) -> Self {
         Self {
             sq,
-            score: -ScaledScore::INF,
-            previous_score: -ScaledScore::INF,
-            average_score: -ScaledScore::INF,
+            score: -Score::INF,
+            previous_score: -Score::INF,
+            average_score: -Score::INF,
             mean_squared_score: 0,
             pv: Vec::new(),
         }
@@ -75,17 +75,11 @@ impl RootMoves {
     /// # Panics
     ///
     /// Panics if `sq` is not found in the root move list.
-    pub fn update(
-        &self,
-        sq: Square,
-        score: ScaledScore,
-        is_pv: bool,
-        pv: &[Option<Square>; MAX_PLY],
-    ) {
+    pub fn update(&self, sq: Square, score: Score, is_pv: bool, pv: &[Option<Square>; MAX_PLY]) {
         let mut moves = self.moves.lock().unwrap();
         let rm = moves.iter_mut().find(|rm| rm.sq == sq).unwrap();
         let squared = i64::from(score.value()) * i64::from(score.value().abs());
-        if rm.average_score == -ScaledScore::INF {
+        if rm.average_score == -Score::INF {
             rm.average_score = score;
             rm.mean_squared_score = squared;
         } else {
@@ -98,7 +92,7 @@ impl RootMoves {
             rm.pv.clear();
             rm.pv.extend(pv.iter().map_while(|&sq| sq));
         } else {
-            rm.score = -ScaledScore::INF;
+            rm.score = -Score::INF;
         }
     }
 
@@ -164,6 +158,7 @@ impl RootMoves {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score::DiscScore;
 
     fn pv_array(line: &[Square]) -> [Option<Square>; MAX_PLY] {
         let mut pv = [None; MAX_PLY];
@@ -191,28 +186,28 @@ mod tests {
         let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq]);
 
-        rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
+        rms.update(sq, Score::from_disc_diff(DiscScore::new(4)), true, &pv);
         assert_eq!(
             find(&rms, sq, |rm| rm.score),
-            ScaledScore::from_disc_diff(4)
+            Score::from_disc_diff(DiscScore::new(4))
         );
         // Seeded from the -INF sentinel, the average takes the first score verbatim.
         assert_eq!(
             find(&rms, sq, |rm| rm.average_score),
-            ScaledScore::from_disc_diff(4)
+            Score::from_disc_diff(DiscScore::new(4))
         );
         // 4 discs = 1024 scaled, squared: 1024 * 1024
         assert_eq!(find(&rms, sq, |rm| rm.mean_squared_score), 1_048_576);
 
-        rms.update(sq, ScaledScore::from_disc_diff(8), true, &pv);
+        rms.update(sq, Score::from_disc_diff(DiscScore::new(8)), true, &pv);
         assert_eq!(
             find(&rms, sq, |rm| rm.score),
-            ScaledScore::from_disc_diff(8)
+            Score::from_disc_diff(DiscScore::new(8))
         );
         // (4 + 8) / 2 == 6
         assert_eq!(
             find(&rms, sq, |rm| rm.average_score),
-            ScaledScore::from_disc_diff(6)
+            Score::from_disc_diff(DiscScore::new(6))
         );
         // (1024² + 2048²) / 2
         assert_eq!(find(&rms, sq, |rm| rm.mean_squared_score), 2_621_440);
@@ -224,13 +219,13 @@ mod tests {
         let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq]);
 
-        rms.update(sq, ScaledScore::from_disc_diff(4), true, &pv);
-        rms.update(sq, ScaledScore::from_disc_diff(8), false, &pv);
+        rms.update(sq, Score::from_disc_diff(DiscScore::new(4)), true, &pv);
+        rms.update(sq, Score::from_disc_diff(DiscScore::new(8)), false, &pv);
 
-        assert_eq!(find(&rms, sq, |rm| rm.score), -ScaledScore::INF);
+        assert_eq!(find(&rms, sq, |rm| rm.score), -Score::INF);
         assert_eq!(
             find(&rms, sq, |rm| rm.average_score),
-            ScaledScore::from_disc_diff(6)
+            Score::from_disc_diff(DiscScore::new(6))
         );
     }
 
@@ -240,7 +235,7 @@ mod tests {
         let sq = rms.get(0).unwrap().sq;
         let pv = pv_array(&[sq, Square::C3, Square::H8]); // trailing entries stay None
 
-        rms.update(sq, ScaledScore::from_disc_diff(1), true, &pv);
+        rms.update(sq, Score::from_disc_diff(DiscScore::new(1)), true, &pv);
 
         assert_eq!(
             find(&rms, sq, |rm| rm.pv.clone()),
@@ -255,12 +250,7 @@ mod tests {
         // distinguishing it from the lock's `Result::unwrap()` (an `Err` value).
         let rms = RootMoves::new(&Board::new());
         // A1 is never a legal opening move, so it is absent from the root list.
-        rms.update(
-            Square::A1,
-            ScaledScore::ZERO,
-            true,
-            &pv_array(&[Square::A1]),
-        );
+        rms.update(Square::A1, Score::ZERO, true, &pv_array(&[Square::A1]));
     }
 
     #[test]
@@ -270,7 +260,7 @@ mod tests {
         for (i, &sq) in sqs.iter().enumerate() {
             rms.update(
                 sq,
-                ScaledScore::from_disc_diff(i as i32),
+                Score::from_disc_diff(DiscScore::new(i as i32)),
                 true,
                 &pv_array(&[sq]),
             );

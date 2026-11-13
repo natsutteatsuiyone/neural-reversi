@@ -11,7 +11,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
-use crate::types::ScaledScore;
+use crate::score::Score;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
@@ -157,7 +157,7 @@ impl NetworkSmall {
     ///
     /// Panics if `ply` is outside the endgame range `[30, 60)`.
     #[inline(always)]
-    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> ScaledScore {
+    pub fn evaluate(&self, pattern_feature: &PatternFeature, ply: usize) -> Score {
         debug_assert!(ply >= ENDGAME_START_PLY);
         debug_assert!(ply < ENDGAME_START_PLY + NUM_OUTPUT_LAYERS);
 
@@ -169,10 +169,10 @@ impl NetworkSmall {
 
         let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
         let score = ((sum + output_layer.bias) >> OUTPUT_WEIGHT_SCALE_BITS)
-            .clamp(-ScaledScore::INF.value(), ScaledScore::INF.value());
-        let score = ScaledScore::from_raw(score);
+            .clamp(-Score::INF.value(), Score::INF.value());
+        let score = Score::from_raw(score);
 
-        score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+        score.clamp(Score::MIN + 1, Score::MAX - 1)
     }
 
     /// Computes the forward pass using the scalar fallback wrapper.
@@ -886,7 +886,7 @@ mod tests {
         for (ply, expected_raw) in cases {
             assert_eq!(
                 network.evaluate(&pattern_feature, ply),
-                ScaledScore::from_raw(expected_raw),
+                Score::from_raw(expected_raw),
                 "ply {ply}"
             );
         }
@@ -895,17 +895,17 @@ mod tests {
     #[test]
     fn evaluate_clamps_scores_inside_search_bounds() {
         let mut network = network_with_forward_fn(zero_forward);
-        network.output_layers[0].bias = (ScaledScore::MAX.value() + 10) << OUTPUT_WEIGHT_SCALE_BITS;
-        network.output_layers[1].bias = (ScaledScore::MIN.value() - 10) << OUTPUT_WEIGHT_SCALE_BITS;
+        network.output_layers[0].bias = (Score::MAX.value() + 10) << OUTPUT_WEIGHT_SCALE_BITS;
+        network.output_layers[1].bias = (Score::MIN.value() - 10) << OUTPUT_WEIGHT_SCALE_BITS;
         let pattern_feature = PatternFeature::new();
 
         assert_eq!(
             network.evaluate(&pattern_feature, ENDGAME_START_PLY),
-            ScaledScore::MAX - 1
+            Score::MAX - 1
         );
         assert_eq!(
             network.evaluate(&pattern_feature, ENDGAME_START_PLY + 1),
-            ScaledScore::MIN + 1
+            Score::MIN + 1
         );
     }
 

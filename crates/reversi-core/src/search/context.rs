@@ -10,6 +10,7 @@ use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
+use crate::score::Score;
 use crate::search::correction_history::CorrectionHistory;
 use crate::search::counters::SearchCounters;
 use crate::search::midgame::Helper;
@@ -19,7 +20,6 @@ use crate::search::stack::SearchStack;
 use crate::search::threading::SplitPoint;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::ScaledScore;
 
 /// The search context that maintains all state during search operations.
 // The field order is the layout: `counters`, `tt`, `eval` and the empty
@@ -200,7 +200,7 @@ impl SearchContext {
     /// for the same board, and the [`update`](Self::update) for the move
     /// reaching `board` must already have been applied.
     #[inline(always)]
-    pub fn evaluate_main_with_key(&self, board: &Board, key: u64) -> ScaledScore {
+    pub fn evaluate_main_with_key(&self, board: &Board, key: u64) -> Score {
         let eval = self
             .eval
             .evaluate_main(self.pattern_feature(), board, self.ply(), key);
@@ -211,7 +211,7 @@ impl SearchContext {
     }
 
     /// Updates a root move with its search results.
-    pub fn update_root_move(&mut self, sq: Square, score: ScaledScore, is_pv: bool) {
+    pub fn update_root_move(&mut self, sq: Square, score: Score, is_pv: bool) {
         if is_pv {
             self.update_pv(sq);
         }

@@ -10,6 +10,7 @@ use crate::eval::EvalMode;
 use crate::eval::pattern_feature::PatternFeature;
 use crate::move_list::ConcurrentMoveIterator;
 use crate::probcut::Selectivity;
+use crate::score::Score;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
 use crate::search::node_type::NodeTypeId;
@@ -17,7 +18,7 @@ use crate::search::root_move::RootMoves;
 use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 use crate::util::align::Align64;
 use crate::util::bitset::AtomicBitSet;
 use crate::util::spinlock;
@@ -104,13 +105,13 @@ impl SplitPointState {
 
     /// Returns the current alpha value atomically.
     #[inline]
-    pub fn alpha(&self) -> ScaledScore {
-        ScaledScore::from_raw(self.alpha.load(Ordering::Relaxed))
+    pub fn alpha(&self) -> Score {
+        Score::from_raw(self.alpha.load(Ordering::Relaxed))
     }
 
     /// Sets the alpha value atomically.
     #[inline]
-    pub fn set_alpha(&self, value: ScaledScore) {
+    pub fn set_alpha(&self, value: Score) {
         self.alpha.store(value.value(), Ordering::Relaxed);
     }
 
@@ -146,13 +147,13 @@ impl SplitPointState {
 
     /// Returns the best score.
     #[inline]
-    pub fn best_score(&self) -> ScaledScore {
-        ScaledScore::from_raw(self.best_score.load(Ordering::Relaxed))
+    pub fn best_score(&self) -> Score {
+        Score::from_raw(self.best_score.load(Ordering::Relaxed))
     }
 
     /// Sets the best score.
     #[inline]
-    pub fn set_best_score(&self, value: ScaledScore) {
+    pub fn set_best_score(&self, value: Score) {
         self.best_score.store(value.value(), Ordering::Relaxed);
     }
 
@@ -206,7 +207,7 @@ pub struct SplitPointTask {
     pub depth: Depth,
 
     /// Beta bound for the alpha-beta search at this node.
-    pub beta: ScaledScore,
+    pub beta: Score,
 
     /// Type of node (PV, NonPV, or Root) for search specialization.
     pub node_type: NodeTypeId,

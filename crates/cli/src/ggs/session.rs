@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::types::Scoref;
 
 use crate::ggs::protocol::{AskOffer, MatchState, OsEvent};
 use crate::ggs::report::SearchReport;
@@ -62,7 +62,7 @@ pub struct GameView<A = Activity> {
     /// the game, since it comes from the game's search or ponder.
     pub activity: A,
     /// Score of the last played search, from our side.
-    pub eval: Option<Scoref>,
+    pub eval: Option<Score>,
     pub last_search: Option<SearchReport>,
     /// Result text as the server prints it, once the game ended.
     pub result: Option<String>,
@@ -705,7 +705,7 @@ impl Session {
             Some(FoundMove { report, .. }) => format!(
                 "tell /os play {game_id} {}/{}/{:.3}",
                 report.sq,
-                report.score.round() as i32,
+                report.score.to_disc_diff_f32().round() as i32,
                 elapsed.as_secs_f64()
             ),
             None => format!(
@@ -1465,7 +1465,7 @@ mod tests {
         FoundMove {
             report: SearchReport {
                 sq,
-                score: 0.0,
+                score: Score::ZERO,
                 depth: 20,
                 probability: 100,
                 nodes: 0,
@@ -2569,7 +2569,7 @@ mod tests {
         assert_eq!(activity(&s), Activity::Searching);
         let _ = s.move_ready(".5", 1, Some(Square::F5), Duration::ZERO);
         assert_eq!(activity(&s), Activity::Idle);
-        assert_eq!(s.games()[".5"].eval, Some(0.0));
+        assert_eq!(s.games()[".5"].eval, Some(Score::ZERO));
 
         // A ponder that ends by itself, e.g. one that never started.
         let _ = s.on_event(match_state(".5", PlayerColor::White, 54_000));

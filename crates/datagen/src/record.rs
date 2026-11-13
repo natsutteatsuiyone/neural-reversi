@@ -5,7 +5,6 @@ use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
-use reversi_core::types::Scoref;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{self, BufReader, BufWriter, Seek, SeekFrom, Write};
@@ -31,7 +30,7 @@ pub struct GameRecord {
     pub game_id: u16,
     pub ply: u8,
     pub board: Board,
-    pub score: Scoref,
+    pub score: f32,
     pub game_score: i8,
     pub side_to_move: PlayerColor,
     pub is_random: bool,

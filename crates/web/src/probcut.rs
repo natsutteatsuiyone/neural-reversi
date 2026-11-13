@@ -1,10 +1,6 @@
 use std::sync::OnceLock;
 
-use reversi_core::{
-    board::Board,
-    search::node_type::NonPV,
-    types::{Depth, ScaledScore},
-};
+use reversi_core::{board::Board, score::Score, search::node_type::NonPV, types::Depth};
 
 use crate::search::{self, context::SearchContext, strategy::MidGameStrategy};
 
@@ -101,7 +97,7 @@ const MIN_MIDGAME_DEPTH: Depth = 3;
 /// Shallow depth used by endgame ProbCut.
 const ENDGAME_PC_DEPTH: Depth = 2;
 
-const SCORE_SCALE_F64: f64 = ScaledScore::SCALE as f64;
+const SCORE_SCALE_F64: f64 = Score::SCALE as f64;
 
 /// Pre-scaled ProbCut coefficients for one deep search depth.
 ///
@@ -189,8 +185,8 @@ pub fn probcut_midgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: ScaledScore,
-) -> Option<ScaledScore> {
+    beta: Score,
+) -> Option<Score> {
     if depth >= MIN_MIDGAME_DEPTH && ctx.selectivity.is_enabled() {
         let pc = midgame_entry(ctx.ply(), depth);
         let pc_depth = determine_probcut_depth(depth);
@@ -200,10 +196,9 @@ pub fn probcut_midgame(
         let eval_sigma = t * pc.half_eval_sigma + pc.sigma;
 
         let beta_raw = beta.value() as f64;
-        let eval_beta =
-            ScaledScore::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
-        let pc_beta = ScaledScore::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
-        if eval_score >= eval_beta && pc_beta < ScaledScore::MAX {
+        let eval_beta = Score::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
+        let pc_beta = Score::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
+        if eval_score >= eval_beta && pc_beta < Score::MAX {
             let current_selectivity = ctx.selectivity;
             ctx.selectivity = Selectivity::None; // Disable nested ProbCut
             let score = search::search::<NonPV, MidGameStrategy>(
@@ -235,8 +230,8 @@ pub fn probcut_endgame(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: ScaledScore,
-) -> Option<ScaledScore> {
+    beta: Score,
+) -> Option<Score> {
     if !ctx.selectivity.is_enabled() {
         return None;
     }
@@ -245,14 +240,14 @@ pub fn probcut_endgame(
     let t = ctx.selectivity.t_value();
 
     let beta_raw = beta.value() as f64;
-    let pc_beta = ScaledScore::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
-    if pc_beta >= ScaledScore::MAX {
+    let pc_beta = Score::from_raw((beta_raw + t * pc.sigma - pc.mean).ceil() as i32);
+    if pc_beta >= Score::MAX {
         return None;
     }
 
     let eval_score = search::evaluate(ctx, board);
     let eval_sigma = t * pc.half_eval_sigma + pc.sigma;
-    let eval_beta = ScaledScore::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
+    let eval_beta = Score::from_raw((beta_raw - eval_sigma - pc.eval_mean).floor() as i32);
 
     if eval_score >= eval_beta {
         let current_selectivity = ctx.selectivity;

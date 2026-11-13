@@ -8,9 +8,9 @@ mod common;
 use common::{add_random_bit, bench_case_set};
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
-use reversi_core::constants::{SCORE_MAX, SCORE_MIN};
+use reversi_core::score::DiscScore;
+use reversi_core::score::{DISC_SCORE_MAX, DISC_SCORE_MIN};
 use reversi_core::stability;
-use reversi_core::types::Score;
 
 const N_CASES: usize = 4096;
 
@@ -24,7 +24,7 @@ struct StabilityCase {
 struct CutoffCase {
     board: Board,
     n_empties: u32,
-    alpha: Score,
+    alpha: i32,
 }
 
 fn random_case(rng: &mut StdRng, player_discs: usize, opponent_discs: usize) -> StabilityCase {
@@ -60,7 +60,7 @@ fn cutoff_cases(
     seed: u64,
     player_discs: usize,
     opponent_discs: usize,
-    alpha: Score,
+    alpha: i32,
 ) -> Vec<CutoffCase> {
     assert!(player_discs + opponent_discs <= 64);
 
@@ -76,7 +76,7 @@ fn cutoff_cases(
         .collect()
 }
 
-fn cutoff_cases_by_empty_count(seed: u64, alpha: Score) -> Vec<CutoffCase> {
+fn cutoff_cases_by_empty_count(seed: u64, alpha: i32) -> Vec<CutoffCase> {
     let mut rng = StdRng::seed_from_u64(seed);
     let mut out = Vec::with_capacity(N_CASES);
 
@@ -98,11 +98,12 @@ fn cutoff_cases_by_empty_count(seed: u64, alpha: Score) -> Vec<CutoffCase> {
 
 fn empty_alpha_sweep_cases(seed: u64) -> Vec<CutoffCase> {
     let mut rng = StdRng::seed_from_u64(seed);
-    let mut out = Vec::with_capacity(64 * ((SCORE_MAX - SCORE_MIN + 1) as usize));
+    let mut out =
+        Vec::with_capacity(64 * ((DISC_SCORE_MAX.value() - DISC_SCORE_MIN.value() + 1) as usize));
 
     for n_empties in 0..64 {
         let occupied = 64 - n_empties as usize;
-        for alpha in SCORE_MIN..=SCORE_MAX {
+        for alpha in DISC_SCORE_MIN.value()..=DISC_SCORE_MAX.value() {
             let opponent_discs = if occupied == 0 {
                 0
             } else {
@@ -131,16 +132,17 @@ fn stable_discs_checksum(cases: &[StabilityCase]) -> u64 {
     acc
 }
 
-fn stability_cutoff_checksum(cases: &[CutoffCase]) -> Score {
+fn stability_cutoff_checksum(cases: &[CutoffCase]) -> i32 {
     let mut acc = 0;
     for &case in cases {
         let board = black_box(case.board);
         let score = stability::stability_cutoff(
             black_box(&board),
             black_box(case.n_empties),
-            black_box(case.alpha),
+            black_box(DiscScore::new(case.alpha)),
         )
-        .unwrap_or(SCORE_MAX + 1);
+        .map(DiscScore::value)
+        .unwrap_or(DISC_SCORE_MAX.value() + 1);
         acc ^= score;
     }
     acc
@@ -158,9 +160,9 @@ fn bench_get_stable_discs(c: &mut Criterion) {
 }
 
 fn bench_stability_cutoff(c: &mut Criterion) {
-    let alpha_threshold_rejected = cutoff_cases_by_empty_count(0x57ab_1e02, SCORE_MIN);
-    let disc_margin_rejected = cutoff_cases(0x57ab_1e03, 49, 7, SCORE_MAX);
-    let stable_disc_checked = cutoff_cases(0x57ab_1e05, 28, 28, SCORE_MAX);
+    let alpha_threshold_rejected = cutoff_cases_by_empty_count(0x57ab_1e02, DISC_SCORE_MIN.value());
+    let disc_margin_rejected = cutoff_cases(0x57ab_1e03, 49, 7, DISC_SCORE_MAX.value());
+    let stable_disc_checked = cutoff_cases(0x57ab_1e05, 28, 28, DISC_SCORE_MAX.value());
     let empty_alpha_sweep = empty_alpha_sweep_cases(0x57ab_1e04);
 
     let mut group = c.benchmark_group("stability::stability_cutoff");

@@ -84,7 +84,10 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
 
         let result = search.run(&board, &run_options);
         let ply = 60 - board.empty_count() as u8;
-        let score = result.score().expect("search returned no legal move");
+        let score = result
+            .score()
+            .expect("search returned no legal move")
+            .to_disc_diff_f32();
 
         batch.push(GameRecord {
             game_id: 0,

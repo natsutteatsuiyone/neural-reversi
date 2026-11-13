@@ -13,7 +13,6 @@ use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::legal_moves::LegalMoves;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
-use reversi_core::types::Score;
 
 pub(crate) fn board_from_rows(rows: [&str; 8]) -> Board {
     let mut board_string = String::with_capacity(64);
@@ -69,7 +68,7 @@ pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
     (board.empty_count() == N_EMPTY).then_some(board)
 }
 
-pub(crate) fn exact_endgame_score(board: &Board) -> Score {
+pub(crate) fn exact_endgame_score(board: &Board) -> i32 {
     let moves = board.legal_moves();
     if !moves.is_empty() {
         return moves
@@ -84,7 +83,7 @@ pub(crate) fn exact_endgame_score(board: &Board) -> Score {
         return -exact_endgame_score(&passed);
     }
 
-    board.solve(board.empty_count())
+    board.solve(board.empty_count()).value()
 }
 
 pub(crate) fn add_random_bit(rng: &mut StdRng, occupied: &mut u64) -> u64 {

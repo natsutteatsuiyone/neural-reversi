@@ -22,8 +22,8 @@ use reversi_core::{
 use reversi_core::{
     eval::{EVAL_FILE_NAME, EvalMode},
     level::{ENDGAME_STEPS, Level},
+    score::Score,
     search::{Search, SearchRunOptions, SearchSharedResources, options::SearchOptions},
-    types::Scoref,
 };
 
 use crate::fit_probcut::{NUM_FOLDS, game_fold};
@@ -97,9 +97,9 @@ fn read_games(
         let final_score = final_board.solve(final_board.empty_count());
         for (_, side, _, result) in &mut positions {
             *result = if *side == final_side {
-                final_score
+                final_score.value()
             } else {
-                -final_score
+                -final_score.value()
             };
         }
         games.push(GamePositions { game, positions });
@@ -164,12 +164,9 @@ pub fn export_holdout(
 /// The first two are computed as endgame ProbCut sees them: main network, no
 /// selective pruning.
 #[cfg(feature = "trace")]
-fn label(search: &mut Search, board: &Board) -> ([Scoref; 2], i32) {
+fn label(search: &mut Search, board: &Board) -> ([Score; 2], i32) {
     search.init();
-    let eval = search
-        .eval()
-        .evaluate_simple(board, EvalMode::Main)
-        .to_disc_diff_f32();
+    let eval = search.eval().evaluate_simple(board, EvalMode::Main);
     let options = SearchRunOptions::with_level(Level::uniform(VERIFY_DEPTH, VERIFY_DEPTH))
         .disable_probcut()
         .with_eval_mode(EvalMode::Main);
@@ -181,7 +178,9 @@ fn label(search: &mut Search, board: &Board) -> ([Scoref; 2], i32) {
     let exact = search
         .run(board, &SearchRunOptions::with_level(Level::perfect()))
         .score()
-        .expect("sampled positions have a legal move") as i32;
+        .expect("sampled positions have a legal move")
+        .to_disc_diff()
+        .value();
     ([eval, score], exact)
 }
 
@@ -215,7 +214,6 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     use std::collections::{HashMap, HashSet};
 
     use reversi_core::probcut::{self, trace::TraceRecord};
-    use reversi_core::types::ScaledScore;
 
     let games = read_games(input, options.root_empties.clone())?;
     let root_boards: Vec<(usize, Board)> =
@@ -272,7 +270,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     let (large, unique): (Vec<Board>, Vec<Board>) = unique
         .into_iter()
         .partition(|b| b.empty_count() >= SEQUENTIAL_LABEL_EMPTIES);
-    let labels: Mutex<HashMap<Board, ([Scoref; 2], i32)>> = Mutex::new(HashMap::new());
+    let labels: Mutex<HashMap<Board, ([Score; 2], i32)>> = Mutex::new(HashMap::new());
     let started = std::time::Instant::now();
     for (index, board) in large.iter().enumerate() {
         let label = label(&mut search, board);
@@ -311,7 +309,6 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     });
     let labels = labels.into_inner().unwrap();
 
-    let to_raw = |score: Scoref| (score * ScaledScore::SCALE as Scoref).round() as i32;
     let mut writer = BufWriter::new(File::create(output)?);
     writeln!(writer, "# main_weights={EVAL_FILE_NAME}")?;
     writeln!(writer, "{}", trace_header())?;
@@ -320,7 +317,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
         let (scores, exact) = labels[&record.board];
         let n_empties = record.board.empty_count();
         let replayed_cut = {
-            let eval = ScaledScore::from_raw(to_raw(scores[0]));
+            let eval = scores[0];
             let window = probcut::endgame_probcut_window(
                 n_empties,
                 record.selectivity,
@@ -328,17 +325,15 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
                 record.beta,
                 eval,
             );
-            window.pc_beta < ScaledScore::MAX
-                && eval >= window.screen_beta
-                && to_raw(scores[1]) >= window.pc_beta.value()
+            window.pc_beta < Score::MAX && eval >= window.screen_beta && scores[1] >= window.pc_beta
         };
         let engine_cut = record.result.is_some();
         mismatches += usize::from(engine_cut != replayed_cut);
         writeln!(
             writer,
             "{game},{n_empties},{},{},{exact},{},{},{},{},{}",
-            scores[0],
-            scores[1],
+            scores[0].to_disc_diff_f32(),
+            scores[1].to_disc_diff_f32(),
             record.beta.to_disc_diff_f32(),
             record.selectivity.as_u8(),
             u8::from(record.cut_node),

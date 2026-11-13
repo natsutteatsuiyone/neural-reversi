@@ -19,7 +19,11 @@ fn search() -> Search {
 }
 
 fn score(result: &SearchResult) -> i32 {
-    result.score().expect("expected best move") as i32
+    result
+        .score()
+        .expect("expected best move")
+        .to_disc_diff()
+        .value()
 }
 
 #[test]
@@ -91,7 +95,7 @@ fn multi_pv_solve_18_reports_each_legal_root_move() {
     let mut pv_moves: Vec<_> = result
         .pv_moves()
         .iter()
-        .map(|pv_move| (pv_move.sq, pv_move.score as i32))
+        .map(|pv_move| (pv_move.sq, pv_move.score.to_disc_diff().value()))
         .collect();
 
     assert!(

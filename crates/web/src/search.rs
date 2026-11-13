@@ -21,9 +21,9 @@ use rand::seq::IteratorRandom;
 use reversi_core::{
     board::Board,
     flip,
+    score::{DiscScore, Score},
     search::node_type::{NodeType, PV, Root},
     square::Square,
-    types::ScaledScore,
 };
 
 use crate::transposition_table::{Bound, TranspositionTable};
@@ -96,7 +96,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
     if ctx.root_moves.is_empty() {
         // Handle no legal moves
         return SearchResult {
-            score: 0.0,
+            score: Score::ZERO,
             best_move: None,
             n_nodes: 0,
             multi_pv_scores: Vec::new(),
@@ -108,7 +108,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
         // Handle opening position with random move
         let mv = random_move(&board);
         return SearchResult {
-            score: 0.0,
+            score: Score::ZERO,
             best_move: Some(mv),
             n_nodes: 0,
             multi_pv_scores: Vec::new(),
@@ -130,16 +130,16 @@ pub fn search_root(task: SearchTask) -> SearchResult {
 
 /// Performs the root search for midgame positions using iterative deepening.
 fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
-    const INITIAL_DELTA: ScaledScore = ScaledScore::from_raw(3 * ScaledScore::SCALE);
-    let mut best_score = ScaledScore::ZERO;
-    let mut alpha = -ScaledScore::INF;
-    let mut beta = ScaledScore::INF;
+    const INITIAL_DELTA: Score = Score::from_raw(3 * Score::SCALE);
+    let mut best_score = Score::ZERO;
+    let mut alpha = -Score::INF;
+    let mut beta = Score::INF;
 
     let max_depth = level.mid_depth;
     if max_depth == 0 {
         let score = search::<Root, MidGameStrategy>(ctx, &board, max_depth, alpha, beta);
         return SearchResult {
-            score: score.to_disc_diff_f32(),
+            score,
             best_move: None,
             n_nodes: ctx.n_nodes,
             multi_pv_scores: Vec::new(),
@@ -155,8 +155,8 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 
         let mut delta = INITIAL_DELTA;
         if depth <= 8 {
-            alpha = -ScaledScore::INF;
-            beta = ScaledScore::INF;
+            alpha = -Score::INF;
+            beta = Score::INF;
         }
 
         loop {
@@ -164,10 +164,10 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 
             if best_score <= alpha {
                 beta = alpha;
-                alpha = (best_score - delta).max(-ScaledScore::INF);
+                alpha = (best_score - delta).max(-Score::INF);
             } else if best_score >= beta {
                 alpha = (beta - delta).max(alpha);
-                beta = (best_score + delta).min(ScaledScore::INF);
+                beta = (best_score + delta).min(Score::INF);
             } else {
                 break;
             }
@@ -176,8 +176,8 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
         }
 
         let best_move = ctx.best_root_move().unwrap();
-        alpha = (best_move.average_score - INITIAL_DELTA).max(-ScaledScore::INF);
-        beta = (best_move.average_score + INITIAL_DELTA).min(ScaledScore::INF);
+        alpha = (best_move.average_score - INITIAL_DELTA).max(-Score::INF);
+        beta = (best_move.average_score + INITIAL_DELTA).min(Score::INF);
 
         if depth <= 10 {
             depth += 2;
@@ -187,14 +187,9 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
     }
 
     let rm = ctx.best_root_move().unwrap();
-    ctx.notify_progress(
-        max_depth,
-        best_score.to_disc_diff_f32(),
-        rm.sq,
-        ctx.selectivity,
-    );
+    ctx.notify_progress(max_depth, best_score, rm.sq, ctx.selectivity);
     SearchResult {
-        score: best_score.to_disc_diff_f32(),
+        score: best_score,
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         multi_pv_scores: Vec::new(),
@@ -213,23 +208,23 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
         Selectivity::None
     };
 
-    let mut best_score = ScaledScore::ZERO;
-    let mut alpha = score - ScaledScore::from_disc_diff(5);
-    let mut beta = score + ScaledScore::from_disc_diff(5);
+    let mut best_score = Score::ZERO;
+    let mut alpha = score - Score::from_disc_diff(DiscScore::new(5));
+    let mut beta = score + Score::from_disc_diff(DiscScore::new(5));
 
     for selectivity in 0..=final_selectivity.as_u8() {
         ctx.selectivity = Selectivity::from_u8(selectivity);
-        let mut delta = ScaledScore::from_disc_diff(3);
+        let mut delta = Score::from_disc_diff(DiscScore::new(3));
 
         loop {
             best_score = search::<Root, EndGameStrategy>(ctx, board, n_empties, alpha, beta);
 
             if best_score <= alpha {
                 beta = alpha;
-                alpha = (best_score - delta).max(-ScaledScore::INF);
+                alpha = (best_score - delta).max(-Score::INF);
             } else if best_score >= beta {
                 alpha = (beta - delta).max(alpha);
-                beta = (best_score + delta).min(ScaledScore::INF);
+                beta = (best_score + delta).min(Score::INF);
             } else {
                 break;
             }
@@ -237,19 +232,14 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
             delta += delta;
         }
 
-        alpha = (best_score - ScaledScore::from_disc_diff(2)).max(-ScaledScore::INF);
-        beta = (best_score + ScaledScore::from_disc_diff(2)).min(ScaledScore::INF);
+        alpha = (best_score - Score::from_disc_diff(DiscScore::new(2))).max(-Score::INF);
+        beta = (best_score + Score::from_disc_diff(DiscScore::new(2))).min(Score::INF);
     }
 
     let rm = ctx.best_root_move().unwrap();
-    ctx.notify_progress(
-        n_empties,
-        best_score.to_disc_diff_f32(),
-        rm.sq,
-        ctx.selectivity,
-    );
+    ctx.notify_progress(n_empties, best_score, rm.sq, ctx.selectivity);
     SearchResult {
-        score: best_score.to_disc_diff_f32(),
+        score: best_score,
         best_move: Some(rm.sq),
         n_nodes: ctx.n_nodes,
         multi_pv_scores: Vec::new(),
@@ -259,13 +249,9 @@ fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> 
 /// Builds the final Multi-PV result from the sorted root moves.
 fn finish_multipv_result(ctx: &SearchContext) -> SearchResult {
     let best = &ctx.root_moves[0];
-    let multi_pv_scores = ctx
-        .root_moves
-        .iter()
-        .map(|rm| (rm.sq, rm.score.to_disc_diff_f32()))
-        .collect();
+    let multi_pv_scores = ctx.root_moves.iter().map(|rm| (rm.sq, rm.score)).collect();
     SearchResult {
-        score: best.score.to_disc_diff_f32(),
+        score: best.score,
         best_move: Some(best.sq),
         n_nodes: ctx.n_nodes,
         multi_pv_scores,
@@ -278,7 +264,7 @@ fn search_root_midgame_multipv(
     ctx: &mut SearchContext,
     level: Level,
 ) -> SearchResult {
-    const INITIAL_DELTA: ScaledScore = ScaledScore::from_raw(3 * ScaledScore::SCALE);
+    const INITIAL_DELTA: Score = Score::from_raw(3 * Score::SCALE);
     let pv_count = ctx.root_moves.len();
     let max_depth = level.mid_depth.max(1);
     let org_selectivity = ctx.selectivity;
@@ -294,11 +280,11 @@ fn search_root_midgame_multipv(
             ctx.set_pv_idx(pv_idx);
 
             let (mut alpha, mut beta) = match ctx.current_pv_root_move() {
-                Some(rm) if depth > start_depth && rm.previous_score > -ScaledScore::INF => (
-                    (rm.previous_score - INITIAL_DELTA).max(-ScaledScore::INF),
-                    (rm.previous_score + INITIAL_DELTA).min(ScaledScore::INF),
+                Some(rm) if depth > start_depth && rm.previous_score > -Score::INF => (
+                    (rm.previous_score - INITIAL_DELTA).max(-Score::INF),
+                    (rm.previous_score + INITIAL_DELTA).min(Score::INF),
                 ),
-                _ => (-ScaledScore::INF, ScaledScore::INF),
+                _ => (-Score::INF, Score::INF),
             };
 
             let mut delta = INITIAL_DELTA;
@@ -308,10 +294,10 @@ fn search_root_midgame_multipv(
 
                 if score <= alpha {
                     beta = alpha;
-                    alpha = (score - delta).max(-ScaledScore::INF);
+                    alpha = (score - delta).max(-Score::INF);
                 } else if score >= beta {
                     alpha = (beta - delta).max(alpha);
-                    beta = (score + delta).min(ScaledScore::INF);
+                    beta = (score + delta).min(Score::INF);
                 } else {
                     break;
                 }
@@ -321,7 +307,7 @@ fn search_root_midgame_multipv(
 
             ctx.sort_root_moves_from_pv_idx();
             if let Some(rm) = ctx.current_pv_root_move() {
-                ctx.notify_progress(depth, score.to_disc_diff_f32(), rm.sq, ctx.selectivity);
+                ctx.notify_progress(depth, score, rm.sq, ctx.selectivity);
             }
         }
 
@@ -357,32 +343,32 @@ fn search_root_endgame_multipv(
         ctx.set_pv_idx(pv_idx);
 
         let mut alpha = if pv_idx == 0 {
-            base_score - ScaledScore::from_disc_diff(5)
+            base_score - Score::from_disc_diff(DiscScore::new(5))
         } else {
-            -ScaledScore::INF
+            -Score::INF
         };
         let mut beta = if pv_idx == 0 {
-            base_score + ScaledScore::from_disc_diff(5)
+            base_score + Score::from_disc_diff(DiscScore::new(5))
         } else if let Some(rm) = ctx.best_root_move() {
             rm.score
         } else {
-            ScaledScore::INF
+            Score::INF
         };
 
-        let mut best_score = ScaledScore::ZERO;
+        let mut best_score = Score::ZERO;
         for selectivity in 0..=final_selectivity.as_u8() {
             ctx.selectivity = Selectivity::from_u8(selectivity);
-            let mut delta = ScaledScore::from_disc_diff(3);
+            let mut delta = Score::from_disc_diff(DiscScore::new(3));
 
             loop {
                 best_score = search::<Root, EndGameStrategy>(ctx, board, n_empties, alpha, beta);
 
                 if best_score <= alpha {
                     beta = alpha;
-                    alpha = (best_score - delta).max(-ScaledScore::INF);
+                    alpha = (best_score - delta).max(-Score::INF);
                 } else if best_score >= beta {
                     alpha = (beta - delta).max(alpha);
-                    beta = (best_score + delta).min(ScaledScore::INF);
+                    beta = (best_score + delta).min(Score::INF);
                 } else {
                     break;
                 }
@@ -390,18 +376,13 @@ fn search_root_endgame_multipv(
                 delta += delta;
             }
 
-            alpha = (best_score - ScaledScore::from_disc_diff(2)).max(-ScaledScore::INF);
-            beta = (best_score + ScaledScore::from_disc_diff(2)).min(ScaledScore::INF);
+            alpha = (best_score - Score::from_disc_diff(DiscScore::new(2))).max(-Score::INF);
+            beta = (best_score + Score::from_disc_diff(DiscScore::new(2))).min(Score::INF);
         }
 
         ctx.sort_root_moves_from_pv_idx();
         if let Some(rm) = ctx.current_pv_root_move() {
-            ctx.notify_progress(
-                n_empties,
-                best_score.to_disc_diff_f32(),
-                rm.sq,
-                ctx.selectivity,
-            );
+            ctx.notify_progress(n_empties, best_score, rm.sq, ctx.selectivity);
         }
     }
     ctx.set_pv_idx(0);
@@ -410,11 +391,7 @@ fn search_root_endgame_multipv(
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.
-fn estimate_aspiration_base_score(
-    ctx: &mut SearchContext,
-    board: &Board,
-    n_empties: u32,
-) -> ScaledScore {
+fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board, n_empties: u32) -> Score {
     let midgame_depth = n_empties / 2;
 
     let hash_key = board.hash();
@@ -429,15 +406,9 @@ fn estimate_aspiration_base_score(
 
     if n_empties >= 16 {
         ctx.selectivity = Selectivity::Level1;
-        search::<PV, MidGameStrategy>(
-            ctx,
-            board,
-            midgame_depth,
-            -ScaledScore::INF,
-            ScaledScore::INF,
-        )
+        search::<PV, MidGameStrategy>(ctx, board, midgame_depth, -Score::INF, Score::INF)
     } else if n_empties >= 6 {
-        evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF)
+        evaluate_depth2(ctx, board, -Score::INF, Score::INF)
     } else {
         evaluate(ctx, board)
     }
@@ -453,9 +424,9 @@ fn random_move(board: &Board) -> Square {
 pub fn evaluate_depth3<NT: NodeType>(
     ctx: &mut SearchContext,
     board: &Board,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
     let org_alpha = alpha;
 
     let moves = board.legal_moves();
@@ -485,14 +456,14 @@ pub fn evaluate_depth3<NT: NodeType>(
 
     let mut move_list = MoveList::with_moves(board, moves);
     if move_list.wipeout_move().is_some() {
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
 
     if move_list.count() >= 2 {
         evaluate_moves_fast(&mut move_list, ctx, board, tt_move);
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     let mut best_move = None;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -531,9 +502,9 @@ pub fn evaluate_depth3<NT: NodeType>(
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
     let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -549,14 +520,14 @@ pub fn evaluate_depth2(
 
     let mut move_list = MoveList::with_moves(board, moves);
     if move_list.wipeout_move().is_some() {
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
 
     if move_list.count() >= 2 {
         evaluate_moves_fast(&mut move_list, ctx, board, None);
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -579,12 +550,7 @@ pub fn evaluate_depth2(
 }
 
 /// Performs alpha-beta search specialized for depth 1.
-pub fn evaluate_depth1(
-    ctx: &mut SearchContext,
-    board: &Board,
-    alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, beta: Score) -> Score {
     let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -598,7 +564,7 @@ pub fn evaluate_depth1(
         }
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
 
     for sq in moves.corners().iter() {
         if let Some(score) = search_move_in_evaluate_depth1(ctx, board, sq, beta, &mut best_score) {
@@ -621,12 +587,12 @@ fn search_move_in_evaluate_depth1(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
-    beta: ScaledScore,
-    best_score: &mut ScaledScore,
-) -> Option<ScaledScore> {
+    beta: Score,
+    best_score: &mut Score,
+) -> Option<Score> {
     let flipped = flip::flip(sq, board.player(), board.opponent());
     if flipped == board.opponent() {
-        return Some(ScaledScore::MAX);
+        return Some(Score::MAX);
     }
     let next = board.make_move_with_flipped(flipped, sq);
 
@@ -645,7 +611,7 @@ fn search_move_in_evaluate_depth1(
 
 /// Evaluates a leaf node position using the neural network.
 #[inline(always)]
-pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
+pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == 60 {
         return board.final_score_scaled();
     }

@@ -3,12 +3,13 @@ mod cache;
 use std::cell::RefCell;
 
 use reversi_core::board::Board;
-use reversi_core::constants::{SCORE_INF, SCORE_MAX};
 use reversi_core::empty_list::EmptyList;
 use reversi_core::legal_moves::LegalMoves;
+use reversi_core::score::DiscScore;
+use reversi_core::score::{DISC_SCORE_INF, DISC_SCORE_MAX};
 use reversi_core::search::solve_last1;
 use reversi_core::square::Square;
-use reversi_core::types::{Depth, Score};
+use reversi_core::types::Depth;
 use reversi_core::{bitboard, flip, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};
@@ -53,7 +54,7 @@ thread_local! {
 }
 
 /// Dispatches to the optimal solver based on empty square count.
-pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) -> Score {
+pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: DiscScore) -> DiscScore {
     let n_empties = ctx.empty_list.count();
 
     if n_empties > DEPTH_TO_SHALLOW_SEARCH {
@@ -92,10 +93,10 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: Score) 
 fn null_window_search_with_ec(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     ec: &mut EndGameCache,
     sc: &mut EndGameCache,
-) -> Score {
+) -> DiscScore {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
@@ -125,7 +126,7 @@ fn null_window_search_with_ec(
         let sq = moves.lsb_square_unchecked();
         let flipped = flip::flip(sq, board.player(), board.opponent());
         if flipped == board.opponent() {
-            return SCORE_MAX;
+            return DISC_SCORE_MAX;
         }
 
         let next = board.make_move_with_flipped(flipped, sq);
@@ -136,10 +137,10 @@ fn null_window_search_with_ec(
 
     let mut move_list = MoveList::with_moves(board, moves);
     if move_list.wipeout_move().is_some() {
-        return SCORE_MAX;
+        return DISC_SCORE_MAX;
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     evaluate_moves_fast(&mut move_list, ctx, board, None);
     for mv in move_list.best_first_iter() {
@@ -165,10 +166,10 @@ fn search_move_nws_ec(
     ctx: &mut SearchContext,
     next: &Board,
     sq: Square,
-    beta: Score,
+    beta: DiscScore,
     ec: &mut EndGameCache,
     sc: &mut EndGameCache,
-) -> Score {
+) -> DiscScore {
     ctx.update_endgame(sq);
     let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
         -shallow_search(ctx, next, -beta, sc)
@@ -183,9 +184,9 @@ fn search_move_nws_ec(
 fn shallow_search(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sc: &mut EndGameCache,
-) -> Score {
+) -> DiscScore {
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
@@ -215,7 +216,7 @@ fn shallow_search(
         return entry.score;
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // Split moves by quadrant parity: odd-empty quadrants first
     let quadrant_mask = bitboard::Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
@@ -281,9 +282,9 @@ fn shallow_search_move(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
-    beta: Score,
+    beta: DiscScore,
     sc: &mut EndGameCache,
-) -> Score {
+) -> DiscScore {
     let next = board.make_move(sq);
     ctx.update_endgame(sq);
     let next_alpha = -beta;
@@ -316,10 +317,10 @@ fn shallow_search_moves(
     board: &Board,
     moves: LegalMoves,
     cache_slot: CacheSlot,
-    beta: Score,
-    best_score: &mut Score,
+    beta: DiscScore,
+    best_score: &mut DiscScore,
     sc: &mut EndGameCache,
-) -> Option<Score> {
+) -> Option<DiscScore> {
     for sq in moves.iter() {
         let score = shallow_search_move(ctx, board, sq, beta, sc);
 
@@ -396,14 +397,14 @@ fn try_make_move(board: &Board, sq: Square) -> Option<Board> {
 fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
     sq4: Square,
-) -> Score {
+) -> DiscScore {
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     if let Some(next) = try_make_move(board, sq1) {
         best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
@@ -433,7 +434,7 @@ fn solve4(
         return score.max(best_score);
     }
 
-    if best_score == -SCORE_INF {
+    if best_score == -DISC_SCORE_INF {
         let pass = board.switch_players();
         if pass.has_legal_moves() {
             best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
@@ -449,14 +450,14 @@ fn solve4(
 fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // player moves
     if let Some(next) = try_make_move(board, sq1) {
@@ -479,13 +480,13 @@ fn solve3(
         return score.max(best_score);
     }
 
-    if best_score != -SCORE_INF {
+    if best_score != -DISC_SCORE_INF {
         return best_score;
     }
 
     // opponent moves
     ctx.increment_nodes();
-    best_score = SCORE_INF;
+    best_score = DISC_SCORE_INF;
     let pass = board.switch_players();
 
     if let Some(next) = try_make_move(&pass, sq1) {
@@ -508,7 +509,7 @@ fn solve3(
         return score.min(best_score);
     }
 
-    if best_score != SCORE_INF {
+    if best_score != DISC_SCORE_INF {
         return best_score;
     }
 
@@ -517,7 +518,13 @@ fn solve3(
 
 /// Solves positions with exactly 2 empty squares.
 #[inline(always)]
-fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2: Square) -> Score {
+fn solve2(
+    ctx: &mut SearchContext,
+    board: &Board,
+    alpha: DiscScore,
+    sq1: Square,
+    sq2: Square,
+) -> DiscScore {
     ctx.increment_nodes();
     let beta = alpha + 1;
 
@@ -561,7 +568,7 @@ fn solve2(ctx: &mut SearchContext, board: &Board, alpha: Score, sq1: Square, sq2
 
 /// Solves positions with exactly 1 empty square.
 #[inline(always)]
-fn solve1(ctx: &mut SearchContext, board: &Board, alpha: Score, sq: Square) -> Score {
+fn solve1(ctx: &mut SearchContext, board: &Board, alpha: DiscScore, sq: Square) -> DiscScore {
     ctx.increment_nodes();
     solve_last1(board.player(), alpha, sq)
 }

@@ -7,11 +7,11 @@ use criterion::{
 };
 
 use reversi_core::bitboard::Bitboard;
-use reversi_core::constants::SCORE_MAX;
 use reversi_core::flip::flip;
+use reversi_core::score::DISC_SCORE_MAX;
+use reversi_core::score::DiscScore;
 use reversi_core::search::solve_last1;
 use reversi_core::square::Square;
-use reversi_core::types::Score;
 
 const FIXTURE_BYTES: &[u8] = include_bytes!("fixtures/solve1_trace_v1.bin");
 const MAGIC: &[u8; 8] = b"NRS1TRC\0";
@@ -29,7 +29,7 @@ const SCRATCH_WORDS_64K: usize = 8192;
 #[derive(Clone, Copy)]
 struct Solve1TraceCase {
     player: u64,
-    alpha: Score,
+    alpha: i32,
     sq: Square,
     root_empty_count: u8,
 }
@@ -39,7 +39,7 @@ struct Solve1TraceCase {
 #[derive(Clone, Copy)]
 struct ChainedSolve1TraceCase {
     encoded_player: u64,
-    alpha: Score,
+    alpha: i32,
     sq: Square,
 }
 
@@ -214,7 +214,7 @@ fn trace_stats(trace: &[Solve1TraceCase]) -> TraceStats {
             continue;
         }
 
-        let score_base = 2 * player.count() as Score - SCORE_MAX + 2;
+        let score_base = 2 * player.count() as i32 - DISC_SCORE_MAX.value() + 2;
         let score_if_opp_passes = if score_base > 0 {
             score_base
         } else {
@@ -231,16 +231,16 @@ fn trace_stats(trace: &[Solve1TraceCase]) -> TraceStats {
     stats
 }
 
-fn last_flip_count(player: Bitboard, sq: Square) -> Score {
+fn last_flip_count(player: Bitboard, sq: Square) -> i32 {
     let sq_bit = 1u64 << sq.index();
     let player = Bitboard::new(player.bits() & !sq_bit);
     let opponent = Bitboard::new(!player.bits() & !sq_bit);
-    2 * flip(sq, player, opponent).bits().count_ones() as Score
+    2 * flip(sq, player, opponent).bits().count_ones() as i32
 }
 
-fn reference_solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+fn reference_solve_last1(player: Bitboard, alpha: i32, sq: Square) -> i32 {
     let mut n_flipped = last_flip_count(player, sq);
-    let score_base = 2 * player.count() as Score - SCORE_MAX + 2;
+    let score_base = 2 * player.count() as i32 - DISC_SCORE_MAX.value() + 2;
 
     if n_flipped != 0 {
         return score_base + n_flipped;
@@ -264,7 +264,7 @@ fn reference_solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
 }
 
 #[inline(always)]
-fn score_dependency_key(score: Score) -> u64 {
+fn score_dependency_key(score: i32) -> u64 {
     u64::from(score as u32)
 }
 
@@ -276,7 +276,7 @@ fn build_chained_trace(cases: &[Solve1TraceCase]) -> Vec<ChainedSolve1TraceCase>
         let player = Bitboard::new(case.player);
         let expected_score = reference_solve_last1(player, case.alpha, case.sq);
         assert_eq!(
-            solve_last1(player, case.alpha, case.sq),
+            solve_last1(player, DiscScore::new(case.alpha), case.sq).value(),
             expected_score,
             "solve1 trace case does not match the reference scorer"
         );
@@ -298,24 +298,34 @@ fn build_chained_trace(cases: &[Solve1TraceCase]) -> Vec<ChainedSolve1TraceCase>
 /// This preserves the exact trace order, inputs, and branch distribution while
 /// preventing the next solve from starting before the preceding score is ready.
 #[inline(never)]
-fn run_critical_path(cases: &[ChainedSolve1TraceCase]) -> Score {
+fn run_critical_path(cases: &[ChainedSolve1TraceCase]) -> i32 {
     let mut preceding_score = 0;
 
     for &case in cases {
         let player_bits = case.encoded_player ^ score_dependency_key(preceding_score);
-        preceding_score = solve_last1(Bitboard::new(player_bits), case.alpha, case.sq);
+        preceding_score = solve_last1(
+            Bitboard::new(player_bits),
+            DiscScore::new(case.alpha),
+            case.sq,
+        )
+        .value();
     }
 
     black_box(preceding_score)
 }
 
 #[inline(always)]
-fn checksum_trace(cases: &[Solve1TraceCase]) -> Score {
+fn checksum_trace(cases: &[Solve1TraceCase]) -> i32 {
     let mut acc = 0;
     for &case in cases {
         let player = Bitboard::new(black_box(case.player));
-        let score = solve_last1(player, black_box(case.alpha), black_box(case.sq));
-        acc ^= score ^ case.root_empty_count as Score;
+        let score = solve_last1(
+            player,
+            DiscScore::new(black_box(case.alpha)),
+            black_box(case.sq),
+        )
+        .value();
+        acc ^= score ^ case.root_empty_count as i32;
     }
     black_box(acc)
 }
@@ -340,14 +350,19 @@ fn touch_scratch(scratch: &mut CacheScratch, key: u64) -> u64 {
 fn checksum_trace_with_cache_pressure(
     cases: &[Solve1TraceCase],
     scratch: &mut CacheScratch,
-) -> Score {
+) -> i32 {
     let mut acc = 0;
     for &case in cases {
         let salt = case.player ^ ((case.alpha as u64) << 48) ^ case.sq.index() as u64;
-        acc ^= touch_scratch(scratch, salt) as Score;
+        acc ^= touch_scratch(scratch, salt) as i32;
         let player = Bitboard::new(black_box(case.player));
-        let score = solve_last1(player, black_box(case.alpha), black_box(case.sq));
-        acc ^= score ^ case.root_empty_count as Score;
+        let score = solve_last1(
+            player,
+            DiscScore::new(black_box(case.alpha)),
+            black_box(case.sq),
+        )
+        .value();
+        acc ^= score ^ case.root_empty_count as i32;
     }
     black_box(acc)
 }

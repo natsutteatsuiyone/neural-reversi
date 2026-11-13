@@ -19,6 +19,7 @@ use reversi_core::{
     level::{ENDGAME_STEPS, Level},
     player_color::PlayerColor,
     probcut::Selectivity,
+    score::{DiscScore, Score},
     search::{
         self, SearchProgress, SearchRunOptions,
         counters::SearchCounters,
@@ -26,16 +27,16 @@ use reversi_core::{
         result::{PvMove, SearchResult},
     },
     square::Square,
-    types::{Depth, Scoref},
+    types::Depth,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use test_case::{TestCase, find_problem_dir, load_all_problems, load_problems};
 
 /// Score tolerance levels for evaluation
-const SCORE_TOLERANCE_PERFECT: Scoref = 3.0;
-const SCORE_TOLERANCE_GOOD: Scoref = 6.0;
-const SCORE_TOLERANCE_ACCEPTABLE: Scoref = 9.0;
+const SCORE_TOLERANCE_PERFECT: f32 = 3.0;
+const SCORE_TOLERANCE_GOOD: f32 = 6.0;
+const SCORE_TOLERANCE_ACCEPTABLE: f32 = 9.0;
 
 /// Performance thresholds for color coding
 const PERFORMANCE_EXCELLENT: f64 = 80.0;
@@ -45,7 +46,7 @@ const PERFORMANCE_GOOD: f64 = 60.0;
 #[derive(Debug)]
 struct IterationData {
     depth: Depth,
-    score: Scoref,
+    score: Score,
     best_move: Square,
     nodes: u64,
     probability: i32,
@@ -91,11 +92,11 @@ impl LevelStats {
 struct TestResult {
     elapsed: std::time::Duration,
     nodes: u64,
-    score: Scoref,
+    score: f32,
     depth: Depth,
     selectivity: Selectivity,
     pv_line: Vec<Square>,
-    score_difference: Scoref,
+    score_difference: f32,
     move_accuracy: MoveAccuracy,
     counters: SearchCounters,
     pv_moves: Vec<PvMove>,
@@ -116,7 +117,7 @@ struct SearchStats {
     total_time: std::time::Duration,
     total_nodes: u64,
     total_count: usize,
-    score_differences: Vec<Scoref>,
+    score_differences: Vec<f32>,
     best_move_count: usize,
     top2_move_count: usize,
     top3_move_count: usize,
@@ -124,7 +125,7 @@ struct SearchStats {
     good_score_count: usize,
     acceptable_score_count: usize,
     total_counters: SearchCounters,
-    mpv_score_differences: Vec<Scoref>,
+    mpv_score_differences: Vec<f32>,
     mpv_perfect_count: usize,
     mpv_good_count: usize,
     mpv_acceptable_count: usize,
@@ -134,7 +135,7 @@ struct SearchStats {
 
 /// Mean absolute error and root mean squared error of a slice of absolute
 /// error samples. Returns `(0.0, 0.0)` for an empty slice.
-fn mae_rmse(samples: &[Scoref]) -> (f64, f64) {
+fn mae_rmse(samples: &[f32]) -> (f64, f64) {
     if samples.is_empty() {
         return (0.0, 0.0);
     }
@@ -215,8 +216,8 @@ impl SearchStats {
             let Some(expected) = test_case.expected_score_for_move(pv.sq) else {
                 continue;
             };
-            let rounded = (pv.score * 10.0).round() / 10.0;
-            let diff = (rounded - expected as Scoref).abs();
+            let rounded = (pv.score.to_disc_diff_f32() * 10.0).round() / 10.0;
+            let diff = (rounded - expected as f32).abs();
             self.mpv_score_differences.push(diff);
             if diff <= SCORE_TOLERANCE_PERFECT {
                 self.mpv_perfect_count += 1;
@@ -280,14 +281,15 @@ impl SearchStats {
         &mut self,
         iterations: &[IterationData],
         test_case: &TestCase,
-        move_values: &std::collections::HashMap<Square, Scoref>,
+        move_values: &std::collections::HashMap<Square, Score>,
         reference: Option<&IterationData>,
     ) {
         let n_empties = test_case.board().empty_count();
-        let orient = |score: Scoref| if test_case.is_pass() { -score } else { score };
-        let expected = reference.map_or(test_case.expected_score() as Scoref, |exact| {
-            orient(exact.score)
-        });
+        let orient = |score: Score| if test_case.is_pass() { -score } else { score };
+        let expected = reference.map_or(
+            Score::from_disc_diff(DiscScore::new(test_case.expected_score())),
+            |exact| orient(exact.score),
+        );
         let mut prev_nodes = 0;
         let mut prev_elapsed = std::time::Duration::ZERO;
         for iter in dedup_iterations(iterations) {
@@ -298,16 +300,18 @@ impl SearchStats {
                 continue;
             }
             let score = orient(iter.score);
-            let error = ((score * 10.0).round() / 10.0 - expected).abs();
+            let error = ((score.to_disc_diff_f32() * 10.0).round() / 10.0
+                - expected.to_disc_diff_f32())
+            .abs();
             let level = self.levels.entry(iter.probability).or_default();
             level.cases += 1;
             level.exact += usize::from(error < 0.05);
-            level.wdl_flips += usize::from(score.partial_cmp(&0.0) != expected.partial_cmp(&0.0));
+            level.wdl_flips += usize::from(score.cmp(&Score::ZERO) != expected.cmp(&Score::ZERO));
             level.abs_error_sum += error as f64;
             level.nodes += delta_nodes;
             level.time += delta_time;
             if let Some(&value) = move_values.get(&iter.best_move) {
-                let loss = (expected - value).max(0.0);
+                let loss = (expected - value).max(Score::ZERO).to_disc_diff_f32();
                 level.moves_judged += 1;
                 level.optimal_moves += usize::from(loss < 0.05);
                 level.move_loss_sum += loss as f64;
@@ -530,7 +534,7 @@ fn format_pv_line(pv_line: &[Square], max_moves: usize) -> String {
 }
 
 /// Apply color coding to score based on accuracy
-fn colorize_score(score: Scoref, difference: Scoref) -> colored::ColoredString {
+fn colorize_score(score: f32, difference: f32) -> colored::ColoredString {
     let score_str = format!("{score:.1}");
     if difference <= SCORE_TOLERANCE_PERFECT {
         score_str.bright_green()
@@ -606,8 +610,8 @@ fn execute_test_case(
     } else {
         raw_score
     };
-    let score = (score * 10.0).round() / 10.0;
-    let score_difference = (score - test_case.expected_score() as Scoref).abs();
+    let score = (score.to_disc_diff_f32() * 10.0).round() / 10.0;
+    let score_difference = (score - test_case.expected_score() as f32).abs();
     let move_accuracy = if test_case.is_pass() {
         MoveAccuracy::Best // Pass positions don't have move choices
     } else {
@@ -853,7 +857,7 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
             };
             IterationRow {
                 depth,
-                score: format!("{:>+.1}", iter.score),
+                score: format!("{:>+.1}", iter.score.to_disc_diff_f32()),
                 best: format!("{:?}", iter.best_move),
                 nodes: delta_nodes.to_formatted_string(&Locale::en),
                 time: format!("{:.4}s", delta_time.as_secs_f64()),
@@ -950,7 +954,7 @@ fn print_verbose_test_case(
     println!(
         "- score: {} (expected: {:>+.1})",
         score_colored,
-        test_case.expected_score() as Scoref
+        test_case.expected_score() as f32
     );
     println!("- move: {} (expected: {})", pv_colored, expect_moves);
     println!(
@@ -1002,14 +1006,14 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
         .iter()
         .map(|pv| {
             let move_str = format!("{:?}", pv.sq);
-            let rounded = (pv.score * 10.0).round() / 10.0;
+            let rounded = (pv.score.to_disc_diff_f32() * 10.0).round() / 10.0;
             // Match `colorize_score`'s `{:.1}` format so plain length matches
             // the colored display width (ANSI escapes aside) used for padding.
             let searched_plain = format!("{rounded:.1}");
             let expected_score = test_case.expected_score_for_move(pv.sq);
             let (expected, delta, searched_colored) = match expected_score {
                 Some(exp) => {
-                    let diff = (rounded - exp as Scoref).abs();
+                    let diff = (rounded - exp as f32).abs();
                     (
                         format!("{exp:+}"),
                         format!("{diff:.1}"),
@@ -1104,14 +1108,15 @@ fn exact_move_values(
     test_case: &TestCase,
     iterations: &[IterationData],
     reference: Option<&IterationData>,
-) -> std::collections::HashMap<Square, Scoref> {
+) -> std::collections::HashMap<Square, Score> {
     let board = test_case.board();
     let n_empties = board.empty_count();
     let full_depth = |it: &&IterationData| it.is_endgame && it.depth == n_empties;
     // A move whose value needs no solve: the reference's best move.
     let known = |sq: Square| match reference {
         Some(exact) => (sq == exact.best_move).then_some(exact.score),
-        None => (test_case.rank_of(sq) == Some(0)).then(|| test_case.expected_score() as Scoref),
+        None => (test_case.rank_of(sq) == Some(0))
+            .then(|| Score::from_disc_diff(DiscScore::new(test_case.expected_score()))),
     };
     let mut values = std::collections::HashMap::new();
     for iter in iterations.iter().filter(full_depth) {
@@ -1136,7 +1141,7 @@ fn exact_move_values(
                         .expect("position has a legal move");
                     if position == child { -score } else { score }
                 }
-                None => -(child.solve(child.empty_count()) as Scoref),
+                None => -child.solve_scaled(child.empty_count()),
             }
         };
         values.insert(iter.best_move, value);

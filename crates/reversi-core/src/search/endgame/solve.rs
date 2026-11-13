@@ -28,12 +28,12 @@ mod solve1_tables;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
-use crate::constants::SCORE_INF;
 use crate::empty_list::EmptyList;
 use crate::flip;
+use crate::score::DISC_SCORE_INF;
+use crate::score::DiscScore;
 use crate::search::context::SearchContext;
 use crate::square::Square;
-use crate::types::Score;
 
 /// Sorts the last four empty squares so that odd-parity quadrants are searched first.
 ///
@@ -89,12 +89,12 @@ pub(in crate::search) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, 
 pub(in crate::search) fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
     sq4: Square,
-) -> Score {
+) -> DiscScore {
     cfg_select! {
         all(
             target_arch = "x86_64",
@@ -131,16 +131,16 @@ pub(in crate::search) fn solve4(
 fn solve4_eager(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
     sq4: Square,
-) -> Score {
+) -> DiscScore {
     let player = board.player();
     let opponent = board.opponent();
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // Player to move.
     let (fp1, fp2, fp3, fp4) = flip::flip4(sq1, sq2, sq3, sq4, player, opponent);
@@ -201,7 +201,7 @@ fn solve4_eager(
         return score.max(best_score);
     }
 
-    if best_score != -SCORE_INF {
+    if best_score != -DISC_SCORE_INF {
         return best_score;
     }
 
@@ -229,16 +229,16 @@ fn solve4_eager(
 fn solve4_eager_pass(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
     sq4: Square,
-) -> Score {
+) -> DiscScore {
     let player = board.player();
     let opponent = board.opponent();
     let pass = board.switch_players();
-    let mut best_score = SCORE_INF;
+    let mut best_score = DISC_SCORE_INF;
     let (fo1, fo2, fo3, fo4) = flip::flip4(sq1, sq2, sq3, sq4, opponent, player);
 
     if !fo1.is_empty() {
@@ -297,7 +297,7 @@ fn solve4_eager_pass(
         return score.min(best_score);
     }
 
-    if best_score == SCORE_INF {
+    if best_score == DISC_SCORE_INF {
         return board.solve(4);
     }
 
@@ -343,14 +343,14 @@ fn try_make_move(board: &Board, sq: Square) -> Option<Board> {
 fn solve4_fallback(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
     sq4: Square,
-) -> Score {
+) -> DiscScore {
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     if let Some(next) = try_make_move(board, sq1) {
         best_score = -solve3(ctx, &next, -beta, sq2, sq3, sq4);
@@ -380,9 +380,9 @@ fn solve4_fallback(
         return score.max(best_score);
     }
 
-    if best_score == -SCORE_INF {
+    if best_score == -DISC_SCORE_INF {
         let pass = board.switch_players();
-        best_score = SCORE_INF;
+        best_score = DISC_SCORE_INF;
 
         if let Some(next) = try_make_move(&pass, sq1) {
             best_score = solve3(ctx, &next, alpha, sq2, sq3, sq4);
@@ -412,7 +412,7 @@ fn solve4_fallback(
             return score.min(best_score);
         }
 
-        if best_score == SCORE_INF {
+        if best_score == DISC_SCORE_INF {
             return board.solve(4);
         }
     }
@@ -429,11 +429,11 @@ fn solve4_fallback(
 pub(in crate::search) fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
-) -> Score {
+) -> DiscScore {
     cfg_select! {
         all(
             target_arch = "x86_64",
@@ -469,16 +469,16 @@ pub(in crate::search) fn solve3(
 fn solve3_eager(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     let player = board.player();
     let opponent = board.opponent();
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // Player to move.
     let (fp1, fp2, fp3) = flip::flip3(sq1, sq2, sq3, player, opponent);
@@ -521,13 +521,13 @@ fn solve3_eager(
         return score.max(best_score);
     }
 
-    if best_score != -SCORE_INF {
+    if best_score != -DISC_SCORE_INF {
         return best_score;
     }
 
     ctx.increment_nodes();
     let pass = board.switch_players();
-    best_score = SCORE_INF;
+    best_score = DISC_SCORE_INF;
     let (fo1, fo2, fo3) = flip::flip3(sq1, sq2, sq3, opponent, player);
 
     if !fo1.is_empty() {
@@ -550,7 +550,7 @@ fn solve3_eager(
         return score.min(best_score);
     }
 
-    if best_score != SCORE_INF {
+    if best_score != DISC_SCORE_INF {
         return best_score;
     }
 
@@ -573,14 +573,14 @@ fn solve3_eager(
 fn solve3_fallback(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
     sq3: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     let beta = alpha + 1;
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // player moves
     if let Some(next) = try_make_move(board, sq1) {
@@ -603,13 +603,13 @@ fn solve3_fallback(
         return score.max(best_score);
     }
 
-    if best_score != -SCORE_INF {
+    if best_score != -DISC_SCORE_INF {
         return best_score;
     }
 
     // opponent moves
     ctx.increment_nodes();
-    best_score = SCORE_INF;
+    best_score = DISC_SCORE_INF;
     let pass = board.switch_players();
 
     if let Some(next) = try_make_move(&pass, sq1) {
@@ -632,7 +632,7 @@ fn solve3_fallback(
         return score.min(best_score);
     }
 
-    if best_score != SCORE_INF {
+    if best_score != DISC_SCORE_INF {
         return best_score;
     }
 
@@ -644,10 +644,10 @@ fn solve3_fallback(
 pub(in crate::search) fn solve2(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
-) -> Score {
+) -> DiscScore {
     cfg_select! {
         all(
             target_arch = "x86_64",
@@ -670,10 +670,10 @@ pub(in crate::search) fn solve2(
 fn solve2_eager(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     let player = board.player();
     let opponent = board.opponent();
@@ -728,16 +728,16 @@ fn solve2_eager(
 fn solve2_fallback(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sq1: Square,
     sq2: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     let player = board.player();
     let opponent = board.opponent();
     let beta = alpha + 1;
     let mut flipped: Bitboard;
-    let best_score: Score;
+    let best_score: DiscScore;
 
     if opponent.has_adjacent_bit(sq1) {
         flipped = flip::flip(sq1, player, opponent);
@@ -807,30 +807,30 @@ fn solve2_fallback(
 pub(in crate::search) fn solve1(
     ctx: &mut SearchContext,
     player: Bitboard,
-    alpha: Score,
+    alpha: DiscScore,
     sq: Square,
-) -> Score {
+) -> DiscScore {
     ctx.increment_nodes();
     solve_last1(player, alpha, sq)
 }
 
 /// Scores a position with exactly one empty square.
 #[inline(always)]
-pub(super) fn solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+pub(super) fn solve_last1(player: Bitboard, alpha: DiscScore, sq: Square) -> DiscScore {
     solve1_imp::solve1(player.bits(), alpha, sq)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constants::{SCORE_MAX, SCORE_MIN};
+    use crate::score::{DISC_SCORE_MAX, DISC_SCORE_MIN};
     use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-    fn last_flip_count(player: Bitboard, sq: Square) -> Score {
+    fn last_flip_count(player: Bitboard, sq: Square) -> i32 {
         let sq_bit = 1u64 << sq.index();
         let player = Bitboard::new(player.bits() & !sq_bit);
         let opponent = Bitboard::new(!player.bits() & !sq_bit);
-        2 * flip::flip(sq, player, opponent).bits().count_ones() as Score
+        2 * flip::flip(sq, player, opponent).bits().count_ones() as i32
     }
 
     #[test]
@@ -846,9 +846,10 @@ mod tests {
 
                 let sq = Square::from_u8(sq_idx).unwrap();
                 let player = Bitboard::new(p);
-                let alpha = rng.random_range(SCORE_MIN..=SCORE_MAX);
+                let alpha = rng.random_range(DISC_SCORE_MIN.value()..=DISC_SCORE_MAX.value());
                 let mut n_flipped = last_flip_count(player, sq);
-                let mut expected = 2 * player.count() as Score - SCORE_MAX + 2 + n_flipped;
+                let mut expected =
+                    2 * player.count() as i32 - DISC_SCORE_MAX.value() + 2 + n_flipped;
 
                 if n_flipped == 0 {
                     let score_if_opp_passes = if expected > 0 { expected } else { expected - 2 };
@@ -864,7 +865,10 @@ mod tests {
                     }
                 }
 
-                assert_eq!(solve_last1(player, alpha, sq), expected);
+                assert_eq!(
+                    solve_last1(player, DiscScore::new(alpha), sq),
+                    DiscScore::new(expected)
+                );
             }
         }
     }

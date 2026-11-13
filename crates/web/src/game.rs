@@ -2,6 +2,7 @@ use js_sys::{Function, Object, Reflect};
 use reversi_core::board::Board;
 use reversi_core::move_list::MoveList;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 use reversi_core::square::{Square, TOTAL_SQUARES};
 use reversi_core::types::Depth;
 use std::rc::Rc;
@@ -193,7 +194,7 @@ impl Game {
             let _ = Reflect::set(
                 &obj,
                 &JsValue::from_str("score"),
-                &JsValue::from_f64(score as f64),
+                &JsValue::from_f64(score.to_disc_diff_f32() as f64),
             );
             arr.push(&obj);
         }
@@ -244,7 +245,7 @@ impl Game {
     }
 
     /// Evaluates every legal move for the human player. Does not mutate the board.
-    fn hint_scores(&mut self, callback: Option<Function>) -> Vec<(Square, f32)> {
+    fn hint_scores(&mut self, callback: Option<Function>) -> Vec<(Square, Score)> {
         if self.board.is_game_over()
             || self.current_player != self.human_player
             || !self.board.has_legal_moves()
@@ -288,6 +289,7 @@ fn color_to_u8(color: PlayerColor) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reversi_core::score::DiscScore;
 
     fn assert_initial_state(game: &Game) {
         assert_eq!(game.score(), vec![2, 2]);
@@ -437,9 +439,8 @@ mod tests {
         let mut expected = legal.clone();
         expected.sort_unstable();
         assert_eq!(hinted, expected);
-        for (sq, score) in &hints {
+        for (sq, _) in &hints {
             assert!(legal.contains(&(sq.index() as u8)));
-            assert!(score.is_finite());
         }
         assert_eq!(game.board(), board_before);
         assert_eq!(game.legal_moves(), legal);
@@ -475,7 +476,7 @@ mod tests {
         // of the web search's selective Multi-PV implementation.
         fn exact_score(board: Board) -> i32 {
             if board.is_game_over() {
-                return board.solve(board.empty_count());
+                return board.solve(board.empty_count()).value();
             }
             let moves = board.legal_moves();
             if moves.is_empty() {
@@ -506,7 +507,11 @@ mod tests {
         assert!(!expected.is_empty());
         assert_eq!(actual, expected);
         for (sq, score) in hints {
-            assert_eq!(score, -exact_score(game.board.make_move(sq)) as f32, "{sq}");
+            assert_eq!(
+                score,
+                Score::from_disc_diff(DiscScore::new(-exact_score(game.board.make_move(sq)))),
+                "{sq}"
+            );
         }
     }
 

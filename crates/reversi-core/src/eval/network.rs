@@ -12,7 +12,7 @@ use crate::eval::network::input_layer::{
 use crate::eval::network::layer_stack::{LayerStack, load_layer_stacks};
 use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::ceil_to_multiple;
-use crate::types::ScaledScore;
+use crate::score::Score;
 use crate::util::align::Align64;
 
 mod activations;
@@ -187,12 +187,7 @@ impl Network {
 
     /// Evaluates a board position using the neural network.
     #[inline(always)]
-    pub fn evaluate(
-        &self,
-        board: &Board,
-        pattern_feature: &PatternFeature,
-        ply: usize,
-    ) -> ScaledScore {
+    pub fn evaluate(&self, board: &Board, pattern_feature: &PatternFeature, ply: usize) -> Score {
         let mobility = board.legal_moves().count() as u8;
 
         with_network_buffers(|buffers| {
@@ -202,7 +197,7 @@ impl Network {
                 .forward(pattern_feature, ply, buffers.pa_input_mut());
             buffers.l1_input[MOBILITY_INPUT_INDEX] = mobility * MOBILITY_SCALE;
             let score = self.layer_stacks[ply].forward(buffers);
-            score.clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+            score.clamp(Score::MIN + 1, Score::MAX - 1)
         })
     }
 }

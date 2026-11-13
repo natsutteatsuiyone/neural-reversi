@@ -21,9 +21,10 @@ use reversi_core::{
     game_state::GameState,
     level::Level,
     player_color::PlayerColor,
+    score::Score,
     search::{Search, SearchRunOptions, options::SearchOptions},
     square::Square,
-    types::{Depth, Scoref},
+    types::Depth,
 };
 
 /// Transposition table size in MB for search
@@ -52,7 +53,7 @@ struct ProbCutSample {
     /// Shallow search depth
     shallow_depth: Depth,
     /// Score from shallow search
-    shallow_score: Scoref,
+    shallow_score: Score,
     /// Deep search depth
     deep_depth: Depth,
 }
@@ -102,7 +103,7 @@ fn depth_scores(
     eval: &Eval,
     board: &Board,
     max_depth: Depth,
-) -> Vec<(Depth, Scoref)> {
+) -> Vec<(Depth, Score)> {
     let n_empties = board.empty_count();
 
     (0..=max_depth)
@@ -110,7 +111,6 @@ fn depth_scores(
         .map(|depth| {
             let score = if depth == 0 {
                 eval.evaluate_simple(board, EvalMode::Main)
-                    .to_disc_diff_f32()
             } else {
                 let level = Level::uniform(depth, depth);
                 let run_options = SearchRunOptions::with_level(level)
@@ -132,17 +132,17 @@ fn write_midgame_sample(
     writer: &mut impl Write,
     game: usize,
     sample: &ProbCutSample,
-    deep_score: Scoref,
+    deep_score: Score,
 ) -> io::Result<()> {
     writeln!(
         writer,
         "{game},{},{},{},{},{},{}",
         sample.ply,
         sample.shallow_depth,
-        sample.shallow_score,
+        sample.shallow_score.to_disc_diff_f32(),
         sample.deep_depth,
-        deep_score,
-        deep_score - sample.shallow_score
+        deep_score.to_disc_diff_f32(),
+        (deep_score - sample.shallow_score).to_disc_diff_f32()
     )
 }
 
@@ -203,7 +203,7 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
         })?;
 
         let game = line_no + 1;
-        let mut samples: Vec<(ProbCutSample, Scoref)> = Vec::new();
+        let mut samples: Vec<(ProbCutSample, Score)> = Vec::new();
         replay(&moves, |board, _| {
             if !insert_midgame_position(&mut visited, board) {
                 return;
@@ -262,12 +262,12 @@ mod tests {
         let sample = ProbCutSample {
             ply: 12,
             shallow_depth: 2,
-            shallow_score: 1.25,
+            shallow_score: Score::from_raw(320),
             deep_depth: 7,
         };
         let mut output = Vec::new();
 
-        write_midgame_sample(&mut output, 17, &sample, -0.5).unwrap();
+        write_midgame_sample(&mut output, 17, &sample, Score::from_raw(-128)).unwrap();
 
         assert_eq!(
             String::from_utf8(output).unwrap(),

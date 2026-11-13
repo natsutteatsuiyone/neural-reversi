@@ -4,8 +4,9 @@ use std::sync::Mutex;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
+use crate::score::{DiscScore, Score};
 use crate::transposition_table::Bound;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 /// Index bits of [`CorrectionHistory`].
 const CORRECTION_BITS: u32 = 16;
@@ -28,7 +29,7 @@ const CORRECTION_KEY_MASK: Bitboard = Bitboard::new(0xFFC3_8181_8181_C3FF);
 
 /// Largest correction, and largest gap between a search score and the
 /// corrected evaluation that one update takes in.
-const CORRECTION_LIMIT: ScaledScore = ScaledScore::from_disc_diff(8);
+const CORRECTION_LIMIT: Score = Score::from_disc_diff(DiscScore::new(8));
 
 /// Search depth from which an update takes the full step.
 const CORRECTION_FULL_STEP_DEPTH: Depth = 16;
@@ -85,9 +86,8 @@ impl CorrectionHistory {
 
     /// Returns `eval` corrected for positions sharing `board`'s key squares.
     #[inline(always)]
-    pub(in crate::search) fn correct(&self, board: &Board, eval: ScaledScore) -> ScaledScore {
-        (eval + i32::from(self.0[Self::index(board)]))
-            .clamp(ScaledScore::MIN + 1, ScaledScore::MAX - 1)
+    pub(in crate::search) fn correct(&self, board: &Board, eval: Score) -> Score {
+        (eval + i32::from(self.0[Self::index(board)])).clamp(Score::MIN + 1, Score::MAX - 1)
     }
 
     /// Moves the correction for `board`'s key squares by part of the gap between a
@@ -97,8 +97,8 @@ impl CorrectionHistory {
     pub(in crate::search) fn update(
         &mut self,
         board: &Board,
-        eval: ScaledScore,
-        score: ScaledScore,
+        eval: Score,
+        score: Score,
         bound: Bound,
         depth: Depth,
     ) {

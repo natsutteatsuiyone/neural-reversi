@@ -4,13 +4,14 @@ use std::sync::Arc;
 
 use crate::board::Board;
 use crate::probcut::Selectivity;
+use crate::score::Score;
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::midgame;
 use crate::search::node_type::NonPV;
 use crate::search::threading::Thread;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 /// Marker trait for search strategy specialization.
 pub trait SearchStrategy: Copy + Clone + 'static {
@@ -30,7 +31,7 @@ pub trait SearchStrategy: Copy + Clone + 'static {
     const MIN_CLAIM_DEPTH: Depth;
 
     /// Evaluates a PV leaf node position (depth == 0).
-    fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore;
+    fn evaluate(ctx: &SearchContext, board: &Board) -> Score;
 
     /// Shallow-depth specialized search for NonPV nodes.
     ///
@@ -39,10 +40,10 @@ pub trait SearchStrategy: Copy + Clone + 'static {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: ScaledScore,
-        beta: ScaledScore,
+        alpha: Score,
+        beta: Score,
         thread: &Arc<Thread>,
-    ) -> ScaledScore;
+    ) -> Score;
 
     /// Calls the phase-specific probcut implementation.
     ///
@@ -52,11 +53,11 @@ pub trait SearchStrategy: Copy + Clone + 'static {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
+        beta: Score,
         cut_node: bool,
-        static_eval: Option<ScaledScore>,
+        static_eval: Option<Score>,
         thread: &Arc<Thread>,
-    ) -> Option<ScaledScore>;
+    ) -> Option<Score>;
 }
 
 /// Midgame search strategy marker.
@@ -78,7 +79,7 @@ impl SearchStrategy for MidGameStrategy {
     const MIN_CLAIM_DEPTH: Depth = Depth::MAX;
 
     #[inline(always)]
-    fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
+    fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
         midgame::evaluate(ctx, board)
     }
 
@@ -87,10 +88,10 @@ impl SearchStrategy for MidGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: ScaledScore,
-        beta: ScaledScore,
+        alpha: Score,
+        beta: Score,
         _thread: &Arc<Thread>,
-    ) -> ScaledScore {
+    ) -> Score {
         match depth {
             0 => midgame::evaluate(ctx, board),
             1 => midgame::evaluate_depth1(ctx, board, alpha, beta),
@@ -103,11 +104,11 @@ impl SearchStrategy for MidGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
+        beta: Score,
         cut_node: bool,
-        static_eval: Option<ScaledScore>,
+        static_eval: Option<Score>,
         thread: &Arc<Thread>,
-    ) -> Option<ScaledScore> {
+    ) -> Option<Score> {
         midgame::try_probcut(ctx, board, depth, beta, cut_node, static_eval?, thread)
     }
 }
@@ -120,7 +121,7 @@ impl SearchStrategy for EndGameStrategy {
     const MIN_CLAIM_DEPTH: Depth = 19;
 
     #[inline(always)]
-    fn evaluate(_ctx: &SearchContext, board: &Board) -> ScaledScore {
+    fn evaluate(_ctx: &SearchContext, board: &Board) -> Score {
         board.final_score_scaled()
     }
 
@@ -129,10 +130,10 @@ impl SearchStrategy for EndGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        alpha: ScaledScore,
-        beta: ScaledScore,
+        alpha: Score,
+        beta: Score,
         thread: &Arc<Thread>,
-    ) -> ScaledScore {
+    ) -> Score {
         let alpha_d = alpha.to_disc_diff();
 
         // ProbCut never runs below this depth, so a boundary result is
@@ -198,7 +199,7 @@ impl SearchStrategy for EndGameStrategy {
             }
         };
 
-        let score = ScaledScore::from_disc_diff(score_d);
+        let score = Score::from_disc_diff(score_d);
 
         if let Some(tt_index) = tt_slot
             && ctx.counters.n_nodes - nodes_before >= BOUNDARY_STORE_MIN_SUBTREE_NODES
@@ -225,11 +226,11 @@ impl SearchStrategy for EndGameStrategy {
         ctx: &mut SearchContext,
         board: &Board,
         depth: Depth,
-        beta: ScaledScore,
+        beta: Score,
         cut_node: bool,
-        _static_eval: Option<ScaledScore>,
+        _static_eval: Option<Score>,
         _thread: &Arc<Thread>,
-    ) -> Option<ScaledScore> {
+    ) -> Option<Score> {
         endgame::try_probcut(ctx, board, depth, beta, cut_node)
     }
 }

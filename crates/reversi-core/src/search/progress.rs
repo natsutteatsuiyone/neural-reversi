@@ -1,11 +1,12 @@
 //! Search progress reporting.
 
+use crate::score::Score;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
 use crate::search::result::SearchResult;
 use crate::search::root_move::RootMove;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore, Scoref};
+use crate::types::Depth;
 
 /// Progress information reported during an ongoing search.
 pub struct SearchProgress {
@@ -13,8 +14,8 @@ pub struct SearchProgress {
     pub depth: Depth,
     /// Target search depth for this iteration.
     pub target_depth: Depth,
-    /// Best score found so far (in disc difference).
-    pub score: Scoref,
+    /// Best score found so far.
+    pub score: Score,
     /// Best move found so far, or [`None`] when there is no legal move.
     pub best_move: Option<Square>,
     /// Probability percentage from the current [`Selectivity`] level.
@@ -42,14 +43,14 @@ impl SearchProgress {
         rm: &RootMove,
         depth: Depth,
         target_depth: Depth,
-        score: ScaledScore,
+        score: Score,
         nodes: u64,
         is_endgame: bool,
     ) -> Self {
         Self {
             depth,
             target_depth,
-            score: score.to_disc_diff_f32(),
+            score,
             best_move: Some(rm.sq),
             probability: ctx.selectivity.probability(),
             nodes,
@@ -64,7 +65,7 @@ impl SearchProgress {
         Self {
             depth: result.depth(),
             target_depth: result.depth(),
-            score: result.score().unwrap_or(0.0),
+            score: result.score().unwrap_or(Score::ZERO),
             probability: result.probability(),
             best_move: result.best_move(),
             nodes: result.n_nodes(),

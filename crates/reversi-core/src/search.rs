@@ -37,13 +37,14 @@ use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
+use crate::score::Score;
 use crate::search::correction_history::CorrectionHistories;
 use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::result::SearchResult;
 use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::transposition_table::TranspositionTable;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 /// Lowest endgame selectivity whose completion lets later timed searches
 /// skip the midgame iterations.
@@ -404,17 +405,17 @@ impl Search {
 /// Returns `true` if the window was widened and the search must be repeated,
 /// or `false` when `score` lies inside the window and the result stands.
 pub(crate) fn widen_aspiration_window(
-    score: ScaledScore,
-    alpha: &mut ScaledScore,
-    beta: &mut ScaledScore,
-    delta: ScaledScore,
+    score: Score,
+    alpha: &mut Score,
+    beta: &mut Score,
+    delta: Score,
 ) -> bool {
     if score <= *alpha {
         *beta = *alpha;
-        *alpha = (score - delta).max(-ScaledScore::INF);
+        *alpha = (score - delta).max(-Score::INF);
     } else if score >= *beta {
         *alpha = (*beta - delta).max(*alpha);
-        *beta = (score + delta).min(ScaledScore::INF);
+        *beta = (score + delta).min(Score::INF);
     } else {
         return false;
     }
@@ -518,7 +519,7 @@ mod tests {
         let mut search = Search::new(&one_thread_options());
         let endgame = |selectivity| SearchResult::BestMove {
             sq: Square::A1,
-            score: 0.0,
+            score: Score::ZERO,
             n_nodes: 0,
             pv_line: vec![],
             depth: 30,

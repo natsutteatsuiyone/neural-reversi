@@ -1,6 +1,7 @@
 //! Native game timeline. Boards are always relative to `Position::turn`.
 use reversi_core::{
-    analysis::GameAnalysisMove, board::Board, disc::Disc, player_color::PlayerColor, square::Square,
+    analysis::GameAnalysisMove, board::Board, disc::Disc, player_color::PlayerColor, score::Score,
+    square::Square,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,7 +174,7 @@ pub struct MoveRecord {
     pub position: Position,
     pub player: PlayerColor,
     pub square: Option<Square>,
-    pub score: Option<f32>,
+    pub score: Option<Score>,
     pub remaining_ms: Option<u64>,
 }
 
@@ -208,7 +209,7 @@ impl Game {
     pub fn play(
         &mut self,
         square: Square,
-        score: Option<f32>,
+        score: Option<Score>,
         remaining_ms: Option<u64>,
     ) -> Result<(), String> {
         let current = self.position();
@@ -284,6 +285,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reversi_core::score::DiscScore;
 
     fn board_string(position: &Position) -> String {
         (0..64)
@@ -299,7 +301,12 @@ mod tests {
         )
         .unwrap();
         let mut game = Game::new(initial);
-        game.play(Square::C1, Some(4.0), Some(500)).unwrap();
+        game.play(
+            Square::C1,
+            Some(Score::from_disc_diff(DiscScore::new(4))),
+            Some(500),
+        )
+        .unwrap();
         assert_eq!(game.history.len(), 2);
         assert_eq!(game.history[1].square, None);
         assert_eq!(game.position().turn, PlayerColor::Black);

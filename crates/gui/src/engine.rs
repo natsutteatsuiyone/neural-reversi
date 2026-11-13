@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use reversi_core::analysis::{self, GameAnalysisMove, GameAnalysisProgress};
 use reversi_core::board::Board;
 use reversi_core::level::{ENDGAME_STEPS, Level, get_level};
+use reversi_core::score::Score;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
@@ -70,7 +71,7 @@ pub enum EventKind {
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Progress {
     pub square: Option<Square>,
-    pub score: f32,
+    pub score: Score,
     pub depth: u32,
     pub target_depth: u32,
     pub probability: i32,
@@ -83,7 +84,7 @@ pub struct Progress {
 #[derive(Debug, Clone)]
 pub struct Outcome {
     pub best_move: Option<Square>,
-    pub score: Option<f32>,
+    pub score: Option<Score>,
     pub elapsed_ms: u64,
 }
 
@@ -298,7 +299,7 @@ fn execute(
                         (Some(best_move), Some(score)) => Ok(analysis::Analysis {
                             pv: result.pv_line().to_vec(),
                             best_move,
-                            score: round_score(score),
+                            score,
                         }),
                         _ => Err("Search returned no legal move for game analysis position".into()),
                     }
@@ -337,10 +338,6 @@ fn solver_level(selectivity: usize) -> Level {
     Level::with_depths(60, end_depth)
 }
 
-fn round_score(score: f32) -> f32 {
-    (score * 10.0).round() / 10.0
-}
-
 pub fn format_pv(squares: &[Square]) -> String {
     squares
         .iter()
@@ -353,7 +350,7 @@ fn progress_payload(progress: SearchProgress, elapsed: Duration) -> Progress {
     let elapsed_ms = elapsed.as_millis();
     Progress {
         square: progress.best_move,
-        score: round_score(progress.score),
+        score: progress.score,
         depth: progress.depth,
         target_depth: progress.target_depth,
         probability: progress.probability,
@@ -371,7 +368,7 @@ fn progress_payload(progress: SearchProgress, elapsed: Duration) -> Progress {
 fn outcome(result: &SearchResult, start: Instant) -> Outcome {
     Outcome {
         best_move: result.best_move(),
-        score: result.score().map(round_score),
+        score: result.score(),
         elapsed_ms: start.elapsed().as_millis() as u64,
     }
 }

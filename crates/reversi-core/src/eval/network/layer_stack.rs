@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-use crate::types::ScaledScore;
+use crate::score::Score;
 
 use super::activations::{screlu, screlu_store_order, sqr_clipped_and_clipped_relu_16};
 use super::linear_layer::LinearLayer;
@@ -41,7 +41,7 @@ impl LayerStack {
     }
 
     #[inline(always)]
-    pub(super) fn forward(&self, buffers: &mut NetworkBuffers) -> ScaledScore {
+    pub(super) fn forward(&self, buffers: &mut NetworkBuffers) -> Score {
         self.forward_l1(buffers);
         self.forward_l2(buffers);
         self.forward_output(buffers)
@@ -64,10 +64,10 @@ impl LayerStack {
     }
 
     #[inline(always)]
-    fn forward_output(&self, buffers: &NetworkBuffers) -> ScaledScore {
+    fn forward_output(&self, buffers: &NetworkBuffers) -> Score {
         let score = (self.lo.forward(buffers.output_segments()) >> OUTPUT_WEIGHT_SCALE_BITS)
-            .clamp(-ScaledScore::INF.value(), ScaledScore::INF.value());
-        ScaledScore::from_raw(score)
+            .clamp(-Score::INF.value(), Score::INF.value());
+        Score::from_raw(score)
     }
 }
 

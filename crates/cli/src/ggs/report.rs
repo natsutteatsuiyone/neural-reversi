@@ -6,16 +6,17 @@ use std::time::Duration;
 
 use reversi_core::board::Board;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 use reversi_core::search::result::SearchResult;
 use reversi_core::square::Square;
-use reversi_core::types::{Depth, Scoref};
+use reversi_core::types::Depth;
 
 /// Statistics of a finished search that chose a move.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchReport {
     pub sq: Square,
     /// Disc difference from our side.
-    pub score: Scoref,
+    pub score: Score,
     pub depth: Depth,
     /// Selectivity probability in percent.
     pub probability: i32,
@@ -29,7 +30,11 @@ pub struct SearchReport {
 impl SearchReport {
     /// The move and its rounded score, e.g. `f5 +3`.
     pub fn best(&self) -> String {
-        format!("{} {:+}", self.sq, self.score.round() as i32)
+        format!(
+            "{} {:+}",
+            self.sq,
+            self.score.to_disc_diff_f32().round() as i32
+        )
     }
 
     /// Depth, node count, time, and speed, e.g. `depth 22@73%`,
@@ -103,7 +108,11 @@ pub(super) fn channel_report(
         );
     }
     let pv = report_pv(board, color, result.pv_line());
-    let score = result.score().unwrap_or_default().round() as i32;
+    let score = result
+        .score()
+        .unwrap_or_default()
+        .to_disc_diff_f32()
+        .round() as i32;
     let depth = result.depth();
     let probability = result.probability();
     let nodes = result.n_nodes() as f64;

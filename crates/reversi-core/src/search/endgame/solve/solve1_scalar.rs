@@ -1,16 +1,17 @@
 //! Portable scalar last-empty-square scoring.
 
-use crate::constants::SCORE_MAX;
+use crate::score::DISC_SCORE_MAX;
+use crate::score::DiscScore;
 use crate::square::Square;
-use crate::types::Score;
 
 use super::solve1_tables::{COUNT_FLIP, MULT_D9, PARAMS, SqParams};
 
 #[inline(always)]
-pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
+pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
+    let alpha = alpha.value();
     let pp = unsafe { PARAMS.get_unchecked(sq.index()) };
     let mut n_flipped = count_one(player, pp);
-    let mut score = 2 * player.count_ones() as Score - SCORE_MAX + 2 + n_flipped;
+    let mut score = 2 * player.count_ones() as i32 - DISC_SCORE_MAX.value() + 2 + n_flipped;
 
     if n_flipped == 0 {
         let score_if_opp_passes = if score > 0 { score } else { score - 2 };
@@ -26,7 +27,7 @@ pub(super) fn solve1(player: u64, alpha: Score, sq: Square) -> Score {
         }
     }
 
-    score
+    DiscScore::new(score)
 }
 
 /// Sums the four COUNT_FLIP lookups for one bitboard, given pre-loaded params.

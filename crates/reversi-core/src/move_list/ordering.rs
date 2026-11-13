@@ -3,12 +3,13 @@
 use crate::board::Board;
 use crate::eval::Eval;
 use crate::legal_moves::LegalMoves;
+use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::midgame;
 use crate::search::node_type::NodeType;
 use crate::search::strategy::SearchStrategy;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 use super::{Move, MoveList};
 
@@ -37,16 +38,16 @@ const MOBILITY_WEIGHT: i32 = 16384;
 
 /// Corner-stability bonus weight for shallow-search endgame ordering
 /// (one disc-difference per stable corner-region disc).
-const CORNER_STABILITY_WEIGHT_SEARCH: i32 = ScaledScore::SCALE;
+const CORNER_STABILITY_WEIGHT_SEARCH: i32 = Score::SCALE;
 
 /// Penalty per unit of the opponent's corner-weighted mobility in midgame
 /// search ordering (1/4 disc). LMR reads the penalized value, so moves that
 /// leave the opponent many replies are also reduced more.
-const MOBILITY_SCALE_MIDGAME: i32 = ScaledScore::SCALE / 4;
+const MOBILITY_SCALE_MIDGAME: i32 = Score::SCALE / 4;
 
 /// Penalty per unit of the opponent's corner-weighted potential mobility in
 /// midgame search ordering (1/8 disc). Read by LMR like the mobility penalty.
-const POTENTIAL_MOBILITY_SCALE_MIDGAME: i32 = ScaledScore::SCALE / 8;
+const POTENTIAL_MOBILITY_SCALE_MIDGAME: i32 = Score::SCALE / 8;
 
 impl MoveList {
     /// Evaluates all moves and assigns ordering values.
@@ -56,7 +57,7 @@ impl MoveList {
         board: &Board,
         depth: Depth,
         tt_move: Option<Square>,
-        alpha: ScaledScore,
+        alpha: Score,
         cut_node: bool,
     ) {
         #[rustfmt::skip]
@@ -94,7 +95,7 @@ impl MoveList {
         board: &Board,
         depth: Depth,
         tt_move: Option<Square>,
-        alpha: ScaledScore,
+        alpha: Score,
         cut_node: bool,
     ) {
         let sort_depth: i32 = if SS::IS_ENDGAME {
@@ -118,7 +119,7 @@ impl MoveList {
         // static-eval margin check.
         let skip_search_ordering = if SS::IS_ENDGAME && !NT::PV_NODE && !cut_node {
             tt_move.is_some() || {
-                const SKIP_MARGIN: ScaledScore = ScaledScore::from_disc_diff(10);
+                const SKIP_MARGIN: Score = Score::from_disc_diff(DiscScore::new(10));
                 let static_eval = midgame::evaluate(ctx, board);
                 static_eval + SKIP_MARGIN < alpha
             }
@@ -126,8 +127,8 @@ impl MoveList {
             false
         };
 
-        const MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE * 15 / 8;
-        const POTENTIAL_MOBILITY_SCALE_SEARCH: i32 = ScaledScore::SCALE;
+        const MOBILITY_SCALE_SEARCH: i32 = Score::SCALE * 15 / 8;
+        const POTENTIAL_MOBILITY_SCALE_SEARCH: i32 = Score::SCALE;
 
         if SS::IS_ENDGAME && skip_search_ordering {
             for mv in self.iter_mut() {
@@ -223,11 +224,11 @@ impl MoveList {
 ///
 /// Used for move ordering in both midgame and endgame evaluation.
 #[inline(always)]
-fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) -> ScaledScore {
+fn shallow_search_score(ctx: &mut SearchContext, next: &Board, sort_depth: i32) -> Score {
     match sort_depth {
         0 => -midgame::evaluate(ctx, next),
-        1 => -midgame::evaluate_depth1(ctx, next, -ScaledScore::INF, ScaledScore::INF),
-        2 => -midgame::evaluate_depth2(ctx, next, -ScaledScore::INF, ScaledScore::INF),
+        1 => -midgame::evaluate_depth1(ctx, next, -Score::INF, Score::INF),
+        2 => -midgame::evaluate_depth2(ctx, next, -Score::INF, Score::INF),
         _ => unreachable!(),
     }
 }

@@ -47,7 +47,11 @@ fn search(n_threads: usize) -> Search {
 }
 
 fn score(result: &SearchResult) -> i32 {
-    result.score().expect("expected best move") as i32
+    result
+        .score()
+        .expect("expected best move")
+        .to_disc_diff()
+        .value()
 }
 
 /// Solves `board_str` with `n_threads` and asserts the exact score.

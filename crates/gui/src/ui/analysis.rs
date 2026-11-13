@@ -1,8 +1,9 @@
 use gpui_kit::component::Icon;
 use gpui_kit::{prelude::*, *};
+use reversi_core::score::Score;
 
 use super::assets::icon;
-use super::format::{ScorePrecision, compact_number, display_depth, display_score};
+use super::format::{ScorePrecision, compact_number, display_depth, display_score, tenth_score};
 use super::slider::SliderKind;
 use super::widgets::{activity_icon, interactive, shadow};
 use super::{ACCENT, Action, BACKGROUND, BLUE, PANEL, RED, ReversiApp, SECONDARY};
@@ -538,10 +539,11 @@ impl ReversiApp {
     }
 }
 
-fn score_color(score: f32) -> gpui_kit::Rgba {
-    if score > 0. {
+fn score_color(score: Score) -> gpui_kit::Rgba {
+    let tenth = tenth_score(score);
+    if tenth > 0. {
         rgb(ACCENT)
-    } else if score < 0. {
+    } else if tenth < 0. {
         rgb(RED)
     } else {
         rgba(0xffffffeb)

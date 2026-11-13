@@ -7,6 +7,7 @@ use std::thread;
 
 use crate::board::Board;
 use crate::move_list::{ConcurrentMoveIterator, MoveList};
+use crate::score::Score;
 use crate::search;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
@@ -14,7 +15,7 @@ use crate::search::endgame::EndGameCaches;
 use crate::search::node_type::{NodeTypeId, NonPV, PV, Root};
 use crate::search::pvs::search_split_point;
 use crate::square::Square;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 use crate::util::align::Align64;
 use crate::util::spinlock;
 
@@ -108,9 +109,9 @@ pub struct Thread {
 /// Node snapshot passed from the search to `Thread::split`.
 pub struct SplitRequest<'a> {
     pub board: &'a Board,
-    pub alpha: ScaledScore,
-    pub beta: ScaledScore,
-    pub best_score: ScaledScore,
+    pub alpha: Score,
+    pub beta: Score,
+    pub best_score: Score,
     pub best_move: Option<Square>,
     pub depth: Depth,
     pub move_list: MoveList,
@@ -365,7 +366,7 @@ impl Thread {
         self: &Arc<Self>,
         ctx: &mut SearchContext,
         req: SplitRequest,
-    ) -> (ScaledScore, Option<Square>, SearchCounters) {
+    ) -> (Score, Option<Square>, SearchCounters) {
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 

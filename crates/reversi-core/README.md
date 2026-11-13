@@ -202,8 +202,8 @@ ending with `None` for an exact solve.
   `INTER_SELECTIVITY_DELTA`. On a fail-high or fail-low it widens by
   `ASPIRATION_DELTA` and re-searches.
 - The root loop keeps aspiration centers, windows, and search return values as
-  `ScaledScore`; only the null-window and shallow endgame solvers convert to
-  plain `Score` disc differences.
+  `Score`; only the null-window and shallow endgame solvers convert to
+  `DiscScore` disc differences.
 - `EvalMode::Small` is forced, so the endgame net runs. Endgame ProbCut
   switches to the main network for its screen and verification search.
 - A pair of thread-local `EndGameCache`s accelerates shallow re-searches.
@@ -224,7 +224,7 @@ into a shallow variant.
 
 and probes / stores are lock-free.
 
-- `score: i16` keeps a `ScaledScore` verbatim; `best_move: u8` is the raw
+- `score: i16` keeps a `Score` verbatim; `best_move: u8` is the raw
   `Square` discriminant.
 - Hash collisions never produce false hits, because the comparison uses
   the full `Board`. They affect replacement only.
@@ -271,7 +271,7 @@ a cutoff.
 
   The shallow depth is `probcut_depth(deep)`. `probcut::init` tabulates the
   coefficients per `(ply, deep)` into a `OnceLock`, pre-multiplied by
-  `ScaledScore::SCALE` so they live directly in `ScaledScore` units. The
+  `Score::SCALE` so they live directly in `Score` units. The
   verification threshold is `ceil(beta + t·sigma − mean)`
   (`compute_probcut_beta`). A static-evaluation pre-screen
   (`compute_eval_beta`) skips the verification when the evaluation is far
@@ -428,7 +428,7 @@ PatternFeature ─►            │
                 LinearLayer L2 ─► screlu
                        │
                        ▼  + base_out + pa_out (skip connection)
-                OutputLayer (i32 → ScaledScore)
+                OutputLayer (i32 → Score)
 ```
 
 - Weights are zstd-compressed `i16` blobs. `Network::from_reader` reads
@@ -441,7 +441,7 @@ PatternFeature ─►            │
 - The working buffers (`NetworkBuffers`) are thread-local and reused across
   calls; one evaluation is computed in-place.
 - The output is shifted right by `OUTPUT_WEIGHT_SCALE_BITS`, clamped to
-  `±INF`, and saturated into `ScaledScore::MIN+1 ..= MAX-1`.
+  `±INF`, and saturated into `Score::MIN+1 ..= MAX-1`.
 
 ### Endgame network
 
@@ -464,13 +464,13 @@ evaluations only.
 next `evaluate` so the cache line load overlaps with the SIMD work in
 between.
 
-## ScaledScore
+## Score
 
-All in-search arithmetic is in `ScaledScore`:
+All in-search arithmetic is in `Score`:
 
 ```rust
 #[repr(transparent)]
-pub struct ScaledScore(i32);
+pub struct Score(i32);
 // scale: 1 << SCALE_BITS
 ```
 
@@ -479,13 +479,17 @@ pub struct ScaledScore(i32);
 - Special values: `ZERO`, `MIN` / `MAX` (full-board disc differences as
   scaled values), and `INF = i16::MAX` (the αβ sentinel — bounded by
   `i16` because the TT packs the score in 16 bits).
-- `Add / Sub / Neg` between `ScaledScore`s, plus `Add<i32> / Mul<i32> /
+- `Add / Sub / Neg` between `Score`s, plus `Add<i32> / Mul<i32> /
   Div<i32>`. This lets ProbCut expressions like `beta + t·sigma − mean`
-  stay in `ScaledScore` without conversions.
+  stay in `Score` without conversions.
 - The fixed-point scale exists because the disc difference produced by a
   move is integer, but root-move ordering needs sub-disc precision to
-  break ties. Conversions to `Score` / `Scoref` happen at the boundary
-  (display, GTP output, multi-PV reporting).
+  break ties.
+- Search results (`SearchResult`, `SearchProgress`, game analysis) carry
+  `Score`; callers convert with `to_disc_diff` or `to_disc_diff_f32` where
+  they display, print, or write the value.
+- `DiscScore` is the newtype for whole disc differences, used by the
+  endgame solvers, their caches, and `Board::final_score` / `Board::solve`.
 
 ## Levels and time control
 
@@ -603,6 +607,7 @@ The integration tests in `tests/` require real weights to load.
 | Pattern features                     | `src/eval/pattern_feature.rs`                                             |
 | Main NN                              | `src/eval/network.rs`, `src/eval/network/*`                               |
 | Endgame NN                           | `src/eval/network_small.rs`                                               |
+| Scores                               | `src/score.rs`                                                            |
 | Numeric types / constants            | `src/types.rs`, `src/constants.rs`                                        |
 | Utilities                            | `src/util/{align,aligned_buffer,bitset,large_pages,spinlock}.rs`          |
 | Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`, `tests/parallel_search_tests.rs` |

@@ -1,4 +1,4 @@
-use reversi_core::types::Score;
+use reversi_core::score::DiscScore;
 
 const SCORE_BITS: u32 = 8;
 const BOUND_BITS: u32 = 1;
@@ -21,7 +21,7 @@ enum EndGameCacheBound {
 
 impl EndGameCacheBound {
     #[inline(always)]
-    fn determine(score: Score, beta: Score) -> Self {
+    fn determine(score: DiscScore, beta: DiscScore) -> Self {
         if score < beta {
             Self::Upper
         } else {
@@ -38,13 +38,13 @@ impl EndGameCacheBound {
 /// Decoded entry from the Web endgame cache.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct EndGameCacheEntry {
-    pub(super) score: Score,
+    pub(super) score: DiscScore,
     bound: EndGameCacheBound,
 }
 
 impl EndGameCacheEntry {
     #[inline(always)]
-    pub(super) fn can_cut(self, beta: Score) -> bool {
+    pub(super) fn can_cut(self, beta: DiscScore) -> bool {
         match self.bound {
             EndGameCacheBound::Lower => self.score >= beta,
             EndGameCacheBound::Upper => self.score < beta,
@@ -101,16 +101,22 @@ impl EndGameCache {
         }
 
         Some(EndGameCacheEntry {
-            score: (entry & SCORE_MASK) as u8 as i8 as Score,
+            score: DiscScore::new((entry & SCORE_MASK) as u8 as i8 as i32),
             bound: EndGameCacheBound::from_bit((entry >> BOUND_SHIFT) & BOUND_MASK),
         })
     }
 
     /// Stores a bound entry for `key`.
     #[inline(always)]
-    pub(super) fn store(&mut self, cache_idx: CacheIndex, key: u64, score: Score, beta: Score) {
+    pub(super) fn store(
+        &mut self,
+        cache_idx: CacheIndex,
+        key: u64,
+        score: DiscScore,
+        beta: DiscScore,
+    ) {
         debug_assert!(
-            i8::try_from(score).is_ok(),
+            i8::try_from(score.value()).is_ok(),
             "EndGameCache score out of i8 range: {score}"
         );
         // SAFETY: as in `probe`.
@@ -121,11 +127,11 @@ impl EndGameCache {
     }
 
     #[inline(always)]
-    fn pack(key: u64, score: Score, bound: EndGameCacheBound) -> u64 {
+    fn pack(key: u64, score: DiscScore, bound: EndGameCacheBound) -> u64 {
         (key & KEY_MASK)
             | (VALID_MASK << VALID_SHIFT)
             | ((bound as u64) << BOUND_SHIFT)
-            | ((score as i8 as u8) as u64)
+            | ((score.value() as i8 as u8) as u64)
     }
 }
 
@@ -139,11 +145,11 @@ mod tests {
         let key = 0x1234_5678_9abc_def0;
         let cache_idx = cache.index(key);
 
-        cache.store(cache_idx, key, 12, 12);
+        cache.store(cache_idx, key, DiscScore::new(12), DiscScore::new(12));
 
         let entry = cache.probe(cache_idx, key).unwrap();
-        assert_eq!(entry.score, 12);
-        assert!(entry.can_cut(12));
+        assert_eq!(entry.score, DiscScore::new(12));
+        assert!(entry.can_cut(DiscScore::new(12)));
     }
 
     #[test]
@@ -152,11 +158,11 @@ mod tests {
         let key = 0xabcd_1234_5678_9abc;
         let cache_idx = cache.index(key);
 
-        cache.store(cache_idx, key, 8, 12);
+        cache.store(cache_idx, key, DiscScore::new(8), DiscScore::new(12));
 
         let entry = cache.probe(cache_idx, key).unwrap();
-        assert!(entry.can_cut(12));
-        assert!(!entry.can_cut(8));
+        assert!(entry.can_cut(DiscScore::new(12)));
+        assert!(!entry.can_cut(DiscScore::new(8)));
     }
 
     #[test]
@@ -167,7 +173,7 @@ mod tests {
         let cache_idx1 = cache.index(key1);
         let cache_idx2 = cache.index(key2);
 
-        cache.store(cache_idx1, key1, 12, 12);
+        cache.store(cache_idx1, key1, DiscScore::new(12), DiscScore::new(12));
 
         assert_eq!(cache_idx1.0, cache_idx2.0);
         assert!(cache.probe(cache_idx2, key2).is_none());

@@ -3,7 +3,7 @@
 use std::hint::{Locality, prefetch_read};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::types::ScaledScore;
+use crate::score::Score;
 use crate::util::aligned_buffer::AlignedBuffer;
 
 const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
@@ -54,17 +54,13 @@ impl EvalCache {
 
     /// Returns the cached evaluation score for `key`, or [`None`] if not found.
     #[cfg(test)]
-    fn probe(&self, key: u64) -> Option<ScaledScore> {
+    fn probe(&self, key: u64) -> Option<Score> {
         self.probe_for_store(key).0
     }
 
     /// Returns a cached score or evaluates and stores it on a miss.
     #[inline(always)]
-    pub fn get_or_insert_with(
-        &self,
-        key: u64,
-        evaluate: impl FnOnce() -> ScaledScore,
-    ) -> ScaledScore {
+    pub fn get_or_insert_with(&self, key: u64, evaluate: impl FnOnce() -> Score) -> Score {
         let (cached, slot) = self.probe_for_store(key);
         if let Some(score) = cached {
             return score;
@@ -77,7 +73,7 @@ impl EvalCache {
 
     /// Probes every way and returns the replacement slot on a miss.
     #[inline(always)]
-    fn probe_for_store(&self, key: u64) -> (Option<ScaledScore>, &AtomicU64) {
+    fn probe_for_store(&self, key: u64) -> (Option<Score>, &AtomicU64) {
         let (index, victim_way) = self.location(key);
         // SAFETY: `location()` masks `index` to `0..self.table.len()`.
         let bucket = unsafe { self.table.get_unchecked(index) };
@@ -147,16 +143,16 @@ impl EvalCache {
     #[inline(always)]
     fn pack(key: u64, score: i32) -> u64 {
         debug_assert!(
-            (-ScaledScore::INF.value()..=ScaledScore::INF.value()).contains(&score),
-            "cache score must be within the ScaledScore sentinel range"
+            (-Score::INF.value()..=Score::INF.value()).contains(&score),
+            "cache score must be within the Score sentinel range"
         );
         ((key & KEY_MASK) << SCORE_BITS) | score as u16 as u64
     }
 
     /// Decodes a score from a non-empty packed entry.
     #[inline(always)]
-    fn unpack_score(entry: u64) -> ScaledScore {
-        ScaledScore::from_raw(entry as i16 as i32)
+    fn unpack_score(entry: u64) -> Score {
+        Score::from_raw(entry as i16 as i32)
     }
 
     /// Clears all entries in the cache.
@@ -230,8 +226,8 @@ mod tests {
             assert_eq!(cache.probe(key), None, "key {key:#018x}");
         }
 
-        cache.get_or_insert_with(0, || ScaledScore::ZERO);
-        assert_eq!(cache.probe(0), Some(ScaledScore::ZERO));
+        cache.get_or_insert_with(0, || Score::ZERO);
+        assert_eq!(cache.probe(0), Some(Score::ZERO));
 
         cache.clear();
         assert_eq!(cache.probe(0), None);
@@ -267,7 +263,7 @@ mod tests {
     fn probe_returns_only_exact_stored_truncated_key() {
         let cache = EvalCache::new(4);
         let (stored_key, colliding_key) = colliding_keys();
-        let score = ScaledScore::from_raw(-1234);
+        let score = Score::from_raw(-1234);
 
         assert_eq!(
             cache.location(stored_key).0,
@@ -285,11 +281,11 @@ mod tests {
         let cache = EvalCache::new(4);
         let (old_key, new_key) = colliding_keys();
 
-        cache.get_or_insert_with(old_key, || ScaledScore::from_raw(11));
-        cache.get_or_insert_with(new_key, || ScaledScore::from_raw(22));
+        cache.get_or_insert_with(old_key, || Score::from_raw(11));
+        cache.get_or_insert_with(new_key, || Score::from_raw(22));
 
-        assert_eq!(cache.probe(old_key), Some(ScaledScore::from_raw(11)));
-        assert_eq!(cache.probe(new_key), Some(ScaledScore::from_raw(22)));
+        assert_eq!(cache.probe(old_key), Some(Score::from_raw(11)));
+        assert_eq!(cache.probe(new_key), Some(Score::from_raw(22)));
     }
 
     #[test]
@@ -300,14 +296,14 @@ mod tests {
 
         let first = cache.get_or_insert_with(key, || {
             calls.set(calls.get() + 1);
-            ScaledScore::from_raw(123)
+            Score::from_raw(123)
         });
         let second = cache.get_or_insert_with(key, || {
             calls.set(calls.get() + 1);
-            ScaledScore::from_raw(456)
+            Score::from_raw(456)
         });
 
-        assert_eq!(first, ScaledScore::from_raw(123));
+        assert_eq!(first, Score::from_raw(123));
         assert_eq!(second, first);
         assert_eq!(calls.get(), 1);
     }
@@ -316,15 +312,15 @@ mod tests {
     fn score_round_trips_across_signed_16_bit_cache_encoding() {
         let cache = EvalCache::new(5);
         let cases = [
-            (0x0001_0000_0000_0001, -ScaledScore::INF.value()),
+            (0x0001_0000_0000_0001, -Score::INF.value()),
             (0x0002_0000_0000_0002, -1),
             (0x0003_0000_0000_0003, 0),
             (0x0004_0000_0000_0004, 1),
-            (0x0005_0000_0000_0005, ScaledScore::INF.value()),
+            (0x0005_0000_0000_0005, Score::INF.value()),
         ];
 
         for (key, raw_score) in cases {
-            let score = ScaledScore::from_raw(raw_score);
+            let score = Score::from_raw(raw_score);
             cache.get_or_insert_with(key, || score);
             assert_eq!(cache.probe(key), Some(score), "key {key:#018x}");
         }
@@ -332,10 +328,10 @@ mod tests {
 
     #[test]
     #[cfg(debug_assertions)]
-    #[should_panic(expected = "cache score must be within the ScaledScore sentinel range")]
+    #[should_panic(expected = "cache score must be within the Score sentinel range")]
     fn insert_rejects_scores_outside_the_scaled_score_domain() {
         let cache = EvalCache::new(4);
-        cache.get_or_insert_with(1, || -ScaledScore::INF - 1);
+        cache.get_or_insert_with(1, || -Score::INF - 1);
     }
 
     #[test]
@@ -348,7 +344,7 @@ mod tests {
         ];
 
         for (idx, &key) in keys.iter().enumerate() {
-            cache.get_or_insert_with(key, || ScaledScore::from_raw((idx as i32 + 1) * 100));
+            cache.get_or_insert_with(key, || Score::from_raw((idx as i32 + 1) * 100));
             assert!(cache.probe(key).is_some(), "precondition key {idx}");
         }
 

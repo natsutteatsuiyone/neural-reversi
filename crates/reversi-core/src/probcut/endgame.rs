@@ -19,7 +19,8 @@
 
 use crate::level::Level;
 use crate::probcut::Selectivity;
-use crate::types::{Depth, ScaledScore};
+use crate::score::Score;
+use crate::types::Depth;
 
 /// Depth of the verification search.
 pub const VERIFY_DEPTH: Depth = 2;
@@ -146,15 +147,15 @@ fn dot<const N: usize>(a: &[f64; N], b: &[f64; N]) -> f64 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EndgameWindow {
     /// The verification passes when its score is at least this.
-    pub pc_beta: ScaledScore,
+    pub pc_beta: Score,
     /// The verification runs only when the static evaluation is at least this.
-    pub screen_beta: ScaledScore,
+    pub screen_beta: Score,
 }
 
 /// Returns the ProbCut window of a node.
 ///
 /// `beta` is the null-window beta and `eval` the main-network static
-/// evaluation. `pc_beta` is clamped to [`ScaledScore::MAX`], which no
+/// evaluation. `pc_beta` is clamped to [`Score::MAX`], which no
 /// verification reaches, so a clamped window never cuts.
 ///
 /// `selectivity` must be one of [`ENDGAME_LEVELS`].
@@ -163,11 +164,11 @@ pub fn endgame_probcut_window(
     empties: Depth,
     selectivity: Selectivity,
     cut_node: bool,
-    beta: ScaledScore,
-    eval: ScaledScore,
+    beta: Score,
+    eval: Score,
 ) -> EndgameWindow {
-    let scale = ScaledScore::SCALE as f64;
-    let max = ScaledScore::MAX.value();
+    let scale = Score::SCALE as f64;
+    let max = Score::MAX.value();
     let margin = ENDGAME_VERIFY_MODEL.margin(
         empties,
         cut_node,
@@ -179,8 +180,8 @@ pub fn endgame_probcut_window(
     let screen = margin - SCREEN_MARGINS[usize::from(cut_node)];
     let screen_beta = (beta.value() + (screen * scale).floor() as i32).clamp(-max, max);
     EndgameWindow {
-        pc_beta: ScaledScore::from_raw(pc_beta),
-        screen_beta: ScaledScore::from_raw(screen_beta),
+        pc_beta: Score::from_raw(pc_beta),
+        screen_beta: Score::from_raw(screen_beta),
     }
 }
 
@@ -193,7 +194,7 @@ pub mod trace {
 
     use crate::board::Board;
     use crate::probcut::Selectivity;
-    use crate::types::ScaledScore;
+    use crate::score::Score;
 
     /// One endgame ProbCut attempt.
     #[derive(Clone, Copy, Debug)]
@@ -201,13 +202,13 @@ pub mod trace {
         /// Position at the node, side to move first.
         pub board: Board,
         /// Null-window beta at the node.
-        pub beta: ScaledScore,
+        pub beta: Score,
         /// Selectivity the attempt ran at.
         pub selectivity: Selectivity,
         /// Whether the node was searched as an expected cut node.
         pub cut_node: bool,
         /// The score ProbCut returned, if it cut.
-        pub result: Option<ScaledScore>,
+        pub result: Option<Score>,
     }
 
     /// Number of empty counts a position can have.
@@ -241,10 +242,10 @@ pub mod trace {
 
     pub(crate) fn record(
         board: &Board,
-        beta: ScaledScore,
+        beta: Score,
         selectivity: Selectivity,
         cut_node: bool,
-        result: Option<ScaledScore>,
+        result: Option<Score>,
     ) {
         let one_in = ONE_IN.load(Ordering::Relaxed);
         let empties = board.empty_count();
@@ -288,6 +289,7 @@ const SCREEN_MARGINS: [f64; 2] = [4.9062500000, 17.7304690000];
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score::DiscScore;
 
     #[test]
     fn model_was_fitted_for_the_engine_main_network() {
@@ -304,15 +306,15 @@ mod tests {
                             empties,
                             level,
                             cut_node,
-                            ScaledScore::from_disc_diff(beta),
-                            ScaledScore::from_disc_diff(eval),
+                            Score::from_disc_diff(DiscScore::new(beta)),
+                            Score::from_disc_diff(DiscScore::new(eval)),
                         )
                     });
                     for pair in windows.windows(2) {
                         assert!(pair[0].pc_beta < pair[1].pc_beta);
                     }
                     for window in windows {
-                        assert!(window.pc_beta > ScaledScore::from_disc_diff(beta));
+                        assert!(window.pc_beta > Score::from_disc_diff(DiscScore::new(beta)));
                         assert!(window.screen_beta < window.pc_beta);
                     }
                 }

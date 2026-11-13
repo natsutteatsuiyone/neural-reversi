@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use reversi_core::{analysis::GameAnalysisProgress, player_color::PlayerColor, square::Square};
+use reversi_core::{
+    analysis::GameAnalysisProgress, player_color::PlayerColor, score::Score, square::Square,
+};
 
 use crate::engine::{Engine, EventKind, Progress, Request};
 use crate::game::{Game, Position};
@@ -248,7 +250,8 @@ impl Session {
                     } else {
                         self.candidates.push(progress.clone());
                     }
-                    self.candidates.sort_by(|a, b| b.score.total_cmp(&a.score));
+                    self.candidates
+                        .sort_by_key(|candidate| std::cmp::Reverse(candidate.score));
                     let duplicate = self.log.last().is_some_and(|last| {
                         last.depth == progress.depth
                             && last.probability == progress.probability
@@ -595,7 +598,7 @@ impl Session {
         );
     }
 
-    fn play(&mut self, square: Square, score: Option<f32>, remaining: Option<u64>) {
+    fn play(&mut self, square: Square, score: Option<Score>, remaining: Option<u64>) {
         match self.game.play(square, score, remaining) {
             Ok(()) => {
                 self.analyses.clear();
@@ -639,6 +642,8 @@ mod tests {
     use std::thread;
 
     use super::*;
+    use reversi_core::score::DiscScore;
+
     use crate::settings::GameMode;
 
     /// Ticks until `done`, firing pending automation without waiting out its delay.
@@ -720,10 +725,10 @@ mod tests {
         // Inject successive engine reports through the same queue tick consumes.
         // The best move changes explicitly, independent of weights or search timing.
         session.activity = Some(Activity::Solver);
-        for (square, score, probability) in [(Square::D3, 2.0, 73), (Square::C4, 4.0, 100)] {
+        for (square, discs, probability) in [(Square::D3, 2, 73), (Square::C4, 4, 100)] {
             let progress = Progress {
                 square: Some(square),
-                score,
+                score: Score::from_disc_diff(DiscScore::new(discs)),
                 depth: 18,
                 target_depth: 18,
                 probability,

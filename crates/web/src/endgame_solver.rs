@@ -81,7 +81,7 @@ impl EndgameSolver {
         };
         if !search_board.has_legal_moves() {
             return Ok(EndgameSolveResult {
-                score: board.solve(board.empty_count()) as f32,
+                score: board.solve(board.empty_count()).value() as f32,
                 best_move: String::new(),
                 n_nodes: 0.0,
             });
@@ -100,13 +100,13 @@ impl EndgameSolver {
 
         if is_pass {
             return Ok(EndgameSolveResult {
-                score: -result.score,
+                score: -result.score.to_disc_diff_f32(),
                 best_move: String::new(),
                 n_nodes: result.n_nodes as f64,
             });
         }
         Ok(EndgameSolveResult {
-            score: result.score,
+            score: result.score.to_disc_diff_f32(),
             best_move: result
                 .best_move
                 .map(|sq| sq.to_string())

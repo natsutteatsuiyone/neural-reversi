@@ -3,11 +3,7 @@
 pub use reversi_core::move_list::MoveList;
 
 use reversi_core::{
-    bitboard::Bitboard,
-    board::Board,
-    move_list::Move,
-    square::Square,
-    types::{Depth, ScaledScore},
+    bitboard::Bitboard, board::Board, move_list::Move, score::Score, square::Square, types::Depth,
 };
 
 use crate::search::{self, context::SearchContext, strategy::SearchStrategy};
@@ -59,8 +55,8 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
     depth: Depth,
     tt_move: Option<Square>,
 ) {
-    const MOBILITY_SCALE: i32 = ScaledScore::SCALE * 2;
-    const POTENTIAL_MOBILITY_SCALE: i32 = ScaledScore::SCALE;
+    const MOBILITY_SCALE: i32 = Score::SCALE * 2;
+    const POTENTIAL_MOBILITY_SCALE: i32 = Score::SCALE;
 
     let sort_depth = if SS::IS_ENDGAME {
         match depth {
@@ -90,8 +86,8 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
 
             let score = match sort_depth {
                 0 => -search::evaluate(ctx, &next),
-                1 => -search::evaluate_depth1(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
-                2 => -search::evaluate_depth2(ctx, &next, -ScaledScore::INF, ScaledScore::INF),
+                1 => -search::evaluate_depth1(ctx, &next, -Score::INF, Score::INF),
+                2 => -search::evaluate_depth2(ctx, &next, -Score::INF, Score::INF),
                 _ => unreachable!(),
             };
             mv.value = score.value();

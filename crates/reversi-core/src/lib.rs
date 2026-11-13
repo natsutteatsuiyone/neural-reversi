@@ -18,6 +18,7 @@ pub mod obf;
 pub mod perft;
 pub mod player_color;
 pub mod probcut;
+pub mod score;
 pub mod search;
 pub mod square;
 pub mod stability;

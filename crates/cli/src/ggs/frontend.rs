@@ -22,6 +22,7 @@ use ratatui::{DefaultTerminal, Frame};
 
 use super::connection::Event;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 use reversi_core::square::Square;
 
 use super::protocol::MatchState;
@@ -707,7 +708,7 @@ impl Model {
                     }
                 }
                 if let Some(eval) = game.eval {
-                    label += &format!("  eval {:>+3}", eval.round() as i32);
+                    label += &format!("  eval {:>+3}", eval.to_disc_diff_f32().round() as i32);
                 }
                 let status = game_status(game);
                 if !status.is_empty() {
@@ -814,8 +815,8 @@ impl Model {
         ];
         lines.extend(clock_lines(state, game));
         let eval_color = match game.eval {
-            Some(eval) if eval > 0.0 => Color::Green,
-            Some(eval) if eval < 0.0 => Color::Red,
+            Some(eval) if eval > Score::ZERO => Color::Green,
+            Some(eval) if eval < Score::ZERO => Color::Red,
             _ => Color::White,
         };
         match &game.last_search {
@@ -860,8 +861,10 @@ impl Model {
             Line::from(clocks.join("   ")),
             Line::from(format!(
                 "Eval: {}   Result: {}",
-                game.eval
-                    .map_or("-".into(), |eval| format!("{:+}", eval.round() as i32)),
+                game.eval.map_or("-".into(), |eval| format!(
+                    "{:+}",
+                    eval.to_disc_diff_f32().round() as i32
+                )),
                 visible(&result_text(game))
             )),
         ];
@@ -1252,6 +1255,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use reversi_core::board::Board;
+    use reversi_core::score::DiscScore;
 
     use crate::ggs::protocol::{DisplayClock, PlayerClock};
     use crate::ggs::report::SearchReport;
@@ -1570,10 +1574,10 @@ mod tests {
         game.state_at = Instant::now().checked_sub(Duration::from_millis(1_001));
         game.last_move = Some("d3".into());
         game.activity = Activity::Searching;
-        game.eval = Some(2.0);
+        game.eval = Some(Score::from_disc_diff(DiscScore::new(2)));
         game.last_search = Some(SearchReport {
             sq: Square::D3,
-            score: 2.0,
+            score: Score::from_disc_diff(DiscScore::new(2)),
             depth: 18,
             probability: 87,
             nodes: 123_400_000,

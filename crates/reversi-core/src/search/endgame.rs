@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
-use crate::constants::{SCORE_INF, SCORE_MAX};
 use crate::eval::EvalMode;
 use crate::flip;
 use crate::legal_moves::LegalMoves;
 use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
+use crate::score::{DISC_SCORE_INF, DISC_SCORE_MAX};
+use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::node_type::Root;
 use crate::search::result::{CompletedState, SearchResult};
@@ -27,7 +28,7 @@ use crate::search::{SearchProgress, SearchTask, midgame, search, widen_aspiratio
 use crate::square::Square;
 use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, ScaledScore, Score};
+use crate::types::Depth;
 
 use self::cache::{CacheSlot, Deep, EndGameCache, Shallow};
 use self::small_move_list::SmallMoveList;
@@ -65,16 +66,16 @@ const MIN_SHALLOW_CACHE_BYTES: usize = 32 * 1024;
 const MAX_SHALLOW_CACHE_BYTES: usize = 128 * 1024;
 
 /// Initial aspiration window half-width.
-const INITIAL_ASPIRATION_WINDOW: ScaledScore = ScaledScore::from_disc_diff(1);
+const INITIAL_ASPIRATION_WINDOW: Score = Score::from_disc_diff(DiscScore::new(1));
 
 /// Inter-selectivity window narrowing delta.
-const INTER_SELECTIVITY_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
+const INTER_SELECTIVITY_DELTA: Score = Score::from_disc_diff(DiscScore::new(1));
 
 /// Initial aspiration window widening delta.
-const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(1);
+const ASPIRATION_DELTA: Score = Score::from_disc_diff(DiscScore::new(1));
 
 /// Dummy score returned while unwinding a branch after a split-point beta cutoff.
-const SPLIT_CUTOFF_SCORE: Score = 0;
+const SPLIT_CUTOFF_SCORE: DiscScore = DiscScore::new(0);
 
 #[doc(hidden)]
 pub struct EndGameCaches {
@@ -131,7 +132,7 @@ pub(super) fn solve_root(
     board: &Board,
     task: &SearchTask,
     thread: &Arc<Thread>,
-    base_score: ScaledScore,
+    base_score: Score,
     mut completed: CompletedState,
 ) -> SearchResult {
     let time_manager = task.time_manager.as_deref();
@@ -174,8 +175,8 @@ pub(super) fn solve_root(
 
             // Update aspiration window for next selectivity
             let delta = INTER_SELECTIVITY_DELTA;
-            alpha = (score - delta).max(-ScaledScore::INF);
-            beta = (score + delta).min(ScaledScore::INF);
+            alpha = (score - delta).max(-Score::INF);
+            beta = (score + delta).min(Score::INF);
 
             if thread.is_search_aborted() {
                 record_abort(time_manager);
@@ -221,7 +222,7 @@ pub(super) fn solve_root(
 }
 
 /// Estimates a base score to center the aspiration window for endgame search.
-fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> ScaledScore {
+fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Score {
     if let Some(tt_data) = ctx.tt.probe(board, board.hash()).data()
         && tt_data.bound() == Bound::Exact
     {
@@ -230,7 +231,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sca
 
     ctx.eval_mode = EvalMode::Main;
     if ctx.empty_list.count() >= 20 {
-        return midgame::evaluate_depth2(ctx, board, -ScaledScore::INF, ScaledScore::INF);
+        return midgame::evaluate_depth2(ctx, board, -Score::INF, Score::INF);
     }
 
     midgame::evaluate(ctx, board)
@@ -238,9 +239,9 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sca
 
 fn initial_aspiration_window(
     pv_idx: usize,
-    base_score: ScaledScore,
-    previous_pv_score: Option<ScaledScore>,
-) -> (ScaledScore, ScaledScore) {
+    base_score: Score,
+    previous_pv_score: Option<Score>,
+) -> (Score, Score) {
     if pv_idx == 0 {
         return (
             base_score - INITIAL_ASPIRATION_WINDOW,
@@ -249,10 +250,10 @@ fn initial_aspiration_window(
     }
 
     (
-        -ScaledScore::INF,
+        -Score::INF,
         previous_pv_score
-            .map(|score| ScaledScore::from_raw((score.value() + 1).min(ScaledScore::INF.value())))
-            .unwrap_or(ScaledScore::INF),
+            .map(|score| Score::from_raw((score.value() + 1).min(Score::INF.value())))
+            .unwrap_or(Score::INF),
     )
 }
 
@@ -260,10 +261,10 @@ fn initial_aspiration_window(
 fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: &mut ScaledScore,
-    beta: &mut ScaledScore,
+    alpha: &mut Score,
+    beta: &mut Score,
     thread: &Arc<Thread>,
-) -> ScaledScore {
+) -> Score {
     let mut delta = ASPIRATION_DELTA;
     let n_empties = ctx.empty_list.count();
 
@@ -288,9 +289,9 @@ pub fn try_probcut(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: ScaledScore,
+    beta: Score,
     cut_node: bool,
-) -> Option<ScaledScore> {
+) -> Option<Score> {
     if !ctx.selectivity.is_enabled() {
         return None;
     }
@@ -308,13 +309,13 @@ fn probcut_decision(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: ScaledScore,
+    beta: Score,
     cut_node: bool,
-) -> Option<ScaledScore> {
+) -> Option<Score> {
     let eval = midgame::evaluate(ctx, board);
     let window = probcut::endgame_probcut_window(depth, ctx.selectivity, cut_node, beta, eval);
     let pc_beta = window.pc_beta;
-    if pc_beta >= ScaledScore::MAX || eval < window.screen_beta {
+    if pc_beta >= Score::MAX || eval < window.screen_beta {
         return None;
     }
 
@@ -351,11 +352,11 @@ impl SplitPointCutoff for Thread {
 pub(super) fn null_window_search<C: SplitPointCutoff>(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     caches: &mut EndGameCaches,
     cutoff: &C,
     moves: LegalMoves,
-) -> Score {
+) -> DiscScore {
     debug_assert_eq!(moves, board.legal_moves());
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -384,7 +385,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
         let sq = moves.lsb_square_unchecked();
         let flipped = flip::flip(sq, board.player(), board.opponent());
         if flipped == board.opponent() {
-            return SCORE_MAX;
+            return DISC_SCORE_MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);
         let score = search_move_nws_ec(ctx, &next, next.legal_moves(), sq, beta, caches, cutoff);
@@ -397,7 +398,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
 
     let mut move_list = SmallMoveList::new();
     if !move_list.generate(board, moves) {
-        return SCORE_MAX;
+        return DISC_SCORE_MAX;
     }
 
     // Enhanced transposition cutoff: a child upper bound at or below `-beta`
@@ -413,7 +414,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
         }
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
     move_list.evaluate_moves(ctx);
     for mv in move_list.best_first_iter() {
         let score = search_move_nws_ec(ctx, &mv.next, mv.next_moves, mv.sq, beta, caches, cutoff);
@@ -443,10 +444,10 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
     next: &Board,
     next_moves: LegalMoves,
     sq: Square,
-    beta: Score,
+    beta: DiscScore,
     caches: &mut EndGameCaches,
     cutoff: &C,
-) -> Score {
+) -> DiscScore {
     if cutoff.occurred() {
         return SPLIT_CUTOFF_SCORE;
     }
@@ -469,10 +470,10 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
 pub(super) fn shallow_search(
     ctx: &mut SearchContext,
     board: &Board,
-    alpha: Score,
+    alpha: DiscScore,
     sc: &mut EndGameCache<Shallow>,
     moves: LegalMoves,
-) -> Score {
+) -> DiscScore {
     debug_assert_eq!(moves, board.legal_moves());
     let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
@@ -504,7 +505,7 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    let mut best_score = -SCORE_INF;
+    let mut best_score = -DISC_SCORE_INF;
 
     // Split moves by quadrant parity: odd-empty quadrants first
     #[rustfmt::skip]
@@ -600,10 +601,10 @@ fn shallow_search_moves(
     board: &Board,
     moves: LegalMoves,
     cache_idx: CacheSlot<Shallow>,
-    beta: Score,
-    best_score: &mut Score,
+    beta: DiscScore,
+    best_score: &mut DiscScore,
     sc: &mut EndGameCache<Shallow>,
-) -> Option<Score> {
+) -> Option<DiscScore> {
     for sq in moves.iter() {
         let score = shallow_search_move(ctx, board, sq, beta, sc);
 
@@ -623,9 +624,9 @@ fn shallow_search_move(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
-    beta: Score,
+    beta: DiscScore,
     sc: &mut EndGameCache<Shallow>,
-) -> Score {
+) -> DiscScore {
     let next = board.make_move(sq);
     ctx.update_endgame(sq);
     let next_alpha = -beta;
@@ -652,7 +653,7 @@ fn shallow_search_move(
 /// Scores a position with exactly one empty square.
 #[doc(hidden)]
 #[inline(always)]
-pub fn solve_last1(player: Bitboard, alpha: Score, sq: Square) -> Score {
+pub fn solve_last1(player: Bitboard, alpha: DiscScore, sq: Square) -> DiscScore {
     solve::solve_last1(player, alpha, sq)
 }
 
@@ -692,7 +693,7 @@ mod tests {
         let score = null_window_search(
             &mut ctx,
             &board,
-            49,
+            DiscScore::new(49),
             &mut caches,
             &CutoffOccurred,
             board.legal_moves(),
@@ -701,7 +702,12 @@ mod tests {
         assert_eq!(score, SPLIT_CUTOFF_SCORE);
         assert_eq!(ctx.empty_list.count(), original_empty_count);
         let cache_idx = caches.ec.slot(board.hash());
-        assert!(caches.ec.probe(cache_idx, &board, 49).is_none());
+        assert!(
+            caches
+                .ec
+                .probe(cache_idx, &board, DiscScore::new(49))
+                .is_none()
+        );
     }
 
     /// Builds a 9-empty solve task whose `CompletedState` fallback carries a
@@ -722,7 +728,7 @@ mod tests {
         );
         let ctx = SearchContext::new(&board, Selectivity::None, tt.clone(), eval.clone());
         let mut fallback_moves = ctx.root_moves.snapshot();
-        fallback_moves[0].score = ScaledScore::from_disc_diff(4);
+        fallback_moves[0].score = Score::from_disc_diff(DiscScore::new(4));
         let task = SearchTask {
             board,
             mid_selectivity: Selectivity::None,
@@ -750,7 +756,10 @@ mod tests {
         assert!(!result.is_endgame());
         assert_eq!(result.depth(), 7);
         assert_eq!(result.selectivity(), Selectivity::Level2);
-        assert_eq!(result.score(), Some(4.0));
+        assert_eq!(
+            result.score(),
+            Some(Score::from_disc_diff(DiscScore::new(4)))
+        );
     }
 
     #[test]
@@ -764,7 +773,7 @@ mod tests {
             &task.board,
             &task,
             pool.main(),
-            ScaledScore::ZERO,
+            Score::ZERO,
             completed,
         );
 
@@ -789,7 +798,7 @@ mod tests {
             &task.board,
             &task,
             pool.main(),
-            ScaledScore::ZERO,
+            Score::ZERO,
             completed,
         );
 
@@ -822,7 +831,7 @@ mod tests {
             &task.board,
             &task,
             pool.main(),
-            ScaledScore::ZERO,
+            Score::ZERO,
             completed,
         );
 
@@ -850,7 +859,7 @@ mod tests {
             &task.board,
             &task,
             pool.main(),
-            ScaledScore::ZERO,
+            Score::ZERO,
             completed,
         );
 
@@ -871,7 +880,7 @@ mod tests {
             &task.board,
             &task,
             pool.main(),
-            ScaledScore::ZERO,
+            Score::ZERO,
             completed,
         );
 
@@ -881,33 +890,33 @@ mod tests {
 
     #[test]
     fn initial_aspiration_window_centers_first_pv_on_base_score() {
-        let base_score = ScaledScore::from_disc_diff(10);
+        let base_score = Score::from_disc_diff(DiscScore::new(10));
 
         let (alpha, beta) = initial_aspiration_window(0, base_score, None);
 
         assert_eq!(
             (alpha, beta),
             (
-                ScaledScore::from_disc_diff(9),
-                ScaledScore::from_disc_diff(11)
+                Score::from_disc_diff(DiscScore::new(9)),
+                Score::from_disc_diff(DiscScore::new(11))
             )
         );
     }
 
     #[test]
     fn initial_aspiration_window_uses_previous_pv_as_later_pv_upper_bound() {
-        let previous_score = ScaledScore::from_disc_diff(6);
+        let previous_score = Score::from_disc_diff(DiscScore::new(6));
 
-        let (alpha, beta) = initial_aspiration_window(2, ScaledScore::ZERO, Some(previous_score));
+        let (alpha, beta) = initial_aspiration_window(2, Score::ZERO, Some(previous_score));
 
-        assert_eq!(alpha, -ScaledScore::INF);
-        assert_eq!(beta, ScaledScore::from_raw(previous_score.value() + 1));
+        assert_eq!(alpha, -Score::INF);
+        assert_eq!(beta, Score::from_raw(previous_score.value() + 1));
     }
 
     #[test]
     fn initial_aspiration_window_falls_back_to_unbounded_beta_without_previous_pv() {
-        let (_alpha, beta) = initial_aspiration_window(1, ScaledScore::ZERO, None);
+        let (_alpha, beta) = initial_aspiration_window(1, Score::ZERO, None);
 
-        assert_eq!(beta, ScaledScore::INF);
+        assert_eq!(beta, Score::INF);
     }
 }

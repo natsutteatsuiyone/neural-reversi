@@ -15,6 +15,7 @@ use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
+use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::node_type::{NonPV, Root};
@@ -25,13 +26,13 @@ use crate::search::time_control::{record_abort, should_stop_iteration};
 use crate::search::{SearchProgress, SearchTask, search, widen_aspiration_window};
 use crate::square::Square;
 use crate::transposition_table::Bound;
-use crate::types::{Depth, ScaledScore};
+use crate::types::Depth;
 
 pub(in crate::search) use lazy_smp::Helper;
 use lazy_smp::{Helpers, vote_best};
 
 /// Base aspiration window delta.
-const ASPIRATION_DELTA: ScaledScore = ScaledScore::from_disc_diff(2);
+const ASPIRATION_DELTA: Score = Score::from_disc_diff(DiscScore::new(2));
 
 /// Divisor converting a root move's mean squared score into extra window width.
 const ASPIRATION_MSS_DIVISOR: i64 = 10193;
@@ -115,7 +116,7 @@ enum Outcome {
     /// Report the last completed iteration.
     Done(CompletedState),
     /// Solve the remaining selectivity levels exactly, centered on the score.
-    Endgame(CompletedState, ScaledScore),
+    Endgame(CompletedState, Score),
 }
 
 /// Runs the main thread's iterative deepening up to `max_depth`.
@@ -214,25 +215,21 @@ fn iterate(
 
 /// Returns the aspiration window `(alpha, beta, delta)` for the current PV
 /// line, centered on its running average score once deep enough.
-fn aspiration_window(ctx: &SearchContext, depth: Depth) -> (ScaledScore, ScaledScore, ScaledScore) {
+fn aspiration_window(ctx: &SearchContext, depth: Depth) -> (Score, Score, Score) {
     ctx.root_moves
         .current_pv()
         .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
         .map(|rm| {
             let delta = ASPIRATION_DELTA
-                + ctx
-                    .helper
-                    .map_or(ScaledScore::ZERO, Helper::aspiration_widening)
-                + ScaledScore::from_raw(
-                    (rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32,
-                );
+                + ctx.helper.map_or(Score::ZERO, Helper::aspiration_widening)
+                + Score::from_raw((rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32);
             (
-                (rm.average_score - delta).max(-ScaledScore::INF),
-                (rm.average_score + delta).min(ScaledScore::INF),
+                (rm.average_score - delta).max(-Score::INF),
+                (rm.average_score + delta).min(Score::INF),
                 delta,
             )
         })
-        .unwrap_or((-ScaledScore::INF, ScaledScore::INF, ASPIRATION_DELTA))
+        .unwrap_or((-Score::INF, Score::INF, ASPIRATION_DELTA))
 }
 
 /// Computes the starting depth for iterative deepening.
@@ -249,11 +246,11 @@ fn aspiration_search(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    alpha: &mut ScaledScore,
-    beta: &mut ScaledScore,
-    mut delta: ScaledScore,
+    alpha: &mut Score,
+    beta: &mut Score,
+    mut delta: Score,
     thread: &Arc<Thread>,
-) -> (ScaledScore, bool) {
+) -> (Score, bool) {
     let mut window_clean = true;
 
     loop {
@@ -296,11 +293,11 @@ pub fn try_probcut(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    beta: ScaledScore,
+    beta: Score,
     cut_node: bool,
-    eval_score: ScaledScore,
+    eval_score: Score,
     thread: &Arc<Thread>,
-) -> Option<ScaledScore> {
+) -> Option<Score> {
     let ply = ctx.ply();
     let pc_depth = probcut::probcut_depth(depth);
     // SAFETY: `SearchSharedResources::new` calls `probcut::init()` before any
@@ -309,7 +306,7 @@ pub fn try_probcut(
     let t = ctx.selectivity.t_value();
 
     let pc_beta = probcut::compute_probcut_beta(beta, t, pc);
-    if pc_beta >= ScaledScore::MAX {
+    if pc_beta >= Score::MAX {
         return None;
     }
 
@@ -342,9 +339,9 @@ pub fn evaluate_shallow_with_tt(
     ctx: &mut SearchContext,
     board: &Board,
     depth: Depth,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
     debug_assert!(depth == 2 || depth == 3);
 
     let moves = board.legal_moves();
@@ -372,14 +369,14 @@ pub fn evaluate_shallow_with_tt(
 
     let mut move_list = MoveList::with_at_least_one_move(board, moves);
     if move_list.wipeout_move().is_some() {
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
 
     if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(ctx, board, tt_move);
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     let mut best_move = None;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
@@ -423,9 +420,9 @@ pub fn evaluate_shallow_with_tt(
 pub fn evaluate_depth2(
     ctx: &mut SearchContext,
     board: &Board,
-    mut alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+    mut alpha: Score,
+    beta: Score,
+) -> Score {
     let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -441,13 +438,13 @@ pub fn evaluate_depth2(
 
     let mut move_list = MoveList::with_at_least_one_move(board, moves);
     if move_list.wipeout_move().is_some() {
-        return ScaledScore::MAX;
+        return Score::MAX;
     }
     if move_list.count() >= 2 {
         move_list.evaluate_moves_fast(ctx, board, None);
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
 
@@ -467,12 +464,7 @@ pub fn evaluate_depth2(
 }
 
 /// Searches positions at depth 1 with a specialized alpha-beta routine.
-pub fn evaluate_depth1(
-    ctx: &mut SearchContext,
-    board: &Board,
-    alpha: ScaledScore,
-    beta: ScaledScore,
-) -> ScaledScore {
+pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, beta: Score) -> Score {
     let moves = board.legal_moves();
     if moves.is_empty() {
         let next = board.switch_players();
@@ -486,13 +478,13 @@ pub fn evaluate_depth1(
         }
     }
 
-    let mut best_score = -ScaledScore::INF;
+    let mut best_score = -Score::INF;
 
     for &mask in &DEPTH1_MOVE_ORDER_MASKS {
         for sq in (moves & mask).iter() {
             let flipped = flip::flip(sq, board.player(), board.opponent());
             if flipped == board.opponent() {
-                return ScaledScore::MAX;
+                return Score::MAX;
             }
             let next = board.make_move_with_flipped(flipped, sq);
 
@@ -515,7 +507,7 @@ pub fn evaluate_depth1(
 /// Selects the network via [`Eval::should_use_main_network`]; only main-network
 /// evaluations go through the eval cache and the search's corrections.
 #[inline(always)]
-pub fn evaluate(ctx: &SearchContext, board: &Board) -> ScaledScore {
+pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == INITIAL_EMPTY_COUNT {
         return board.final_score_scaled();
     }
@@ -656,6 +648,9 @@ mod schedule_tests {
         assert_eq!(result.depth(), n_empties);
         assert_eq!(result.probability(), 100);
         assert_eq!(result.best_move(), Some(Square::G8));
-        assert_eq!(result.score(), Some(18.0));
+        assert_eq!(
+            result.score(),
+            Some(Score::from_disc_diff(DiscScore::new(18)))
+        );
     }
 }

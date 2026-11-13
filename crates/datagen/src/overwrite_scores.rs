@@ -9,7 +9,6 @@ use glob::glob;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
-use reversi_core::types::Scoref;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
@@ -24,7 +23,7 @@ const RECORD_SIZE_USIZE: usize = RECORD_SIZE as usize;
 
 #[derive(Clone, Copy)]
 struct Patch {
-    score: Scoref,
+    score: f32,
     game_score: i8,
     is_random: bool,
 }

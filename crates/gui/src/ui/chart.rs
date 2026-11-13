@@ -1,7 +1,8 @@
 use gpui_kit::{prelude::*, *};
 use reversi_core::player_color::PlayerColor;
+use reversi_core::score::Score;
 
-use super::format::{ScorePrecision, display_score};
+use super::format::{ScorePrecision, display_score, tenth_score};
 use super::widgets::shadow;
 use super::{ACCENT, Action, ReversiApp, SECONDARY};
 use crate::engine::format_pv;
@@ -34,7 +35,11 @@ impl ReversiApp {
                 (move_index + 1, index, record, score)
             })
             .collect();
-        let (low, high) = y_domain(scores.iter().filter_map(|(_, _, _, score)| *score));
+        let (low, high) = y_domain(
+            scores
+                .iter()
+                .filter_map(|(_, _, _, score)| score.map(Score::to_disc_diff_f32)),
+        );
         // Vertical position of a score as a fraction of the plot height, top = 0.
         let y = move |score: f32| (high - score) / (high - low);
         let zero = y(0.);
@@ -43,7 +48,9 @@ impl ReversiApp {
         let grid_ticks = ticks.clone();
         let points: Vec<_> = scores
             .iter()
-            .filter_map(|(number, _, _, score)| score.map(|score| (move_x(*number), y(score))))
+            .filter_map(|(number, _, _, score)| {
+                score.map(|score| (move_x(*number), y(score.to_disc_diff_f32())))
+            })
             .collect();
         let cursor = if self.session.game().cursor < self.session.game().history.len() {
             scores
@@ -216,7 +223,7 @@ impl ReversiApp {
                     .session
                     .analyses()
                     .get(index)
-                    .map_or(0., |analysis| analysis.score_loss);
+                    .map_or(0., |analysis| tenth_score(analysis.score_loss));
                 let active = self.analysis_view.hover == Some(*index);
                 let flagged = loss_color(loss);
                 let radius = if active || flagged.is_some() { 5. } else { 3. };
@@ -237,7 +244,7 @@ impl ReversiApp {
                     div()
                         .absolute()
                         .left(relative(move_x(*number)))
-                        .top(px(y(*score) * plot_height))
+                        .top(px(y(score.to_disc_diff_f32()) * plot_height))
                         .ml(px(-outer_radius))
                         .mt(px(-outer_radius))
                         .size(px(outer_radius * 2.))
@@ -320,13 +327,16 @@ impl ReversiApp {
                                     format_pv(&analysis.pv)
                                 ))
                             })
-                            .when_some(loss_color(analysis.score_loss), |details, color| {
-                                details.child(div().text_color(rgb(color)).child(format!(
-                                    "{} {:.1}",
-                                    tr!("loss"),
-                                    analysis.score_loss
-                                )))
-                            }),
+                            .when_some(
+                                loss_color(tenth_score(analysis.score_loss)),
+                                |details, color| {
+                                    details.child(div().text_color(rgb(color)).child(format!(
+                                        "{} {:.1}",
+                                        tr!("loss"),
+                                        tenth_score(analysis.score_loss)
+                                    )))
+                                },
+                            ),
                     )
                 });
             plot = plot.child(deferred(
