@@ -536,7 +536,7 @@ mod transposition_table {
         assert_eq!(miss.best_move(), None);
 
         tt.store(
-            miss.index(),
+            miss.slot(),
             &board,
             raw_score(100),
             Bound::Exact,
@@ -560,7 +560,7 @@ mod transposition_table {
 
         let hit = tt.probe(&board, key);
         assert!(is_hit(&hit));
-        assert_eq!(hit.index(), miss.index());
+        assert_eq!(hit.slot().0, miss.slot().0);
         assert_eq!(hit.data(), Some(lookup));
         assert_eq!(hit.best_move(), sq(10));
     }
@@ -571,7 +571,7 @@ mod transposition_table {
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
 
         tt.store(
-            fixture.cluster_idx,
+            TTSlot(fixture.cluster_idx),
             &fixture.stored,
             raw_score(100),
             Bound::Exact,
@@ -595,7 +595,7 @@ mod transposition_table {
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
 
         tt.store(
-            fixture.cluster_idx,
+            TTSlot(fixture.cluster_idx),
             &fixture.stored,
             raw_score(10),
             Bound::Lower,
@@ -606,7 +606,7 @@ mod transposition_table {
             false,
         );
         tt.store(
-            fixture.cluster_idx + 1,
+            TTSlot(fixture.cluster_idx + 1),
             &fixture.colliding,
             raw_score(20),
             Bound::Lower,
@@ -623,7 +623,7 @@ mod transposition_table {
         let probe = tt.probe(&fixture.miss, fixture.miss.hash());
 
         assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx);
+        assert_eq!(probe.slot().0, fixture.cluster_idx);
     }
 
     #[test]
@@ -638,7 +638,7 @@ mod transposition_table {
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
 
         tt.store(
-            fixture.cluster_idx,
+            TTSlot(fixture.cluster_idx),
             &fixture.stored,
             raw_score(100),
             Bound::Lower,
@@ -663,7 +663,7 @@ mod transposition_table {
         let probe = tt.probe(&fixture.colliding, fixture.colliding.hash());
 
         assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx + 1);
+        assert_eq!(probe.slot().0, fixture.cluster_idx + 1);
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod transposition_table {
 
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
         tt.store(
-            fixture.cluster_idx,
+            TTSlot(fixture.cluster_idx),
             &fixture.stored,
             raw_score(100),
             Bound::Lower,
@@ -694,7 +694,7 @@ mod transposition_table {
         let probe = tt.probe(&fixture.colliding, fixture.colliding.hash());
 
         assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx);
+        assert_eq!(probe.slot().0, fixture.cluster_idx);
     }
 
     #[test]
@@ -703,7 +703,7 @@ mod transposition_table {
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
 
         tt.store(
-            fixture.cluster_idx + 1,
+            TTSlot(fixture.cluster_idx + 1),
             &fixture.stored,
             raw_score(100),
             Bound::Lower,
@@ -719,7 +719,7 @@ mod transposition_table {
         let probe = tt.probe(&fixture.colliding, fixture.colliding.hash());
 
         assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx + 1);
+        assert_eq!(probe.slot().0, fixture.cluster_idx + 1);
     }
 
     #[test]
@@ -734,7 +734,7 @@ mod transposition_table {
         let probe = tt.probe(&fixture.colliding, fixture.colliding.hash());
 
         assert!(!is_hit(&probe));
-        assert_eq!(probe.index(), fixture.cluster_idx);
+        assert_eq!(probe.slot().0, fixture.cluster_idx);
     }
 
     #[test]
@@ -743,7 +743,7 @@ mod transposition_table {
         let generation = tt.increment_generation();
         let board = make_board(START_PLAYER, START_OPPONENT);
         let key = board.hash();
-        let idx = tt.probe(&board, key).index();
+        let idx = tt.probe(&board, key).slot();
 
         tt.store(
             idx,
@@ -770,7 +770,7 @@ mod transposition_table {
     fn usage_rate_counts_occupied_slots_in_the_sampled_clusters() {
         let tt = TranspositionTable::new(0);
         let board = make_board(START_PLAYER, START_OPPONENT);
-        let idx = tt.probe(&board, board.hash()).index();
+        let idx = tt.probe(&board, board.hash()).slot();
 
         tt.store(
             idx,
@@ -792,7 +792,7 @@ mod transposition_table {
         let tt = TranspositionTable::new(0);
         let generation = tt.increment_generation();
         let board = make_board(START_PLAYER, START_OPPONENT);
-        let index = tt.probe(&board, board.hash()).index();
+        let index = tt.probe(&board, board.hash()).slot();
         tt.store(
             index,
             &board,
@@ -814,7 +814,7 @@ mod transposition_table {
         );
 
         let other = make_board(START_OPPONENT, START_PLAYER);
-        let index = copy.probe(&other, other.hash()).index();
+        let index = copy.probe(&other, other.hash()).slot();
         copy.store(
             index,
             &other,

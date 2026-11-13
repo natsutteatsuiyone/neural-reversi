@@ -3,6 +3,8 @@
 //!
 //! Stores endgame NWS lower/upper bounds per position.
 
+use std::marker::PhantomData;
+
 use crate::{
     board::Board,
     constants::{SCORE_MAX, SCORE_MIN},
@@ -64,12 +66,34 @@ impl RawEntry {
     }
 }
 
+/// Marks the [`EndGameCache`] of the null window search above the shallow
+/// search.
+#[derive(Clone, Copy)]
+pub struct Deep;
+
+/// Marks the [`EndGameCache`] of the shallow search.
+#[derive(Clone, Copy)]
+pub struct Shallow;
+
+/// An entry position in an [`EndGameCache`] of kind `K`.
+///
+/// Only [`EndGameCache::slot`] creates one, so it is in bounds for the cache
+/// that issued it, which unsafe code relies on. A slot of one kind cannot go
+/// to a cache of the other kind. Which cache of its kind issued it is not
+/// tracked: a slot must go back to that cache or to one of the same size.
+#[derive(Clone, Copy)]
+pub struct CacheSlot<K>(usize, PhantomData<K>);
+
 /// Hash table for caching endgame search results.
-pub struct EndGameCache {
+///
+/// `K` is [`Deep`] or [`Shallow`] and only keeps the slots of the two caches
+/// apart.
+pub struct EndGameCache<K> {
     table: Box<[RawEntry]>,
+    kind: PhantomData<K>,
 }
 
-impl EndGameCache {
+impl<K> EndGameCache<K> {
     /// Creates a new endgame cache with the given memory budget in bytes.
     pub fn new(memory_bytes: usize) -> Self {
         let count = memory_bytes / std::mem::size_of::<RawEntry>();
@@ -79,21 +103,28 @@ impl EndGameCache {
         );
         EndGameCache {
             table: vec![RawEntry::EMPTY; count].into_boxed_slice(),
+            kind: PhantomData,
         }
     }
 
-    /// Computes the table index for a given hash key.
+    /// Computes the slot for a given hash key.
     #[inline(always)]
-    pub fn index(&self, key: u64) -> usize {
-        crate::util::mul_hi64(key, self.table.len() as u64) as usize
+    pub fn slot(&self, key: u64) -> CacheSlot<K> {
+        CacheSlot(
+            crate::util::mul_hi64(key, self.table.len() as u64) as usize,
+            PhantomData,
+        )
     }
 
-    /// Probes the cache for a position at a precomputed `cache_idx`.
+    /// Probes the cache for a position at a precomputed `slot`.
     ///
     /// Returns a cached cutoff score if the stored bounds cut at `alpha`.
     #[inline(always)]
-    pub fn probe(&self, cache_idx: usize, board: &Board, alpha: Score) -> Option<Score> {
-        let entry = unsafe { self.table.get_unchecked(cache_idx) };
+    pub fn probe(&self, slot: CacheSlot<K>, board: &Board, alpha: Score) -> Option<Score> {
+        debug_assert!(slot.0 < self.table.len());
+        // SAFETY: only `slot` creates a `CacheSlot`, with an index below the
+        // `table.len()` of the cache that issued it.
+        let entry = unsafe { self.table.get_unchecked(slot.0) };
 
         if entry.player != board.player().bits() || entry.opponent != board.opponent().bits() {
             return None;
@@ -102,10 +133,12 @@ impl EndGameCache {
         entry.score_for_alpha(alpha)
     }
 
-    /// Stores or merges an entry at a precomputed `cache_idx`.
+    /// Stores or merges an entry at a precomputed `slot`.
     #[inline(always)]
-    pub fn store(&mut self, cache_idx: usize, board: &Board, alpha: Score, score: Score) {
-        let entry = unsafe { self.table.get_unchecked_mut(cache_idx) };
+    pub fn store(&mut self, slot: CacheSlot<K>, board: &Board, alpha: Score, score: Score) {
+        debug_assert!(slot.0 < self.table.len());
+        // SAFETY: as in `probe`.
+        let entry = unsafe { self.table.get_unchecked_mut(slot.0) };
         if entry.player == board.player().bits() && entry.opponent == board.opponent().bits() {
             entry.store_nws_result(alpha, score);
         } else {
@@ -131,9 +164,9 @@ mod tests {
 
     #[test]
     fn test_store_and_probe_hit() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 11, 12);
 
@@ -143,9 +176,9 @@ mod tests {
 
     #[test]
     fn test_probe_no_cutoff_returns_none() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 11, 12);
 
@@ -155,9 +188,9 @@ mod tests {
 
     #[test]
     fn test_probe_reuses_lower_bound_for_wider_window() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 11, 12);
 
@@ -166,9 +199,9 @@ mod tests {
 
     #[test]
     fn test_probe_reuses_upper_bound_for_higher_alpha() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 11, 8);
 
@@ -177,9 +210,9 @@ mod tests {
 
     #[test]
     fn test_store_merges_bounds_for_same_board() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x0000000810000000, 0x0000001008000000);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 8, 11);
         cache.store(cache_idx, &board, 11, 11);
@@ -190,11 +223,11 @@ mod tests {
 
     #[test]
     fn test_forced_index_collision_overwrites_without_false_hit() {
-        let mut cache = EndGameCache::new(std::mem::size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new(std::mem::size_of::<RawEntry>());
         let board1 = make_board(0x0000000810000000, 0x0000001008000000);
         let board2 = make_board(0x00000000000000FF, 0x000000000000FF00);
-        let cache_idx1 = cache.index(board1.hash());
-        let cache_idx2 = cache.index(board2.hash());
+        let cache_idx1 = cache.slot(board1.hash());
+        let cache_idx2 = cache.slot(board2.hash());
 
         cache.store(cache_idx1, &board1, 11, 12);
         assert!(cache.probe(cache_idx2, &board2, -8).is_none());
@@ -207,9 +240,9 @@ mod tests {
 
     #[test]
     fn test_store_extreme_scores() {
-        let mut cache = EndGameCache::new((1 << 14) * size_of::<RawEntry>());
+        let mut cache = EndGameCache::<Deep>::new((1 << 14) * size_of::<RawEntry>());
         let board = make_board(0x000f, 0x00f0);
-        let cache_idx = cache.index(board.hash());
+        let cache_idx = cache.slot(board.hash());
 
         cache.store(cache_idx, &board, 63, 64);
         assert_eq!(cache.probe(cache_idx, &board, 63), Some(64));

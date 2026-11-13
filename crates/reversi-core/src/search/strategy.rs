@@ -144,22 +144,58 @@ impl SearchStrategy for EndGameStrategy {
             {
                 return tt_data.score();
             }
-            Some(probe.index())
+            Some(probe.slot())
         } else {
             None
         };
 
         let nodes_before = ctx.counters.n_nodes;
-        let score_d = if thread.has_active_split_point() {
-            endgame::null_window_search_with_split_point_cutoff(
-                ctx,
-                board,
-                alpha_d,
-                thread.endgame_caches(),
-                thread,
-            )
+        let caches = thread.endgame_caches();
+        let n_empties = ctx.empty_list.count();
+        let score_d = if n_empties > endgame::DEPTH_TO_SHALLOW_SEARCH {
+            let moves = board.legal_moves();
+            if thread.has_active_split_point() {
+                endgame::null_window_search(ctx, board, alpha_d, caches, &**thread, moves)
+            } else {
+                endgame::null_window_search(
+                    ctx,
+                    board,
+                    alpha_d,
+                    caches,
+                    &endgame::IgnoreSplitPointCutoff,
+                    moves,
+                )
+            }
         } else {
-            endgame::null_window_search(ctx, board, alpha_d, thread.endgame_caches())
+            match n_empties {
+                0 => board.final_score(),
+                1 => {
+                    let sq = ctx.empty_list.first();
+                    endgame::solve1(ctx, board.player(), alpha_d, sq)
+                }
+                2 => {
+                    let sq1 = ctx.empty_list.first();
+                    let sq2 = ctx.empty_list.next(sq1);
+                    endgame::solve2(ctx, board, alpha_d, sq1, sq2)
+                }
+                3 => {
+                    let sq1 = ctx.empty_list.first();
+                    let sq2 = ctx.empty_list.next(sq1);
+                    let sq3 = ctx.empty_list.next(sq2);
+                    endgame::solve3(ctx, board, alpha_d, sq1, sq2, sq3)
+                }
+                4 => {
+                    let (sq1, sq2, sq3, sq4) = endgame::sort_last4(&ctx.empty_list);
+                    endgame::solve4(ctx, board, alpha_d, sq1, sq2, sq3, sq4)
+                }
+                _ => endgame::shallow_search(
+                    ctx,
+                    board,
+                    alpha_d,
+                    &mut caches.shallow,
+                    board.legal_moves(),
+                ),
+            }
         };
 
         let score = ScaledScore::from_disc_diff(score_d);

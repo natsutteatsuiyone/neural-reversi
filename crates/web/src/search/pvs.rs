@@ -11,7 +11,7 @@ use reversi_core::{
 };
 
 use crate::move_list::MoveList;
-use crate::transposition_table::Bound;
+use crate::transposition_table::{Bound, TTSlot};
 
 use super::{context::SearchContext, endgame, strategy::SearchStrategy};
 
@@ -94,7 +94,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 depth,
                 alpha,
                 tt_key,
-                tt_probe_result.index(),
+                tt_probe_result.slot(),
             )
         {
             return score;
@@ -150,7 +150,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     ctx.tt.store(
-        tt_probe_result.index(),
+        tt_probe_result.slot(),
         tt_key,
         best_score,
         Bound::classify::<NT>(best_score, org_alpha, beta),
@@ -180,7 +180,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     depth: u32,
     alpha: ScaledScore,
     tt_key: u64,
-    tt_entry_index: usize,
+    tt_entry_index: TTSlot,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;
     for mv in move_list.iter() {

@@ -23,7 +23,7 @@ pub mod threading;
 pub mod time_control;
 
 #[doc(hidden)]
-pub use endgame::{EndGameCaches, null_window_search, solve_last1};
+pub use endgame::{EndGameCaches, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
 pub(crate) use pvs::{LMR_MIN_DEPTH, search};

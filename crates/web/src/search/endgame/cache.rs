@@ -52,6 +52,14 @@ impl EndGameCacheEntry {
     }
 }
 
+/// An entry position in an [`EndGameCache`].
+///
+/// Only [`EndGameCache::index`] creates one, so it is in bounds for the cache
+/// that issued it, which unsafe code relies on. Which cache issued it is not
+/// tracked: it must go back to that cache or to one of the same size.
+#[derive(Clone, Copy)]
+pub(super) struct CacheIndex(usize);
+
 /// Packed hash table for Web endgame null-window search bounds.
 pub(super) struct EndGameCache {
     table: Box<[u64]>,
@@ -78,16 +86,16 @@ impl EndGameCache {
 
     /// Computes the table index for a hash key.
     #[inline(always)]
-    pub(super) fn index(&self, key: u64) -> usize {
-        (key as usize) & self.mask
+    pub(super) fn index(&self, key: u64) -> CacheIndex {
+        CacheIndex((key as usize) & self.mask)
     }
 
     /// Probes the cache for an entry with a matching hash tag.
     #[inline(always)]
-    pub(super) fn probe(&self, cache_idx: usize, key: u64) -> Option<EndGameCacheEntry> {
-        // SAFETY: all cache indices come from `self.index`, which masks them to
-        // the table length. Tests also exercise forced collisions through index.
-        let entry = unsafe { *self.table.get_unchecked(cache_idx) };
+    pub(super) fn probe(&self, cache_idx: CacheIndex, key: u64) -> Option<EndGameCacheEntry> {
+        // SAFETY: only `index` creates a `CacheIndex`, masked to the table
+        // length of the cache that issued it.
+        let entry = unsafe { *self.table.get_unchecked(cache_idx.0) };
         if ((entry >> VALID_SHIFT) & VALID_MASK) == 0 || (entry ^ key) & KEY_MASK != 0 {
             return None;
         }
@@ -100,15 +108,14 @@ impl EndGameCache {
 
     /// Stores a bound entry for `key`.
     #[inline(always)]
-    pub(super) fn store(&mut self, cache_idx: usize, key: u64, score: Score, beta: Score) {
+    pub(super) fn store(&mut self, cache_idx: CacheIndex, key: u64, score: Score, beta: Score) {
         debug_assert!(
             i8::try_from(score).is_ok(),
             "EndGameCache score out of i8 range: {score}"
         );
-        // SAFETY: all cache indices come from `self.index`, which masks them to
-        // the table length.
+        // SAFETY: as in `probe`.
         unsafe {
-            *self.table.get_unchecked_mut(cache_idx) =
+            *self.table.get_unchecked_mut(cache_idx.0) =
                 Self::pack(key, score, EndGameCacheBound::determine(score, beta));
         }
     }
@@ -162,7 +169,7 @@ mod tests {
 
         cache.store(cache_idx1, key1, 12, 12);
 
-        assert_eq!(cache_idx1, cache_idx2);
+        assert_eq!(cache_idx1.0, cache_idx2.0);
         assert!(cache.probe(cache_idx2, key2).is_none());
     }
 }

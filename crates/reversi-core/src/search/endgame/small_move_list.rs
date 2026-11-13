@@ -1,4 +1,4 @@
-//! Move list for [`null_window_search_with_ec`](super::null_window_search_with_ec).
+//! Move list for [`null_window_search`](super::null_window_search).
 
 use std::iter;
 use std::mem::MaybeUninit;

@@ -78,28 +78,37 @@ impl Bound {
     }
 }
 
+/// An entry position in a [`TranspositionTable`].
+///
+/// Only [`TranspositionTable::probe`] creates one, so it is in bounds for the
+/// table that issued it, which unsafe code relies on. Which table issued it
+/// is not tracked: a slot must go back to that table or to one of the same
+/// size.
+#[derive(Clone, Copy, Debug)]
+pub struct TTSlot(usize);
+
 /// The result of probing a transposition-table cluster.
 pub enum TTProbeResult {
     /// Found an entry whose stored board matches the probe.
     Hit {
         /// The data of the entry.
         data: TTEntryData,
-        /// The index of the entry in the table.
-        index: usize,
+        /// The slot of the entry.
+        slot: TTSlot,
     },
     /// No matching board was found.
     Miss {
         /// Replacement candidate for a potential store.
-        index: usize,
+        slot: TTSlot,
     },
 }
 
 impl TTProbeResult {
-    /// Returns the slot index for a subsequent store.
+    /// Returns the slot for a subsequent store.
     #[inline(always)]
-    pub fn index(&self) -> usize {
+    pub fn slot(&self) -> TTSlot {
         match self {
-            TTProbeResult::Hit { index, .. } | TTProbeResult::Miss { index } => *index,
+            TTProbeResult::Hit { slot, .. } | TTProbeResult::Miss { slot } => *slot,
         }
     }
 
@@ -761,12 +770,14 @@ impl TranspositionTable {
             match entry0.try_load_snapshot() {
                 Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
-                        return TTProbeResult::Miss { index: cluster_idx };
+                        return TTProbeResult::Miss {
+                            slot: TTSlot(cluster_idx),
+                        };
                     }
                     if same_board_bits(player, opponent, board_player, board_opponent) {
                         return TTProbeResult::Hit {
                             data: tt_data,
-                            index: cluster_idx,
+                            slot: TTSlot(cluster_idx),
                         };
                     }
 
@@ -780,12 +791,12 @@ impl TranspositionTable {
             match entry1.try_load_snapshot() {
                 Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
-                        return TTProbeResult::Miss { index: idx1 };
+                        return TTProbeResult::Miss { slot: TTSlot(idx1) };
                     }
                     if same_board_bits(player, opponent, board_player, board_opponent) {
                         return TTProbeResult::Hit {
                             data: tt_data,
-                            index: idx1,
+                            slot: TTSlot(idx1),
                         };
                     }
 
@@ -807,7 +818,9 @@ impl TranspositionTable {
 
                     fallback_replace_idx = Some(replace_idx);
                     if !saw_in_flight_writer {
-                        return TTProbeResult::Miss { index: replace_idx };
+                        return TTProbeResult::Miss {
+                            slot: TTSlot(replace_idx),
+                        };
                     }
                 }
                 None => {
@@ -821,7 +834,7 @@ impl TranspositionTable {
         }
 
         TTProbeResult::Miss {
-            index: fallback_replace_idx.unwrap_or(cluster_idx),
+            slot: TTSlot(fallback_replace_idx.unwrap_or(cluster_idx)),
         }
     }
 
@@ -829,12 +842,12 @@ impl TranspositionTable {
     ///
     /// # Panics
     ///
-    /// Panics in debug builds if `entry_index` is out of bounds.
+    /// Panics in debug builds if `slot` is out of bounds.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub fn store(
         &self,
-        entry_index: usize,
+        slot: TTSlot,
         board: &Board,
         score: ScaledScore,
         bound: Bound,
@@ -845,9 +858,9 @@ impl TranspositionTable {
         is_pv: bool,
     ) {
         debug_assert!(
-            entry_index < self.entries.len(),
+            slot.0 < self.entries.len(),
             "TT store index {} out of bounds",
-            entry_index
+            slot.0
         );
         let data = TTEntryData::new(
             score,
@@ -859,9 +872,9 @@ impl TranspositionTable {
             is_endgame,
             is_pv,
         );
-        // SAFETY: `entry_index` originates from `probe`, which only returns
-        // indices within `entries`.
-        let entry = unsafe { self.entries.get_unchecked(entry_index) };
+        // SAFETY: only `probe` creates a `TTSlot`, with an index within the
+        // `entries` of the table that issued it.
+        let entry = unsafe { self.entries.get_unchecked(slot.0) };
         entry.save(board, data);
     }
 
@@ -873,17 +886,17 @@ impl TranspositionTable {
     ///
     /// # Panics
     ///
-    /// Panics in debug builds if `entry_index` is out of bounds.
+    /// Panics in debug builds if `slot` is out of bounds.
     #[inline(always)]
-    pub fn penalize(&self, entry_index: usize, board: &Board, expected: TTEntryData) {
+    pub fn penalize(&self, slot: TTSlot, board: &Board, expected: TTEntryData) {
         debug_assert!(
-            entry_index < self.entries.len(),
+            slot.0 < self.entries.len(),
             "TT penalize index {} out of bounds",
-            entry_index
+            slot.0
         );
-        // SAFETY: `entry_index` originates from `probe`, which only returns
-        // indices within `entries`.
-        let entry = unsafe { self.entries.get_unchecked(entry_index) };
+        // SAFETY: only `probe` creates a `TTSlot`, with an index within the
+        // `entries` of the table that issued it.
+        let entry = unsafe { self.entries.get_unchecked(slot.0) };
         entry.penalize(board.player().bits(), board.opponent().bits(), expected);
     }
 

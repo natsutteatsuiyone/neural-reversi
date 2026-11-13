@@ -29,9 +29,9 @@ use crate::stability::stability_cutoff;
 use crate::transposition_table::Bound;
 use crate::types::{Depth, ScaledScore, Score};
 
-use self::cache::EndGameCache;
+use self::cache::{CacheSlot, Deep, EndGameCache, Shallow};
 use self::small_move_list::SmallMoveList;
-use self::solve::{solve1, solve2, solve3, solve4, sort_last4};
+pub(super) use self::solve::{solve1, solve2, solve3, solve4, sort_last4};
 
 /// Depth threshold for switching to null window search in endgame.
 pub const DEPTH_TO_NWS: Depth = 12;
@@ -44,7 +44,7 @@ pub(super) const MIN_SPLIT_DEPTH: Depth = DEPTH_TO_NWS;
 pub(super) const SPECULATIVE_SPLIT_MAX_DEPTH: Depth = 24;
 
 /// Depth threshold for switching to specialized shallow search.
-const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
+pub(super) const DEPTH_TO_SHALLOW_SEARCH: Depth = 6;
 
 /// Minimum empties for enhanced transposition cutoff via child EC entries.
 const MIN_EC_ETC_EMPTIES: u32 = 12;
@@ -78,8 +78,8 @@ const SPLIT_CUTOFF_SCORE: Score = 0;
 
 #[doc(hidden)]
 pub struct EndGameCaches {
-    ec: EndGameCache,
-    shallow: EndGameCache,
+    ec: EndGameCache<Deep>,
+    pub(super) shallow: EndGameCache<Shallow>,
 }
 
 impl EndGameCaches {
@@ -324,75 +324,11 @@ fn probcut_decision(
     (score >= pc_beta).then_some(beta)
 }
 
-/// Searches an endgame position with a null window.
-///
-/// Dispatches to the optimal solver based on empty square count.
-#[inline(always)]
-#[doc(hidden)]
-pub fn null_window_search(
-    ctx: &mut SearchContext,
-    board: &Board,
-    alpha: Score,
-    caches: &mut EndGameCaches,
-) -> Score {
-    null_window_search_impl(ctx, board, alpha, caches, &IgnoreSplitPointCutoff)
-}
-
-/// Searches an endgame position with split-point cutoff polling enabled.
-#[inline(always)]
-pub(super) fn null_window_search_with_split_point_cutoff(
-    ctx: &mut SearchContext,
-    board: &Board,
-    alpha: Score,
-    caches: &mut EndGameCaches,
-    thread: &Thread,
-) -> Score {
-    null_window_search_impl(ctx, board, alpha, caches, thread)
-}
-
-#[inline(always)]
-fn null_window_search_impl<C: SplitPointCutoff>(
-    ctx: &mut SearchContext,
-    board: &Board,
-    alpha: Score,
-    caches: &mut EndGameCaches,
-    cutoff: &C,
-) -> Score {
-    let n_empties = ctx.empty_list.count();
-    if n_empties > DEPTH_TO_SHALLOW_SEARCH {
-        return null_window_search_with_ec(ctx, board, alpha, caches, cutoff, board.legal_moves());
-    }
-
-    match n_empties {
-        0 => board.final_score(),
-        1 => {
-            let sq = ctx.empty_list.first();
-            solve1(ctx, board.player(), alpha, sq)
-        }
-        2 => {
-            let sq1 = ctx.empty_list.first();
-            let sq2 = ctx.empty_list.next(sq1);
-            solve2(ctx, board, alpha, sq1, sq2)
-        }
-        3 => {
-            let sq1 = ctx.empty_list.first();
-            let sq2 = ctx.empty_list.next(sq1);
-            let sq3 = ctx.empty_list.next(sq2);
-            solve3(ctx, board, alpha, sq1, sq2, sq3)
-        }
-        4 => {
-            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
-            solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
-        }
-        _ => shallow_search(ctx, board, alpha, &mut caches.shallow, board.legal_moves()),
-    }
-}
-
-trait SplitPointCutoff {
+pub(super) trait SplitPointCutoff {
     fn occurred(&self) -> bool;
 }
 
-struct IgnoreSplitPointCutoff;
+pub(super) struct IgnoreSplitPointCutoff;
 
 impl SplitPointCutoff for IgnoreSplitPointCutoff {
     #[inline(always)]
@@ -412,7 +348,7 @@ impl SplitPointCutoff for Thread {
 /// (`DEPTH_TO_SHALLOW_SEARCH + 1..=DEPTH_TO_NWS` empties).
 ///
 /// `moves` must be the legal moves of `board`.
-fn null_window_search_with_ec<C: SplitPointCutoff>(
+pub(super) fn null_window_search<C: SplitPointCutoff>(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -431,10 +367,10 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
             return board.solve(n_empties);
         }
         ctx.increment_nodes();
-        return -null_window_search_with_ec(ctx, &next, -beta, caches, cutoff, next_moves);
+        return -null_window_search(ctx, &next, -beta, caches, cutoff, next_moves);
     }
 
-    let cache_idx = caches.ec.index(board.hash());
+    let cache_idx = caches.ec.slot(board.hash());
     if let Some(score) = caches.ec.probe(cache_idx, board, alpha) {
         return score;
     }
@@ -469,7 +405,7 @@ fn null_window_search_with_ec<C: SplitPointCutoff>(
     if n_empties >= MIN_EC_ETC_EMPTIES {
         let ec = &mut caches.ec;
         for mv in move_list.iter() {
-            if let Some(score) = ec.probe(ec.index(mv.next.hash()), &mv.next, -beta)
+            if let Some(score) = ec.probe(ec.slot(mv.next.hash()), &mv.next, -beta)
                 && score <= -beta
             {
                 return -score;
@@ -519,7 +455,7 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
     let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
         -shallow_search(ctx, next, -beta, &mut caches.shallow, next_moves)
     } else {
-        -null_window_search_with_ec(ctx, next, -beta, caches, cutoff, next_moves)
+        -null_window_search(ctx, next, -beta, caches, cutoff, next_moves)
     };
     ctx.undo_endgame(sq);
     score
@@ -530,11 +466,11 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
 /// Orders moves by isolated empties, quadrant parity, and corner priority.
 ///
 /// `moves` must be the legal moves of `board`.
-fn shallow_search(
+pub(super) fn shallow_search(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
-    sc: &mut EndGameCache,
+    sc: &mut EndGameCache<Shallow>,
     moves: LegalMoves,
 ) -> Score {
     debug_assert_eq!(moves, board.legal_moves());
@@ -551,7 +487,7 @@ fn shallow_search(
         return -shallow_search(ctx, &next, -beta, sc, next_moves);
     }
 
-    let cache_idx = sc.index(board.hash());
+    let cache_idx = sc.slot(board.hash());
     if let Some(score) = sc.probe(cache_idx, board, alpha) {
         return score;
     }
@@ -663,10 +599,10 @@ fn shallow_search_moves(
     ctx: &mut SearchContext,
     board: &Board,
     moves: LegalMoves,
-    cache_idx: usize,
+    cache_idx: CacheSlot<Shallow>,
     beta: Score,
     best_score: &mut Score,
-    sc: &mut EndGameCache,
+    sc: &mut EndGameCache<Shallow>,
 ) -> Option<Score> {
     for sq in moves.iter() {
         let score = shallow_search_move(ctx, board, sq, beta, sc);
@@ -688,13 +624,13 @@ fn shallow_search_move(
     board: &Board,
     sq: Square,
     beta: Score,
-    sc: &mut EndGameCache,
+    sc: &mut EndGameCache<Shallow>,
 ) -> Score {
     let next = board.make_move(sq);
     ctx.update_endgame(sq);
     let next_alpha = -beta;
     let score = if ctx.empty_list.count() == 4 {
-        let next_cache_idx = sc.index(next.hash());
+        let next_cache_idx = sc.slot(next.hash());
         if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
             -score
         } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
@@ -753,11 +689,18 @@ mod tests {
         let mut caches = EndGameCaches::for_thread_count(1);
         let original_empty_count = ctx.empty_list.count();
 
-        let score = null_window_search_impl(&mut ctx, &board, 49, &mut caches, &CutoffOccurred);
+        let score = null_window_search(
+            &mut ctx,
+            &board,
+            49,
+            &mut caches,
+            &CutoffOccurred,
+            board.legal_moves(),
+        );
 
         assert_eq!(score, SPLIT_CUTOFF_SCORE);
         assert_eq!(ctx.empty_list.count(), original_empty_count);
-        let cache_idx = caches.ec.index(board.hash());
+        let cache_idx = caches.ec.slot(board.hash());
         assert!(caches.ec.probe(cache_idx, &board, 49).is_none());
     }
 

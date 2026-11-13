@@ -16,7 +16,7 @@ use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::{EndGameStrategy, SearchStrategy};
 use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
 use crate::stability::stability_cutoff;
-use crate::transposition_table::Bound;
+use crate::transposition_table::{Bound, TTSlot};
 use crate::types::{Depth, ScaledScore};
 
 const IIR_MIN_DEPTH: Depth = 6;
@@ -127,7 +127,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 && tt_data.selectivity() >= ctx.selectivity
             {
                 ctx.counters.increment_tt_penalize();
-                ctx.tt.penalize(tt_probe_result.index(), board, tt_data);
+                ctx.tt.penalize(tt_probe_result.slot(), board, tt_data);
             }
         }
 
@@ -140,7 +140,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 &move_list,
                 depth,
                 alpha,
-                tt_probe_result.index(),
+                tt_probe_result.slot(),
                 tt_pv,
             ) {
                 ctx.counters.increment_etc_cut();
@@ -230,7 +230,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_move = Some(sq);
             if score >= beta {
                 ctx.tt.store(
-                    tt_probe_result.index(),
+                    tt_probe_result.slot(),
                     board,
                     best_score,
                     Bound::Lower,
@@ -397,7 +397,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     // Store in transposition table
     if !NT::ROOT_NODE || ctx.root_moves.pv_idx() == 0 {
         ctx.tt.store(
-            tt_probe_result.index(),
+            tt_probe_result.slot(),
             board,
             best_score,
             bound,
@@ -525,7 +525,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     move_list: &MoveList,
     depth: Depth,
     alpha: ScaledScore,
-    tt_entry_index: usize,
+    tt_entry_index: TTSlot,
     tt_pv: bool,
 ) -> Option<ScaledScore> {
     let etc_depth = depth - 1;

@@ -41,7 +41,7 @@ use crate::types::Score;
 /// all-even quadrant counts and keep the presorted order, so that case is
 /// checked from `parity` alone before any quadrant lookup.
 #[inline(always)]
-pub(super) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
+pub(in crate::search) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
     let parity = empty_list.parity();
 
     if parity == 0 {
@@ -86,7 +86,7 @@ pub(super) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Squ
 ///
 /// Both paths produce identical scores and node counts.
 #[inline(always)]
-pub(super) fn solve4(
+pub(in crate::search) fn solve4(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -426,7 +426,7 @@ fn solve4_fallback(
 ///
 /// Both paths produce identical scores and node counts.
 #[inline(always)]
-pub(super) fn solve3(
+pub(in crate::search) fn solve3(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -641,7 +641,7 @@ fn solve3_fallback(
 
 /// Specialized solver for positions with exactly 2 empty squares.
 #[inline(always)]
-pub(super) fn solve2(
+pub(in crate::search) fn solve2(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: Score,
@@ -804,7 +804,12 @@ fn solve2_fallback(
 
 /// Specialized solver for positions with exactly 1 empty square.
 #[inline(always)]
-pub(super) fn solve1(ctx: &mut SearchContext, player: Bitboard, alpha: Score, sq: Square) -> Score {
+pub(in crate::search) fn solve1(
+    ctx: &mut SearchContext,
+    player: Bitboard,
+    alpha: Score,
+    sq: Square,
+) -> Score {
     ctx.increment_nodes();
     solve_last1(player, alpha, sq)
 }

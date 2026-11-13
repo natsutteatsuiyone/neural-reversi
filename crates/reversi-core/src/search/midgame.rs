@@ -405,7 +405,7 @@ pub fn evaluate_shallow_with_tt(
     }
 
     ctx.tt.store(
-        tt_probe_result.index(),
+        tt_probe_result.slot(),
         board,
         best_score,
         Bound::classify::<NonPV>(best_score, org_alpha, beta),

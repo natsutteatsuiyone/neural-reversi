@@ -111,20 +111,29 @@ impl From<TTData> for TTEntryData {
     }
 }
 
+/// An entry position in a [`TranspositionTable`].
+///
+/// Only [`TranspositionTable::probe`] creates one, so it is in bounds for the
+/// table that issued it, which unsafe code relies on. Which table issued it
+/// is not tracked: a slot must go back to that table or to one of the same
+/// size.
+#[derive(Clone, Copy, Debug)]
+pub struct TTSlot(usize);
+
 /// Result of probing the transposition table.
 pub enum TTProbeResult {
-    /// A matching entry was found at `index`.
-    Hit { data: TTEntryData, index: usize },
-    /// No matching entry exists; `index` points to the chosen replacement slot.
-    Miss { index: usize },
+    /// A matching entry was found at `slot`.
+    Hit { data: TTEntryData, slot: TTSlot },
+    /// No matching entry exists; `slot` is the chosen replacement slot.
+    Miss { slot: TTSlot },
 }
 
 impl TTProbeResult {
-    /// Returns the slot index associated with this probe result.
+    /// Returns the slot associated with this probe result.
     #[inline(always)]
-    pub fn index(&self) -> usize {
+    pub fn slot(&self) -> TTSlot {
         match self {
-            TTProbeResult::Hit { index, .. } | TTProbeResult::Miss { index } => *index,
+            TTProbeResult::Hit { slot, .. } | TTProbeResult::Miss { slot } => *slot,
         }
     }
 
@@ -235,12 +244,12 @@ impl TranspositionTable {
             if entry.key.get() == key && data.bound != Bound::None {
                 return TTProbeResult::Hit {
                     data: TTEntryData::from(data),
-                    index: idx,
+                    slot: TTSlot(idx),
                 };
             }
 
             if data.bound == Bound::None {
-                return TTProbeResult::Miss { index: idx };
+                return TTProbeResult::Miss { slot: TTSlot(idx) };
             }
 
             let age = generation.wrapping_sub(data.generation) as i32;
@@ -251,7 +260,9 @@ impl TranspositionTable {
             }
         }
 
-        TTProbeResult::Miss { index: replace_idx }
+        TTProbeResult::Miss {
+            slot: TTSlot(replace_idx),
+        }
     }
 
     /// Read-only lookup without replacement candidate.
@@ -284,7 +295,7 @@ impl TranspositionTable {
     #[inline(always)]
     pub fn store(
         &self,
-        index: usize,
+        slot: TTSlot,
         key: u64,
         score: ScaledScore,
         bound: Bound,
@@ -294,8 +305,9 @@ impl TranspositionTable {
         is_endgame: bool,
     ) {
         let generation = self.generation.get();
-        // SAFETY: index is produced by probe(), which guarantees index < table.len().
-        let entry = unsafe { self.table.get_unchecked(index) };
+        // SAFETY: only `probe` creates a `TTSlot`, with an index below the
+        // `table.len()` of the table that issued it.
+        let entry = unsafe { self.table.get_unchecked(slot.0) };
 
         let same_key = entry.key.get() == key;
         let existing = entry.data.get();
@@ -373,7 +385,7 @@ mod tests {
         assert!(matches!(probe, TTProbeResult::Miss { .. }));
 
         tt.store(
-            probe.index(),
+            probe.slot(),
             key,
             score,
             Bound::Exact,
@@ -401,7 +413,7 @@ mod tests {
 
         assert!(tt.lookup(key).is_none());
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -426,7 +438,7 @@ mod tests {
         let key2: u64 = 0x1111111100000002;
         assert_eq!(tt.cluster_index(key1), tt.cluster_index(key2));
 
-        let idx = tt.probe(key1).index();
+        let idx = tt.probe(key1).slot();
         tt.store(
             idx,
             key1,
@@ -456,7 +468,7 @@ mod tests {
         let base_key: u64 = 0x1234567800000001;
         let key2: u64 = 0x1234567800000002;
 
-        let idx1 = tt.probe(base_key).index();
+        let idx1 = tt.probe(base_key).slot();
         tt.store(
             idx1,
             base_key,
@@ -468,7 +480,7 @@ mod tests {
             false,
         );
 
-        let idx2 = tt.probe(key2).index();
+        let idx2 = tt.probe(key2).slot();
         tt.store(
             idx2,
             key2,
@@ -499,7 +511,7 @@ mod tests {
             let key2: u64 = 0x1234567800000002;
             let key3: u64 = 0x1234567800000003;
 
-            let idx1 = tt.probe(key1).index();
+            let idx1 = tt.probe(key1).slot();
             tt.store(
                 idx1,
                 key1,
@@ -511,7 +523,7 @@ mod tests {
                 false,
             );
 
-            let idx2 = tt.probe(key2).index();
+            let idx2 = tt.probe(key2).slot();
             tt.store(
                 idx2,
                 key2,
@@ -527,7 +539,7 @@ mod tests {
                 tt.increment_generation();
             }
             // Equal ages cancel out, so depth decides the victim in either generation.
-            let idx3 = tt.probe(key3).index();
+            let idx3 = tt.probe(key3).slot();
             tt.store(
                 idx3,
                 key3,
@@ -552,7 +564,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -566,7 +578,7 @@ mod tests {
 
         // Shallow non-exact update, same generation, same selectivity → rejected
         // (depth 5 < 15 - 2 = 13, selectivity not higher, same generation)
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -588,7 +600,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -601,7 +613,7 @@ mod tests {
         );
 
         // depth 9 >= 10 - 2 = 8 → replaces (within 2-ply regression)
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -623,7 +635,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -636,7 +648,7 @@ mod tests {
         );
 
         // Exact bound should replace even at lower depth
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -658,7 +670,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -671,7 +683,7 @@ mod tests {
         );
 
         // Same key, non-exact, best_move=None → preserves existing D3
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -693,7 +705,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0xABCDABCDABCDABCD;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -715,7 +727,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x5555555555555555;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -740,7 +752,7 @@ mod tests {
         let key3: u64 = 0x1234567800000003;
 
         // Store key1 at generation 0, depth 20 (deep but old)
-        let idx1 = tt.probe(key1).index();
+        let idx1 = tt.probe(key1).slot();
         tt.store(
             idx1,
             key1,
@@ -758,7 +770,7 @@ mod tests {
         }
 
         // Store key2 at generation 3, depth 5 (shallow but current)
-        let idx2 = tt.probe(key2).index();
+        let idx2 = tt.probe(key2).slot();
         tt.store(
             idx2,
             key2,
@@ -772,7 +784,7 @@ mod tests {
 
         // key1: score = 20 - 8*3 = -4, key2: score = 5 - 8*0 = 5
         // key3 should evict key1 (lower replacement score)
-        let idx3 = tt.probe(key3).index();
+        let idx3 = tt.probe(key3).slot();
         tt.store(
             idx3,
             key3,
@@ -794,7 +806,7 @@ mod tests {
         let tt = TranspositionTable::new(1);
         let key: u64 = 0x123456789ABCDEF0;
 
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,
@@ -810,7 +822,7 @@ mod tests {
         tt.increment_generation();
 
         // Shallow non-exact update for same key should now succeed (different generation)
-        let idx = tt.probe(key).index();
+        let idx = tt.probe(key).slot();
         tt.store(
             idx,
             key,

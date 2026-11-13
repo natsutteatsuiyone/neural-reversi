@@ -515,7 +515,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     }
 
     ctx.tt.store(
-        tt_probe_result.index(),
+        tt_probe_result.slot(),
         tt_key,
         best_score,
         Bound::classify::<NT>(best_score, org_alpha, beta),

@@ -351,7 +351,7 @@ mod tests {
         let tt_sq = board.legal_moves().iter().find(|&sq| sq != quick).unwrap();
         let probe = ctx.tt.probe(&board, board.hash());
         ctx.tt.store(
-            probe.index(),
+            probe.slot(),
             &board,
             ScaledScore::from_disc_diff(3),
             Bound::Exact,

@@ -14,7 +14,7 @@ use reversi_core::{bitboard, flip, stability};
 use crate::move_list::{MoveList, evaluate_moves_fast};
 use crate::search::context::SearchContext;
 
-use self::cache::EndGameCache;
+use self::cache::{CacheIndex, EndGameCache};
 
 /// Quadrant masks for move ordering in shallow search.
 #[rustfmt::skip]
@@ -41,7 +41,7 @@ struct EndGameCaches {
 
 #[derive(Clone, Copy)]
 struct CacheSlot {
-    index: usize,
+    index: CacheIndex,
     key: u64,
 }
 
