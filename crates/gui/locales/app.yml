@@ -15,6 +15,12 @@ pass:
 thinking:
   en: "Thinking..."
   ja: "思考中..."
+settings_load_failed:
+  en: "Settings could not be loaded. Starting with the defaults."
+  ja: "設定を読み込めませんでした。既定の設定で起動します。"
+settings_save_failed:
+  en: "Settings could not be saved."
+  ja: "設定を保存できませんでした。"
 settings_unwritable:
   en: "Settings could not be loaded; the existing file is left unchanged."
   ja: "設定を読み込めないため、既存の設定ファイルは変更していません。"

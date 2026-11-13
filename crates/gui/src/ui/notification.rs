@@ -41,9 +41,10 @@ impl Notification {
     }
 
     /// Shows `message` until it is cleared or replaced.
-    pub(super) fn show_error(&mut self, message: String) {
+    pub(super) fn show_error(&mut self, message: String, description: String) {
         *self = Self {
             message,
+            description,
             ..Self::default()
         };
     }

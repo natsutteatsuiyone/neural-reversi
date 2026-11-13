@@ -100,6 +100,7 @@ enum Action {
 struct ReversiApp {
     settings: Settings,
     settings_writable: bool,
+    unwritable_notified: bool,
     draft: Settings,
     session: Session,
     history_scroll: ScrollHandle,
@@ -193,17 +194,20 @@ pub fn run() {
 
 impl ReversiApp {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let mut notification = Notification::default();
-        let mut settings = Settings::load().unwrap_or_else(|error| {
-            notification.show_error(error);
-            Settings::default()
-        });
+        let (mut settings, load_error) = match Settings::load() {
+            Ok(settings) => (settings, None),
+            Err(error) => (Settings::default(), Some(error)),
+        };
+        let settings_writable = load_error.is_none();
         // The user always plays Black at startup.
         if settings.game_mode == GameMode::AiBlack {
             settings.game_mode = GameMode::AiWhite;
         }
         rust_i18n::set_locale(settings.locale());
-        let settings_writable = !notification.is_visible();
+        let mut notification = Notification::default();
+        if let Some(error) = load_error {
+            notification.show_error(tr!("settings_load_failed").into(), error);
+        }
         let session = Session::new(&settings);
         let focus = cx.focus_handle();
         focus.focus(window, cx);
@@ -223,6 +227,7 @@ impl ReversiApp {
             draft: settings.clone(),
             settings,
             settings_writable,
+            unwritable_notified: false,
             session,
             history_scroll: ScrollHandle::new(),
             log_scroll: ScrollHandle::new(),
@@ -281,12 +286,16 @@ impl ReversiApp {
 
     fn save(&mut self) {
         if !self.settings_writable {
-            self.notification
-                .show_error(tr!("settings_unwritable").into());
+            if !self.unwritable_notified {
+                self.unwritable_notified = true;
+                self.notification
+                    .show_error(tr!("settings_unwritable").into(), String::new());
+            }
             return;
         }
         if let Err(error) = self.settings.save() {
-            self.notification.show_error(error);
+            self.notification
+                .show_error(tr!("settings_save_failed").into(), error);
         }
     }
 }

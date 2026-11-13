@@ -57,8 +57,10 @@ impl ReversiApp {
                 Update::Logged => self
                     .log_scroll
                     .scroll_to_item(self.session.log().len().saturating_sub(1)),
-                Update::NoMove => self.notification.show_error(tr!("engine_no_move").into()),
-                Update::Error(error) => self.notification.show_error(error),
+                Update::NoMove => self
+                    .notification
+                    .show_error(tr!("engine_no_move").into(), String::new()),
+                Update::Error(error) => self.notification.show_error(error, String::new()),
             }
         }
     }

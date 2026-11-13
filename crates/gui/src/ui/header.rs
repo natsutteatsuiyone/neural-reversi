@@ -361,8 +361,9 @@ fn menu_choice(
         .pr(px(32.))
         .text_color(rgba(0xffffffeb))
         .on_click(cx.listener(move |this, _, window, cx| {
-            this.action(action, window, cx);
+            // Closing first keeps the notification that the action may raise.
             this.action(Action::Close, window, cx);
+            this.action(action, window, cx);
         }))
         .child(label)
         .when(selected, |item| {
