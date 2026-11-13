@@ -94,7 +94,7 @@ fn read_games(
             }
         })
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
-        let final_score = final_board.solve(final_board.empty_count());
+        let final_score = final_board.solve_disc_diff(final_board.empty_count());
         for (_, side, _, result) in &mut positions {
             *result = if *side == final_side {
                 final_score.value()

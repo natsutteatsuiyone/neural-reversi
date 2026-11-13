@@ -64,7 +64,7 @@ pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: DiscSco
     }
 
     match n_empties {
-        0 => board.final_score(),
+        0 => board.final_disc_diff(),
         1 => {
             let sq = ctx.empty_list.first();
             solve1(ctx, board, alpha, sq)
@@ -118,7 +118,7 @@ fn null_window_search_with_ec(
         if next.has_legal_moves() {
             return -null_window_search_with_ec(ctx, &next, -beta, ec, sc);
         } else {
-            return board.solve(n_empties);
+            return board.solve_disc_diff(n_empties);
         }
     }
 
@@ -201,7 +201,7 @@ fn shallow_search(
         if next.has_legal_moves() {
             return -shallow_search(ctx, &next, -beta, sc);
         } else {
-            return board.solve(n_empties);
+            return board.solve_disc_diff(n_empties);
         }
     }
 
@@ -439,7 +439,7 @@ fn solve4(
         if pass.has_legal_moves() {
             best_score = -solve4(ctx, &pass, -beta, sq1, sq2, sq3, sq4);
         } else {
-            best_score = board.solve(4);
+            best_score = board.solve_disc_diff(4);
         }
     }
 
@@ -513,7 +513,7 @@ fn solve3(
         return best_score;
     }
 
-    board.solve(3)
+    board.solve_disc_diff(3)
 }
 
 /// Solves positions with exactly 2 empty squares.
@@ -563,7 +563,7 @@ fn solve2(
     }
 
     // both players pass
-    board.solve(2)
+    board.solve_disc_diff(2)
 }
 
 /// Solves positions with exactly 1 empty square.

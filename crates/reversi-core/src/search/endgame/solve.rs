@@ -298,7 +298,7 @@ fn solve4_eager_pass(
     }
 
     if best_score == DISC_SCORE_INF {
-        return board.solve(4);
+        return board.solve_disc_diff(4);
     }
 
     best_score
@@ -413,7 +413,7 @@ fn solve4_fallback(
         }
 
         if best_score == DISC_SCORE_INF {
-            return board.solve(4);
+            return board.solve_disc_diff(4);
         }
     }
 
@@ -554,7 +554,7 @@ fn solve3_eager(
         return best_score;
     }
 
-    board.solve(3)
+    board.solve_disc_diff(3)
 }
 
 /// Fallback `solve3` dispatch target: the original
@@ -636,7 +636,7 @@ fn solve3_fallback(
         return best_score;
     }
 
-    board.solve(3)
+    board.solve_disc_diff(3)
 }
 
 /// Specialized solver for positions with exactly 2 empty squares.
@@ -713,7 +713,7 @@ fn solve2_eager(
     }
 
     // both players pass
-    board.solve(2)
+    board.solve_disc_diff(2)
 }
 
 /// Fallback `solve2` dispatch target (non-AVX-512): the original
@@ -799,7 +799,7 @@ fn solve2_fallback(
     }
 
     // both players pass
-    board.solve(2)
+    board.solve_disc_diff(2)
 }
 
 /// Specialized solver for positions with exactly 1 empty square.

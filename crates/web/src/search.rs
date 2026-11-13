@@ -438,7 +438,7 @@ pub fn evaluate_depth3<NT: NodeType>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -514,7 +514,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -560,7 +560,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -613,7 +613,7 @@ fn search_move_in_evaluate_depth1(
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == 60 {
-        return board.final_score_scaled();
+        return board.final_score();
     }
 
     ctx.eval.evaluate(ctx, board)

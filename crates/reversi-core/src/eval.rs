@@ -181,7 +181,7 @@ impl Eval {
     pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> Score {
         let n_empties = board.empty_count() as usize;
         if n_empties == 0 {
-            return board.final_score_scaled();
+            return board.final_score();
         }
 
         let ply = INITIAL_EMPTY_COUNT - n_empties;
@@ -280,7 +280,7 @@ mod tests {
         assert_eq!(board.empty_count(), 0);
         assert_eq!(
             eval.evaluate_simple(&board, EvalMode::Main),
-            board.final_score_scaled()
+            board.final_score()
         );
     }
 

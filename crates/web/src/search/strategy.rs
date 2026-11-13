@@ -93,7 +93,7 @@ impl SearchStrategy for EndGameStrategy {
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> Score {
-        board.final_score_scaled()
+        board.final_score()
     }
 
     #[inline(always)]

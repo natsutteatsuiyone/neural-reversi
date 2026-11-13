@@ -81,7 +81,7 @@ impl EndgameSolver {
         };
         if !search_board.has_legal_moves() {
             return Ok(EndgameSolveResult {
-                score: board.solve(board.empty_count()).value() as f32,
+                score: board.solve_disc_diff(board.empty_count()).value() as f32,
                 best_move: String::new(),
                 n_nodes: 0.0,
             });

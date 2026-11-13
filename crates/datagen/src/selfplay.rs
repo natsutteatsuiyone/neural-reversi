@@ -360,7 +360,9 @@ fn play_game(
     if !game_records.is_empty() {
         let final_side_to_move = game.side_to_move();
         let final_board = *game.board();
-        let final_score = final_board.solve(final_board.empty_count()).value() as i8;
+        let final_score = final_board
+            .solve_disc_diff(final_board.empty_count())
+            .value() as i8;
 
         for record in game_records.iter_mut() {
             record.game_score = if record.side_to_move == final_side_to_move {

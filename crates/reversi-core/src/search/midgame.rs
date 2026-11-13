@@ -353,7 +353,7 @@ pub fn evaluate_shallow_with_tt(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -432,7 +432,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -474,7 +474,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
@@ -509,7 +509,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
 #[inline(always)]
 pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     if ctx.ply() == INITIAL_EMPTY_COUNT {
-        return board.final_score_scaled();
+        return board.final_score();
     }
 
     if Eval::should_use_main_network(ctx.eval_mode, ctx.ply()) {

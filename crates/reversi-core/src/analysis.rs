@@ -86,7 +86,7 @@ pub fn analyze_game(
             }
             -analysis.score
         }
-        SeedPosition::Terminal => final_board.solve_scaled(final_board.empty_count()),
+        SeedPosition::Terminal => final_board.solve(final_board.empty_count()),
     };
 
     for (move_index, step) in steps.iter().enumerate().rev() {

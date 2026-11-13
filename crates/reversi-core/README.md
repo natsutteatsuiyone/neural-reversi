@@ -55,8 +55,9 @@ pub struct Board {
 - The inner search loop uses `make_move_with_flipped(flipped, sq)` so the
   result of `flip` is computed once and reused by both `make_move` and the
   evaluator.
-- Final disc difference is `final_score(_scaled)` for full boards and
-  `solve(_scaled)` when both sides have passed.
+- The final score is `final_score` (`Score`) / `final_disc_diff`
+  (`DiscScore`) for full boards and `solve` / `solve_disc_diff` when both
+  sides have passed.
 
 Game-level concerns (history, automatic passing, undo) are confined to
 `GameState`. `Board` itself is a pure value type with no history.
@@ -96,7 +97,7 @@ time (the `cut_node` flag is also threaded through). One node, in order:
    the slot.
 2. **Move generation** — `MoveList::new(board)`.
 3. **Pass handling** — if no legal moves, `switch_players()` and recurse;
-   if neither side moves, return `solve_scaled(n_empties)` for the terminal
+   if neither side moves, return `solve(n_empties)` for the terminal
    score.
 4. **Wipeout shortcut** — if any move flips every opponent disc, return
    `MAX` immediately.
@@ -489,7 +490,7 @@ pub struct Score(i32);
   `Score`; callers convert with `to_disc_diff` or `to_disc_diff_f32` where
   they display, print, or write the value.
 - `DiscScore` is the newtype for whole disc differences, used by the
-  endgame solvers, their caches, and `Board::final_score` / `Board::solve`.
+  endgame solvers, their caches, and `Board::final_disc_diff` / `Board::solve_disc_diff`.
 
 ## Levels and time control
 

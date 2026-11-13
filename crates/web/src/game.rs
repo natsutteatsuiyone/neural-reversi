@@ -476,7 +476,7 @@ mod tests {
         // of the web search's selective Multi-PV implementation.
         fn exact_score(board: Board) -> i32 {
             if board.is_game_over() {
-                return board.solve(board.empty_count()).value();
+                return board.solve_disc_diff(board.empty_count()).value();
             }
             let moves = board.legal_moves();
             if moves.is_empty() {

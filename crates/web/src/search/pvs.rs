@@ -63,7 +63,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(n_empties);
+            return board.solve(n_empties);
         }
     } else if let Some(sq) = move_list.wipeout_move() {
         if NT::ROOT_NODE {

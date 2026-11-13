@@ -345,7 +345,7 @@ impl ProbCutDatagen {
         }
 
         // The deep score is the exact final result, oriented to each sample's side to move.
-        let final_score = board.solve_scaled(board.empty_count());
+        let final_score = board.solve(board.empty_count());
         let samples = pending
             .into_iter()
             .map(|p| {

@@ -1141,7 +1141,7 @@ fn exact_move_values(
                         .expect("position has a legal move");
                     if position == child { -score } else { score }
                 }
-                None => -child.solve_scaled(child.empty_count()),
+                None => -child.solve(child.empty_count()),
             }
         };
         values.insert(iter.best_move, value);

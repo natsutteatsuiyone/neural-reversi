@@ -83,7 +83,7 @@ pub(crate) fn exact_endgame_score(board: &Board) -> i32 {
         return -exact_endgame_score(&passed);
     }
 
-    board.solve(board.empty_count()).value()
+    board.solve_disc_diff(board.empty_count()).value()
 }
 
 pub(crate) fn add_random_bit(rng: &mut StdRng, occupied: &mut u64) -> u64 {

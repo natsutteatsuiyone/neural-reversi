@@ -365,7 +365,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
         let next = board.switch_players();
         let next_moves = next.legal_moves();
         if next_moves.is_empty() {
-            return board.solve(n_empties);
+            return board.solve_disc_diff(n_empties);
         }
         ctx.increment_nodes();
         return -null_window_search(ctx, &next, -beta, caches, cutoff, next_moves);
@@ -482,7 +482,7 @@ pub(super) fn shallow_search(
         let next = board.switch_players();
         let next_moves = next.legal_moves();
         if next_moves.is_empty() {
-            return board.solve(n_empties);
+            return board.solve_disc_diff(n_empties);
         }
         ctx.increment_nodes();
         return -shallow_search(ctx, &next, -beta, sc, next_moves);

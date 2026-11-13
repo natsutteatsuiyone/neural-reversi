@@ -184,31 +184,31 @@ impl Board {
     ///
     /// In debug builds only, panics if the board has empty squares.
     /// In release builds, empty squares produce an incorrect score without panicking.
-    /// Use [`solve`](Self::solve) if the board may have empty squares.
+    /// Use [`solve_disc_diff`](Self::solve_disc_diff) if the board may have empty squares.
     #[inline(always)]
-    pub fn final_score(&self) -> DiscScore {
+    pub fn final_disc_diff(&self) -> DiscScore {
         debug_assert!(
             self.empty_squares().is_empty(),
-            "final_score requires no empty squares; use solve() for boards with empties"
+            "final_disc_diff requires no empty squares; use solve_disc_diff() for boards with empties"
         );
         self.disc_score()
     }
 
     /// Returns the final score as a [`Score`].
     ///
-    /// This is equivalent to `Score::from_disc_diff(self.final_score())`.
+    /// This is equivalent to `Score::from_disc_diff(self.final_disc_diff())`.
     #[inline(always)]
-    pub fn final_score_scaled(&self) -> Score {
-        Score::from_disc_diff(self.final_score())
+    pub fn final_score(&self) -> Score {
+        Score::from_disc_diff(self.final_disc_diff())
     }
 
     /// Calculates the final score when both players have passed.
     ///
-    /// Unlike [`final_score`](Self::final_score), handles positions with remaining
+    /// Unlike [`final_disc_diff`](Self::final_disc_diff), handles positions with remaining
     /// empties by awarding them to the player with more discs.
     /// The caller must pass the actual empty count; no validation is performed.
     #[inline(always)]
-    pub fn solve(&self, n_empties: u32) -> DiscScore {
+    pub fn solve_disc_diff(&self, n_empties: u32) -> DiscScore {
         debug_assert!(
             n_empties == self.empty_count(),
             "n_empties ({n_empties}) does not match actual empty count ({})",
@@ -226,10 +226,10 @@ impl Board {
 
     /// Calculates the final score as a [`Score`] when both players have passed.
     ///
-    /// This is equivalent to `Score::from_disc_diff(self.solve(n_empties))`.
+    /// This is equivalent to `Score::from_disc_diff(self.solve_disc_diff(n_empties))`.
     #[inline(always)]
-    pub fn solve_scaled(&self, n_empties: u32) -> Score {
-        Score::from_disc_diff(self.solve(n_empties))
+    pub fn solve(&self, n_empties: u32) -> Score {
+        Score::from_disc_diff(self.solve_disc_diff(n_empties))
     }
 
     /// Returns a new [`Board`] with the player and opponent swapped.
@@ -698,18 +698,18 @@ mod tests {
     }
 
     #[test]
-    fn test_final_score() {
+    fn test_final_disc_diff() {
         // Player wins 64-0
         let board = Board::from_bitboards(u64::MAX, 0);
-        assert_eq!(board.final_score().value(), 64);
+        assert_eq!(board.final_disc_diff().value(), 64);
 
         // Opponent wins 0-64
         let board = Board::from_bitboards(0, u64::MAX);
-        assert_eq!(board.final_score().value(), -64);
+        assert_eq!(board.final_disc_diff().value(), -64);
 
         // Draw 32-32
         let board = Board::from_bitboards(0x00000000FFFFFFFF, 0xFFFFFFFF00000000);
-        assert_eq!(board.final_score().value(), 0);
+        assert_eq!(board.final_disc_diff().value(), 0);
     }
 
     #[test]
@@ -722,7 +722,7 @@ mod tests {
         let player_count = board.player_count();
         let opponent_count = board.opponent_count();
         let n_empties = 64 - player_count - opponent_count;
-        let score = board.solve(n_empties);
+        let score = board.solve_disc_diff(n_empties);
         // Player ahead: gets all empty squares (diff 20 + 4 empties).
         assert_eq!(score.value(), 24);
     }
@@ -737,7 +737,7 @@ mod tests {
         let player_count = board.player_count();
         let opponent_count = board.opponent_count();
         let n_empties = 64 - player_count - opponent_count;
-        let score = board.solve(n_empties);
+        let score = board.solve_disc_diff(n_empties);
         // Opponent ahead: player gets no empty squares.
         assert_eq!(score.value(), -24);
     }
@@ -760,7 +760,7 @@ mod tests {
         let n_empties = 64 - 30 - 30;
 
         // When diff == 0, empties are split, score is 0
-        let score = board.solve(n_empties);
+        let score = board.solve_disc_diff(n_empties);
         assert_eq!(score.value(), 0);
     }
 

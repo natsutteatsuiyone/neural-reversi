@@ -192,7 +192,7 @@ fn solve_position(
     let is_pass = !board.has_legal_moves();
 
     if is_pass && !board.switch_players().has_legal_moves() {
-        let score = board.solve(board.empty_count());
+        let score = board.solve_disc_diff(board.empty_count());
         if all_moves {
             println!("Position #{}  Depth: END", position_num);
             print_all_moves_table_header();

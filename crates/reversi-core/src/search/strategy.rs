@@ -122,7 +122,7 @@ impl SearchStrategy for EndGameStrategy {
 
     #[inline(always)]
     fn evaluate(_ctx: &SearchContext, board: &Board) -> Score {
-        board.final_score_scaled()
+        board.final_score()
     }
 
     #[inline(always)]
@@ -169,7 +169,7 @@ impl SearchStrategy for EndGameStrategy {
             }
         } else {
             match n_empties {
-                0 => board.final_score(),
+                0 => board.final_disc_diff(),
                 1 => {
                     let sq = ctx.empty_list.first();
                     endgame::solve1(ctx, board.player(), alpha_d, sq)

@@ -81,7 +81,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve_scaled(ctx.empty_list.count());
+            return board.solve(ctx.empty_list.count());
         }
     }
 
