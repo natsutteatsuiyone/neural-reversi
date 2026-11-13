@@ -145,13 +145,14 @@ impl Square {
         (0..TOTAL_SQUARES as u8).map(|i| unsafe { Square::from_u8_unchecked(i) })
     }
 
-    /// Parses a string of concatenated two-character algebraic move tokens
-    /// (for example `"f5d6c3"`) into a sequence of squares.
+    /// Parses a string of concatenated algebraic move tokens (for example
+    /// `"f5d6c3"`) into a sequence of squares.
     ///
     /// Leading and trailing whitespace is trimmed, and an empty string yields
-    /// an empty sequence. Each two-character token is parsed with
-    /// [`Square::from_str`], so both letter cases are accepted. A trailing
-    /// token of odd length is rejected.
+    /// an empty sequence. The rest is split into two-byte tokens, each parsed
+    /// with [`Square::from_str`], so both letter cases are accepted. A trailing
+    /// one-byte token is rejected, and so is a token that splits a multi-byte
+    /// UTF-8 character.
     ///
     /// # Errors
     ///
@@ -178,7 +179,7 @@ impl Square {
 /// Error type for square-related operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SquareError {
-    /// Invalid square string format (must be 2 characters).
+    /// Invalid square string format (must be 2 bytes after trimming).
     InvalidFormat,
     /// Invalid file character (must be a-h or A-H).
     InvalidFile(char),
@@ -191,7 +192,7 @@ impl fmt::Display for SquareError {
         match self {
             SquareError::InvalidFormat => write!(
                 f,
-                "Invalid square format: must be 2 characters (e.g., 'a1')"
+                "Invalid square format: must be 2 ASCII characters (e.g., 'a1')"
             ),
             SquareError::InvalidFile(c) => write!(f, "Invalid file '{c}': must be a-h or A-H"),
             SquareError::InvalidRank(c) => write!(f, "Invalid rank '{c}': must be 1-8"),

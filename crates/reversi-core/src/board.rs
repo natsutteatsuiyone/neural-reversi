@@ -172,7 +172,9 @@ impl Board {
         self.empty_squares().count()
     }
 
-    /// Returns the disc-difference score without any assertions.
+    /// Returns `2 * player_count - 64` without any assertions.
+    ///
+    /// This equals the disc difference only when the board has no empty squares.
     #[inline(always)]
     fn disc_score(&self) -> DiscScore {
         DiscScore::new(self.player_count() as i32 * 2 - DISC_SCORE_MAX.value())
@@ -206,7 +208,11 @@ impl Board {
     ///
     /// Unlike [`final_disc_diff`](Self::final_disc_diff), handles positions with remaining
     /// empties by awarding them to the player with more discs.
-    /// The caller must pass the actual empty count; no validation is performed.
+    ///
+    /// # Panics
+    ///
+    /// In debug builds only, panics if `n_empties` is not the actual empty count.
+    /// In release builds, a wrong count produces an incorrect score without panicking.
     #[inline(always)]
     pub fn solve_disc_diff(&self, n_empties: u32) -> DiscScore {
         debug_assert!(
@@ -261,6 +267,10 @@ impl Board {
     /// Use [`is_legal_move`](Self::is_legal_move) if validity is uncertain.
     #[inline(always)]
     pub fn make_move(&self, sq: Square) -> Board {
+        debug_assert!(
+            self.empty_squares().contains(sq),
+            "sq must be an empty square"
+        );
         let flipped = flip::flip(sq, self.player, self.opponent);
         debug_assert!(!flipped.is_empty());
         self.place(flipped, sq)
