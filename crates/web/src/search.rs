@@ -452,6 +452,7 @@ pub fn evaluate_depth3<NT: NodeType>(
     if !NT::PV_NODE
         && let Some(tt_data) = tt_probe_result.data()
         && tt_data.depth >= 3
+        && tt_data.selectivity == Selectivity::None
         && tt_data.can_cut(beta)
     {
         return tt_data.score;
@@ -620,4 +621,73 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
     }
 
     ctx.eval.evaluate(ctx, board)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::node_type::NonPV;
+    use super::*;
+
+    #[test]
+    fn depth3_only_cuts_with_nonselective_tt_entries() {
+        let board = Board::new();
+        let eval = Rc::new(Eval::new().unwrap());
+        let tt = Rc::new(TranspositionTable::new(1));
+        let mut ctx = SearchContext::new(
+            &board,
+            Selectivity::None,
+            Rc::clone(&tt),
+            Rc::clone(&eval),
+            None,
+        );
+        let expected = evaluate_depth3::<NonPV>(&mut ctx, &board, Score::ZERO - 1, Score::ZERO);
+        let (stored_score, bound) = if expected >= Score::ZERO {
+            (Score::MIN, Bound::Upper)
+        } else {
+            (Score::MAX, Bound::Lower)
+        };
+
+        for requested in [Selectivity::Level1, Selectivity::None] {
+            for depth in [3, 6] {
+                for stored in [
+                    Selectivity::Level1,
+                    Selectivity::Level2,
+                    Selectivity::Level3,
+                    Selectivity::None,
+                ] {
+                    tt.clear();
+                    let key = board.hash();
+                    tt.store(
+                        tt.probe(key).slot(),
+                        key,
+                        stored_score,
+                        bound,
+                        depth,
+                        None,
+                        stored,
+                        false,
+                    );
+                    let mut ctx = SearchContext::new(
+                        &board,
+                        requested,
+                        Rc::clone(&tt),
+                        Rc::clone(&eval),
+                        None,
+                    );
+                    let actual =
+                        evaluate_depth3::<NonPV>(&mut ctx, &board, Score::ZERO - 1, Score::ZERO);
+                    if stored == Selectivity::None {
+                        assert_eq!(actual, stored_score);
+                        assert_eq!(ctx.n_nodes, 0);
+                    } else {
+                        assert_eq!(
+                            actual, expected,
+                            "requested={requested:?}, stored={stored:?}, depth={depth}"
+                        );
+                        assert!(ctx.n_nodes > 0);
+                    }
+                }
+            }
+        }
+    }
 }
