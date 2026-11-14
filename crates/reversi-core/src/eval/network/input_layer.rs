@@ -9,7 +9,7 @@ pub use phase_adaptive_input::PhaseAdaptiveInput;
 pub(in crate::eval::network) use base_input::OUTPUT_DIMS as BASE_OUTPUT_DIMS;
 pub(in crate::eval::network) use phase_adaptive_input::OUTPUT_DIMS as PA_OUTPUT_DIMS;
 
-use crate::eval::pattern_feature::{NUM_FEATURES, PatternFeature};
+use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
@@ -100,7 +100,7 @@ fn accumulate_scalar<const DIMS: usize>(
 ) {
     let acc_ptr = acc.as_mut_ptr();
     let weights_ptr = weights.as_ptr();
-    for idx in 0..NUM_FEATURES {
+    for idx in 0..NUM_PATTERN_FEATURES {
         let offset = feature_offset(pattern_feature, idx);
         let row_ptr = unsafe { weights_ptr.add(offset * DIMS) };
         let mut j = 0;
@@ -131,7 +131,7 @@ mod tests {
 
     fn valid_pattern_feature() -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
-        for idx in 0..NUM_FEATURES {
+        for idx in 0..NUM_PATTERN_FEATURES {
             pattern_feature[idx] = ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16;
         }
         pattern_feature
@@ -146,7 +146,7 @@ mod tests {
         let mut expected = [11, -22, 33, -44, 55, -66];
         let mut actual = expected;
 
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let row = feature_offset(&pattern_feature, feature_idx);
             let values = [
                 feature_idx as i16 - 17,

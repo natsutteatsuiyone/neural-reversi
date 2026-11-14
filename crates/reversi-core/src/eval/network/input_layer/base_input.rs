@@ -4,7 +4,7 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
 #[allow(unused_imports)]
@@ -18,7 +18,7 @@ const ACTIVATION_MAX: i16 = 255 * 2;
 const ACTIVATION_SHIFT: u32 = 10;
 pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
 const HIDDEN_DIMS: usize = OUTPUT_DIMS * 2;
-const _: () = assert!(NUM_FEATURES == 32);
+const _: () = assert!(NUM_PATTERN_FEATURES == 32);
 
 /// Neural network base input layer.
 ///
@@ -350,7 +350,7 @@ impl BaseInput {
             }
 
             let mut feature_idx = 0;
-            while feature_idx < NUM_FEATURES {
+            while feature_idx < NUM_PATTERN_FEATURES {
                 accumulate_feature_lo!(feature_idx);
                 feature_idx += 1;
             }
@@ -414,7 +414,7 @@ impl BaseInput {
             }
 
             feature_idx = 0;
-            while feature_idx < NUM_FEATURES {
+            while feature_idx < NUM_PATTERN_FEATURES {
                 accumulate_feature_hi!(feature_idx);
                 feature_idx += 1;
             }
@@ -468,7 +468,7 @@ mod tests {
 
     fn valid_pattern_feature(seed: usize) -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
-        for idx in 0..NUM_FEATURES {
+        for idx in 0..NUM_PATTERN_FEATURES {
             pattern_feature[idx] = ((idx * seed + 17) % calc_pattern_size(idx)) as u16;
         }
         pattern_feature
@@ -484,7 +484,7 @@ mod tests {
             *bias = ((idx as i32 * 37 + seed).rem_euclid(1400) - 450) as i16;
         }
 
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let row =
                 PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
             let start = row * HIDDEN_DIMS;
@@ -504,7 +504,7 @@ mod tests {
         let mut acc = [0i16; HIDDEN_DIMS];
         acc.copy_from_slice(&layer.biases[..HIDDEN_DIMS]);
 
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let row =
                 PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
             let start = row * HIDDEN_DIMS;

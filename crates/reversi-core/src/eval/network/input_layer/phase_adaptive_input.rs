@@ -5,7 +5,7 @@ use std::io::{self, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::network::layer_stack::NUM_LAYER_STACKS;
-use crate::eval::pattern_feature::NUM_FEATURES;
+use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
 use crate::eval::util::clone_biases;
 #[allow(unused_imports)]
@@ -20,7 +20,7 @@ const ACTIVATION_SHIFT: u32 = 10;
 pub(in crate::eval::network) const OUTPUT_DIMS: usize = 128;
 const NUM_PA_INPUTS: usize = 6;
 const PA_INPUT_BUCKET_SIZE: usize = NUM_LAYER_STACKS / NUM_PA_INPUTS;
-const _: () = assert!(NUM_FEATURES == 32);
+const _: () = assert!(NUM_PATTERN_FEATURES == 32);
 
 /// Phase-adaptive input layer.
 #[derive(Debug)]
@@ -281,7 +281,7 @@ impl PhaseAdaptiveInputLayer {
             }
 
             let mut feature_idx = 0;
-            while feature_idx < NUM_FEATURES {
+            while feature_idx < NUM_PATTERN_FEATURES {
                 accumulate_feature!(feature_idx);
                 feature_idx += 1;
             }
@@ -359,7 +359,7 @@ mod tests {
 
     fn valid_pattern_feature(seed: usize) -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
-        for idx in 0..NUM_FEATURES {
+        for idx in 0..NUM_PATTERN_FEATURES {
             pattern_feature[idx] = ((idx * seed + 17) % calc_pattern_size(idx)) as u16;
         }
         pattern_feature
@@ -375,7 +375,7 @@ mod tests {
             *bias = ((idx as i32 * 31 + seed).rem_euclid(1100) - 350) as i16;
         }
 
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let row =
                 PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
             let start = row * OUTPUT_DIMS;
@@ -416,7 +416,7 @@ mod tests {
         let mut acc = [0i16; OUTPUT_DIMS];
         acc.copy_from_slice(&layer.biases[..OUTPUT_DIMS]);
 
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let row =
                 PATTERN_FEATURE_OFFSETS[feature_idx] + usize::from(pattern_feature[feature_idx]);
             let start = row * OUTPUT_DIMS;

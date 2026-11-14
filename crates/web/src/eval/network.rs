@@ -3,7 +3,7 @@ use std::io::{self, Read};
 use byteorder::{LittleEndian, ReadBytesExt};
 use reversi_core::{
     eval::pattern_feature::{
-        INPUT_FEATURE_DIMS, NUM_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
+        INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
     },
     score::Score,
 };
@@ -396,16 +396,18 @@ impl Network {
 
         unsafe {
             let weights = input_layer.weights.as_ptr();
-            let mut row_ptrs = std::mem::MaybeUninit::<[*const v128; NUM_FEATURES]>::uninit();
+            let mut row_ptrs =
+                std::mem::MaybeUninit::<[*const v128; NUM_PATTERN_FEATURES]>::uninit();
             let row_ptrs_ptr = row_ptrs.as_mut_ptr() as *mut *const v128;
 
-            for feature_idx in 0..NUM_FEATURES {
+            for feature_idx in 0..NUM_PATTERN_FEATURES {
                 let offset = feature_offset(pattern_feature, feature_idx);
                 row_ptrs_ptr
                     .add(feature_idx)
                     .write(weights.add(offset * NN_DIMS) as *const v128);
             }
-            // SAFETY: the loop above writes every NUM_FEATURES pointer slot exactly once.
+            // SAFETY: the loop above writes every NUM_PATTERN_FEATURES pointer
+            // slot exactly once.
             let row_ptrs = row_ptrs.assume_init();
 
             let bias_ptr = input_layer.biases.0.as_ptr() as *const v128;
@@ -456,7 +458,7 @@ impl Network {
                     #[cfg(target_feature = "relaxed-simd")]
                     {
                         let mut pair = 0;
-                        while pair < NUM_FEATURES {
+                        while pair < NUM_PATTERN_FEATURES {
                             let row_a = row_ptrs[pair];
                             let row_b = row_ptrs[pair + 1];
 
@@ -482,7 +484,7 @@ impl Network {
                     #[cfg(not(target_feature = "relaxed-simd"))]
                     {
                         let mut quad = 0;
-                        while quad < NUM_FEATURES {
+                        while quad < NUM_PATTERN_FEATURES {
                             let row_a = row_ptrs[quad];
                             let row_b = row_ptrs[quad + 1];
                             let row_c = row_ptrs[quad + 2];
@@ -571,7 +573,7 @@ impl Network {
         let weights = unsafe {
             std::slice::from_raw_parts(input_layer.weights.as_ptr(), input_layer.weights.len)
         };
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let offset = feature_offset(pattern_feature, feature_idx);
             let row = &weights[offset * NN_DIMS..(offset + 1) * NN_DIMS];
             for i in 0..NN_DIMS {

@@ -47,9 +47,6 @@ assert_sq_matches_square!(
     A8, B8, C8, D8, E8, F8, G8, H8,
 );
 
-/// Alias for NUM_PATTERN_FEATURES for compatibility.
-pub const NUM_FEATURES: usize = NUM_PATTERN_FEATURES;
-
 /// Maximum number of features that any single square can participate in.
 const MAX_FEATURES_PER_SQUARE: usize = 5;
 

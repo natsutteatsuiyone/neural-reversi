@@ -9,7 +9,7 @@ use std::path::Path;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_FEATURES, PatternFeature};
+use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PatternFeature};
 use crate::eval::util::feature_offset;
 use crate::score::Score;
 use crate::util::align::Align64;
@@ -255,7 +255,7 @@ impl NetworkSmall {
 
         // Accumulate weights based on pattern features
         let weights = input_layer.weights.as_slice();
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let offset = feature_offset(pattern_feature, feature_idx);
             let row = &weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
             for (dst, &w) in acc.iter_mut().zip(row.iter()) {
@@ -801,7 +801,7 @@ mod tests {
         [i32; PA_OUTPUT_DIMS],
     ) {
         let mut pattern_feature = PatternFeature::new();
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             pattern_feature[feature_idx] =
                 ((feature_idx * 4099 + 17) % calc_pattern_size(feature_idx)) as u16;
         }
@@ -827,7 +827,7 @@ mod tests {
         }
 
         let weights = input_layer.weights.as_mut_slice();
-        for feature_idx in 0..NUM_FEATURES {
+        for feature_idx in 0..NUM_PATTERN_FEATURES {
             let offset = feature_offset(&pattern_feature, feature_idx) * PA_OUTPUT_DIMS;
             let row = &mut weights[offset..offset + PA_OUTPUT_DIMS];
 
