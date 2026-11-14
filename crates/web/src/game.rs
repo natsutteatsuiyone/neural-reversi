@@ -1,9 +1,10 @@
 use js_sys::{Function, Object, Reflect};
 use reversi_core::board::Board;
+use reversi_core::constants::BOARD_SQUARES;
 use reversi_core::move_list::MoveList;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::score::Score;
-use reversi_core::square::{Square, TOTAL_SQUARES};
+use reversi_core::square::Square;
 use reversi_core::types::Depth;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -58,8 +59,8 @@ impl Game {
 
     pub fn board(&self) -> Vec<u8> {
         let (black_bits, white_bits) = self.color_bitboards();
-        let mut cells = vec![0u8; TOTAL_SQUARES];
-        for (idx, cell) in cells.iter_mut().enumerate().take(TOTAL_SQUARES) {
+        let mut cells = vec![0u8; BOARD_SQUARES];
+        for (idx, cell) in cells.iter_mut().enumerate().take(BOARD_SQUARES) {
             let mask = 1u64 << idx;
             if (black_bits & mask) != 0 {
                 *cell = 1;
@@ -307,7 +308,7 @@ mod tests {
         let occupied = u16::from(score[0]) + u16::from(score[1]);
         assert_eq!(
             occupied + u16::from(game.empty_count()),
-            TOTAL_SQUARES as u16
+            BOARD_SQUARES as u16
         );
     }
 

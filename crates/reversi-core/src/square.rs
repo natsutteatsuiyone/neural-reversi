@@ -4,6 +4,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::bitboard::Bitboard;
+use crate::constants::BOARD_SQUARES;
 
 /// A square on a Reversi board, ranging from A1 to H8.
 ///
@@ -37,8 +38,6 @@ pub enum Square {
 
 /// Number of squares per side of the board.
 pub const BOARD_SIZE: usize = 8;
-/// Total number of squares on the board (64).
-pub const TOTAL_SQUARES: usize = BOARD_SIZE * BOARD_SIZE;
 
 impl Square {
     /// Returns a [`Bitboard`] with a single bit set at this square's position.
@@ -142,7 +141,7 @@ impl Square {
     #[inline]
     pub fn iter() -> impl Iterator<Item = Square> {
         // SAFETY: 0..64 are all valid square indices.
-        (0..TOTAL_SQUARES as u8).map(|i| unsafe { Square::from_u8_unchecked(i) })
+        (0..BOARD_SQUARES as u8).map(|i| unsafe { Square::from_u8_unchecked(i) })
     }
 
     /// Parses a string of concatenated algebraic move tokens (for example
