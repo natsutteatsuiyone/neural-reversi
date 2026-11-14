@@ -49,7 +49,7 @@ const EASY_STREAK_THRESHOLD: u32 = 3;
 const EASY_SCALE: f64 = 0.75;
 
 /// Fraction of the optimum after which an easy move may stop immediately.
-const EASY_MIN_FRACTION: f64 = 0.45;
+const EASY_MIN_FRACTION: f64 = 0.65;
 
 /// Stability scale by consecutive unchanged best-move iterations (saturating).
 const STABILITY_SCALE: [f64; 5] = [1.0, 1.0, 0.90, 0.85, 0.80];
@@ -63,20 +63,44 @@ const NO_PREV_MOVE: u8 = u8::MAX;
 /// Default next-iteration prediction factor for midgame iterative deepening.
 const DEFAULT_CONTINUE_FACTOR: f64 = 1.5;
 
-/// Endgame selectivity transition factors: after a level, the next one starts
-/// only if `elapsed * factor` fits in the budget.
-///
-/// A factor is the 75th percentile of `time to finish the next level / time
-/// to finish this level` (both cumulative) at roots with 26 to 32 empties.
-/// So a level that starts finishes within the budget about 75% of the time.
-///
-/// The percentiles were measured with evaltest at 26 to 28 empties, then
-/// scaled up to 26 to 32 empties by the ratio seen with the old three-level
-/// ladder.
-const ENDGAME_LEVEL1_CONTINUE_FACTOR: f64 = 2.55;
-const ENDGAME_LEVEL2_CONTINUE_FACTOR: f64 = 2.02;
-const ENDGAME_LEVEL3_CONTINUE_FACTOR: f64 = 1.95;
-const ENDGAME_LEVEL4_CONTINUE_FACTOR: f64 = 6.42;
+const ENDGAME_LEVEL1_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
+    scale: 0.254,
+    growth: 1.340,
+};
+const ENDGAME_LEVEL2_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
+    scale: 0.777,
+    growth: 1.296,
+};
+const ENDGAME_LEVEL3_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
+    scale: 2.333,
+    growth: 1.295,
+};
+const ENDGAME_LEVEL4_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
+    scale: 11.70,
+    growth: 1.156,
+};
+const CONTINUE_CURVE_BASE_EMPTIES: i32 = 30;
+
+/// Midgame-speed nodes the endgame solve needs to finish Level2 at the base empty count.
+const ENDGAME_ENTER_WORK: f64 = 1.04e9;
+const ENDGAME_ENTER_WORK_GROWTH: f64 = 1.65;
+const ENDGAME_ENTER_WORK_BASE_EMPTIES: i32 = 38;
+
+#[derive(Clone, Copy)]
+struct ContinueCurve {
+    scale: f64,
+    growth: f64,
+}
+
+impl ContinueCurve {
+    fn at(self, n_empties: u32) -> f64 {
+        self.scale.mul_add(
+            self.growth
+                .powi(n_empties as i32 - CONTINUE_CURVE_BASE_EMPTIES),
+            1.0,
+        )
+    }
+}
 
 // Time allocation percentages (0-100)
 const MIN_PERCENT_NORMAL: u64 = 75;
@@ -91,7 +115,7 @@ const JP_BYO_MAIN_MIN_PERCENT: u64 = 85;
 /// be committed to finishing the solve now. Applying the fraction to the
 /// current hard limit keeps the allocation geometric: an unsolved attempt
 /// still leaves the majority of the bank for the next attempt.
-const ENDGAME_BANK_PERCENT: u64 = 45;
+const ENDGAME_BANK_PERCENT: u64 = 55;
 
 /// Calculates a time allocation factor based on game phase using a smooth bell curve.
 ///
@@ -131,15 +155,16 @@ fn endgame_bank_budget(hard_limit: u64) -> u64 {
     (hard_limit * ENDGAME_BANK_PERCENT) / 100
 }
 
-fn endgame_continue_factor(current_selectivity: Selectivity) -> f64 {
-    match current_selectivity {
-        Selectivity::Level1 => ENDGAME_LEVEL1_CONTINUE_FACTOR,
-        Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_FACTOR,
-        Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_FACTOR,
-        Selectivity::Level4 => ENDGAME_LEVEL4_CONTINUE_FACTOR,
-        Selectivity::None => f64::INFINITY,
+fn endgame_continue_factor(current_selectivity: Selectivity, n_empties: u32) -> f64 {
+    let curve = match current_selectivity {
+        Selectivity::Level1 => ENDGAME_LEVEL1_CONTINUE_CURVE,
+        Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_CURVE,
+        Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_CURVE,
+        Selectivity::Level4 => ENDGAME_LEVEL4_CONTINUE_CURVE,
+        Selectivity::None => return f64::INFINITY,
         Selectivity::Mid => unreachable!("Mid is midgame-only and never enters the endgame ladder"),
-    }
+    };
+    curve.at(n_empties)
 }
 
 /// Time control mode for a game.
@@ -220,11 +245,20 @@ pub struct TimeManager {
     deadline_reached: AtomicBool,
 }
 
+struct Allocation {
+    base_ms: u64,
+    optimum_ms: u64,
+    hard_ms: u64,
+}
+
 impl TimeManager {
     /// Creates a new time manager with the specified mode and abort state.
     pub(crate) fn new(mode: TimeControlMode, abort_state: Arc<AbortState>, n_empties: u32) -> Self {
-        let (base_ms, hard_ms) = Self::calculate_allocation(mode, n_empties, false);
-        let optimum_ms = Self::initial_optimum(mode, base_ms, hard_ms);
+        let Allocation {
+            base_ms,
+            optimum_ms,
+            hard_ms,
+        } = Self::calculate_allocation(mode, n_empties, false);
 
         if is_debug_enabled() {
             eprintln!(
@@ -260,10 +294,13 @@ impl TimeManager {
         main_time_ms.saturating_sub(total_buffer)
     }
 
-    /// Calculates the base allocation and hard limit for the given mode.
-    fn calculate_allocation(mode: TimeControlMode, n_empties: u32, is_endgame: bool) -> (u64, u64) {
+    fn calculate_allocation(mode: TimeControlMode, n_empties: u32, is_endgame: bool) -> Allocation {
         match mode {
-            TimeControlMode::Infinite => (u64::MAX, u64::MAX),
+            TimeControlMode::Infinite => Allocation {
+                base_ms: u64::MAX,
+                optimum_ms: u64::MAX,
+                hard_ms: u64::MAX,
+            },
 
             TimeControlMode::Byoyomi { time_per_move_ms }
             | TimeControlMode::JapaneseByo {
@@ -271,7 +308,11 @@ impl TimeManager {
                 time_per_move_ms,
             } => {
                 let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
-                (available, available)
+                Allocation {
+                    base_ms: available,
+                    optimum_ms: available * BYOYOMI_MAX_PERCENT / 100,
+                    hard_ms: available,
+                }
             }
 
             TimeControlMode::Fischer {
@@ -284,7 +325,12 @@ impl TimeManager {
                 } else {
                     Self::allocate_budget(main_time_ms, increment_ms, n_empties)
                 };
-                (base.min(hard), hard)
+                let base = base.min(hard);
+                Allocation {
+                    base_ms: base,
+                    optimum_ms: base,
+                    hard_ms: hard,
+                }
             }
 
             TimeControlMode::JapaneseByo { main_time_ms, .. } => {
@@ -294,20 +340,13 @@ impl TimeManager {
                 } else {
                     Self::allocate_budget(main_time_ms, 0, n_empties)
                 };
-                (base.min(hard), hard)
+                let base = base.min(hard);
+                Allocation {
+                    base_ms: base,
+                    optimum_ms: base,
+                    hard_ms: hard,
+                }
             }
-        }
-    }
-
-    /// Returns the initial optimum before any iteration feedback.
-    fn initial_optimum(mode: TimeControlMode, base_ms: u64, hard_ms: u64) -> u64 {
-        match mode {
-            TimeControlMode::Infinite => u64::MAX,
-            TimeControlMode::Byoyomi { .. }
-            | TimeControlMode::JapaneseByo {
-                main_time_ms: 0, ..
-            } => base_ms * BYOYOMI_MAX_PERCENT / 100,
-            _ => base_ms.min(hard_ms),
         }
     }
 
@@ -519,6 +558,27 @@ impl TimeManager {
         should_continue
     }
 
+    pub(crate) fn should_enter_endgame(&self, nodes: u64) -> bool {
+        if !self.uses_continuous_scaling() || nodes == 0 {
+            return true;
+        }
+
+        let elapsed = self.elapsed_ms() as f64;
+        let budget = Self::calculate_allocation(self.mode, self.n_empties, true).optimum_ms;
+        let work = ENDGAME_ENTER_WORK
+            * ENDGAME_ENTER_WORK_GROWTH
+                .powi(self.n_empties as i32 - ENDGAME_ENTER_WORK_BASE_EMPTIES);
+        let expected = elapsed + work * elapsed / nodes as f64;
+        let should_enter = expected < budget as f64;
+        if !should_enter && is_debug_enabled() {
+            eprintln!(
+                "[TimeManager] Staying in midgame: elapsed={elapsed}ms, expected={expected:.0}ms, budget={budget}ms"
+            );
+        }
+
+        should_enter
+    }
+
     /// Checks whether endgame search should continue to the next selectivity level.
     fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
         if !self.uses_continuous_scaling() {
@@ -527,7 +587,7 @@ impl TimeManager {
 
         let elapsed = self.elapsed_ms();
         let maxi = self.maxi_time_ms();
-        let factor = endgame_continue_factor(current_selectivity);
+        let factor = endgame_continue_factor(current_selectivity, self.n_empties);
         let should_continue = (elapsed as f64 * factor) < maxi as f64;
         if !should_continue && is_debug_enabled() {
             eprintln!(
@@ -601,8 +661,11 @@ impl TimeManager {
         if self.is_endgame_mode.swap(enabled, Ordering::Relaxed) == enabled {
             return;
         }
-        let (base_ms, hard_ms) = Self::calculate_allocation(self.mode, self.n_empties, enabled);
-        let optimum_ms = Self::initial_optimum(self.mode, base_ms, hard_ms);
+        let Allocation {
+            base_ms,
+            optimum_ms,
+            hard_ms,
+        } = Self::calculate_allocation(self.mode, self.n_empties, enabled);
         self.base_time_ms.store(base_ms, Ordering::Relaxed);
         self.hard_time_limit_ms.store(hard_ms, Ordering::Relaxed);
         self.optimum_time_ms.store(optimum_ms, Ordering::Relaxed);
@@ -731,13 +794,23 @@ mod tests {
         let mut tm = make_fischer_tm(60_000, 0, 36);
         tm.set_endgame_mode(true);
 
-        let elapsed = (tm.maxi_time_ms() as f64 / ENDGAME_LEVEL1_CONTINUE_FACTOR).ceil() as u64 + 1;
+        let factor = endgame_continue_factor(Selectivity::Level1, 36);
+        let elapsed = (tm.maxi_time_ms() as f64 / factor).ceil() as u64 + 1;
         assert!(elapsed < tm.mini_time_ms());
 
         tm.start_time = Instant::now() - Duration::from_millis(elapsed);
 
         assert!(tm.should_continue_iteration());
         assert!(!tm.should_continue_endgame_iteration(Selectivity::Level1));
+    }
+
+    #[test]
+    fn endgame_entry_needs_room_for_level2() {
+        let mut tm = make_fischer_tm(60_000, 0, 38);
+        tm.start_time = Instant::now() - Duration::from_millis(2_000);
+
+        assert!(tm.should_enter_endgame(280_000_000));
+        assert!(!tm.should_enter_endgame(28_000_000));
     }
 
     #[test]
@@ -919,7 +992,7 @@ mod tests {
         assert!(tm.is_easy_move());
 
         let optimum = tm.maxi_time_ms();
-        let elapsed = (optimum as f64 * (EASY_MIN_FRACTION + 0.1)) as u64;
+        let elapsed = (optimum as f64 * (EASY_MIN_FRACTION + 0.05)) as u64;
         // Below the normal min gate (75% of optimum) but past the easy fraction.
         assert!(elapsed < optimum * MIN_PERCENT_NORMAL / 100);
         tm.start_time = Instant::now() - Duration::from_millis(elapsed);
@@ -936,7 +1009,7 @@ mod tests {
         assert!(!tm.is_easy_move());
 
         let optimum = tm.maxi_time_ms();
-        let elapsed = (optimum as f64 * (EASY_MIN_FRACTION + 0.1)) as u64;
+        let elapsed = (optimum as f64 * (EASY_MIN_FRACTION + 0.05)) as u64;
         tm.start_time = Instant::now() - Duration::from_millis(elapsed);
 
         assert!(tm.should_continue_iteration());

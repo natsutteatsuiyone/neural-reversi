@@ -156,10 +156,13 @@ Iterative deepening with aspiration windows.
   (see Time control).
 - Under time control, a position with a single legal root move is answered
   after the first completed iteration.
-- A time-controlled search never searches the final midgame depth: once
-  the next iteration would cover all empties, the root hands its context
-  to the endgame solve loop, which searches the remaining selectivity
-  levels at full depth (see Endgame root).
+- A time-controlled search hands its context to the endgame solve loop
+  once a midgame iteration has covered all empties; the loop searches the
+  endgame selectivity levels at full depth (see Endgame root). The handoff
+  happens only when `TimeManager::should_enter_endgame` expects the solve
+  to finish Level2 within the endgame budget, from the empty count and the
+  node rate of the midgame iterations; otherwise the last midgame
+  iteration is the answer.
 - In a parallel pool, the other threads run Lazy SMP helper searches on
   the same root until the main thread returns or hands off to the endgame
   solve loop. A time-controlled search reports the move that the
@@ -197,8 +200,8 @@ ending with `None` for an exact solve.
 - The solve loop is shared with the midgame handoff: a time-controlled
   midgame root enters it with its own context, keeping the midgame
   root-move ordering and centring the window on the last completed
-  midgame score. Until a selectivity level completes, the last completed
-  midgame iteration remains the fallback result on abort.
+  midgame score. Until Level2 completes, the last completed midgame
+  iteration remains the reported result.
 - Between selectivity steps the window narrows by
   `INTER_SELECTIVITY_DELTA`. On a fail-high or fail-low it widens by
   `ASPIRATION_DELTA` and re-searches.
@@ -505,7 +508,7 @@ up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / Level4 / None`
   effectively unlimited `mid_depth` paired with a moderate `end_depth`
   cap that only controls the root dispatch. Positions with more empties
   than the cap start in the midgame driver, which hands off to the
-  endgame solve loop in-run once deepening approaches the full depth.
+  endgame solve loop in-run once deepening reaches the full depth.
   Once a previous time-controlled `Search::run` has reached the endgame
   phase (recorded by `update_endgame_tracking`), subsequent calls lift
   the `end_depth` to `Level::perfect()`'s value so the endgame root is

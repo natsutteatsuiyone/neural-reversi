@@ -51,11 +51,17 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
         ctx.prepare_pv();
     } else {
+        let n_empties = ctx.empty_list.count();
+        if !SS::IS_ENDGAME && depth >= n_empties && n_empties <= EndGameStrategy::DEPTH_TO_SHALLOW {
+            debug_assert_eq!(beta.value(), alpha.value() + 1);
+            return EndGameStrategy::shallow_search(ctx, board, n_empties, alpha, beta, thread);
+        }
+
         if depth <= SS::DEPTH_TO_SHALLOW {
             return SS::shallow_search(ctx, board, depth, alpha, beta, thread);
         }
 
-        if let Some(score) = stability_cutoff(board, ctx.empty_list.count(), alpha.to_disc_diff()) {
+        if let Some(score) = stability_cutoff(board, n_empties, alpha.to_disc_diff()) {
             ctx.counters.increment_stability_cut();
             return Score::from_disc_diff(score);
         }

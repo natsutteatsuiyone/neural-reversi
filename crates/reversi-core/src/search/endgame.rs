@@ -115,18 +115,18 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let base_score = estimate_aspiration_base_score(&mut ctx, &board);
 
     let completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
-    solve_root(&mut ctx, &board, &task, thread, base_score, completed)
+    solve_root(
+        &mut ctx,
+        &board,
+        &task,
+        thread,
+        base_score,
+        completed,
+        Selectivity::Level1,
+    )
 }
 
 /// Runs the multi-PV, iterative-selectivity solve loop on an existing context.
-///
-/// Every selectivity level is searched at full depth (all empties), so the
-/// context's root moves, transposition table, and counters carry over from any
-/// preceding midgame iterations. `base_score` centers the first PV's
-/// aspiration window. `completed` is reported when the solve aborts before
-/// every PV line has finished the same selectivity level; otherwise the result
-/// reports the lowest selectivity every PV line reached. Enables endgame time
-/// management on entry.
 pub(super) fn solve_root(
     ctx: &mut SearchContext,
     board: &Board,
@@ -134,6 +134,7 @@ pub(super) fn solve_root(
     thread: &Arc<Thread>,
     base_score: Score,
     mut completed: CompletedState,
+    min_reported: Selectivity,
 ) -> SearchResult {
     let time_manager = task.time_manager.as_deref();
     let use_time_control = time_manager.is_some();
@@ -186,7 +187,9 @@ pub(super) fn solve_root(
             // Stable sort moves from pv_idx to end, bringing best to pv_idx position
             ctx.root_moves.sort_from_pv_idx();
 
-            completed.line_completed(ctx, n_empties, true);
+            if selectivity >= min_reported {
+                completed.line_completed(ctx, n_empties, true);
+            }
 
             // Notify progress with the move now at pv_idx (the best for this PV line)
             if let Some(ref callback) = task.callback
@@ -217,7 +220,9 @@ pub(super) fn solve_root(
 
     // The fixed budget and increasing elapsed time make each later PV stop at
     // the same or a lower selectivity, so `ctx.selectivity` is that level.
-    completed.iteration_completed(ctx, n_empties, true);
+    if ctx.selectivity >= min_reported {
+        completed.iteration_completed(ctx, n_empties, true);
+    }
     completed.into_result(ctx, board)
 }
 
@@ -775,6 +780,7 @@ mod tests {
             pool.main(),
             Score::ZERO,
             completed,
+            Selectivity::Level2,
         );
 
         assert_is_fallback_result(&result);
@@ -800,6 +806,7 @@ mod tests {
             pool.main(),
             Score::ZERO,
             completed,
+            Selectivity::Level2,
         );
 
         assert_is_fallback_result(&result);
@@ -820,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn single_pv_solve_reports_the_last_completed_level_on_abort() {
+    fn single_pv_solve_keeps_fallback_when_aborted_below_level2() {
         let pool = ThreadPool::new(1);
         let abort_at = Arc::new(AtomicUsize::new(1));
         let (mut ctx, task, completed) =
@@ -833,11 +840,32 @@ mod tests {
             pool.main(),
             Score::ZERO,
             completed,
+            Selectivity::Level2,
+        );
+
+        assert_is_fallback_result(&result);
+    }
+
+    #[test]
+    fn single_pv_solve_reports_the_last_completed_level_on_abort() {
+        let pool = ThreadPool::new(1);
+        let abort_at = Arc::new(AtomicUsize::new(2));
+        let (mut ctx, task, completed) =
+            solve_fallback_fixture(&pool, false, abort_on_report(&pool, &abort_at));
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            Score::ZERO,
+            completed,
+            Selectivity::Level2,
         );
 
         assert!(result.is_endgame());
         assert_eq!(result.depth(), 9);
-        assert_eq!(result.selectivity(), Level::ENDGAME_SELECTIVITY[0]);
+        assert_eq!(result.selectivity(), Level::ENDGAME_SELECTIVITY[1]);
     }
 
     #[test]
@@ -861,6 +889,7 @@ mod tests {
             pool.main(),
             Score::ZERO,
             completed,
+            Selectivity::Level2,
         );
 
         assert_is_fallback_result(&result);
@@ -882,6 +911,7 @@ mod tests {
             pool.main(),
             Score::ZERO,
             completed,
+            Selectivity::Level2,
         );
 
         assert!(result.is_endgame());

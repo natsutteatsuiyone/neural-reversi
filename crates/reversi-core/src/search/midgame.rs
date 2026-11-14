@@ -105,9 +105,15 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             }
             completed.into_result(&ctx, &board)
         }
-        Outcome::Endgame(completed, base_score) => {
-            endgame::solve_root(&mut ctx, &board, &task, thread, base_score, completed)
-        }
+        Outcome::Endgame(completed, base_score) => endgame::solve_root(
+            &mut ctx,
+            &board,
+            &task,
+            thread,
+            base_score,
+            completed,
+            Selectivity::Level2,
+        ),
     }
 }
 
@@ -129,7 +135,6 @@ fn iterate(
     thread: &Arc<Thread>,
 ) -> Outcome {
     let time_manager = task.time_manager.as_deref();
-    let use_time_control = time_manager.is_some();
     let n_empties = ctx.empty_list.count();
     let pv_count = task.pv_count(ctx.root_moves.count());
 
@@ -192,15 +197,17 @@ fn iterate(
             return Outcome::Done(completed);
         }
 
-        // Under time control the final midgame depth is never searched: once
-        // the next iteration would cover all empties, the remaining
-        // selectivity levels are solved exactly by the endgame driver.
-        if use_time_control && depth + 1 >= max_depth {
+        if let Some(tm) = time_manager
+            && depth >= max_depth
+        {
             debug_assert_eq!(
                 max_depth, n_empties,
                 "time-controlled midgame searches always target all empties"
             );
-            return Outcome::Endgame(completed, best_score);
+            if tm.should_enter_endgame(ctx.counters.n_nodes + helpers.nodes()) {
+                return Outcome::Endgame(completed, best_score);
+            }
+            return Outcome::Done(completed);
         }
 
         if should_stop_iteration(time_manager) {
@@ -611,7 +618,7 @@ mod schedule_tests {
     }
 
     #[test]
-    fn time_control_hands_off_to_endgame_solve_at_penultimate_depth() {
+    fn time_control_hands_off_to_endgame_solve_after_the_last_depth() {
         probcut::init();
         let pool = ThreadPool::new(1);
         // FFO position #1: 14 empties, Black to move, exact score +18 (G8).
