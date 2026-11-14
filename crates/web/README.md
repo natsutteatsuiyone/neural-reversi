@@ -32,6 +32,8 @@ bun run dev
 
 Open http://127.0.0.1:8080 in your browser.
 
+`bun run dev` builds both `pkg/` and `pkg-relaxed/` before starting Vite.
+
 ### Production
 
 ```bash
@@ -51,9 +53,11 @@ bun run test:e2e:install
 Run the browser smoke tests:
 
 ```bash
-bun run build:wasm:dev # only needed when pkg/ is missing or stale
+bun run build:wasm:dev
 bun run test:e2e
 ```
+
+Rebuild both WASM packages with `bun run build:wasm:dev` after changing Rust code or when either package is missing.
 
 Use the interactive runner while developing:
 
