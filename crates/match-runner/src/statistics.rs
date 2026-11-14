@@ -6,6 +6,11 @@ use std::io::{self, IsTerminal};
 
 const ELO_K: f64 = 400.0;
 
+/// Expected score in [0, 1] for a given logistic Elo difference.
+pub(crate) fn elo_to_expected_score(elo: f64) -> f64 {
+    1.0 / (1.0 + 10.0_f64.powf(-elo / ELO_K))
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MatchStatistics {
     pub engine1_wins: u32,
@@ -274,7 +279,7 @@ impl MatchStatistics {
 
             // Expected score counts a draw as half a win.
             if !stats.elo_diff.is_infinite() {
-                let score_rate = 1.0 / (1.0 + 10.0_f64.powf(-stats.elo_diff / 400.0));
+                let score_rate = elo_to_expected_score(stats.elo_diff);
                 let score_rate_pct = score_rate * 100.0;
                 let score_rate_str = if score_rate_pct >= 55.0 {
                     format!("{:.1}%", score_rate_pct).success().bold()

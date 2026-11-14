@@ -8,7 +8,7 @@
 //! dynamic overshoot estimate (Siegmund, Sequential Analysis, Corollary
 //! 8.33); crossing either bound ends the match early.
 
-use crate::statistics::PentanomialFrequencies;
+use crate::statistics::{PentanomialFrequencies, elo_to_expected_score};
 
 /// SPRT hypothesis test parameters.
 #[derive(Debug, Clone, Copy)]
@@ -158,11 +158,6 @@ impl Sprt {
     }
 }
 
-/// Expected score in [0, 1] for a given logistic Elo difference.
-fn logistic(elo: f64) -> f64 {
-    1.0 / (1.0 + 10.0_f64.powf(-elo / 400.0))
-}
-
 /// Compute the generalized log-likelihood ratio of H1 (`elo1`) versus H0
 /// (`elo0`) for the observed pentanomial pair distribution.
 fn llr_pentanomial(freq: &PentanomialFrequencies, elo0: f64, elo1: f64) -> f64 {
@@ -190,8 +185,8 @@ fn llr_multinomial<const N: usize>(raw: [u32; N], scores: &[f64; N], elo0: f64, 
 
     // Logistic scores beyond this interval are indistinguishable from its
     // endpoints in f64 and would put the secular root at infinity.
-    let s0 = logistic(elo0).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
-    let s1 = logistic(elo1).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
+    let s0 = elo_to_expected_score(elo0).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
+    let s1 = elo_to_expected_score(elo1).clamp(f64::EPSILON, 1.0 - f64::EPSILON);
     let root0 = constrained_mle_root(&counts, scores, s0);
     let root1 = constrained_mle_root(&counts, scores, s1);
 
