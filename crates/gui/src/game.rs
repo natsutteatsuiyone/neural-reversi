@@ -188,15 +188,11 @@ pub struct Game {
 
 impl Game {
     pub fn new(initial: Position) -> Self {
-        let mut game = Self {
+        Self {
             initial,
             history: Vec::new(),
             cursor: 0,
-        };
-        if initial.must_pass() {
-            game.push_pass(initial);
         }
-        game
     }
 
     pub fn position(&self) -> Position {
