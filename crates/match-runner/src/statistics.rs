@@ -128,51 +128,68 @@ impl MatchStatistics {
         engine2_name: &str,
         sprt: Option<(SprtConfig, SprtResult)>,
     ) {
+        let stdout = io::stdout();
+        let is_terminal = stdout.is_terminal();
+        let mut output = stdout.lock();
+        self.write_final_results(&mut output, engine1_name, engine2_name, sprt, is_terminal)
+            .expect("failed to write final results to stdout");
+    }
+
+    fn write_final_results(
+        &self,
+        output: &mut impl io::Write,
+        engine1_name: &str,
+        engine2_name: &str,
+        sprt: Option<(SprtConfig, SprtResult)>,
+        is_terminal: bool,
+    ) -> io::Result<()> {
         let total_games = self.total_games();
 
         if let Some(seed) = self.random_seed {
-            println!("GGS random openings seed {seed}");
+            writeln!(output, "GGS random openings seed {seed}")?;
         }
 
         if total_games == 0 {
-            println!("{}", "No games played yet.".info());
-            return;
+            writeln!(output, "{}", "No games played yet.".info())?;
+            return Ok(());
         }
 
-        if io::stdout().is_terminal() {
-            println!("\r\x1B[2K");
+        if is_terminal {
+            writeln!(output, "\r\x1B[2K")?;
         }
-        println!("{}", "═".repeat(80).info().bold());
+        writeln!(output, "{}", "═".repeat(80).info().bold())?;
         let header = format!("{} vs {}", engine1_name, engine2_name);
-        println!("{:^80}", header.primary().bold());
-        println!("{}", "═".repeat(80).info().bold());
-        println!();
+        writeln!(output, "{:^80}", header.primary().bold())?;
+        writeln!(output, "{}", "═".repeat(80).info().bold())?;
+        writeln!(output)?;
 
-        self.print_summary();
+        self.write_summary(output)?;
 
         if let Some((config, result)) = sprt {
-            println!();
-            self.print_sprt_summary(engine1_name, engine2_name, &config, &result);
+            writeln!(output)?;
+            self.write_sprt_summary(output, engine1_name, engine2_name, &config, &result)?;
         }
-        println!();
+        writeln!(output)?;
 
-        println!("{}", "═".repeat(80).info().bold());
+        writeln!(output, "{}", "═".repeat(80).info().bold())
     }
 
-    fn print_sprt_summary(
+    fn write_sprt_summary(
         &self,
+        output: &mut impl io::Write,
         engine1_name: &str,
         engine2_name: &str,
         config: &SprtConfig,
         result: &SprtResult,
-    ) {
+    ) -> io::Result<()> {
         let llr_str = match result.status {
             SprtStatus::AcceptH1 => format!("{:.2}", result.llr).success().bold(),
             SprtStatus::AcceptH0 => format!("{:.2}", result.llr).failure().bold(),
             SprtStatus::Continue => format!("{:.2}", result.llr).info(),
         };
 
-        println!(
+        writeln!(
+            output,
             "{} LLR {} ({:.2}, {:.2}) {} {}",
             "SPRT:".text().bold(),
             llr_str,
@@ -180,7 +197,7 @@ impl MatchStatistics {
             result.upper,
             format!("[{:.2}, {:.2}]", config.elo0, config.elo1).subtext(),
             format!("α={} β={}", config.alpha, config.beta).subtext()
-        );
+        )?;
 
         let verdict = sprt_verdict(engine1_name, engine2_name, config, result.status);
         let verdict = match result.status {
@@ -188,10 +205,10 @@ impl MatchStatistics {
             SprtStatus::AcceptH0 => verdict.failure().bold(),
             SprtStatus::Continue => verdict.warning(),
         };
-        println!("{} {}", "Verdict:".text().bold(), verdict);
+        writeln!(output, "{} {}", "Verdict:".text().bold(), verdict)
     }
 
-    fn print_summary(&self) {
+    fn write_summary(&self, output: &mut impl io::Write) -> io::Result<()> {
         let is_ggs = self.synchro;
         // Calculate pentanomial frequencies
         let freq = self.paired_frequencies;
@@ -206,14 +223,15 @@ impl MatchStatistics {
         ];
 
         if is_ggs {
-            println!("Completed games: {}", self.total_games());
+            writeln!(output, "Completed games: {}", self.total_games())?;
         }
         let label = if is_ggs {
             "GGS synchro matches:"
         } else {
             "Games:"
         };
-        println!(
+        writeln!(
+            output,
             "{} {} {} {} {} {} {} {}",
             label.text().bold(),
             self.total_results().to_string().warning(),
@@ -223,10 +241,11 @@ impl MatchStatistics {
             self.engine2_wins.to_string().failure(),
             "D:".text().bold(),
             self.draws.to_string().info()
-        );
+        )?;
 
         if !is_ggs {
-            println!(
+            writeln!(
+                output,
                 "{} {}, {}, {}, {}, {}",
                 "Ptnml(0-2):".text().bold(),
                 ptnml[0].to_string().subtext(),
@@ -234,7 +253,7 @@ impl MatchStatistics {
                 ptnml[2].to_string().subtext(),
                 ptnml[3].to_string().subtext(),
                 ptnml[4].to_string().subtext()
-            );
+            )?;
         }
 
         // Calculate and display Elo and LOS
@@ -275,7 +294,12 @@ impl MatchStatistics {
             };
 
             let unit = if is_ggs { " (per match)" } else { "" };
-            println!("{} {}", format!("Elo{unit}:").text().bold(), elo_str);
+            writeln!(
+                output,
+                "{} {}",
+                format!("Elo{unit}:").text().bold(),
+                elo_str
+            )?;
 
             // Expected score counts a draw as half a win.
             if !stats.elo_diff.is_infinite() {
@@ -292,11 +316,12 @@ impl MatchStatistics {
                 } else {
                     format!("{:.1}%", score_rate_pct).failure().bold()
                 };
-                println!(
+                writeln!(
+                    output,
                     "{} {}",
                     format!("Score rate{unit}:").text().bold(),
                     score_rate_str
-                );
+                )?;
             }
 
             // Format LOS
@@ -315,15 +340,16 @@ impl MatchStatistics {
                 format!("{:.1}%", los_pct).failure().bold()
             };
 
-            println!("{} {}", "LOS:".text().bold(), los_str);
+            writeln!(output, "{} {}", "LOS:".text().bold(), los_str)?;
         }
 
         if is_ggs && self.total_results() > 0 {
-            println!(
+            writeln!(
+                output,
                 "{} {:.6}",
                 "GGS average rating score:".text().bold(),
                 self.rating_sum / f64::from(self.total_results())
-            );
+            )?;
         }
 
         // Display Disc diff
@@ -365,7 +391,7 @@ impl MatchStatistics {
             )
         };
 
-        println!("{} {}", "Disc diff:".text().bold(), disc_diff_str);
+        writeln!(output, "{} {}", "Disc diff:".text().bold(), disc_diff_str)
     }
 }
 
@@ -561,17 +587,34 @@ mod tests {
             ("ordinary_draws", true, None),
             ("synchro_draws", true, Some(20261004)),
         ] {
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "statistics::tests::final_report_fixture",
-                    "--nocapture",
-                ])
-                .env("MATCH_RUNNER_REPORT_CASE", case)
-                .output()
+            let ordinary = matches!(case, "ordinary" | "ordinary_draws");
+            let mut statistics = MatchStatistics {
+                random_seed: seed,
+                synchro: !ordinary,
+                ..MatchStatistics::default()
+            };
+            match case {
+                "empty" => {}
+                "partial" => statistics.add_game(MatchWinner::Engine1, 20, String::new(), true),
+                "ordinary_draws" | "synchro_draws" => play_pair(
+                    &mut statistics,
+                    (MatchWinner::Draw, 0),
+                    (MatchWinner::Draw, 0),
+                ),
+                _ => play_pair(
+                    &mut statistics,
+                    (MatchWinner::Engine1, 20),
+                    (MatchWinner::Engine2, -2),
+                ),
+            }
+            if case == "partial_after_pair" {
+                statistics.add_game(MatchWinner::Engine2, -64, String::new(), true);
+            }
+            let mut output = Vec::new();
+            statistics
+                .write_final_results(&mut output, "engine1", "engine2", None, false)
                 .unwrap();
-            assert!(output.status.success());
-            let report = String::from_utf8(output.stdout).unwrap();
+            let report = without_ansi(&String::from_utf8(output).unwrap());
             if let Some(seed) = seed {
                 assert!(
                     report.contains(&format!("GGS random openings seed {seed}")),
@@ -585,7 +628,6 @@ mod tests {
                 !has_games,
                 "{report}"
             );
-            let ordinary = matches!(case, "ordinary" | "ordinary_draws");
             assert_eq!(report.contains("Games:"), ordinary, "{report}");
             assert_eq!(report.contains("Ptnml(0-2):"), ordinary, "{report}");
             if case == "completed" || case == "partial_after_pair" {
@@ -632,35 +674,127 @@ mod tests {
         }
     }
 
+    fn without_ansi(text: &str) -> String {
+        let mut plain = String::new();
+        let mut chars = text.chars();
+        while let Some(character) = chars.next() {
+            if character == '\x1b' && chars.next() == Some('[') {
+                for character in chars.by_ref() {
+                    if ('@'..='~').contains(&character) {
+                        break;
+                    }
+                }
+            } else {
+                plain.push(character);
+            }
+        }
+        plain
+    }
+
     #[test]
-    fn final_report_fixture() {
-        let Ok(case) = std::env::var("MATCH_RUNNER_REPORT_CASE") else {
-            return;
-        };
-        let ordinary = matches!(case.as_str(), "ordinary" | "ordinary_draws");
+    fn final_report_clears_terminal_line_after_seed_only_with_games() {
         let mut statistics = MatchStatistics {
-            random_seed: (!ordinary).then_some(20261004),
-            synchro: !ordinary,
+            random_seed: Some(20261004),
             ..MatchStatistics::default()
         };
-        match case.as_str() {
-            "empty" => {}
-            "partial" => statistics.add_game(MatchWinner::Engine1, 20, String::new(), true),
-            "ordinary_draws" | "synchro_draws" => play_pair(
-                &mut statistics,
-                (MatchWinner::Draw, 0),
-                (MatchWinner::Draw, 0),
-            ),
-            _ => play_pair(
-                &mut statistics,
-                (MatchWinner::Engine1, 20),
-                (MatchWinner::Engine2, -2),
-            ),
+        for has_games in [false, true] {
+            if has_games {
+                statistics.add_game(MatchWinner::Draw, 0, String::new(), true);
+            }
+            for is_terminal in [false, true] {
+                let mut output = Vec::new();
+                statistics
+                    .write_final_results(&mut output, "engine1", "engine2", None, is_terminal)
+                    .unwrap();
+                let report = String::from_utf8(output).unwrap();
+                assert_eq!(
+                    report.contains("\r\x1B[2K\n"),
+                    has_games && is_terminal,
+                    "{report}"
+                );
+                if has_games && is_terminal {
+                    assert!(
+                        report.starts_with("GGS random openings seed 20261004\n\r\x1B[2K\n"),
+                        "{report}"
+                    );
+                    assert_eq!(report.matches("\r\x1B[2K\n").count(), 1, "{report}");
+                    assert!(
+                        without_ansi(&report).starts_with(&format!(
+                            "GGS random openings seed 20261004\n\r\n{}\n",
+                            "═".repeat(80)
+                        )),
+                        "{report}"
+                    );
+                } else if !has_games {
+                    assert_eq!(
+                        without_ansi(&report),
+                        "GGS random openings seed 20261004\nNo games played yet.\n"
+                    );
+                }
+            }
         }
-        if case == "partial_after_pair" {
-            statistics.add_game(MatchWinner::Engine2, -64, String::new(), true);
+    }
+
+    #[test]
+    fn final_report_renders_sprt_summary_and_verdict() {
+        let config = SprtConfig {
+            elo0: -10.0,
+            elo1: 10.0,
+            alpha: 0.05,
+            beta: 0.05,
+        };
+        let mut statistics = MatchStatistics::default();
+        play_pair(
+            &mut statistics,
+            (MatchWinner::Draw, 0),
+            (MatchWinner::Draw, 0),
+        );
+        for (status, llr, expected_summary, expected_verdict) in [
+            (
+                SprtStatus::AcceptH0,
+                -3.0,
+                "SPRT: LLR -3.00 (-2.94, 2.94) [-10.00, 10.00] α=0.05 β=0.05",
+                "Verdict: H0 accepted — hypothesis: Engine A - Engine B Elo = -10.00",
+            ),
+            (
+                SprtStatus::AcceptH1,
+                3.0,
+                "SPRT: LLR 3.00 (-2.94, 2.94) [-10.00, 10.00] α=0.05 β=0.05",
+                "Verdict: H1 accepted — hypothesis: Engine A - Engine B Elo = +10.00",
+            ),
+            (
+                SprtStatus::Continue,
+                0.0,
+                "SPRT: LLR 0.00 (-2.94, 2.94) [-10.00, 10.00] α=0.05 β=0.05",
+                "Verdict: Inconclusive — LLR did not reach either bound",
+            ),
+        ] {
+            let (lower, upper) = config.bounds();
+            let result = SprtResult {
+                llr,
+                lower,
+                upper,
+                status,
+            };
+            let mut output = Vec::new();
+            statistics
+                .write_final_results(
+                    &mut output,
+                    "Engine A",
+                    "Engine B",
+                    Some((config, result)),
+                    false,
+                )
+                .unwrap();
+            let report = without_ansi(&String::from_utf8(output).unwrap());
+            assert!(
+                report.contains(&format!(
+                    "\n{expected_summary}\n{expected_verdict}\n\n{}\n",
+                    "═".repeat(80)
+                )),
+                "{report}"
+            );
         }
-        statistics.print_final_results("engine1", "engine2", None);
     }
 
     fn play_pair(
