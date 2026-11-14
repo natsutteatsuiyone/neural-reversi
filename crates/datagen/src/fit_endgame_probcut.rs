@@ -27,7 +27,8 @@ use reversi_core::{
 };
 
 use crate::endgame_probcut::{HOLDOUT_FOLD, trace_header};
-use crate::fit_probcut::{game_fold, weighted_least_squares};
+use crate::fit_probcut::game_fold;
+use crate::least_squares::weighted_least_squares;
 
 /// Smallest negative residual, in discs, whose log enters the scale fit.
 const MIN_RESIDUAL: f64 = 1.0 / 64.0;

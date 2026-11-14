@@ -1,6 +1,7 @@
 mod endgame_probcut;
 mod fit_endgame_probcut;
 mod fit_probcut;
+mod least_squares;
 mod opening;
 mod overwrite_scores;
 mod probcut;
