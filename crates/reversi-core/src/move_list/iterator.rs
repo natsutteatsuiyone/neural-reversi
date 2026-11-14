@@ -45,15 +45,6 @@ impl ConcurrentMoveIterator {
             None
         }
     }
-
-    /// Returns the number of moves not yet consumed.
-    #[inline]
-    pub fn remaining(&self) -> usize {
-        let current = self.current.load(Ordering::Relaxed);
-        // Uses `saturating_sub` because concurrent `fetch_add` calls can cause
-        // `current` to exceed `count` when multiple threads race past the last move.
-        self.move_list.count().saturating_sub(current)
-    }
 }
 
 /// Lazy-sorting iterator that yields moves in order of decreasing evaluation value.

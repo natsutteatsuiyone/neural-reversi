@@ -95,8 +95,6 @@ fn test_concurrent_move_iterator_from_offset() {
     // Create iterator starting from offset 2 (skip first 2 moves)
     let concurrent_iter = ConcurrentMoveIterator::from_offset(move_list, 2);
 
-    assert_eq!(concurrent_iter.remaining(), 2);
-
     // First next() should return move at index 2 with move_count 3
     let (mv1, idx1) = concurrent_iter.next().unwrap();
     assert_eq!(mv1.sq, all_moves[2]);
@@ -109,7 +107,6 @@ fn test_concurrent_move_iterator_from_offset() {
 
     // No more moves
     assert!(concurrent_iter.next().is_none());
-    assert_eq!(concurrent_iter.remaining(), 0);
 }
 
 /// Independent eight-direction flip reference used to cross-check move
