@@ -300,6 +300,11 @@ impl Session {
                             }
                         }
                         Some(Activity::Hint) => self.candidates_complete = true,
+                        Some(Activity::Analysis)
+                            if !self.candidates_complete && !self.is_solving() =>
+                        {
+                            self.automate(settings);
+                        }
                         _ => {}
                     }
                 }
@@ -426,6 +431,7 @@ impl Session {
         }
         if !settings.hints {
             self.candidates.clear();
+            self.candidates_complete = false;
         }
         if self.activity == Some(Activity::Hint) {
             self.cancel(settings);
@@ -445,6 +451,9 @@ impl Session {
     pub fn toggle_analysis(&mut self, settings: &Settings) {
         if self.activity == Some(Activity::Analysis) {
             self.cancel(settings);
+            if !self.candidates_complete && !self.is_solving() {
+                self.automate(settings);
+            }
         } else if self.ready
             && self.activity != Some(Activity::Move)
             && !self.game.history.is_empty()
@@ -597,12 +606,13 @@ impl Session {
     }
 
     fn play(&mut self, square: Square, score: Option<Score>, remaining: Option<u64>) {
+        self.candidates.clear();
+        self.candidates_complete = false;
         match self.game.play(square, score, remaining) {
             Ok(()) => {
                 self.analyses.clear();
                 self.updates.push(Update::Played);
                 if self.is_solving() {
-                    self.candidates.clear();
                     return;
                 }
                 let now = Instant::now();
@@ -631,7 +641,6 @@ impl Session {
                 self.set_paused(true);
             }
         }
-        self.candidates.clear();
     }
 }
 
@@ -822,6 +831,147 @@ mod tests {
         assert_eq!(session.candidates().len(), legal.len());
         assert!(session.candidates().iter().all(|c| c.probability == 73));
         assert!(session.candidates_complete());
+    }
+
+    #[test]
+    fn analysis_resumes_interrupted_hints() {
+        for (waiting_for_hint, abort) in
+            [(true, false), (true, true), (false, false), (false, true)]
+        {
+            let settings = Settings {
+                game_mode: GameMode::Human,
+                hints: true,
+                hint_level: 4,
+                analysis_level: 1,
+                hash_size: 16,
+                ..Settings::default()
+            };
+            let mut session = Session::new(&settings);
+            run_until(&mut session, &settings, Session::is_ready);
+            if waiting_for_hint {
+                run_until(&mut session, &settings, |s| s.candidates_complete());
+            }
+            session.play_move(Square::D3, &settings);
+            if waiting_for_hint {
+                assert_eq!(session.activity(), None);
+            } else {
+                session.navigate(1, &settings);
+                assert_eq!(session.activity(), Some(Activity::Hint));
+            }
+            session.toggle_analysis(&settings);
+            assert_eq!(session.activity(), Some(Activity::Analysis));
+            if abort {
+                session.toggle_analysis(&settings);
+            } else {
+                run_until(&mut session, &settings, |s| {
+                    s.activity() != Some(Activity::Analysis)
+                });
+            }
+            assert!(
+                session.activity() == Some(Activity::Hint) || session.candidates_complete(),
+                "hints were not resumed after analysis (abort={abort})"
+            );
+            run_until(&mut session, &settings, |s| s.activity().is_none());
+            assert!(session.candidates_complete());
+            assert_eq!(
+                session.candidates().len(),
+                session.game().position().board.legal_moves().count() as usize
+            );
+            assert!(session.is_paused());
+        }
+    }
+
+    #[test]
+    fn hints_reenabled_during_analysis_are_recomputed() {
+        for abort in [false, true] {
+            let mut settings = Settings {
+                game_mode: GameMode::Human,
+                hints: true,
+                hint_level: 1,
+                analysis_level: 1,
+                hash_size: 16,
+                ..Settings::default()
+            };
+            let mut session = Session::new(&settings);
+            run_until(&mut session, &settings, Session::is_ready);
+            session.play_move(Square::D3, &settings);
+            run_until(&mut session, &settings, |s| s.candidates_complete());
+            session.toggle_analysis(&settings);
+            settings.hints = false;
+            session.hints_toggled(&settings);
+            settings.hints = true;
+            session.hints_toggled(&settings);
+            if abort {
+                session.toggle_analysis(&settings);
+            } else {
+                run_until(&mut session, &settings, |s| {
+                    s.activity() != Some(Activity::Analysis)
+                });
+            }
+            run_until(&mut session, &settings, |s| s.activity().is_none());
+            assert!(session.candidates_complete());
+            assert_eq!(
+                session.candidates().len(),
+                session.game().position().board.legal_moves().count() as usize
+            );
+        }
+    }
+
+    #[test]
+    fn analysis_keeps_finished_hints_and_does_not_start_unrequested_searches() {
+        for abort in [false, true] {
+            for case in ["complete", "disabled", "ai_turn", "solver"] {
+                let mut settings = Settings {
+                    game_mode: GameMode::Human,
+                    hints: true,
+                    hint_level: 1,
+                    analysis_level: 1,
+                    hash_size: 16,
+                    ..Settings::default()
+                };
+                let mut session = Session::new(&settings);
+                run_until(&mut session, &settings, Session::is_ready);
+                session.play_move(Square::D3, &settings);
+                session.navigate(1, &settings);
+                match case {
+                    "complete" => {
+                        run_until(&mut session, &settings, |s| s.activity().is_none());
+                        assert!(session.candidates_complete());
+                    }
+                    "disabled" => {
+                        settings.hints = false;
+                        session.hints_toggled(&settings);
+                    }
+                    "ai_turn" => settings.game_mode = GameMode::AiWhite,
+                    "solver" => {
+                        let game = "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8b6e8b5g2d8b7a6h2e7d7c8a8";
+                        session.enter_solver(Position::from_transcript(game).unwrap(), &settings);
+                        let square = session
+                            .game()
+                            .position()
+                            .board
+                            .legal_moves()
+                            .iter()
+                            .next()
+                            .unwrap();
+                        session.play_move(square, &settings);
+                    }
+                    _ => unreachable!(),
+                }
+                let candidates = session.candidates().to_vec();
+                session.toggle_analysis(&settings);
+                assert_eq!(session.activity(), Some(Activity::Analysis));
+                if abort {
+                    session.toggle_analysis(&settings);
+                } else {
+                    run_until(&mut session, &settings, |s| {
+                        s.activity() != Some(Activity::Analysis)
+                    });
+                }
+                assert_eq!(session.activity(), None, "case={case}, abort={abort}");
+                assert_eq!(session.candidates(), candidates);
+            }
+        }
     }
 
     #[test]
