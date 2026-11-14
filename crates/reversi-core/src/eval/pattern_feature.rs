@@ -376,8 +376,8 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
 ///
 /// Example: A1 belongs to pattern 4 (diagonal A1-H8), pattern 8 (row 1),
 /// and pattern 10 (column A), each with place value `3^7` because A1 sits
-/// at the back of those eight-square patterns, plus pattern 20 (corner A1
-/// 3x3) with place value `3^8`:
+/// at the front (`squares[0]`) of those eight-square patterns, plus pattern 20
+/// (corner A1 3x3) with place value `3^8`:
 ///
 /// ```text
 /// EVAL_FEATURE[A1] = [

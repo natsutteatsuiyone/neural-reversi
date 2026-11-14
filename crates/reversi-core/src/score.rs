@@ -130,7 +130,7 @@ impl Score {
         Self(raw_value)
     }
 
-    /// Creates a [`Score`] from a disc difference (-64 to +64).
+    /// Creates a [`Score`] from a disc difference in `±DISC_SCORE_INF`.
     #[inline(always)]
     pub const fn from_disc_diff(disc_diff: DiscScore) -> Self {
         debug_assert!(

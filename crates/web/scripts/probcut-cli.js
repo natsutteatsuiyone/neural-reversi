@@ -8,7 +8,8 @@
  *   bun scripts/probcut-cli.js -i games.txt -o probcut.csv --endgame
  *
  * Input format: One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
- * Output format: CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
+ * Output format: CSV with columns: game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
+ * The game ID is the one-based source input line number, including blank lines.
  */
 
 import { readFileSync, writeFileSync } from "fs";
@@ -44,7 +45,8 @@ Input format:
   One game per line, moves concatenated (e.g., "D3C5F6F5E6C6D6...")
 
 Output format:
-  CSV with columns: ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
+  CSV with columns: game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
+  The game ID is the one-based source input line number, including blank lines.
 `);
   process.exit(values.help ? 0 : 1);
 }

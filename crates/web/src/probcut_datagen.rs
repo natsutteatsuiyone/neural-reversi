@@ -43,6 +43,7 @@ const ENDGAME_START_PLY: u32 = 30;
 /// Represents a single ProbCut training data sample.
 #[derive(Debug)]
 struct ProbCutSample {
+    game: u64,
     /// Move number in the game (0-59)
     ply: u32,
     /// Shallow search depth
@@ -77,7 +78,8 @@ pub struct ProbCutDatagenResult {
 impl ProbCutDatagenResult {
     /// Returns the samples as a CSV string.
     ///
-    /// Format: `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
+    /// Format: `game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`.
+    /// The game ID is the one-based source input line number, including blank lines.
     #[wasm_bindgen(getter)]
     pub fn samples_csv(&self) -> String {
         self.samples_csv.clone()
@@ -150,12 +152,16 @@ impl ProbCutDatagen {
         games: &str,
         progress_callback: Option<Function>,
     ) -> Result<ProbCutDatagenResult, JsValue> {
-        let lines: Vec<&str> = games.lines().filter(|l| !l.trim().is_empty()).collect();
+        let lines: Vec<_> = games
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
+            .collect();
         let total_games = lines.len();
         let mut all_samples = Vec::new();
 
-        for (idx, line) in lines.iter().enumerate() {
-            let samples = self.process_game_internal(line)?;
+        for (idx, &(line_index, line)) in lines.iter().enumerate() {
+            let samples = self.process_game_internal(line_index as u64 + 1, line)?;
             all_samples.extend(samples);
 
             // Call progress callback if provided
@@ -197,12 +203,16 @@ impl ProbCutDatagen {
         games: &str,
         progress_callback: Option<Function>,
     ) -> Result<ProbCutDatagenResult, JsValue> {
-        let lines: Vec<&str> = games.lines().filter(|l| !l.trim().is_empty()).collect();
+        let lines: Vec<_> = games
+            .lines()
+            .enumerate()
+            .filter(|(_, line)| !line.trim().is_empty())
+            .collect();
         let total_games = lines.len();
         let mut all_samples = Vec::new();
 
-        for (idx, line) in lines.iter().enumerate() {
-            let samples = self.process_game_endgame_internal(line)?;
+        for (idx, &(line_index, line)) in lines.iter().enumerate() {
+            let samples = self.process_game_endgame_internal(line_index as u64 + 1, line)?;
             all_samples.extend(samples);
 
             // Call progress callback if provided
@@ -235,6 +245,7 @@ impl ProbCutDatagen {
     /// Processes a single game and returns the collected samples.
     fn process_game_internal(
         &mut self,
+        game: u64,
         game_sequence: &str,
     ) -> Result<Vec<ProbCutSample>, JsValue> {
         let game_sequence = game_sequence.trim();
@@ -274,6 +285,7 @@ impl ProbCutDatagen {
                 for (deep_depth, deep_score) in depth_scores.iter() {
                     if *deep_depth > *shallow_depth + MIN_DEPTH_DIFFERENCE {
                         samples.push(ProbCutSample {
+                            game,
                             ply,
                             shallow_depth: *shallow_depth,
                             shallow_score: *shallow_score,
@@ -298,6 +310,7 @@ impl ProbCutDatagen {
     /// shallow search and pairs it with the exact final game result as the deep score.
     fn process_game_endgame_internal(
         &mut self,
+        game: u64,
         game_sequence: &str,
     ) -> Result<Vec<ProbCutSample>, JsValue> {
         let game_sequence = game_sequence.trim();
@@ -355,6 +368,7 @@ impl ProbCutDatagen {
                     -final_score
                 };
                 ProbCutSample {
+                    game,
                     ply: p.ply,
                     shallow_depth: p.shallow_depth,
                     shallow_score: p.shallow_score,
@@ -445,14 +459,16 @@ impl ProbCutDatagen {
 
     /// Converts samples to a CSV string.
     ///
-    /// Columns: `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`.
+    /// Columns: `game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`.
     fn samples_to_csv(samples: &[ProbCutSample]) -> String {
-        let mut csv = String::from("ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n");
+        let mut csv =
+            String::from("game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n");
 
         for s in samples {
             let diff = (s.deep_score - s.shallow_score).to_disc_diff_f32();
             csv.push_str(&format!(
-                "{},{},{},{},{},{}\n",
+                "{},{},{},{},{},{},{}\n",
+                s.game,
                 s.ply,
                 s.shallow_depth,
                 s.shallow_score.to_disc_diff_f32(),
@@ -469,6 +485,115 @@ impl ProbCutDatagen {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn midgame_csv_preserves_source_game_line_numbers() {
+        let mut generator = ProbCutDatagen {
+            search: Search::new(
+                Rc::new(TranspositionTable::new(1)),
+                Rc::new(Eval::new().unwrap()),
+            ),
+            score_cache: HashMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
+            positions: 0,
+        };
+        let result = generator.process_games("D3C3\n\nD3C5", None).unwrap();
+        let mut lines = result.samples_csv.lines();
+        assert_eq!(
+            lines.next(),
+            Some("game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff")
+        );
+
+        let mut actual = std::collections::BTreeMap::new();
+        let mut row_count = 0;
+        for line in lines {
+            let columns: Vec<_> = line.split(',').collect();
+            assert_eq!(columns.len(), 7, "unexpected CSV row: {line}");
+            let game = columns[0].parse::<u32>().unwrap();
+            let ply = columns[1].parse::<u32>().unwrap();
+            let shallow_depth = columns[2].parse::<u32>().unwrap();
+            let deep_depth = columns[4].parse::<u32>().unwrap();
+            *actual
+                .entry((game, ply, shallow_depth, deep_depth))
+                .or_insert(0) += 1;
+            row_count += 1;
+        }
+
+        let mut expected = std::collections::BTreeMap::new();
+        for game in [1, 3] {
+            for ply in [0, 1] {
+                for shallow_depth in 0..=5 {
+                    for deep_depth in (shallow_depth + 3)..=10 {
+                        expected.insert((game, ply, shallow_depth, deep_depth), 1);
+                    }
+                }
+            }
+        }
+        assert_eq!(row_count, 132);
+        assert_eq!(row_count, result.total_samples);
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn endgame_csv_preserves_source_game_line_numbers() {
+        let mut board = Board::new();
+        let mut game_sequence = String::new();
+        let mut expected_plies = std::collections::BTreeSet::new();
+        loop {
+            if !board.has_legal_moves() {
+                board = board.switch_players();
+                if !board.has_legal_moves() {
+                    break;
+                }
+            }
+            let n_empties = board.empty_count();
+            let ply = 60 - n_empties;
+            if ply >= ENDGAME_START_PLY && ENDGAME_SHALLOW_DEPTH < n_empties {
+                expected_plies.insert(ply);
+            }
+            let sq = board.legal_moves().iter().next().unwrap();
+            game_sequence.push_str(&sq.to_string());
+            board = board.make_move(sq);
+        }
+        assert!(!expected_plies.is_empty());
+
+        let mut generator = ProbCutDatagen {
+            search: Search::new(
+                Rc::new(TranspositionTable::new(1)),
+                Rc::new(Eval::new().unwrap()),
+            ),
+            score_cache: HashMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
+            positions: 0,
+        };
+        let games = format!("{game_sequence}\n\n{game_sequence}");
+        let result = generator.process_games_endgame(&games, None).unwrap();
+        let mut lines = result.samples_csv.lines();
+        assert_eq!(
+            lines.next(),
+            Some("game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff")
+        );
+        let mut actual = std::collections::BTreeMap::<_, Vec<_>>::new();
+        for line in lines {
+            assert_eq!(line.split(',').count(), 7, "unexpected CSV row: {line}");
+            let (game, sample) = line.split_once(',').unwrap();
+            actual
+                .entry(game.parse::<u64>().unwrap())
+                .or_default()
+                .push(sample);
+        }
+        assert_eq!(actual.keys().copied().collect::<Vec<_>>(), [1, 3]);
+        assert_eq!(actual[&1], actual[&3]);
+        let actual_plies: std::collections::BTreeSet<_> = actual[&1]
+            .iter()
+            .map(|sample| sample.split(',').next().unwrap().parse::<u32>().unwrap())
+            .collect();
+        assert_eq!(actual_plies, expected_plies);
+        assert_eq!(actual[&1].len(), expected_plies.len());
+        assert_eq!(result.total_samples as usize, expected_plies.len() * 2);
+    }
 
     #[test]
     fn midgame_scores_do_not_depend_on_previous_positions() {

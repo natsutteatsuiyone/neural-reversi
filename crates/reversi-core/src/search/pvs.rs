@@ -421,9 +421,10 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
 /// Searches remaining moves at a split point in parallel search.
 ///
-/// Called by helper threads that join an existing split point. Picks moves from
-/// the shared move iterator, searches them, and updates the split
-/// point's best score/move under its lock.
+/// Called by helper threads (and the owner thread via its idle loop) that
+/// join an existing split point. Picks moves from the shared move iterator,
+/// searches them, and updates the split point's best score/move under its
+/// lock.
 ///
 /// The caller must not hold the split-point lock.
 pub(super) fn search_split_point<NT: NodeType>(
@@ -524,8 +525,10 @@ pub(super) fn search_split_point<NT: NodeType>(
 /// Performs enhanced transposition cutoff (ETC) by probing child positions.
 ///
 /// For each move in the move list, checks the transposition table for the resulting
-/// position. If a child entry produces a score above alpha with sufficient depth
-/// and selectivity, stores a lower-bound entry at the parent and returns the cutoff score.
+/// position. If a child entry with `Bound::Exact | Bound::Upper` (and
+/// `is_endgame()` during endgame search) produces a score above alpha with
+/// sufficient depth and selectivity, stores a lower-bound entry at the parent
+/// and returns the cutoff score.
 fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -626,8 +629,8 @@ const LMR_ALLNODE_KEEP: i32 = 2;
 /// `move_value` must be a search estimate of the move on the same scale as
 /// `alpha`. Midgame move ordering provides one at and above
 /// [`LMR_MIN_DEPTH`], which is where the gate below admits moves: the shallow
-/// search score minus a penalty for the opponent's mobility. Below it
-/// ordering falls back to unscaled heuristics.
+/// search score minus penalties for the opponent's mobility and potential
+/// mobility. Below it ordering falls back to unscaled heuristics.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(

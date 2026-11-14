@@ -137,7 +137,8 @@ impl GameState {
     ///
     /// # Errors
     ///
-    /// Returns an error if the current player has legal moves available.
+    /// Returns an error if the game is already over or if the current player
+    /// has legal moves available.
     pub fn make_pass(&mut self) -> Result<(), String> {
         if self.board.is_game_over() {
             return Err("Cannot pass after the game is over".to_string());

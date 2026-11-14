@@ -5,7 +5,8 @@
 //! 1. Screen: the verification is skipped when the static evaluation is
 //!    more than [`SCREEN_MARGINS`] below the verification threshold.
 //! 2. Verification: a depth-[`VERIFY_DEPTH`] search. The node is cut when
-//!    its score reaches `beta + w · sigma(x) − mean(x)`.
+//!    its score reaches `beta + ceil(max(w · sigma(x) − mean(x), 0) · Score::SCALE)`
+//!    (clamped to [`Score::MAX`], which disables the cut).
 //!
 //! [`VerifyModel`] predicts the exact score as the verification score plus
 //! `mean(x) + sigma(x) · Z`. The features `x` are known before the

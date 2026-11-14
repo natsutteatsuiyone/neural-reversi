@@ -59,7 +59,8 @@ impl Level {
     /// deeper positions start in the midgame driver, which hands off to the
     /// endgame solver itself once iterative deepening approaches the full
     /// depth. [`Search::run`] extends the endgame depth to 60 once a previous
-    /// search has reached the endgame phase.
+    /// time-controlled search completes an endgame solve at `Selectivity::Level2`
+    /// or higher.
     ///
     /// [`Search::run`]: crate::search::Search::run
     pub const fn unlimited() -> Self {
@@ -84,7 +85,8 @@ impl Level {
         self.end_depth[index]
     }
 
-    /// Returns the minimum endgame search depth (the first/most aggressive selectivity).
+    /// Returns the endgame search depth for the first selectivity step
+    /// (`Selectivity::Level1`).
     pub fn min_end_depth(&self) -> Depth {
         self.end_depth[0]
     }

@@ -17,7 +17,7 @@ pub struct RootMove {
     pub sq: Square,
     /// Current best score for this move in the current iteration.
     pub score: Score,
-    /// Score from the previous iteration, used for aspiration windows.
+    /// Unused score field initialized to `-Score::INF`.
     pub previous_score: Score,
     /// Running average score across iterations, used to center the aspiration
     /// window.

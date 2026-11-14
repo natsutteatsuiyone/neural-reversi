@@ -211,7 +211,7 @@ pub struct TimeManager {
     /// is recomputed from the scaling factors after every completed iteration.
     optimum_time_ms: AtomicU64,
 
-    /// Absolute hard limit for this move (remaining time - buffer).
+    /// Absolute hard limit for this move (remaining time minus safety buffer).
     hard_time_limit_ms: AtomicU64,
 
     /// Reference to the abort state for signaling search termination.

@@ -167,11 +167,15 @@ F5D6C3D3C4F4F6F3E6E7
 
 ### Output Format
 
-CSV with columns: `ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
+CSV with columns: `game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
+
+The game ID is the one-based source input line number, including blank lines.
+Midgame output can be read by `datagen fit-probcut`. Endgame output uses the
+same columns, but is not the trace format required by `datagen fit-endgame-probcut`.
 
 ```csv
-ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
-0,0,0,3,0,0
-0,0,0,4,0,0
-1,0,-3,3,-1,2
+game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff
+1,0,0,0,3,0,0
+1,0,0,0,4,0,0
+1,1,0,-3,3,-1,2
 ```

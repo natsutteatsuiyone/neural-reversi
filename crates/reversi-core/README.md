@@ -16,7 +16,8 @@ The engine is split into three layers.
 │   └─ endgame:  iterative selectivity (Level1 → None)   │
 │                threads: YBWC (split points)            │
 │        └─ Negamax PVS + (TT / ETC / ProbCut /          │
-│                          stability / LMR / wipeout)    │
+│                          stability / LMR / wipeout /   │
+│                          correction history)           │
 ├────────────────────────────────────────────────────────┤
 │  Evaluation                                            │
 │   ├─ pattern feature: 32 patterns × base-3 encoding    │
@@ -44,8 +45,8 @@ thresholds that distinguish the two phases.
 
 ```rust
 pub struct Board {
-    pub player:   Bitboard,  // discs of the side to move
-    pub opponent: Bitboard,  // discs of the other side
+    player:   Bitboard,  // discs of the side to move, via player()
+    opponent: Bitboard,  // discs of the other side, via opponent()
 }
 ```
 
@@ -65,14 +66,15 @@ Game-level concerns (history, automatic passing, undo) are confined to
 ## Move generation and flipping
 
 `flip::flip(sq, p, o)` returns "the bitboard of opponent discs that flip when
-the side to move plays at `sq`". The x86‑64 implementations use the
-LR-mask table approach; the active variant is selected at compile time:
+the side to move plays at `sq`". The implementations use the LR-mask table
+approach; the active variant is selected at compile time:
 
 | target_feature                 | Implementation             |
 | ------------------------------ | -------------------------- |
 | `avx512cd` + `avx512vl`        | `flip/flip_avx512.rs`      |
 | `avx2`                         | `flip/flip_avx2.rs`        |
 | `neon` (aarch64)               | `flip/flip_neon.rs`        |
+| `simd128` (wasm32)             | `flip/flip_wasm_simd.rs`   |
 | none                           | `flip/flip_scalar.rs`      |
 
 The disc-count update for the very last empty square is handled by the
@@ -91,38 +93,49 @@ the next empty square in O(1).
 `search<NT, SS>` is the shared body for midgame and endgame. `NT: NodeType`
 selects between `Root / PV / NonPV`, and `SS: SearchStrategy` selects
 midgame vs. endgame; both are generic so the branches collapse at compile
-time (the `cut_node` flag is also threaded through). One node, in order:
+time (the `cut_node` flag is also threaded through). Before the full node
+body, PV leaves (`depth == 0`) return `SS::evaluate`, while NonPV nodes
+check the midgame-to-endgame shallow handoff
+(`n_empties <= EndGameStrategy::DEPTH_TO_SHALLOW`), dispatch
+`depth <= SS::DEPTH_TO_SHALLOW` to `SS::shallow_search`, and try
+`stability_cutoff`. One node then proceeds, in order:
 
 1. **TT prefetch** — derive the key with `board.hash()` and software-prefetch
    the slot.
-2. **Move generation** — `MoveList::new(board)`.
+2. **Move generation** — `MoveList::new(board)` (at `Root`, filtered to
+   `ctx.root_moves.moves_bb_from_pv_idx()`).
 3. **Pass handling** — if no legal moves, `switch_players()` and recurse;
    if neither side moves, return `solve(n_empties)` for the terminal
    score.
 4. **Wipeout shortcut** — if any move flips every opponent disc, return
-   `MAX` immediately.
+   `MAX` immediately. When `!NT::PV_NODE && depth >= SS::MIN_ETC_DEPTH`,
+   child TT slots are then prefetched before the parent probe.
 5. **TT probe** — in NonPV nodes, `TTEntryData::can_cut` may produce an
-   immediate cutoff. In PV nodes only the TT best move is taken, for use in
-   move ordering. In NonPV midgame nodes with `depth >= TT_PENALIZE_MIN_DEPTH`,
-   a midgame entry deep and selective enough to cut, whose bound points away
-   from `beta`, loses one ply of stored depth.
-6. **ETC** (Enhanced Transposition Cutoff) — peek at children through the TT
-   to claim a cutoff one ply earlier. Active when `depth >= SS::MIN_ETC_DEPTH`.
+   immediate cutoff. In PV nodes only the TT best move (and `is_pv` bit) is
+   taken, for move ordering and LMR tracking. In NonPV midgame nodes with
+   `depth >= TT_PENALIZE_MIN_DEPTH`, a midgame entry deep and selective
+   enough to cut, whose bound points away from `beta`, loses one ply of
+   stored depth.
+6. **ETC** (Enhanced Transposition Cutoff) — in NonPV nodes when
+   `depth >= SS::MIN_ETC_DEPTH`, peek at children through the TT to claim a
+   cutoff one ply earlier.
 7. **ProbCut** — `SS::try_probcut`; details below.
 8. **TT ProbCut** — in NonPV midgame nodes with selectivity enabled, a TT
-   lower bound up to `TT_PROBCUT_DEPTH_SLACK` plies shallower than `depth`,
-   at the node's selectivity or above, that reaches
+   `Lower` or `Exact` bound up to `TT_PROBCUT_DEPTH_SLACK` plies shallower
+   than `depth`, at the node's selectivity or above, that reaches
    `beta + TT_PROBCUT_MARGIN` returns that threshold without a search.
 9. **IIR** (Internal Iterative Reductions) — reduce non-root PV/Cut midgame
-   nodes by one ply when `depth >= IIR_MIN_DEPTH` (6), selectivity is enabled,
+   nodes by one ply when `depth >= IIR_MIN_DEPTH`, selectivity is enabled,
    and the TT provides no best move. All nodes, endgame nodes, and ProbCut
    verification searches retain their depth. Move searches and TT stores
    use the reduced depth.
-10. **TT move first** — in NonPV nodes with a TT move, search the TT move at
-   a null window before running move ordering. A fail-high here cuts off
-   without sorting the rest.
-11. **Move ordering** — `MoveList::evaluate_moves` scores the rest;
-   `MoveList::sort` arranges them. The TT move is always pinned at index 0.
+10. **TT move first** — in NonPV nodes when `n_moves == 1 || tt_move.is_some()`,
+    search the first/TT move at a null window before running move ordering. A
+    fail-high here cuts off without sorting the rest (and updates
+    `CorrectionHistory` when `static_eval` was computed).
+11. **Move ordering** — `MoveList::evaluate_moves` scores the rest and
+    `MoveList::sort` arranges them (or swaps directly when `n_moves == 2`
+    and one move was already searched). The TT move is pinned at index 0.
 12. **Main loop**:
     - First move (PV): full window.
     - Later moves: `compute_lmr_reduction` picks a reduction; search at a
@@ -131,8 +144,10 @@ time (the `cut_node` flag is also threaded through). One node, in order:
       full window.
     - In endgame nodes, when the conditions are met, `Thread::split` hands
       the remaining moves to idle threads.
-13. **TT store** — pack `best_score / best_move / bound / depth /
-    selectivity / is_endgame` and write back.
+13. **TT store** — update `CorrectionHistory` (when midgame `static_eval`
+    was computed), then pack `best_score / best_move / bound / depth /
+    selectivity / is_endgame / is_pv` and write back (skipped at `Root` when
+    `pv_idx != 0`).
 
 `Bound` is `None=0 / Lower=1 / Upper=2 / Exact=3`. The bit patterns are
 chosen so the bound check inside `TTEntryData::can_cut` is a bitwise AND.
@@ -145,17 +160,19 @@ Iterative deepening with aspiration windows.
   unless `multi_pv` is requested.
 - The deepening step shrinks from `+2` plies to `+1` once `depth` exceeds
   `DEPTH_STEP_THRESHOLD`.
-- From `ASPIRATION_MIN_DEPTH` onwards, `aspiration_search` opens with the
-  previous score ± `ASPIRATION_DELTA`; on a fail-high or fail-low it
-  widens and re-searches.
+- From `ASPIRATION_MIN_DEPTH` onwards, `aspiration_search` opens centered on
+  the root move's running `average_score` with half-width
+  `ASPIRATION_DELTA` plus helper widening and a `mean_squared_score`
+  variance term (`ASPIRATION_MSS_DIVISOR`); on a fail-high or fail-low it
+  widens `delta` by `delta / 2` and re-searches.
 - Multi-PV walks `set_pv_idx(i)` over root moves and pins one window at a
   time.
 - After every completed iteration, `time_manager.report_iteration` is fed
   the best move, score, depth, and whether the aspiration window stayed
   clean (no re-search); the manager rescales its time budget from these
   (see Time control).
-- Under time control, a position with a single legal root move is answered
-  after the first completed iteration.
+- Under a finite deadline (`deadline().is_some()`), a position with a single
+  legal root move is answered after the first completed iteration.
 - A time-controlled search hands its context to the endgame solve loop
   once a midgame iteration has covered all empties; the loop searches the
   endgame selectivity levels at full depth (see Endgame root). The handoff
@@ -170,20 +187,24 @@ Iterative deepening with aspiration windows.
   and Multi-PV searches report the main thread's iteration.
 
 LMR runs in non-PV midgame nodes once selectivity is enabled, from
-`LMR_MIN_DEPTH` onwards, and only for moves past the first few siblings.
-`compute_lmr_reduction` sums three terms in 1/256-ply fixed point:
+`LMR_MIN_DEPTH` onwards, when at least 4 moves are legal and after the
+first two siblings. `compute_lmr_reduction` combines three terms in
+1/256-ply fixed point (`LMR_FRAC_BITS`) and an integer-ply adjustment:
 
-- a continuous curve `LMR_OFFSET + ln(depth) * ln(move_count) / LMR_LOG_DIV`,
-  evaluated from the `LMR_LOG` table of scaled natural logarithms;
+- a continuous curve `LMR_OFFSET + (round(ln(depth) * 256) * round(ln(move_count) * 256)) / LMR_LOG_DIV`,
+  evaluated from the `LMR_LOG` table of scaled natural logarithms (giving
+  `ln(depth) * ln(move_count) / 2.0` in 1/256 ply);
 - an ordering-margin term: the shortfall of the move's ordering estimate
   against `alpha`, scaled by `LMR_MARGIN_SHIFT` and clamped to
-  `LMR_MARGIN_MIN ..= LMR_MARGIN_MAX`. Midgame ordering values are shallow
-  search scores on the same scale as `alpha`, so a move whose estimate
-  already reaches `alpha` is reduced less and one far below it is reduced
-  more. The switch to unscaled ordering heuristics sits exactly at
-  `LMR_MIN_DEPTH`, which is what keeps the two scales from mixing;
-- one ply given back at All nodes whose reduction exceeds
-  `LMR_ALLNODE_KEEP`.
+  `LMR_MARGIN_MIN ..= LMR_MARGIN_MAX`. Midgame ordering values combine a
+  shallow search score on the same scale as `alpha` with opponent mobility
+  and potential mobility penalties, so a move whose estimate already reaches
+  `alpha` is reduced less and one below it is reduced more. The switch to
+  unscaled ordering heuristics sits at `LMR_MIN_DEPTH`, keeping the two
+  scales from mixing;
+- a PV-history credit: `LMR_TT_PV_CREDIT` subtracted when `tt_pv` is true;
+- after shifting right by `LMR_FRAC_BITS` to whole plies, one ply given
+  back at All nodes whose reduction exceeds `LMR_ALLNODE_KEEP`.
 
 `lmr_max_reduction` caps the result. Its `depth - 2` term is an invariant,
 not a tuning choice: it keeps the reduced child depth at one ply or more.
@@ -195,16 +216,19 @@ solved); what changes between iterations is the confidence level. The loop
 walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, Level4, None]`,
 ending with `None` for an exact solve.
 
-- On direct entry, a shallow PVS estimates a centre score for the
-  aspiration window of half-width `INITIAL_ASPIRATION_WINDOW`.
+- On direct entry, `estimate_aspiration_base_score` takes an `Exact` TT
+  score if present, otherwise runs `midgame::evaluate_depth2` when at least
+  20 empties remain or static `midgame::evaluate` below that, centering an
+  aspiration window of half-width `INITIAL_ASPIRATION_WINDOW` (secondary
+  Multi-PV lines open at `(-Score::INF, previous_pv_score + 1)`).
 - The solve loop is shared with the midgame handoff: a time-controlled
   midgame root enters it with its own context, keeping the midgame
   root-move ordering and centring the window on the last completed
   midgame score. Until Level2 completes, the last completed midgame
   iteration remains the reported result.
-- Between selectivity steps the window narrows by
-  `INTER_SELECTIVITY_DELTA`. On a fail-high or fail-low it widens by
-  `ASPIRATION_DELTA` and re-searches.
+- Between selectivity steps the window resets around the completed score to
+  `score ± INTER_SELECTIVITY_DELTA`. On a fail-high or fail-low it starts
+  widening from `ASPIRATION_DELTA` and doubles `delta` on each re-search.
 - The root loop keeps aspiration centers, windows, and search return values as
   `Score`; only the null-window and shallow endgame solvers convert to
   `DiscScore` disc differences.
@@ -223,7 +247,7 @@ into a shallow variant.
 
 - the full `Board` (raw 64-bit player / opponent),
 - `TTEntryData` packed into 8 bytes (`score / best_move / bound / depth /
-  selectivity / generation / is_endgame`),
+  selectivity / generation / flags: is_endgame, is_pv`),
 - a 64-bit SeqLock sequence counter,
 
 and probes / stores are lock-free.
@@ -234,7 +258,7 @@ and probes / stores are lock-free.
   the full `Board`. They affect replacement only.
 - `Search::run` calls `increment_generation`; the `generation` byte feeds
   the replacement policy so older entries are overwritten first.
-- `prefetch(key)` is exposed for ETC and split-internal lookups.
+- `prefetch(key)` is exposed for node probes and ETC child lookups.
 
 #### Large pages
 
@@ -279,45 +303,49 @@ a cutoff.
   verification threshold is `ceil(beta + t·sigma − mean)`
   (`compute_probcut_beta`). A static-evaluation pre-screen
   (`compute_eval_beta`) skips the verification when the evaluation is far
-  below it. If a null-window search at the shallow depth reaches the
-  threshold, the deep search is skipped.
+  below it. When `pc_depth == 0`, the node cuts immediately if the static
+  evaluation reaches `pc_beta`; otherwise, a null-window search at
+  `pc_depth` reaching `pc_beta` skips the deep search.
 - Endgame (`probcut/endgame.rs`): a cut takes two steps.
   1. Screen: if the static evaluation is more than `SCREEN_MARGINS` below
      the verification threshold, the verification is not searched.
   2. Verification: a depth-`VERIFY_DEPTH` search must reach
 
      ```
-     pc_beta = beta + w·sigma(x) − mean(x)
+     pc_beta = min(beta + ceil(max(w·sigma(x) − mean(x), 0)·Score::SCALE), Score::MAX)
      ```
 
      `mean` and `ln sigma` model `exact − score` and are linear in features
      known before the verification (empty count, node type, beta, and the
      static evaluation), so the threshold has a closed form. `w` is
      `endgame_tail_multiplier(selectivity, empties)`, linear in the empty
-     count per level and calibrated against the root score's exactness.
+     count and its parity (`E mod 2`) per level and calibrated against the
+     root score's exactness.
 
   `datagen fit-endgame-probcut` fits the model and the screen margins on
   positions traced from the search tree (see `crates/datagen/README.md`).
-- `Selectivity` enumerates discrete confidence levels (`Mid`, `Level1`,
-  `Level2`, `Level3`, `Level4`, ordered from most aggressive to most conservative)
-  plus `None` for an exact solve. `Selectivity::probability` gives each
-  level's confidence percentage. Midgame ProbCut uses the per-level `t`
-  multiplier `Selectivity::t_value`; endgame ProbCut uses
-  `endgame_tail_multiplier` instead. Midgame search always runs at the fixed
-  `Mid` level (`SearchRunOptions::disable_probcut` drops it to `None` for
-  data generation); the endgame ladder walks the remaining levels and
-  never uses `Mid`. PV nodes never attempt ProbCut. The verification
-  searches and the final exact endgame step run at `None`.
+- `Selectivity` enumerates discrete confidence levels: `Mid` (for
+  time-controlled midgame search), the endgame ladder `Level1` through
+  `Level4` (ordered from most aggressive to most conservative), and `None`
+  for an exact solve. `Selectivity::probability` gives each level's
+  confidence percentage. Midgame ProbCut uses the per-level `t` multiplier
+  `Selectivity::t_value`; endgame ProbCut uses `endgame_tail_multiplier`
+  instead. Midgame search uses `Selectivity::Mid` under time control,
+  `Selectivity::Level1` under fixed-level constraints, and `Selectivity::None`
+  when `SearchRunOptions::disable_probcut` is set; the endgame ladder walks
+  `Level1..Level4` and `None` without `Mid`. PV nodes never attempt ProbCut.
+  The verification searches and the final exact endgame step run at `None`.
 
 ### Stability cutoff
 
 `stability::stability_cutoff(board, n_empties, alpha)` cuts off when the
 opponent has enough discs that can no longer be flipped to put the side
-to move below alpha.
+to move at or below `alpha`.
 
 - An `EDGE_STABILITY` table covering all 256 × 256 edge configurations is
   generated at compile time. It is combined with detection of fully-filled
-  ranks, files, and diagonals to lower-bound the stable count.
+  ranks, files, and diagonals and iterative 4-direction contact propagation
+  (`get_stable_by_contact`) to lower-bound the stable count.
 
 ### Parallel search
 
@@ -346,11 +374,13 @@ Endgame:
   `depth <= SPECULATIVE_SPLIT_MAX_DEPTH`), `depth >= MIN_SPLIT_DEPTH`, at
   least two moves remain, and `Thread::can_split()` is true. Remaining
   moves are distributed through a shared `ConcurrentMoveIterator`.
-- Helper threads that pick up the split point enter `search_split_point`,
-  pull moves from the iterator, and write results back into the
-  split-point state (`alpha / best_score / best_move / cutoff`) atomically.
+- Helper threads that pick up the split point (and the owner via its idle
+  loop) enter `search_split_point`, pull moves from the iterator, and write
+  results back into the split-point state (`alpha / best_score / best_move /
+  cutoff`) under the split-point lock.
 - A single thread can own up to `MAX_SPLITPOINTS_PER_THREAD` splits at
-  once, and a single split accepts up to `MAX_THREADS_PER_SPLITPOINT` workers.
+  once, and a single split accepts up to `MAX_THREADS_PER_SPLITPOINT`
+  threads in total (including the owner).
 - A parallel pool shares an in-flight table (`threading/in_flight.rs`).
   At endgame nodes with `depth >= MIN_CLAIM_DEPTH`, a thread claims each
   child position before searching it and releases the claim when the
@@ -377,14 +407,18 @@ Both phases:
 - The physical thread count is
   `n_threads.min(available_cpus()).clamp(1, MAX_THREADS)`.
 
-`SearchSharedResources` lets several `Search` instances share a single TT
-and `Eval` while keeping independent `ThreadPool`s.
+`SearchSharedResources` lets several `Search` instances share a single `Eval`
+while keeping independent `TranspositionTable`s and `ThreadPool`s by default
+(or sharing a `ThreadPool` via `share_thread_pool`, and sharing a TT via
+`Search::from_shared_resources_with_tt` or `Search::set_tt`).
 
 ## Evaluation
 
 `Eval` holds two neural networks and an evaluation cache. The search enters
-through `midgame::evaluate(ctx, board)`, which calls `Eval::evaluate_main`
-or `Eval::evaluate_small`.
+through `midgame::evaluate(ctx, board)` (which returns `board.final_score()`
+at `ply == INITIAL_EMPTY_COUNT`, otherwise `SearchContext::evaluate_main_with_key`
+or `Eval::evaluate_small`); depth-0 midgame move ordering also calls
+`evaluate_main_with_key` directly.
 
 ```text
 ply <  ENDGAME_START_PLY : main Network always
@@ -392,6 +426,12 @@ ply >= ENDGAME_START_PLY
   ├─ EvalMode::Main : main Network
   └─ EvalMode::Small: NetworkSmall (endgame-only)
 ```
+
+In midgame searches, `SearchContext::evaluate_main_with_key` applies the
+thread's `CorrectionHistory` to `Eval::evaluate_main`. `CorrectionHistory`
+indexes a per-thread table of `2^CORRECTION_BITS` entries by the outer ring
+and X-squares (`CORRECTION_KEY_MASK`) and updates it from the gap between
+search scores and `static_eval`.
 
 ### Pattern features
 
@@ -405,10 +445,14 @@ Each pattern is collapsed into a single base-3 number
 - Eight-square patterns contribute `3⁸` input IDs each, nine-square
   patterns `3⁹`, and adjacent diagonals `3⁷`. Concatenated with per-pattern
   offsets, they form `INPUT_FEATURE_DIMS`.
-- On every move and flip, the affected patterns are updated incrementally
-  by walking `EVAL_X2F[sq]` (the patterns this square belongs to, with the
-  base-3 weights of its position inside each). The cost is proportional to
-  the number of changed squares.
+- On every move and flip, `PatternFeatures::update` updates the affected
+  patterns incrementally. The scalar path walks `EVAL_X2F[sq]` (the patterns
+  this square belongs to, with the base-3 weights of its position inside
+  each), proportional to the number of changed squares; the `wasm32` SIMD
+  path loops over flipped bits in `EVAL_FEATURE`; and the x86-64
+  (`avx512bw` / `avx2`) and `aarch64` (`neon`) paths look up
+  `EVAL_FEATURE[sq]` plus four 16-bit chunks in the `build.rs`-generated
+  `EVAL_FEATURE_U16_SUM` table in constant time.
 - `EVAL_FEATURE` and `EVAL_X2F` are produced by `const fn`s and live in
   `.rodata`. Their construction (with worked-out A1 examples) is
   documented in `eval/pattern_feature.rs` on the table definitions.
@@ -435,13 +479,16 @@ PatternFeature ─►            │
                 OutputLayer (i32 → Score)
 ```
 
-- Weights are zstd-compressed `i16` blobs. `Network::from_reader` reads
-  them in order: `BaseInput` → `PhaseAdaptiveInput` → one `LayerStack` per
-  ply (`NUM_LAYER_STACKS` total).
+- Weights are zstd-compressed little-endian blobs (`i16` in `BaseInput` and
+  `PhaseAdaptiveInput`, `i32` biases and `i8` weights in `LinearLayer`,
+  `i32` bias and `i16` weights in `OutputLayer`). `Network::from_reader`
+  reads them in order: `BaseInput` → `PhaseAdaptiveInput` → one `LayerStack`
+  per ply (`NUM_LAYER_STACKS` total).
 - Input layers dispatch on `target_feature` to
-  `forward_avx512 / forward_avx2 / forward_neon / forward_scalar`. The
-  SIMD paths pre-permute the matrices (`simd_layout::permute_rows`) so
-  loads stay contiguous.
+  `forward_avx512 / forward_avx2 / forward_neon / forward_scalar`. On
+  x86-64 (`avx2` / `avx512bw`), `simd_layout::permute_rows` pre-permutes the
+  matrices so SIMD loads stay contiguous; `forward_neon` reads the natural
+  row layout.
 - The working buffers (`NetworkBuffers`) are thread-local and reused across
   calls; one evaluation is computed in-place.
 - The output is shifted right by `OUTPUT_WEIGHT_SCALE_BITS`, clamped to
@@ -483,9 +530,10 @@ pub struct Score(i32);
 - Special values: `ZERO`, `MIN` / `MAX` (full-board disc differences as
   scaled values), and `INF = i16::MAX` (the αβ sentinel — bounded by
   `i16` because the TT packs the score in 16 bits).
-- `Add / Sub / Neg` between `Score`s, plus `Add<i32> / Mul<i32> /
-  Div<i32>`. This lets ProbCut expressions like `beta + t·sigma − mean`
-  stay in `Score` without conversions.
+- `Add / Sub / Neg / AddAssign / SubAssign` between `Score`s, plus
+  `Add<i32> / Sub<i32> / Mul<i32> / Div<i32> / MulAssign<i32> /
+  DivAssign<i32>`. This lets ProbCut expressions like
+  `beta + t·sigma − mean` stay in `Score` without conversions.
 - The fixed-point scale exists because the disc difference produced by a
   move is integer, but root-move ordering needs sub-disc precision to
   break ties.
@@ -509,10 +557,10 @@ up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / Level4 / None`
   cap that only controls the root dispatch. Positions with more empties
   than the cap start in the midgame driver, which hands off to the
   endgame solve loop in-run once deepening reaches the full depth.
-  Once a previous time-controlled `Search::run` has reached the endgame
-  phase (recorded by `update_endgame_tracking`), subsequent calls lift
-  the `end_depth` to `Level::perfect()`'s value so the endgame root is
-  entered directly.
+  Once a previous time-controlled `Search::run` has completed an endgame
+  solve at `ENDGAME_TRACKING_MIN_SELECTIVITY` (`Level2`) or higher (recorded
+  by `update_endgame_tracking`), subsequent calls lift the `end_depth` to
+  `Level::perfect()`'s value so the endgame root is entered directly.
 
 ### Time control
 
@@ -562,9 +610,11 @@ distributes time across the move.
   Japanese byoyomi main time always caps at the reserve target, since
   falling into byoyomi is acceptable.
 - A forced move (single legal root move) is answered after the first
-  completed iteration.
-- A `TIME_BUFFER_MS` safety buffer is always subtracted to avoid time
-  forfeit.
+  completed iteration when a finite deadline is set (`TimeControlMode::Infinite`
+  continues deepening).
+- A safety buffer derived from `TIME_BUFFER_MS` is subtracted to avoid time
+  forfeit (`TIME_BUFFER_MS` for per-move allocations; `TIME_BUFFER_MS` plus
+  half of `TIME_BUFFER_MS` per estimated remaining move in bank modes).
 
 ## Weight files
 
@@ -589,31 +639,33 @@ The integration tests in `tests/` require real weights to load.
 
 | Concern                              | Location                                                                  |
 | ------------------------------------ | ------------------------------------------------------------------------- |
-| Bitboard                             | `src/bitboard.rs`                                                         |
-| Board / squares / discs              | `src/board.rs`, `src/square.rs`, `src/disc.rs`                            |
-| Legal move set                       | `src/legal_moves.rs`                                                      |
-| Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                             |
-| Move list / empty list               | `src/move_list.rs`, `src/empty_list.rs`                                   |
+| Bitboard                             | `src/bitboard.rs`, `src/bitboard/moves.rs`                                |
+| Board / squares / discs / color      | `src/board.rs`, `src/square.rs`, `src/disc.rs`, `src/player_color.rs`     |
+| Legal move set / OBF                 | `src/legal_moves.rs`, `src/obf.rs`                                        |
+| Flip dispatch                        | `src/flip.rs` + `src/flip/*`                                              |
+| Move list / empty list               | `src/move_list.rs`, `src/move_list/*`, `src/empty_list.rs`                |
 | Game analysis                        | `src/analysis.rs`                                                         |
 | Game state                           | `src/game_state.rs`                                                       |
+| Difficulty levels                    | `src/level.rs`                                                            |
 | Search core                          | `src/search.rs`, `src/search/pvs.rs`                                      |
 | Midgame search                       | `src/search/midgame.rs`                                                   |
-| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/solve.rs`, `src/search/endgame/solve/*`, `src/search/endgame/cache.rs` |
+| Endgame search                       | `src/search/endgame.rs`, `src/search/endgame/{cache,small_move_list,solve}.rs`, `src/search/endgame/solve/*` |
 | Parallelisation                      | `src/search/threading.rs`, `src/search/threading/*`, `src/search/midgame/lazy_smp.rs` |
-| Search context / stack               | `src/search/context.rs`, `src/search/stack.rs`                            |
+| Search context / stack / corrections | `src/search/context.rs`, `src/search/stack.rs`, `src/search/correction_history.rs` |
+| Options / counters / side to move    | `src/search/options.rs`, `src/search/counters.rs`, `src/search/side_to_move.rs` |
 | Strategy / node type                 | `src/search/strategy.rs`, `src/search/node_type.rs`                       |
 | Result / root moves / Multi-PV       | `src/search/result.rs`, `src/search/root_move.rs`                         |
 | Progress reporting                   | `src/search/progress.rs`                                                  |
 | Stop requests                        | `src/search/stop.rs`, `src/search/threading/abort.rs`                     |
 | Time control                         | `src/search/time_control.rs`                                              |
-| TT / ProbCut / Stability             | `src/transposition_table.rs`, `src/probcut.rs`, `src/stability.rs`        |
-| Evaluator / cache                    | `src/eval.rs`, `src/eval/eval_cache.rs`                                   |
-| Pattern features                     | `src/eval/pattern_feature.rs`                                             |
+| TT / ProbCut / Stability             | `src/transposition_table.rs`, `src/probcut.rs`, `src/probcut/endgame.rs`, `src/stability.rs` |
+| Evaluator / cache                    | `src/eval.rs`, `src/eval/eval_cache.rs`, `src/eval/util.rs`               |
+| Pattern features                     | `src/eval/pattern_feature.rs`, `src/eval/pattern_table_data.rs`           |
 | Main NN                              | `src/eval/network.rs`, `src/eval/network/*`                               |
 | Endgame NN                           | `src/eval/network_small.rs`                                               |
 | Scores                               | `src/score.rs`                                                            |
 | Numeric types / constants            | `src/types.rs`, `src/constants.rs`                                        |
-| Utilities                            | `src/util/{align,aligned_buffer,bitset,large_pages,spinlock}.rs`          |
+| Utilities                            | `src/util.rs`, `src/util/{align,aligned_buffer,bitset,large_pages,spinlock}.rs` |
 | Correctness checks                   | `src/perft.rs`, `tests/perft_tests.rs`, `tests/endgame_tests.rs`, `tests/parallel_search_tests.rs` |
 
 ## Build and test
@@ -631,18 +683,20 @@ cargo bench -p reversi-core --bench flip
 cargo bench -p reversi-core --bench solve1
 cargo bench -p reversi-core --bench stability
 cargo bench -p reversi-core --bench move_list
-cargo bench -p reversi-core --bench endgame
 ```
 
 `tests/perft_tests.rs` checks the move-generation node counts;
-`tests/endgame_tests.rs` checks both the score and the best move on a set
-of endgame positions. Both require the `.zst` weight files in the
-workspace root.
-`tests/parallel_search_tests.rs` checks that parallel solves return the
-single-thread result, that a `StopToken` ends a search whether it is
-stopped during or before the run without reaching the next search, and
-that pool shutdown and shared-TT reuse are clean across searches.
+`tests/endgame_tests.rs` checks exact solve scores across endgame positions,
+abort consistency against `SearchProgress`, and Multi-PV legal move scores.
+Building `reversi-core` requires the `.zst` weight files in the workspace root.
+`tests/parallel_search_tests.rs` checks parallel endgame solving, single-thread
+vs. parallel midgame score consistency, timed deadline termination,
+`StopToken` interruption of an infinite search, concurrent
+`SearchSharedResources` engines, and sequential `share_thread_pool` reuse
+(while pre-start and post-run `StopToken` isolation is unit-tested in
+`src/search/stop.rs`).
 
 Enabling the `search-stats` Cargo feature populates extra fields in
-`SearchCounters`, exposing breakdown counters such as TT hit rate, ETC
-attempt/cutoff count, ProbCut attempt/cutoff count, and stability cut count.
+`SearchCounters`, exposing raw counts such as `tt_probes`, `tt_hits`, ETC
+attempt/cutoff counts, ProbCut attempt/cutoff counts, and stability cut
+count.

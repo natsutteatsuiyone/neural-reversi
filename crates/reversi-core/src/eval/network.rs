@@ -1,4 +1,4 @@
-//! Neural network for midgame evaluation.
+//! Main neural network for position evaluation.
 
 use std::cell::UnsafeCell;
 use std::fs::File;
@@ -93,7 +93,7 @@ thread_local! {
 
 #[cfg(not(target_os = "windows"))]
 thread_local! {
-    /// Per-thread scratch reused across evaluations: the ~768-byte buffer is
+    /// Per-thread scratch reused across evaluations: the 832-byte buffer is
     /// zeroed once per thread, not per call. `const` init keeps the access on
     /// the guard-free thread-local path.
     ///

@@ -41,7 +41,7 @@ pub enum Bound {
 }
 
 impl Bound {
-    /// Classifies a midgame search result into a [`Bound`] type.
+    /// Classifies a search result into a [`Bound`] type.
     ///
     /// - [`Bound::Lower`] if `best_score >= beta` (fail-high).
     /// - [`Bound::Exact`] if `alpha < best_score < beta` and node is PV.

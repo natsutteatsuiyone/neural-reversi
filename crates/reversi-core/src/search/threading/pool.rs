@@ -15,7 +15,7 @@ use super::in_flight::InFlightTable;
 use super::split_point::{MAX_THREADS_PER_SPLITPOINT, SplitPoint};
 use super::thread::{HelperJob, Thread};
 
-/// Interval between checks for abort flag in milliseconds.
+/// Interval in milliseconds at which the timer thread checks the search deadline.
 const CHECK_INTERVAL_MS: u64 = 1;
 
 /// Interval between polls while waiting for threads to signal ready.

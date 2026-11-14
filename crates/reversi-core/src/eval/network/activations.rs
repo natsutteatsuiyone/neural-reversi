@@ -54,9 +54,10 @@ fn sqr_clipped_relu_scalar(input: &[i32], output: &mut [u8]) {
 /// The first 16 bytes receive the square-clipped output, and the next 16 bytes
 /// receive the clipped-ReLU output.
 ///
-/// On x86-64 with AVX-512, `input` must be 64-byte aligned and `output`
-/// 16-byte aligned. With AVX2, both must be 32-byte aligned. Misaligned
-/// buffers cause undefined behavior in the SIMD loads/stores.
+/// On x86-64 with AVX-512 (`avx512bw` + `avx512vl`), `input` must be 64-byte
+/// aligned and `output` 16-byte aligned. With AVX2 (including `avx512bw`
+/// without `avx512vl`), both must be 32-byte aligned. Misaligned buffers cause
+/// undefined behavior in the SIMD loads/stores.
 #[inline(always)]
 pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     debug_assert!(input.len() >= 16);

@@ -121,7 +121,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 enum Outcome {
     /// Report the last completed iteration.
     Done(CompletedState),
-    /// Solve the remaining selectivity levels exactly, centered on the score.
+    /// Hand off to the endgame selectivity ladder, centered on the score.
     Endgame(CompletedState, Score),
 }
 

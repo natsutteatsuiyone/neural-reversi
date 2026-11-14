@@ -12,7 +12,7 @@ use crate::types::Depth;
 pub struct SearchProgress {
     /// Current search depth completed.
     pub depth: Depth,
-    /// Target search depth for this iteration.
+    /// Overall target search depth (or final reported depth in result snapshots).
     pub target_depth: Depth,
     /// Best score found so far.
     pub score: Score,

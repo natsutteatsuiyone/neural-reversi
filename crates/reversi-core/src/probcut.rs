@@ -22,8 +22,9 @@ pub use endgame::{
 
 /// Selectivity level for search pruning (ProbCut confidence levels).
 ///
-/// Lower levels are more aggressive (prune more), higher levels are more conservative.
-/// `None` disables ProbCut entirely.
+/// `Mid` is used for time-controlled midgame search; on the endgame ladder
+/// (`Level1`..`Level4`), lower levels are more aggressive (prune more) and
+/// higher levels are more conservative. `None` disables ProbCut entirely.
 ///
 /// Midgame ProbCut scales its margin by [`Selectivity::t_value`]. Endgame
 /// ProbCut uses [`endgame_tail_multiplier`] instead, calibrated so the root
@@ -196,7 +197,8 @@ fn build_midgame_table() -> Box<MidgameTable> {
 /// Initializes the ProbCut lookup tables.
 ///
 /// Must be called before any coefficient lookup. Called automatically by
-/// [`Search::new`](crate::search::Search::new).
+/// [`SearchSharedResources::new`](crate::search::SearchSharedResources::new)
+/// (and thus [`Search::new`](crate::search::Search::new)).
 pub fn init() {
     MIDGAME_TABLE.get_or_init(build_midgame_table);
 }

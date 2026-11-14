@@ -17,10 +17,8 @@ pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
 
 /// Clones a bias vector into a 64-byte-aligned array.
 ///
-/// # Safety
-///
-/// `biases` must have at least `N` elements. The function uses
-/// `copy_nonoverlapping` without bounds checking (debug builds assert this).
+/// `biases` must have at least `N` elements; elements are copied with
+/// `copy_nonoverlapping` without runtime bounds checks in release builds.
 #[inline(always)]
 pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
     debug_assert!(
@@ -42,10 +40,8 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
 
 /// Computes the feature offset for a given pattern feature index.
 ///
-/// # Safety
-///
-/// `idx` must be less than [`NUM_PATTERN_FEATURES`]. The function uses
-/// `get_unchecked` without bounds checking (debug builds assert this).
+/// `idx` must be less than [`NUM_PATTERN_FEATURES`]; entries are indexed with
+/// `get_unchecked` without runtime bounds checks in release builds.
 #[inline(always)]
 pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     debug_assert!(
@@ -138,8 +134,8 @@ pub fn mm256_dpbusd_epi32<const USE_VNNI: bool>(src: __m256i, a: __m256i, b: __m
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
 ///
-/// Widen-and-reduce emulation of the `VUSDOT` operation; the hardware instruction is
-/// gated behind an unstable Rust stdarch feature flag and thus cannot be used on stable.
+/// Widen-and-reduce emulation of the `USDOT` operation when `FEAT_I8MM`
+/// (`neon_dpbusd_s32_i8mm`) and `FEAT_DotProd` are unavailable.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
