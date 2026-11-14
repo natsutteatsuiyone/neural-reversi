@@ -20,7 +20,3 @@ windows-sys = { version = "0.61.0", features = [
     "Win32_Foundation",
     "Win32_UI_Shell",
 ] }
-
-[[bin]]
-name = "match-runner"
-path = "src/main.rs"
