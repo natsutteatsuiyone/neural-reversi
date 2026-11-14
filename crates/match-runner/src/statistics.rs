@@ -272,25 +272,25 @@ impl MatchStatistics {
             let unit = if is_ggs { " (per match)" } else { "" };
             println!("{} {}", format!("Elo{unit}:").text().bold(), elo_str);
 
-            // Calculate and display expected win rate from Elo
+            // Expected score counts a draw as half a win.
             if !stats.elo_diff.is_infinite() {
-                let win_rate = 1.0 / (1.0 + 10.0_f64.powf(-stats.elo_diff / 400.0));
-                let win_rate_pct = win_rate * 100.0;
-                let win_rate_str = if win_rate_pct >= 55.0 {
-                    format!("{:.1}%", win_rate_pct).success().bold()
-                } else if win_rate_pct > 50.0 {
-                    format!("{:.1}%", win_rate_pct).success()
-                } else if win_rate_pct == 50.0 {
-                    format!("{:.1}%", win_rate_pct).subtext()
-                } else if win_rate_pct >= 45.0 {
-                    format!("{:.1}%", win_rate_pct).failure()
+                let score_rate = 1.0 / (1.0 + 10.0_f64.powf(-stats.elo_diff / 400.0));
+                let score_rate_pct = score_rate * 100.0;
+                let score_rate_str = if score_rate_pct >= 55.0 {
+                    format!("{:.1}%", score_rate_pct).success().bold()
+                } else if score_rate_pct > 50.0 {
+                    format!("{:.1}%", score_rate_pct).success()
+                } else if score_rate_pct == 50.0 {
+                    format!("{:.1}%", score_rate_pct).subtext()
+                } else if score_rate_pct >= 45.0 {
+                    format!("{:.1}%", score_rate_pct).failure()
                 } else {
-                    format!("{:.1}%", win_rate_pct).failure().bold()
+                    format!("{:.1}%", score_rate_pct).failure().bold()
                 };
                 println!(
                     "{} {}",
-                    format!("Win rate{unit}:").text().bold(),
-                    win_rate_str
+                    format!("Score rate{unit}:").text().bold(),
+                    score_rate_str
                 );
             }
 
@@ -546,13 +546,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn final_report_retains_random_seed() {
+    fn final_report_preserves_result_units_and_random_seed() {
         for (case, has_games, seed) in [
             ("completed", true, Some(20261004_u64)),
             ("partial", true, Some(20261004)),
             ("partial_after_pair", true, Some(20261004)),
             ("empty", false, Some(20261004)),
             ("ordinary", true, None),
+            ("ordinary_draws", true, None),
+            ("synchro_draws", true, Some(20261004)),
         ] {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
@@ -578,12 +580,9 @@ mod tests {
                 !has_games,
                 "{report}"
             );
-            assert_eq!(report.contains("Games:"), case == "ordinary", "{report}");
-            assert_eq!(
-                report.contains("Ptnml(0-2):"),
-                case == "ordinary",
-                "{report}"
-            );
+            let ordinary = matches!(case, "ordinary" | "ordinary_draws");
+            assert_eq!(report.contains("Games:"), ordinary, "{report}");
+            assert_eq!(report.contains("Ptnml(0-2):"), ordinary, "{report}");
             if case == "completed" || case == "partial_after_pair" {
                 assert!(
                     report.contains("GGS synchro matches: 1 W: 1 L: 0 D: 0"),
@@ -596,6 +595,19 @@ mod tests {
                 );
             }
             match case {
+                "ordinary_draws" => {
+                    assert!(report.contains("Games: 2 W: 0 L: 0 D: 2"), "{report}");
+                    assert!(report.contains("Score rate: 50.0%"), "{report}");
+                    assert!(!report.contains("Win rate"), "{report}");
+                }
+                "synchro_draws" => {
+                    assert!(
+                        report.contains("GGS synchro matches: 1 W: 0 L: 0 D: 1"),
+                        "{report}"
+                    );
+                    assert!(report.contains("Score rate (per match): 50.0%"), "{report}");
+                    assert!(!report.contains("Win rate"), "{report}");
+                }
                 "completed" => {
                     assert!(report.contains("Disc diff: +18 (+9.00/game)"), "{report}");
                 }
@@ -620,14 +632,20 @@ mod tests {
         let Ok(case) = std::env::var("MATCH_RUNNER_REPORT_CASE") else {
             return;
         };
+        let ordinary = matches!(case.as_str(), "ordinary" | "ordinary_draws");
         let mut statistics = MatchStatistics {
-            random_seed: (case != "ordinary").then_some(20261004),
-            synchro: case != "ordinary",
+            random_seed: (!ordinary).then_some(20261004),
+            synchro: !ordinary,
             ..MatchStatistics::default()
         };
         match case.as_str() {
             "empty" => {}
             "partial" => statistics.add_game(MatchWinner::Engine1, 20, String::new(), true),
+            "ordinary_draws" | "synchro_draws" => play_pair(
+                &mut statistics,
+                (MatchWinner::Draw, 0),
+                (MatchWinner::Draw, 0),
+            ),
             _ => play_pair(
                 &mut statistics,
                 (MatchWinner::Engine1, 20),
