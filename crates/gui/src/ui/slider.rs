@@ -239,12 +239,17 @@ impl ReversiApp {
     ) -> bool {
         let (min, max, step) = kind.range();
         let rounded = min + ((self.slider_value(kind) - min) / step).round() * step;
-        let increment = if keystroke.modifiers.shift { 10. } else { step };
+        let large_step = 10. * step;
+        let increment = if keystroke.modifiers.shift {
+            large_step
+        } else {
+            step
+        };
         let value = match keystroke.key.as_str() {
             "right" | "up" => rounded + increment,
             "left" | "down" => rounded - increment,
-            "pageup" => rounded + 10.,
-            "pagedown" => rounded - 10.,
+            "pageup" => rounded + large_step,
+            "pagedown" => rounded - large_step,
             "home" => min,
             "end" => max,
             _ => return false,
