@@ -26,14 +26,6 @@ pub(super) struct MoveArray {
 }
 
 impl MoveArray {
-    #[inline]
-    pub(super) fn new() -> Self {
-        MoveArray {
-            data: [MaybeUninit::uninit(); LegalMoves::MAX_COUNT],
-            len: 0,
-        }
-    }
-
     #[inline(always)]
     pub(super) fn len(&self) -> usize {
         self.len
@@ -164,7 +156,10 @@ impl MoveArray {
 impl Clone for MoveArray {
     #[inline]
     fn clone(&self) -> Self {
-        let mut cloned = MoveArray::new();
+        let mut cloned = MoveArray {
+            data: [MaybeUninit::uninit(); LegalMoves::MAX_COUNT],
+            len: 0,
+        };
         let len = self.len();
         if len != 0 {
             // SAFETY: source `0..len` is initialized; `cloned` owns a separate buffer.
@@ -179,13 +174,6 @@ impl fmt::Debug for MoveArray {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_slice(), f)
-    }
-}
-
-impl Default for MoveArray {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
     }
 }
 
