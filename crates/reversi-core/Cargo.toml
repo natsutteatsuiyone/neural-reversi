@@ -11,7 +11,7 @@ search-stats = []
 probcut-trace = []
 
 [dependencies]
-byteorder = "1.5"
+byteorder.workspace = true
 rapidhash = { version = "4.4", features = ["unsafe"] }
 zstd = "0.14"
 
@@ -19,7 +19,7 @@ zstd = "0.14"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = [
+windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Memory",
@@ -28,7 +28,7 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 criterion = "0.8"
-rand = "0.10"
+rand.workspace = true
 
 [[bench]]
 name = "network"

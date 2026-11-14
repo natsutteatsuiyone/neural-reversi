@@ -15,6 +15,16 @@ version = "6.3.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 
+[workspace.dependencies]
+byteorder = "1.5.0"
+clap = { version = "4", features = ["derive"] }
+colored = "3"
+indicatif = "0.18"
+num-format = "0.4"
+rand = "0.10.1"
+reversi-core = { path = "crates/reversi-core" }
+windows-sys = "0.61.0"
+
 [profile.release]
 lto = "fat"
 codegen-units = 1

@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-colored = "3"
-num-format = "0.4"
+clap.workspace = true
+colored.workspace = true
+num-format.workspace = true
 
-reversi-core = { path = "../reversi-core", features = ["search-stats"] }
+reversi-core = { workspace = true, features = ["search-stats"] }
