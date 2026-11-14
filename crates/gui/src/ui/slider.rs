@@ -1,5 +1,6 @@
 use gpui_kit::component::StyledExt;
 use gpui_kit::{prelude::*, *};
+use reversi_core::level::MAX_LEVEL;
 
 use super::dialogs::DIALOG_SMALL_LINE_HEIGHT;
 use super::widgets::shadow;
@@ -18,7 +19,7 @@ impl SliderKind {
     fn range(self) -> (f32, f32, f32) {
         match self {
             Self::GameTime => (30., 600., 30.),
-            Self::AiLevel | Self::HintLevel | Self::AnalysisLevel => (1., 30., 1.),
+            Self::AiLevel | Self::HintLevel | Self::AnalysisLevel => (1., MAX_LEVEL as f32, 1.),
         }
     }
 
@@ -51,7 +52,7 @@ impl ReversiApp {
         }
     }
 
-    /// The current level above a 1–30 slider, for the hint and analysis levels.
+    /// The current level above a slider, for the hint and analysis levels.
     pub(super) fn render_level_slider(
         &self,
         kind: SliderKind,
@@ -82,7 +83,7 @@ impl ReversiApp {
                     .line_height(px(DIALOG_SMALL_LINE_HEIGHT))
                     .text_color(rgb(SECONDARY))
                     .child("1")
-                    .child("30"),
+                    .child(MAX_LEVEL.to_string()),
             )
     }
 

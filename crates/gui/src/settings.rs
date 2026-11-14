@@ -6,7 +6,7 @@ use std::{
 };
 
 use directories::BaseDirs;
-use reversi_core::level::ENDGAME_STEPS;
+use reversi_core::level::{ENDGAME_STEPS, MAX_LEVEL};
 use reversi_core::player_color::PlayerColor;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -221,9 +221,9 @@ impl Settings {
     }
 
     fn bound_values(&mut self) {
-        self.ai_level = self.ai_level.min(30);
-        self.hint_level = self.hint_level.min(30);
-        self.analysis_level = self.analysis_level.min(30);
+        self.ai_level = self.ai_level.min(MAX_LEVEL);
+        self.hint_level = self.hint_level.min(MAX_LEVEL);
+        self.analysis_level = self.analysis_level.min(MAX_LEVEL);
         self.game_time_limit = self.game_time_limit.clamp(1, 86_400);
         self.hash_size = self.hash_size.clamp(1, 16_384);
         self.solver_selectivity = self.solver_selectivity.min(ENDGAME_STEPS - 1);
