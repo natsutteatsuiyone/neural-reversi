@@ -43,10 +43,13 @@ struct AlignedWeights {
 
 impl AlignedWeights {
     fn new(len: usize) -> Self {
-        use std::alloc::{Layout, alloc_zeroed};
+        use std::alloc::{Layout, alloc_zeroed, handle_alloc_error};
         unsafe {
             let layout = Layout::from_size_align(len, 16).unwrap();
             let ptr = alloc_zeroed(layout) as *mut i8;
+            if ptr.is_null() {
+                handle_alloc_error(layout);
+            }
             Self { ptr, len }
         }
     }
