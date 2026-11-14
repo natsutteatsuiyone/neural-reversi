@@ -401,6 +401,19 @@ impl App {
     /// Handles events in level selection mode.
     fn handle_level_select_event(&mut self, event: Event) {
         match event {
+            Event::CursorUp | Event::CursorDown => {
+                let current = self
+                    .level_input
+                    .parse::<usize>()
+                    .unwrap_or(self.level)
+                    .clamp(1, level::MAX_LEVEL);
+                let next = if matches!(event, Event::CursorUp) {
+                    (current + 1).min(level::MAX_LEVEL)
+                } else {
+                    current.saturating_sub(1).max(1)
+                };
+                self.level_input = next.to_string();
+            }
             Event::ForceQuit => {
                 self.should_quit = true;
             }
@@ -818,6 +831,44 @@ mod tests {
         let over = level::MAX_LEVEL + 1;
         assert_eq!(parse_level_input(&over.to_string()), None);
         assert_eq!(parse_level_input("999"), None);
+    }
+
+    #[test]
+    fn level_arrows_edit_the_draft_until_confirmed() {
+        let mut app = App::new(&EngineConfig {
+            hash_size: 1,
+            level: 21,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        });
+        app.level_input = "21".into();
+        app.handle_level_select_event(Event::CursorUp);
+        assert_eq!(app.level_input, "22");
+        assert_eq!(app.level, 21);
+        app.handle_level_select_event(Event::CursorDown);
+        assert_eq!(app.level_input, "21");
+        app.handle_level_select_event(Event::CursorDown);
+        app.handle_level_select_event(Event::Select);
+        assert_eq!(app.level, 20);
+
+        app.level_input = level::MAX_LEVEL.to_string();
+        app.handle_level_select_event(Event::CursorUp);
+        assert_eq!(app.level_input, level::MAX_LEVEL.to_string());
+        app.level_input = "1".into();
+        app.handle_level_select_event(Event::CursorDown);
+        assert_eq!(app.level_input, "1");
+        app.handle_level_select_event(Event::Quit);
+        assert_eq!(app.level, 20);
+
+        app.handle_level_select_event(Event::CursorUp);
+        assert_eq!(app.level_input, "21");
+        app.level_input = "999".into();
+        app.handle_level_select_event(Event::CursorUp);
+        assert_eq!(app.level_input, level::MAX_LEVEL.to_string());
+        app.level_input = "0".into();
+        app.handle_level_select_event(Event::CursorDown);
+        assert_eq!(app.level_input, "1");
     }
 
     #[test]
