@@ -50,7 +50,7 @@ enum SubCommands {
         #[arg(long)]
         openings: Option<String>,
 
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value = "false", requires = "openings")]
         resume: bool,
 
         #[arg(long, default_value = "6", value_parser = clap::value_parser!(u32).range(1..=60),
@@ -424,6 +424,32 @@ fn main() {
         } => {
             overwrite_scores::execute(&source, &target_dir, &pattern)
                 .expect("Failed to execute overwrite-scores");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selfplay_resume_requires_openings() {
+        let error =
+            Cli::try_parse_from(["datagen", "selfplay", "--output-dir", "data", "--resume"])
+                .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        assert!(error.to_string().contains("--openings"));
+
+        for options in [
+            vec![],
+            vec!["--openings", "openings.txt"],
+            vec!["--resume", "--openings", "openings.txt"],
+        ] {
+            let args = ["datagen", "selfplay", "--output-dir", "data"];
+            Cli::try_parse_from(args.into_iter().chain(options)).unwrap();
         }
     }
 }
