@@ -387,6 +387,7 @@ impl ProbCutDatagen {
     /// Searches at all depths from 0 to `NUM_SEARCH_DEPTHS`.
     fn search_all_depths(&mut self, board: &Board) -> Vec<(Depth, Score)> {
         self.positions += 1;
+        self.search.init();
         (0..=NUM_SEARCH_DEPTHS)
             .map(|d| {
                 let depth = d as Depth;
@@ -462,5 +463,35 @@ impl ProbCutDatagen {
         }
 
         csv
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn midgame_scores_do_not_depend_on_previous_positions() {
+        let eval = Rc::new(Eval::new().unwrap());
+        let mut warm = ProbCutDatagen {
+            search: Search::new(Rc::new(TranspositionTable::new(1)), Rc::clone(&eval)),
+            score_cache: HashMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
+            positions: 0,
+        };
+        let mut cold = ProbCutDatagen {
+            search: Search::new(Rc::new(TranspositionTable::new(1)), eval),
+            score_cache: HashMap::new(),
+            cache_hits: 0,
+            cache_misses: 0,
+            positions: 0,
+        };
+        let previous = Board::new().make_move(Square::D3);
+        let board = previous.make_move(Square::C3);
+        warm.search_all_depths(&previous);
+        let actual = warm.search_all_depths(&board);
+        let expected = cold.search_all_depths(&board);
+        assert_eq!(actual, expected);
     }
 }
