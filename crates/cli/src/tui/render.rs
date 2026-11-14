@@ -418,9 +418,6 @@ fn render_hints_popup(frame: &mut Frame, app: &App) {
 
 /// Renders the level selection dialog.
 fn render_level_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(40, 20, frame.area());
-    frame.render_widget(Clear, area);
-
     let lines = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -454,6 +451,15 @@ fn render_level_dialog(frame: &mut Frame, app: &App) {
             Style::default().fg(Color::DarkGray),
         )),
     ];
+
+    let bounds = frame.area();
+    let mut area = centered_rect(40, 20, bounds);
+    let content_width = lines.iter().map(Line::width).max().unwrap_or_default() as u16;
+    area.width = area.width.max(content_width + 2).min(bounds.width);
+    area.height = area.height.max(lines.len() as u16 + 2).min(bounds.height);
+    area.x = bounds.x + (bounds.width - area.width) / 2;
+    area.y = bounds.y + (bounds.height - area.height) / 2;
+    frame.render_widget(Clear, area);
 
     let dialog = Paragraph::new(lines).block(
         Block::default()
