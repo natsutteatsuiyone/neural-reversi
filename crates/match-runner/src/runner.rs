@@ -121,14 +121,13 @@ pub(crate) fn run_match(config: &Config) -> Result<()> {
     )?;
     let progress_bar = display::create_progress_bar(total_games as u64);
 
-    for (opening_idx, opening) in openings.iter().enumerate() {
+    for opening in &openings {
         let result = check_interrupted().and_then(|()| {
             play_opening_pair(
                 &mut engines,
                 &mut statistics,
                 &engine_names,
                 opening,
-                opening_idx,
                 &progress_bar,
                 &mut time_tracker,
                 sprt.as_mut(),
@@ -344,13 +343,11 @@ fn initialize_engines(config: &Config) -> Result<(GtpEngine, GtpEngine)> {
     Ok((engine1, engine2))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn play_opening_pair(
     engines: &mut (GtpEngine, GtpEngine),
     statistics: &mut MatchStatistics,
     engine_names: &(String, String),
     opening: &Opening,
-    opening_idx: usize,
     progress_bar: &ProgressBar,
     time_tracker: &mut TimeTracker,
     mut sprt: Option<&mut Sprt>,
@@ -359,13 +356,13 @@ fn play_opening_pair(
 
     for game_round in 0..2 {
         let is_swapped = game_round == 1;
-        let game_number = opening_idx * 2 + game_round + 1;
         let (black_engine, white_engine) = if is_swapped {
             (&mut engines.1, &mut engines.0)
         } else {
             (&mut engines.0, &mut engines.1)
         };
 
+        let game_number = statistics.total_games() as usize + 1;
         let match_result = play_game(black_engine, white_engine, opening, time_tracker)
             .map_err(|error| contextualize_game_error(error, game_number))?;
         let winner = match match_result.result {
