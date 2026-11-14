@@ -138,8 +138,7 @@ struct PlyFit {
     smoothed: bool,
     fitted: bool,
     carried_from: Option<usize>,
-    legacy_residual_sigma: f64,
-    redesigned_residual_sigma: f64,
+    residual_sigma: f64,
 }
 
 impl Default for PlyFit {
@@ -151,8 +150,7 @@ impl Default for PlyFit {
             smoothed: false,
             fitted: false,
             carried_from: None,
-            legacy_residual_sigma: f64::NAN,
-            redesigned_residual_sigma: f64::NAN,
+            residual_sigma: f64::NAN,
         }
     }
 }
@@ -355,18 +353,8 @@ fn fit_ply(data: &AggregatedData, ply: usize) -> PlyFit {
         };
     };
 
-    let legacy_mean = weighted_least_squares(cells.iter().map(|&(shallow, deep, stats)| {
-        ([1.0, shallow as f64, deep as f64], stats.mean(), stats.n)
-    }));
-    let redesigned_residual_sigma =
+    let residual_sigma =
         residual_sigma(&cells, |shallow, deep| predict_mean(params, shallow, deep));
-    let legacy_residual_sigma = legacy_mean
-        .map(|coefs| {
-            residual_sigma(&cells, |shallow, deep| {
-                coefs[0] + coefs[1] * shallow + coefs[2] * deep
-            })
-        })
-        .unwrap_or(f64::NAN);
 
     PlyFit {
         params,
@@ -375,8 +363,7 @@ fn fit_ply(data: &AggregatedData, ply: usize) -> PlyFit {
         smoothed,
         fitted: true,
         carried_from: None,
-        legacy_residual_sigma,
-        redesigned_residual_sigma,
+        residual_sigma,
     }
 }
 
@@ -524,15 +511,12 @@ fn report_in_sample(fits: &[PlyFit; NUM_PLY]) {
                 fit.positions, fit.cells
             );
         } else {
-            let shrink = 100.0 * (fit.legacy_residual_sigma - fit.redesigned_residual_sigma)
-                / fit.legacy_residual_sigma;
             eprintln!(
-                "ply {ply:2}: {} positions, {} cells{}; residual sigma {:.4} -> {:.4} ({shrink:+.2}%)",
+                "ply {ply:2}: {} positions, {} cells{}; residual sigma {:.4}",
                 fit.positions,
                 fit.cells,
                 if fit.smoothed { " (±1 smoothed)" } else { "" },
-                fit.legacy_residual_sigma,
-                fit.redesigned_residual_sigma,
+                fit.residual_sigma,
             );
         }
     }
