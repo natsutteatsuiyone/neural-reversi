@@ -294,20 +294,6 @@ pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
     unsafe { flip_runtime_body!(x, player, opponent) }
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    not(all(
-        target_feature = "avx512f",
-        target_feature = "avx512cd",
-        target_feature = "avx512vl"
-    ))
-))]
-#[target_feature(enable = "avx512f,avx512cd,avx512vl")]
-#[inline]
-pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
-    unsafe { flip_runtime_body!(x, player, opponent) }
-}
-
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
 #[cfg(target_arch = "x86_64")]
 #[inline]
