@@ -416,7 +416,7 @@ impl Model {
         }
         if key.code == KeyCode::F(1) {
             self.previous_enter = false;
-            self.help_open = !self.help_open;
+            self.help_open.toggle();
             return Input::None;
         }
         self.help_open = false;

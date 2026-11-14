@@ -1333,7 +1333,7 @@ impl PendingAccept {
 ///   Othello and would play badly.
 fn is_supported_ask_game(game_type: &str) -> bool {
     // Strip optional synchro prefix.
-    let rest = game_type.strip_prefix('s').unwrap_or(game_type);
+    let rest = game_type.trim_prefix('s');
     // Board size must be 8.
     let Some(rest) = rest.strip_prefix('8') else {
         return false;

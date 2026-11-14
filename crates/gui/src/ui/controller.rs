@@ -157,16 +157,16 @@ impl ReversiApp {
             Action::Mode(mode) => self.draft.game_mode = mode,
             Action::Timed(timed) => self.draft.timed = timed,
             Action::Hint => {
-                self.settings.hints = !self.settings.hints;
+                self.settings.hints.toggle();
                 self.save();
                 self.session.hints_toggled(&self.settings);
             }
             Action::Analyze => self.session.toggle_analysis(&self.settings),
             Action::AnalysisPanel => {
                 if self.compact_layout {
-                    self.compact_analysis_open = !self.compact_analysis_open;
+                    self.compact_analysis_open.toggle();
                 } else {
-                    self.settings.analysis_open = !self.settings.analysis_open;
+                    self.settings.analysis_open.toggle();
                     self.save();
                 }
                 if !self.analysis_open() {
