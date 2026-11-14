@@ -1,218 +1,256 @@
-use gpui_kit::component::StyledExt;
-use gpui_kit::{prelude::*, *};
+use nsh_base::{radio, radio_group};
+use nsh_core::prelude::*;
 use reversi_core::player_color::PlayerColor;
 
-use super::dialogs::{DIALOG_SMALL_LINE_HEIGHT, dialog_label, dialog_tab, dialog_tabs};
-use super::slider::SliderKind;
-use super::widgets::{arrow_keys, flat_stone, interactive};
-use super::{ACCENT, Action, ReversiApp, SECONDARY};
+use super::dialogs::{DIALOG_LINE_HEIGHT, dialog_label, dialog_tab, dialog_tabs};
+use super::slider::{SliderKind, render_slider};
+use super::widgets::{flat_stone, focusable, single_line_text};
+use super::{ACCENT, Action, Ui, color, rgba};
 use crate::settings::GameMode;
 
-impl ReversiApp {
-    pub(super) fn render_new_game_dialog(&self, window: &Window, cx: &Context<Self>) -> Div {
-        let human = self.draft.game_mode == GameMode::Human;
-        div()
-            .w_full()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .py_4()
-            .child(
-                dialog_tabs()
+pub(super) fn render_new_game_dialog(ui: Ui) -> View {
+    view()
+        .w_full()
+        .min_w_0()
+        .gap_6()
+        .py_4()
+        .child(
+            dialog_tabs()
+                .child(dialog_tab(
+                    ui,
+                    "mode-ai",
+                    move || tr!("vs_ai"),
+                    Some("bot.svg"),
+                    Action::Mode(GameMode::AiWhite),
+                    move || ui.read(|a| a.draft.game_mode != GameMode::Human),
+                ))
+                .child(dialog_tab(
+                    ui,
+                    "mode-human",
+                    move || tr!("vs_human"),
+                    Some("users.svg"),
+                    Action::Mode(GameMode::Human),
+                    move || ui.read(|a| a.draft.game_mode == GameMode::Human),
+                )),
+        )
+        .child(when(
+            move || ui.read(|a| a.draft.game_mode != GameMode::Human),
+            move || {
+                view()
+                    .gap_6()
                     .child(
-                        dialog_tab(
-                            "mode-ai",
-                            tr!("vs_ai"),
-                            Some("bot.svg"),
-                            Action::Mode(GameMode::AiWhite),
-                            !human,
-                            cx,
-                        )
-                        .track_focus(&self.modal_entry_focus),
+                        view()
+                            .gap_3()
+                            .child(dialog_label(move || tr!("you_play")))
+                            .child(
+                                radio_group()
+                                    .flex_row()
+                                    .gap_3()
+                                    .child(player_color(
+                                        ui,
+                                        PlayerColor::Black,
+                                        GameMode::AiWhite,
+                                        "game-color-black",
+                                    ))
+                                    .child(player_color(
+                                        ui,
+                                        PlayerColor::White,
+                                        GameMode::AiBlack,
+                                        "game-color-white",
+                                    )),
+                            ),
                     )
-                    .child(dialog_tab(
-                        "mode-human",
-                        tr!("vs_human"),
-                        Some("users.svg"),
-                        Action::Mode(GameMode::Human),
-                        human,
-                        cx,
-                    )),
-            )
-            .when(!human, |body| {
-                body.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(dialog_label(tr!("you_play")))
-                        .child(
-                            div().flex().gap_3().children(
-                                [
-                                    (PlayerColor::Black, GameMode::AiWhite),
-                                    (PlayerColor::White, GameMode::AiBlack),
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, (disc, mode))| {
-                                    let selected = self.draft.game_mode == mode;
-                                    interactive(
-                                        div().id(("game-color", index)),
-                                        self.color(disc),
-                                        true,
-                                    )
-                                    .role(Role::RadioButton)
-                                    .aria_toggled(selected.into())
-                                    .on_key_down(arrow_keys(
-                                        index,
-                                        2,
-                                        move |_, _| {
-                                            Action::Mode(if mode == GameMode::AiWhite {
-                                                GameMode::AiBlack
+                    .child(
+                        view()
+                            .gap_3()
+                            .child(dialog_label(move || tr!("ai_mode")))
+                            .child(
+                                dialog_tabs()
+                                    .child(dialog_tab(
+                                        ui,
+                                        "timed-mode",
+                                        move || tr!("timed"),
+                                        Some("timer.svg"),
+                                        Action::Timed(true),
+                                        move || ui.read(|a| a.draft.timed),
+                                    ))
+                                    .child(dialog_tab(
+                                        ui,
+                                        "level-mode",
+                                        move || tr!("ai_level"),
+                                        Some("zap.svg"),
+                                        Action::Timed(false),
+                                        move || ui.read(|a| !a.draft.timed),
+                                    )),
+                            ),
+                    )
+                    .child(
+                        view()
+                            .gap_3()
+                            .child(
+                                view()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .child(dialog_label(move || {
+                                        ui.read(|a| {
+                                            if a.draft.timed {
+                                                tr!("time_per_game")
                                             } else {
-                                                GameMode::AiWhite
+                                                tr!("ai_level")
+                                            }
+                                        })
+                                    }))
+                                    .child(
+                                        single_line_text(
+                                            move || {
+                                                ui.read(|a| {
+                                                    if a.draft.timed {
+                                                        let time = a.draft.game_time_limit;
+                                                        if time.is_multiple_of(60) {
+                                                            format!("{}m", time / 60)
+                                                        } else {
+                                                            format!("{}m {}s", time / 60, time % 60)
+                                                        }
+                                                    } else {
+                                                        a.draft.ai_level.to_string()
+                                                    }
+                                                })
+                                            },
+                                            DIALOG_LINE_HEIGHT,
+                                        )
+                                        .font_family("Consolas")
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(color(ACCENT)),
+                                    ),
+                            )
+                            .child(
+                                when(
+                                    move || ui.read(|a| a.draft.timed),
+                                    move || render_slider(ui, SliderKind::GameTime),
+                                )
+                                .otherwise(move || render_slider(ui, SliderKind::AiLevel)),
+                            )
+                            .child(
+                                view()
+                                    .relative()
+                                    .w_full()
+                                    .flex_row()
+                                    .justify_between()
+                                    .text_size(px(12.))
+                                    .line_height(px(18.))
+                                    .style_when(
+                                        move || ui.read(|app| app.draft.timed),
+                                        |style| style.h(px(16.)),
+                                    )
+                                    .text_color(rgba(0xffffff99))
+                                    .child(single_line_text(
+                                        move || {
+                                            ui.read(|a| {
+                                                if a.draft.timed {
+                                                    "30s".into()
+                                                } else {
+                                                    tr!("easy")
+                                                }
                                             })
                                         },
-                                        cx,
+                                        18.,
                                     ))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .flex()
-                                    .flex_col()
-                                    .items_center()
-                                    .gap_2()
-                                    .p_5()
-                                    .rounded(px(14.))
-                                    .border_2()
-                                    .border_color(if selected {
-                                        rgb(ACCENT)
-                                    } else {
-                                        rgba(0xffffff33)
-                                    })
-                                    .when(selected, |card| card.bg(rgba(0x43a5751a)))
-                                    .cursor_pointer()
-                                    .when(!selected, |card| {
-                                        card.hover(|style| {
-                                            style
-                                                .border_color(rgba(0xffffff4d))
-                                                .bg(rgba(0xffffff0d))
-                                        })
-                                    })
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.action(Action::Mode(mode), window, cx)
-                                    }))
-                                    .child(flat_stone(disc, 40.))
-                                    .child(div().font_semibold().child(self.color(disc)))
-                                }),
+                                    .child(when(
+                                        move || ui.read(|a| a.draft.timed),
+                                        || {
+                                            single_line_text("5m", 18.)
+                                                .absolute()
+                                                .left(relative(0.474))
+                                                .translate_x(relative(-0.5))
+                                        },
+                                    ))
+                                    .child(single_line_text(
+                                        move || {
+                                            ui.read(|a| {
+                                                if a.draft.timed {
+                                                    "10m".into()
+                                                } else {
+                                                    tr!("hard")
+                                                }
+                                            })
+                                        },
+                                        18.,
+                                    )),
                             ),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(dialog_label(tr!("ai_mode")))
-                        .child(
-                            dialog_tabs()
-                                .child(dialog_tab(
-                                    "timed-mode",
-                                    tr!("timed"),
-                                    Some("timer.svg"),
-                                    Action::Timed(true),
-                                    self.draft.timed,
-                                    cx,
-                                ))
-                                .child(dialog_tab(
-                                    "level-mode",
-                                    tr!("ai_level"),
-                                    Some("zap.svg"),
-                                    Action::Timed(false),
-                                    !self.draft.timed,
-                                    cx,
-                                )),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .child(dialog_label(if self.draft.timed {
-                                    tr!("time_per_game")
-                                } else {
-                                    tr!("ai_level")
-                                }))
-                                .child(
-                                    div()
-                                        .font_family("Consolas")
-                                        .font_semibold()
-                                        .text_color(rgb(ACCENT))
-                                        .child(if self.draft.timed {
-                                            let time = self.draft.game_time_limit;
-                                            if time.is_multiple_of(60) {
-                                                format!("{}m", time / 60)
-                                            } else {
-                                                format!("{}m {}s", time / 60, time % 60)
-                                            }
-                                        } else {
-                                            self.draft.ai_level.to_string()
-                                        }),
-                                ),
-                        )
-                        .child(self.render_slider(
-                            if self.draft.timed {
-                                SliderKind::GameTime
-                            } else {
-                                SliderKind::AiLevel
-                            },
-                            window,
-                            cx,
-                        ))
-                        .child(
-                            div()
-                                .relative()
-                                .w_full()
-                                .when(self.draft.timed, |labels| labels.h(px(16.)))
-                                .flex()
-                                .justify_between()
-                                .text_size(px(12.))
-                                .line_height(px(DIALOG_SMALL_LINE_HEIGHT))
-                                .text_color(rgb(SECONDARY))
-                                .child(if self.draft.timed {
-                                    "30s".into()
-                                } else {
-                                    tr!("easy")
-                                })
-                                .when(self.draft.timed, |labels| {
-                                    labels.child(
-                                        div()
-                                            .absolute()
-                                            .left(relative(0.474))
-                                            .w_0()
-                                            .flex()
-                                            .justify_center()
-                                            .child(
-                                                div()
-                                                    .flex_shrink_0()
-                                                    .whitespace_nowrap()
-                                                    .child("5m"),
-                                            ),
-                                    )
-                                })
-                                .child(if self.draft.timed {
-                                    "10m".into()
-                                } else {
-                                    tr!("hard")
-                                }),
-                        ),
-                )
+                    )
+            },
+        ))
+}
+
+fn player_color(ui: Ui, disc: PlayerColor, mode: GameMode, id: &'static str) -> impl IntoElement {
+    let reference = focusable(ui, id, || true, move || ui.action(Action::Mode(mode)));
+    radio()
+        .element_ref(&reference)
+        .checked(move || ui.read(|a| a.draft.game_mode == mode))
+        .accessibility_label(move || Some(ui.read(|a| a.color(disc))))
+        .on_change(move |checked: &bool| {
+            if *checked {
+                ui.focus(id);
+                ui.action(Action::Mode(mode));
+            }
+        })
+        .flex_1()
+        .min_w_0()
+        .items_center()
+        .gap_2()
+        .p_5()
+        .rounded(px(14.))
+        .border(move || super::theme::stroke_px(2.))
+        .border_color(move || {
+            ui.read(|a| {
+                if a.draft.game_mode == mode {
+                    color(ACCENT)
+                } else {
+                    rgba(0xffffff33)
+                }
             })
-    }
+        })
+        .bg(move || {
+            ui.read(|a| {
+                if a.draft.game_mode == mode {
+                    rgba(0x43a5751a)
+                } else {
+                    rgba(0)
+                }
+            })
+        })
+        .hover(move |s| {
+            s.border_color(move || {
+                ui.read(|a| {
+                    if a.draft.game_mode == mode {
+                        color(ACCENT)
+                    } else {
+                        rgba(0xffffff4d)
+                    }
+                })
+            })
+            .bg(move || {
+                ui.read(|a| {
+                    if a.draft.game_mode == mode {
+                        rgba(0x43a5751a)
+                    } else {
+                        rgba(0xffffff0d)
+                    }
+                })
+            })
+        })
+        .style_when(
+            move || ui.is_focus_visible(id),
+            |s| {
+                s.border_color(color(ACCENT))
+                    .inset_ring(px(2.))
+                    .inset_ring_color(color(ACCENT))
+            },
+        )
+        .child(flat_stone(disc == PlayerColor::Black, 40.))
+        .child(
+            single_line_text(move || ui.read(|a| a.color(disc)), DIALOG_LINE_HEIGHT)
+                .font_weight(FontWeight::SEMIBOLD),
+        )
 }

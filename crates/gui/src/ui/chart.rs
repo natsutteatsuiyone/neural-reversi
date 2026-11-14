@@ -1,17 +1,25 @@
-use gpui_kit::{prelude::*, *};
+use nsh_core::canvas::{CanvasTextAlign, CanvasTextBaseline};
+use nsh_core::prelude::*;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::score::Score;
 
+use super::analysis::shadow;
 use super::format::{ScorePrecision, display_score, tenth_score};
-use super::widgets::shadow;
-use super::{ACCENT, Action, ReversiApp, SECONDARY};
+use super::{ACCENT, Action, SECONDARY, Ui, color, rgba};
 use crate::engine::format_pv;
 use crate::session::Activity;
 
-impl ReversiApp {
-    pub(super) fn render_chart(&self, cx: &Context<Self>) -> Div {
-        let scores: Vec<_> = self
-            .session
+#[derive(Clone)]
+struct ChartPoint {
+    number: usize,
+    index: usize,
+    score: Option<Score>,
+    loss: f32,
+}
+
+fn scores(ui: Ui) -> Vec<ChartPoint> {
+    ui.read(|app| {
+        app.session
             .game()
             .history
             .iter()
@@ -19,11 +27,11 @@ impl ReversiApp {
             .filter(|(_, record)| record.square.is_some())
             .enumerate()
             .map(|(move_index, (index, record))| {
-                let score = self
+                let score = app
                     .session
                     .analyses()
                     .get(&index)
-                    .map(|value| value.played_score)
+                    .map(|a| a.played_score)
                     .or(record.score)
                     .map(|score| {
                         if record.player == PlayerColor::White {
@@ -32,357 +40,441 @@ impl ReversiApp {
                             score
                         }
                     });
-                (move_index + 1, index, record, score)
-            })
-            .collect();
-        let (low, high) = y_domain(
-            scores
-                .iter()
-                .filter_map(|(_, _, _, score)| score.map(Score::to_disc_diff_f32)),
-        );
-        // Vertical position of a score as a fraction of the plot height, top = 0.
-        let y = move |score: f32| (high - score) / (high - low);
-        let zero = y(0.);
-        let plot_height = 140.;
-        let ticks = y_ticks(low, high);
-        let grid_ticks = ticks.clone();
-        let points: Vec<_> = scores
-            .iter()
-            .filter_map(|(number, _, _, score)| {
-                score.map(|score| (move_x(*number), y(score.to_disc_diff_f32())))
-            })
-            .collect();
-        let cursor = if self.session.game().cursor < self.session.game().history.len() {
-            scores
-                .iter()
-                .rev()
-                .find(|(_, index, _, _)| *index < self.session.game().cursor)
-                .map(|(number, _, _, _)| move_x(*number))
-        } else {
-            None
-        };
-        let hovered = scores
-            .iter()
-            .find(|(_, index, _, _)| Some(*index) == self.analysis_view.hover);
-        let hover_x = hovered.map(|(number, _, _, _)| move_x(*number));
-        let view = cx.entity().downgrade();
-        let mut plot = div()
-            .id("evaluation-plot")
-            .absolute()
-            .left(px(52.))
-            .right(px(18.))
-            .top(px(13.))
-            .h(px(plot_height))
-            .when(
-                !matches!(
-                    self.session.activity(),
-                    Some(Activity::Move | Activity::Analysis)
-                ),
-                |plot| plot.cursor_pointer(),
-            )
-            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
-                if let Some(bounds) = this.analysis_view.bounds {
-                    let number = ((f32::from(event.position.x - bounds.origin.x)
-                        / f32::from(bounds.size.width).max(1.)
-                        * MOVE_SPAN)
-                        .round() as usize)
-                        .saturating_add(1);
-                    this.analysis_view.hover = this
-                        .session
-                        .game()
-                        .history
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, record)| record.square.is_some())
-                        .take(number)
-                        .last()
-                        .map(|(index, _)| index);
-                    this.analysis_view.pointer = Some(event.position);
-                    cx.notify();
-                }
-            }))
-            .on_hover(cx.listener(|this, hovered, _, cx| {
-                if !hovered {
-                    this.analysis_view.hover = None;
-                    this.analysis_view.pointer = None;
-                    cx.notify();
-                }
-            }))
-            .on_click(cx.listener(|this, _, window, cx| {
-                if !matches!(
-                    this.session.activity(),
-                    Some(Activity::Move | Activity::Analysis)
-                ) && let Some(index) = this.analysis_view.hover
-                {
-                    this.action(Action::Navigate(index + 1), window, cx);
-                }
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .w_full()
-                    .h(relative(zero))
-                    .bg(rgba(0x00000017)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top(relative(zero))
-                    .bottom_0()
-                    .w_full()
-                    .bg(rgba(0xffffff0a)),
-            )
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        let _ = view.update(cx, |this, _| this.analysis_view.bounds = Some(bounds));
-                    },
-                    move |bounds, _, window, _| {
-                        for tick in grid_ticks {
-                            paint_chart_dash(
-                                window,
-                                bounds,
-                                true,
-                                y(tick),
-                                if tick == 0. { 4. } else { 3. },
-                                if tick == 0. {
-                                    rgba(0xffffff4d)
-                                } else {
-                                    rgba(0xffffff1a)
-                                },
-                            );
-                        }
-                        if let Some(cursor) = cursor {
-                            paint_chart_dash(window, bounds, false, cursor, 4., rgba(0xffffff80));
-                        }
-                        if let Some(hover_x) = hover_x {
-                            paint_chart_dash(window, bounds, false, hover_x, 3., rgba(0xffffff33));
-                        }
-                        if points.len() > 1 {
-                            let at = |x: f32, y: f32| {
-                                point(
-                                    bounds.origin.x + bounds.size.width * x,
-                                    bounds.origin.y + bounds.size.height * y,
-                                )
-                            };
-                            let mut path = PathBuilder::stroke(px(2.));
-                            path.move_to(at(points[0].0, points[0].1));
-                            for (index, pair) in points.windows(2).enumerate() {
-                                let (x0, y0) = pair[0];
-                                let (x1, y1) = pair[1];
-                                let third = (x1 - x0) / 3.;
-                                path.cubic_bezier_to(
-                                    at(x1, y1),
-                                    at(x0 + third, y0 + third * monotone_slope(&points, index)),
-                                    at(x1 - third, y1 - third * monotone_slope(&points, index + 1)),
-                                );
-                            }
-                            if let Ok(path) = path.build() {
-                                window.paint_path(path, rgb(ACCENT));
-                            }
-                        }
-                    },
-                )
-                .absolute()
-                .size_full(),
-            );
-        for tick in ticks {
-            plot = plot.child(
-                div()
-                    .absolute()
-                    .top(relative(y(tick)))
-                    .right_full()
-                    .mr_1()
-                    .mt(px(-7.3333335))
-                    .text_size(px(12.))
-                    .line_height(relative(1.5))
-                    .text_color(rgba(0xffffff80))
-                    .child(format!("{tick:.0}")),
-            );
-        }
-        for number in [1, 10, 20, 30, 40, 50, 60] {
-            plot = plot.child(
-                div()
-                    .absolute()
-                    .left(relative(move_x(number)))
-                    .top_full()
-                    .mt_2()
-                    .w(px(20.))
-                    .ml(px(-10.))
-                    .text_center()
-                    .text_size(px(12.))
-                    .line_height(relative(1.5))
-                    .text_color(rgba(0xffffff80))
-                    .child(number.to_string()),
-            );
-        }
-        for (number, index, _, score) in &scores {
-            if let Some(score) = score {
-                let loss = self
+                let loss = app
                     .session
                     .analyses()
-                    .get(index)
-                    .map_or(0., |analysis| tenth_score(analysis.score_loss));
-                let active = self.analysis_view.hover == Some(*index);
-                let flagged = loss_color(loss);
-                let radius = if active || flagged.is_some() { 5. } else { 3. };
-                let stroke = if active {
-                    2.
-                } else if flagged.is_some() {
-                    1.5
-                } else {
-                    1.
-                };
-                let outer_radius = radius + stroke * 0.5;
-                let color = if active {
-                    ACCENT
-                } else {
-                    flagged.unwrap_or(ACCENT)
-                };
-                plot = plot.child(
-                    div()
-                        .absolute()
-                        .left(relative(move_x(*number)))
-                        .top(px(y(score.to_disc_diff_f32()) * plot_height))
-                        .ml(px(-outer_radius))
-                        .mt(px(-outer_radius))
-                        .size(px(outer_radius * 2.))
-                        .rounded_full()
-                        .border(px(stroke))
-                        .border_color(if active {
-                            rgba(0xffffff80)
-                        } else if flagged.is_some() {
-                            rgba(0xffffff66)
-                        } else {
-                            rgba(0xffffff33)
-                        })
-                        .bg(rgb(color)),
-                );
-            }
-        }
-        if let Some((number, index, record, score)) = hovered
-            && let Some(pointer) = self.analysis_view.pointer
-            && score.is_some()
-        {
-            let analysis = self.session.analyses().get(index);
-            let tooltip = div()
-                .px_3()
-                .py_2()
-                .rounded(px(10.))
-                .bg(rgb(0x2a2a2f))
-                .border_1()
-                .border_color(rgba(0xffffff33))
-                .text_size(px(12.))
-                .line_height(relative(1.4285714))
-                .text_color(rgba(0xffffffeb))
-                .shadow(vec![
-                    shadow(rgba(0x0000008c), 8., 16., -4.),
-                    shadow(rgba(0xffffff14), 0., 0., 1.),
-                ])
-                .child(
-                    div()
-                        .mb_1()
-                        .text_size(px(12.))
-                        .line_height(relative(1.5))
-                        .text_color(rgb(SECONDARY))
-                        .child(format!("#{number}")),
-                )
-                .when_some(*score, |tooltip, score| {
-                    tooltip.child(div().font_weight(FontWeight::SEMIBOLD).child(format!(
-                        "{}: {}",
-                        record.square.unwrap(),
-                        display_score(score, ScorePrecision::Tenth)
-                    )))
-                })
-                .when_some(analysis, |tooltip, analysis| {
-                    tooltip.child(
-                        div()
-                            .mt_1()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
-                            .text_size(px(12.))
-                            .line_height(relative(1.5))
-                            .text_color(rgb(SECONDARY))
-                            .when(Some(analysis.best_move) != record.square, |details| {
-                                details.child(format!(
-                                    "{} {} ({})",
-                                    tr!("best"),
-                                    analysis.best_move,
-                                    display_score(
-                                        if record.player == PlayerColor::White {
-                                            -analysis.best_score
-                                        } else {
-                                            analysis.best_score
-                                        },
-                                        ScorePrecision::Raw
-                                    )
-                                ))
-                            })
-                            .when(!analysis.pv.is_empty(), |details| {
-                                details.child(format!(
-                                    "{}: {}",
-                                    tr!("pv_line"),
-                                    format_pv(&analysis.pv)
-                                ))
-                            })
-                            .when_some(
-                                loss_color(tenth_score(analysis.score_loss)),
-                                |details, color| {
-                                    details.child(div().text_color(rgb(color)).child(format!(
-                                        "{} {:.1}",
-                                        tr!("loss"),
-                                        tenth_score(analysis.score_loss)
-                                    )))
-                                },
-                            ),
-                    )
-                });
-            plot = plot.child(deferred(
-                gpui_kit::anchored()
-                    .position(pointer + point(px(10.), px(10.)))
-                    .position_mode(gpui_kit::AnchoredPositionMode::Window)
-                    .child(tooltip),
-            ));
-        }
-        div()
-            .h(px(198.))
-            .w_full()
-            .flex_shrink_0()
-            .relative()
-            .rounded(px(10.))
-            .border_1()
-            .border_color(rgba(0xffffff1a))
-            .bg(rgba(0xffffff0d))
-            .child(
-                div()
-                    .absolute()
-                    .left(px(12.))
-                    .top(px(13.))
-                    .w_2()
-                    .h(px(plot_height * zero))
-                    .rounded(px(2.))
-                    .bg(rgb(0x1f1f22))
-                    .border(px(0.5))
-                    .border_color(rgba(0xffffff4d)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(12.))
-                    .top(px(13. + plot_height * zero))
-                    .w_2()
-                    .h(px(plot_height * (1. - zero)))
-                    .rounded(px(2.))
-                    .bg(rgb(0xd4d4d4))
-                    .border(px(0.5))
-                    .border_color(rgba(0xffffff26)),
-            )
-            .child(plot)
-    }
+                    .get(&index)
+                    .map_or(0., |a| tenth_score(a.score_loss));
+                ChartPoint {
+                    number: move_index + 1,
+                    index,
+                    score,
+                    loss,
+                }
+            })
+            .collect()
+    })
 }
 
+pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
+    let width = signal(0_f32);
+    let hovered = move || ui.read(|app| app.analysis_view.hover);
+    view()
+        .h(px(198.))
+        .w_full()
+        .flex_shrink_0()
+        .relative()
+        .rounded(px(10.))
+        .border_1()
+        .border_color(rgba(0xffffff1a))
+        .bg(rgba(0xffffff0d))
+        .on_layout(move |bounds: &Bounds<Points>| width.set(bounds.size.width.0))
+        .on_mouse_move(move |event: &MouseEvent| {
+            let plot_width = (width.get_untracked() - 70.).max(1.);
+            let number = (((event.position.x.0 - 52.) / plot_width * MOVE_SPAN).round() as usize)
+                .saturating_add(1);
+            ui.update(|app| {
+                app.analysis_view.hover = app
+                    .session
+                    .game()
+                    .history
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| r.square.is_some())
+                    .take(number)
+                    .last()
+                    .map(|(index, _)| index);
+                app.analysis_view.pointer = Some(event.page_position);
+            });
+        })
+        .on_mouse_leave(move |_: &MouseEvent| {
+            ui.update(|app| {
+                app.analysis_view.hover = None;
+                app.analysis_view.pointer = None;
+            })
+        })
+        .on_press(move || {
+            let index = ui.read(|app| {
+                if matches!(
+                    app.session.activity(),
+                    Some(Activity::Move | Activity::Analysis)
+                ) {
+                    None
+                } else {
+                    app.analysis_view.hover
+                }
+            });
+            if let Some(index) = index {
+                ui.action(Action::Navigate(index + 1));
+            }
+        })
+        .child(
+            canvas(move || {
+                let scores = scores(ui);
+                let plot_width = (width.get() - 70.).max(0.);
+                let (low, high) = y_domain(
+                    scores
+                        .iter()
+                        .filter_map(|point| point.score.map(Score::to_disc_diff_f32)),
+                );
+                let y = |score: f32| (high - score) / (high - low);
+                let zero = y(0.);
+                let plot_height = 140.;
+                let at =
+                    |x: f32, y: f32| point(px(52. + plot_width * x), px(13. + plot_height * y));
+                let mut painter = Painter::new()
+                    .fill_color(rgba(0x00000017))
+                    .fill_rect(52., 13., plot_width, plot_height * zero)
+                    .fill_color(rgba(0xffffff0a))
+                    .fill_rect(
+                        52.,
+                        13. + plot_height * zero,
+                        plot_width,
+                        plot_height * (1. - zero),
+                    );
+                let border = super::theme::stroke_px(0.5).0;
+                for (top, height, fill, edge) in [
+                    (13., plot_height * zero, 0x1f1f22, 0xffffff4d),
+                    (
+                        13. + plot_height * zero,
+                        plot_height * (1. - zero),
+                        0xd4d4d4,
+                        0xffffff26,
+                    ),
+                ] {
+                    painter = painter
+                        .fill_color(color(fill))
+                        .begin_path()
+                        .round_rect(
+                            Bounds::new(point(px(12.), px(top)), size(px(8.), px(height))),
+                            px(2.),
+                        )
+                        .fill()
+                        .stroke_color(rgba(edge))
+                        .line_width(px(border))
+                        .begin_path()
+                        .round_rect(
+                            Bounds::new(
+                                point(px(12. + border / 2.), px(top + border / 2.)),
+                                size(px(8. - border), px((height - border).max(0.))),
+                            ),
+                            px((2. - border / 2.).max(0.)),
+                        )
+                        .stroke();
+                }
+                for tick in y_ticks(low, high) {
+                    let dash = if tick == 0. { 4. } else { 3. };
+                    painter = painter
+                        .stroke_color(if tick == 0. {
+                            rgba(0xffffff4d)
+                        } else {
+                            rgba(0xffffff1a)
+                        })
+                        .line_width(1.)
+                        .line_dash(&[px(dash), px(dash)])
+                        .begin_path()
+                        .move_to(52., 13. + plot_height * y(tick))
+                        .line_to(52. + plot_width, 13. + plot_height * y(tick))
+                        .stroke()
+                        .font("12px Segoe UI")
+                        .text_align(CanvasTextAlign::Right)
+                        .text_baseline(CanvasTextBaseline::Middle)
+                        .fill_color(rgba(0xffffff80))
+                        .fill_text(&format!("{tick:.0}"), 48., 13. + plot_height * y(tick));
+                }
+                let cursor = ui.read(|app| {
+                    if app.session.game().cursor < app.session.game().history.len() {
+                        scores
+                            .iter()
+                            .rev()
+                            .find(|p| p.index < app.session.game().cursor)
+                            .map(|p| move_x(p.number))
+                    } else {
+                        None
+                    }
+                });
+                for (guide, dash, tint) in [
+                    (cursor, 4., rgba(0xffffff80)),
+                    (
+                        scores
+                            .iter()
+                            .find(|p| Some(p.index) == hovered())
+                            .map(|p| move_x(p.number)),
+                        3.,
+                        rgba(0xffffff33),
+                    ),
+                ] {
+                    if let Some(x) = guide {
+                        painter = painter
+                            .stroke_color(tint)
+                            .line_width(1.)
+                            .line_dash(&[px(dash), px(dash)])
+                            .begin_path()
+                            .move_to(52. + plot_width * x, 13.)
+                            .line_to(52. + plot_width * x, 153.)
+                            .stroke();
+                    }
+                }
+                let points: Vec<_> = scores
+                    .iter()
+                    .filter_map(|p| p.score.map(|s| (move_x(p.number), y(s.to_disc_diff_f32()))))
+                    .collect();
+                if points.len() > 1 {
+                    let start = at(points[0].0, points[0].1);
+                    painter = painter
+                        .line_dash(&[])
+                        .stroke_color(color(ACCENT))
+                        .line_width(2.)
+                        .begin_path()
+                        .move_to(start.x, start.y);
+                    for (index, pair) in points.windows(2).enumerate() {
+                        let (x0, y0) = pair[0];
+                        let (x1, y1) = pair[1];
+                        let third = (x1 - x0) / 3.;
+                        painter = painter.bezier_curve_to(
+                            at(x0 + third, y0 + third * monotone_slope(&points, index)),
+                            at(x1 - third, y1 - third * monotone_slope(&points, index + 1)),
+                            at(x1, y1),
+                        );
+                    }
+                    painter = painter.stroke();
+                }
+                for p in &scores {
+                    if let Some(score) = p.score {
+                        let active = Some(p.index) == hovered();
+                        let flagged = loss_color(p.loss);
+                        let radius = if active || flagged.is_some() { 5. } else { 3. };
+                        let stroke = if active {
+                            2.
+                        } else if flagged.is_some() {
+                            1.5
+                        } else {
+                            1.
+                        };
+                        let center = at(move_x(p.number), y(score.to_disc_diff_f32()));
+                        painter = painter
+                            .line_dash(&[])
+                            .line_width(stroke)
+                            .fill_color(color(if active {
+                                ACCENT
+                            } else {
+                                flagged.unwrap_or(ACCENT)
+                            }))
+                            .stroke_color(if active {
+                                rgba(0xffffff80)
+                            } else if flagged.is_some() {
+                                rgba(0xffffff66)
+                            } else {
+                                rgba(0xffffff33)
+                            })
+                            .begin_path()
+                            .arc(center.x, center.y, radius, 0., std::f32::consts::TAU)
+                            .fill()
+                            .stroke();
+                    }
+                }
+                painter = painter
+                    .font("12px Segoe UI")
+                    .text_align(CanvasTextAlign::Center)
+                    .text_baseline(CanvasTextBaseline::Top)
+                    .fill_color(rgba(0xffffff80));
+                for number in [1, 10, 20, 30, 40, 50, 60] {
+                    painter = painter.fill_text(
+                        &number.to_string(),
+                        52. + plot_width * move_x(number),
+                        161.,
+                    );
+                }
+                painter.finish()
+            })
+            .absolute()
+            .inset_0()
+            .w_full()
+            .h_full(),
+        )
+        .child(when(
+            move || {
+                ui.read(|app| {
+                    app.analysis_view.hover.is_some() && app.analysis_view.pointer.is_some()
+                }) && scores(ui)
+                    .iter()
+                    .any(|p| Some(p.index) == hovered() && p.score.is_some())
+            },
+            move || {
+                overlay()
+                    .anchor_point(move || {
+                        ui.read(|app| {
+                            let pointer = app.analysis_view.pointer.unwrap_or_default();
+                            point(pointer.x + px(10.), pointer.y + px(10.))
+                        })
+                    })
+                    .align(nsh_core::overlay::Align::Start)
+                    .offset(px(0.))
+                    .child(
+                        view()
+                            .px_3()
+                            .py_2()
+                            .rounded(px(10.))
+                            .bg(color(0x2a2a2f))
+                            .shadow([
+                                shadow(rgba(0x0000008c), 8., 16., -4.),
+                                shadow(rgba(0xffffff14), 0., 0., 1.),
+                            ])
+                            .border_1()
+                            .border_color(rgba(0xffffff33))
+                            .text_size(px(12.))
+                            .line_height(nsh_core::LineHeight::Multiple(1.4285714))
+                            .text_color(rgba(0xffffffeb))
+                            .child(
+                                text(move || {
+                                    scores(ui)
+                                        .iter()
+                                        .find(|p| Some(p.index) == hovered())
+                                        .map_or_else(String::new, |p| format!("#{}", p.number))
+                                })
+                                .mb_1()
+                                .text_size(px(12.))
+                                .line_height(nsh_core::LineHeight::Multiple(1.5))
+                                .text_color(color(SECONDARY)),
+                            )
+                            .child(
+                                text(move || {
+                                    ui.read(|app| {
+                                        let Some(index) = app.analysis_view.hover else {
+                                            return String::new();
+                                        };
+                                        let Some(record) = app.session.game().history.get(index)
+                                        else {
+                                            return String::new();
+                                        };
+                                        let score = app
+                                            .session
+                                            .analyses()
+                                            .get(&index)
+                                            .map(|a| a.played_score)
+                                            .or(record.score)
+                                            .map(|s| {
+                                                if record.player == PlayerColor::White {
+                                                    -s
+                                                } else {
+                                                    s
+                                                }
+                                            });
+                                        score.map_or_else(String::new, |score| {
+                                            format!(
+                                                "{}: {}",
+                                                record.square.expect("chart only includes moves"),
+                                                display_score(score, ScorePrecision::Tenth)
+                                            )
+                                        })
+                                    })
+                                })
+                                .font_weight(FontWeight::SEMIBOLD),
+                            )
+                            .child(when(
+                                move || {
+                                    ui.read(|app| {
+                                        app.analysis_view.hover.is_some_and(|index| {
+                                            app.session.analyses().contains_key(&index)
+                                        })
+                                    })
+                                },
+                                move || {
+                                    view()
+                                        .mt_1()
+                                        .gap(px(2.))
+                                        .text_size(px(12.))
+                                        .line_height(nsh_core::LineHeight::Multiple(1.5))
+                                        .text_color(color(SECONDARY))
+                                        .child(text(move || {
+                                            ui.read(|app| {
+                                                let Some(index) = app.analysis_view.hover else {
+                                                    return String::new();
+                                                };
+                                                let Some(analysis) =
+                                                    app.session.analyses().get(&index)
+                                                else {
+                                                    return String::new();
+                                                };
+                                                let record = &app.session.game().history[index];
+                                                if Some(analysis.best_move) == record.square {
+                                                    return String::new();
+                                                }
+                                                let score = if record.player == PlayerColor::White {
+                                                    -analysis.best_score
+                                                } else {
+                                                    analysis.best_score
+                                                };
+                                                format!(
+                                                    "{} {} ({})",
+                                                    tr!("best"),
+                                                    analysis.best_move,
+                                                    display_score(score, ScorePrecision::Raw)
+                                                )
+                                            })
+                                        }))
+                                        .child(text(move || {
+                                            ui.read(|app| {
+                                                app.analysis_view
+                                                    .hover
+                                                    .and_then(|index| {
+                                                        app.session.analyses().get(&index)
+                                                    })
+                                                    .filter(|a| !a.pv.is_empty())
+                                                    .map_or_else(String::new, |a| {
+                                                        format!(
+                                                            "{}: {}",
+                                                            tr!("pv_line"),
+                                                            format_pv(&a.pv)
+                                                        )
+                                                    })
+                                            })
+                                        }))
+                                        .child(
+                                            text(move || {
+                                                ui.read(|app| {
+                                                    app.analysis_view
+                                                        .hover
+                                                        .and_then(|index| {
+                                                            app.session.analyses().get(&index)
+                                                        })
+                                                        .filter(|a| {
+                                                            loss_color(tenth_score(a.score_loss))
+                                                                .is_some()
+                                                        })
+                                                        .map_or_else(String::new, |a| {
+                                                            format!(
+                                                                "{} {:.1}",
+                                                                tr!("loss"),
+                                                                tenth_score(a.score_loss)
+                                                            )
+                                                        })
+                                                })
+                                            })
+                                            .text_color(move || {
+                                                ui.read(|app| {
+                                                    color(
+                                                        app.analysis_view
+                                                            .hover
+                                                            .and_then(|index| {
+                                                                app.session.analyses().get(&index)
+                                                            })
+                                                            .and_then(|a| {
+                                                                loss_color(tenth_score(
+                                                                    a.score_loss,
+                                                                ))
+                                                            })
+                                                            .unwrap_or(SECONDARY),
+                                                    )
+                                                })
+                                            }),
+                                        )
+                                },
+                            )),
+                    )
+            },
+        ))
+}
 /// The x axis spans moves 1 to 60.
 const MOVE_SPAN: f32 = 59.;
 
@@ -461,29 +553,6 @@ fn monotone_slope(points: &[(f32, f32)], index: usize) -> f32 {
     let weighted = (s0 * h1 + s1 * h0) / (h0 + h1);
     let sign = |slope: f32| if slope < 0. { -1. } else { 1. };
     (sign(s0) + sign(s1)) * s0.abs().min(s1.abs()).min(0.5 * weighted.abs())
-}
-
-fn paint_chart_dash(
-    window: &mut Window,
-    bounds: Bounds<Pixels>,
-    horizontal: bool,
-    offset: f32,
-    dash: f32,
-    color: gpui_kit::Rgba,
-) {
-    let (start, end) = if horizontal {
-        let y = bounds.origin.y + bounds.size.height * offset;
-        (point(bounds.left(), y), point(bounds.right(), y))
-    } else {
-        let x = bounds.origin.x + bounds.size.width * offset;
-        (point(x, bounds.top()), point(x, bounds.bottom()))
-    };
-    let mut path = PathBuilder::stroke(px(1.)).dash_array(&[px(dash), px(dash)]);
-    path.move_to(start);
-    path.line_to(end);
-    if let Ok(path) = path.build() {
-        window.paint_path(path, color);
-    }
 }
 
 #[cfg(test)]

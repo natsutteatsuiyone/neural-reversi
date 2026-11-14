@@ -1,455 +1,639 @@
-use std::time::Duration;
+use super::theme::{layout_px, stroke_px};
+use std::time::{Duration, Instant};
 
-use gpui_kit::{prelude::*, *};
-use reversi_core::{disc::Disc, player_color::PlayerColor, square::Square};
+use nsh_core::canvas::{CanvasOp, PathOp};
+use nsh_core::element::{View, canvas, image};
+use nsh_core::prelude::*;
+use reversi_core::disc::Disc;
+use reversi_core::player_color::PlayerColor;
+use reversi_core::square::Square;
 
-use super::assets::icon;
+use super::assets;
 use super::format::{ScorePrecision, display_score, whole_score};
-use super::widgets::move_board_cursor;
-use super::{AI_COLOR, Action, BLUE, GOLD, ReversiApp};
+use super::widgets::{focusable, move_board_cursor};
+use super::{AI_COLOR, Action, BLUE, GOLD, ReversiApp, Ui, color};
 use crate::engine::Progress;
+use crate::game::Position;
 use crate::session::Activity;
 
-// Orthographic world dimensions from the original Board3DScene and board3d-utils.
 const TOTAL_SIZE: f32 = 9.5;
 const BOARD_SIZE: f32 = 8.;
 const FRAME_WIDTH: f32 = 0.15;
-// These are the original materials after lighting and ACES/sRGB conversion.
 const BOARD_GRID: u32 = 0x042c1a;
 
-impl ReversiApp {
-    pub(super) fn render_board(
-        &self,
-        side: f32,
-        window: &Window,
-        cx: &Context<Self>,
-    ) -> Stateful<Div> {
-        let position = self.session.game().position();
-        let solver = self.session.is_solving();
-        let human_turn = self.settings.ai_color() != Some(position.turn);
-        let legal = position.board.legal_moves().bits();
-        let show_legal = solver || human_turn;
-        let idle = !matches!(
-            self.session.activity(),
-            Some(Activity::Initializing | Activity::Analysis | Activity::Move)
-        );
-        let playable = self.modal.is_none() && idle && show_legal;
-        // A click on the board while the AI waits explains how to continue.
-        let ai_waiting = self.modal.is_none() && self.ai_resume_label().is_some();
-        let show_candidates = (solver || (self.settings.hints && human_turn)) && idle;
-        let show_waiting = show_candidates
-            && !self.session.candidates().is_empty()
-            && (!solver || self.settings.solver_multi_pv);
-        let mut candidates = [None; 64];
-        let mut best_score = None;
-        if show_candidates {
-            for candidate in self.session.candidates() {
-                if let Some(square) = candidate.square
-                    && legal & (1_u64 << square.index()) != 0
-                {
-                    candidates[square.index()] = Some(candidate);
-                    let score = whole_score(candidate.score);
-                    best_score = Some(best_score.map_or(score, |best: i32| best.max(score)));
-                }
+#[derive(Clone, Debug, PartialEq)]
+struct Candidate {
+    label: String,
+    progress: f32,
+    best: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Cell {
+    disc: Disc,
+    candidate: Option<Candidate>,
+    legal: bool,
+    last: bool,
+    thinking: bool,
+    trail: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct BoardPresentation {
+    cells: [Cell; 64],
+    playable: bool,
+    ai_waiting: bool,
+    show_legal: bool,
+    show_waiting: bool,
+    complete: bool,
+    motion: Option<(Position, usize, Position)>,
+}
+
+fn presentation(app: &ReversiApp) -> BoardPresentation {
+    let game = app.session.game();
+    let position = game.position();
+    let solver = app.session.is_solving();
+    let human_turn = app.settings.ai_color() != Some(position.turn);
+    let legal = position.board.legal_moves().bits();
+    let idle = !matches!(
+        app.session.activity(),
+        Some(Activity::Initializing | Activity::Analysis | Activity::Move)
+    );
+    let show_candidates = (solver || (app.settings.hints && human_turn)) && idle;
+    let mut candidates = [None; 64];
+    let mut best_score = None;
+    if show_candidates {
+        for candidate in app.session.candidates() {
+            if let Some(square) = candidate.square
+                && legal & (1_u64 << square.index()) != 0
+            {
+                candidates[square.index()] = Some(candidate);
+                let score = whole_score(candidate.score);
+                best_score = Some(best_score.map_or(score, |best: i32| best.max(score)));
             }
         }
-        let thinking = if self.session.activity() == Some(Activity::Move) {
-            self.session
+    }
+    let thinking = (app.session.activity() == Some(Activity::Move))
+        .then(|| {
+            app.session
                 .log()
                 .iter()
                 .rev()
                 .find_map(|progress| progress.square)
-        } else {
-            None
-        };
-        let mut thinking_trail = [None; 3];
-        if let Some(current) = thinking {
-            let mut count = 0;
-            for square in self
-                .session
-                .log()
-                .iter()
-                .rev()
-                .filter_map(|progress| progress.square)
-            {
-                if square != current && !thinking_trail.contains(&Some(square)) {
-                    thinking_trail[count] = Some(square);
-                    count += 1;
-                    if count == thinking_trail.len() {
-                        break;
-                    }
+        })
+        .flatten();
+    let mut trails = [None; 3];
+    if let Some(current) = thinking {
+        let mut count = 0;
+        for square in app
+            .session
+            .log()
+            .iter()
+            .rev()
+            .filter_map(|progress| progress.square)
+        {
+            if square != current && !trails.contains(&Some(square)) {
+                trails[count] = Some(square);
+                count += 1;
+                if count == trails.len() {
+                    break;
                 }
             }
         }
-        let last_move = if !solver {
-            self.session.game().history[..self.session.game().cursor]
+    }
+    let last_move = (!solver)
+        .then(|| {
+            game.history[..game.cursor]
                 .iter()
                 .enumerate()
                 .rev()
                 .find(|(_, record)| record.square.is_some())
-        } else {
-            None
-        };
-        // Navigation pauses normal play. Only the live end of a running game
-        // animates; the same animation id survives search-progress re-renders.
-        let animate = !solver
-            && !self.session.is_paused()
-            && self.session.game().cursor == self.session.game().history.len();
-        let previous = last_move.filter(|_| animate).map(|(index, _)| {
-            index
-                .checked_sub(1)
-                .map_or(self.session.game().initial, |index| {
-                    self.session.game().history[index].position
-                })
-        });
+        })
+        .flatten();
+    let animate = !solver && !app.session.is_paused() && game.cursor == game.history.len();
+    let motion = last_move.filter(|_| animate).map(|(index, _)| {
+        let before = index
+            .checked_sub(1)
+            .map_or(game.initial, |index| game.history[index].position);
+        (position, game.cursor, before)
+    });
+    BoardPresentation {
+        cells: std::array::from_fn(|index| {
+            let square = Square::from_u8(index as u8).expect("board cell index");
+            Cell {
+                disc: position.cell(index),
+                candidate: candidates[index].map(|candidate| Candidate {
+                    label: display_score(candidate.score, ScorePrecision::Whole),
+                    progress: candidate_progress(candidate),
+                    best: Some(whole_score(candidate.score)) == best_score,
+                }),
+                legal: legal & (1_u64 << index) != 0,
+                last: last_move.is_some_and(|(_, record)| record.square == Some(square)),
+                thinking: thinking == Some(square),
+                trail: trails.iter().position(|previous| *previous == Some(square)),
+            }
+        }),
+        playable: app.modal.is_none() && idle && (solver || human_turn),
+        ai_waiting: app.modal.is_none() && app.ai_resume_label().is_some(),
+        show_legal: solver || human_turn,
+        show_waiting: show_candidates
+            && !app.session.candidates().is_empty()
+            && (!solver || app.settings.solver_multi_pv),
+        complete: app.session.candidates_complete(),
+        motion,
+    }
+}
 
-        let cell_side = side / TOTAL_SIZE;
-        let board_side = cell_side * BOARD_SIZE;
-        let rim = (side - board_side) / 2.;
-        let frame_width = cell_side * FRAME_WIDTH;
-        // Layout rounds edges to device pixels, so only a whole-pixel width
-        // renders every line equally thick.
-        let scale = window.scale_factor();
-        let groove_width = (cell_side * 0.03 * scale).round().max(1.) / scale;
-        // For the same reason the last-move ring stays concentric with its
-        // disc only when both diameters are whole pixels of equal parity.
-        let disc_diameter = (cell_side * 0.84 * scale).round() / scale;
-        let ring_width = (cell_side * 0.05 * scale).round() / scale;
-        // PNGs are reusable, color-managed material bakes of the original scene:
-        // felt fibers/normal map and the beveled CylinderGeometry disc materials.
-        // GPUI caches them by asset path; no texture work occurs during rendering.
-        let mut cells = div()
-            .absolute()
-            .left(px(rim))
-            .top(px(rim))
-            .size(px(board_side))
-            .child(
-                img("board/felt.png")
-                    .absolute()
-                    .inset_0()
-                    .size_full()
-                    .object_fit(ObjectFit::Fill),
-            );
-        for line in 0..=8 {
-            let offset = line as f32 * cell_side - groove_width / 2.;
-            cells = cells
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(offset))
-                        .top_0()
-                        .w(px(groove_width))
-                        .h(px(board_side))
-                        .bg(rgb(BOARD_GRID)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .top(px(offset))
-                        .w(px(board_side))
-                        .h(px(groove_width))
-                        .bg(rgb(BOARD_GRID)),
-                );
-        }
-        for row in [2., 6.] {
-            for column in [2., 6.] {
-                cells = cells.child(
-                    div()
-                        .absolute()
-                        .left(px((column - 0.06) * cell_side))
-                        .top(px((row - 0.06) * cell_side))
-                        .size(px(cell_side * 0.12))
-                        .rounded_full()
-                        .bg(rgb(0x1a1a1a)),
-                );
+pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
+    let state = computed(move || ui.read(presentation));
+    let cell_side = computed(move || side.get() / TOTAL_SIZE);
+    let rim = computed(move || (side.get() - cell_side.get() * BOARD_SIZE) / 2.);
+    let groove =
+        computed(move || (cell_side.get() * 0.03 * pixel_ratio()).round().max(1.) / pixel_ratio());
+    let diameter =
+        computed(move || (cell_side.get() * 0.84 * pixel_ratio()).round() / pixel_ratio());
+    let ring = computed(move || (cell_side.get() * 0.05 * pixel_ratio()).round() / pixel_ratio());
+    let progress = signal(1_f32);
+    let started = stored(None::<Instant>);
+    let identity = stored(None::<(Position, usize)>);
+    effect(move || {
+        let motion = state.with(|state| state.motion);
+        let key = motion.map(|(position, cursor, _)| (position, cursor));
+        if identity.get() != key {
+            identity.replace(key);
+            if key.is_some() && !reduce_motion() {
+                started.replace(Some(Instant::now()));
+                progress.set(0.);
+            } else {
+                started.replace(None);
+                progress.set(1.);
             }
         }
-        for (index, candidate) in candidates.into_iter().enumerate() {
-            let square = Square::from_u8(index as u8).expect("board cell index");
-            let disc = position.cell(index);
-            let is_legal = legal & (1_u64 << index) != 0;
-            let clickable = playable && is_legal;
-            let is_best =
-                candidate.is_some_and(|candidate| Some(whole_score(candidate.score)) == best_score);
-            let mut cell = div()
-                .id(("board-cell", index))
-                .role(Role::Cell)
-                .aria_label(format!(
+    });
+    // Shadow blur and spread are not channels of NSH's native animation graph.
+    set_interval(Duration::from_millis(16), move || {
+        if let Some(begin) = started.get() {
+            let elapsed = (begin.elapsed().as_secs_f32() / 0.4).min(1.);
+            progress.set(if reduce_motion() { 1. } else { elapsed });
+            if elapsed >= 1. || reduce_motion() {
+                started.replace(None);
+            }
+        }
+    });
+    let reference = focusable(
+        ui,
+        "board-grid",
+        move || ui.read(|app| app.modal.is_none()),
+        move || {
+            board_key(ui, "enter");
+        },
+    );
+    let mut board = view()
+        .relative()
+        .flex_shrink_0()
+        .element_ref(&reference)
+        .test_id("board-grid")
+        .role(AccessibilityRole::Grid)
+        .label(move || tr!("board"))
+        .accessibility_description(move || tr!("board_keyboard_help"))
+        .w(move || layout_px(side.get()))
+        .h(move || layout_px(side.get()));
+    board = board.child(
+        view()
+            .absolute()
+            .left(move || layout_px(rim.get() - cell_side.get() * FRAME_WIDTH))
+            .top(move || layout_px(rim.get() - cell_side.get() * FRAME_WIDTH))
+            .w(move || layout_px(cell_side.get() * (BOARD_SIZE + FRAME_WIDTH * 2.)))
+            .h(move || layout_px(cell_side.get() * (BOARD_SIZE + FRAME_WIDTH * 2.)))
+            .bg(color(0x010102))
+            .border(move || stroke_px(cell_side.get() * 0.01))
+            .border_color(color(0x040407)),
+    );
+    let mut cells = view()
+        .absolute()
+        .left(move || layout_px(rim.get()))
+        .top(move || layout_px(rim.get()))
+        .w(move || layout_px(cell_side.get() * BOARD_SIZE))
+        .h(move || layout_px(cell_side.get() * BOARD_SIZE))
+        .child(
+            image(assets::image("board/felt.png"))
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ResizeMode::Stretch),
+        );
+    for line in 0..=8 {
+        cells = cells
+            .child(
+                view()
+                    .absolute()
+                    .left(move || layout_px(line as f32 * cell_side.get() - groove.get() / 2.))
+                    .top_0()
+                    .w(move || layout_px(groove.get()))
+                    .h_full()
+                    .bg(color(BOARD_GRID)),
+            )
+            .child(
+                view()
+                    .absolute()
+                    .left_0()
+                    .top(move || layout_px(line as f32 * cell_side.get() - groove.get() / 2.))
+                    .w_full()
+                    .h(move || layout_px(groove.get()))
+                    .bg(color(BOARD_GRID)),
+            );
+    }
+    for row in [2., 6.] {
+        for column in [2., 6.] {
+            cells = cells.child(
+                view()
+                    .absolute()
+                    .left(move || layout_px((column - 0.06) * cell_side.get()))
+                    .top(move || layout_px((row - 0.06) * cell_side.get()))
+                    .w(move || layout_px(cell_side.get() * 0.12))
+                    .h(move || layout_px(cell_side.get() * 0.12))
+                    .rounded_full()
+                    .bg(color(0x1a1a1a)),
+            );
+        }
+    }
+    for index in 0..64 {
+        let cell = computed(move || state.with(|state| state.cells[index].clone()));
+        let clickable = move || state.with(|state| state.playable && state.cells[index].legal);
+        let square = Square::from_u8(index as u8).expect("board cell index");
+        let mut element = view()
+            .absolute()
+            .test_id(&format!("board-cell-{index}"))
+            .role(AccessibilityRole::Cell)
+            .label(move || {
+                let (disc, legal) = cell.with(|cell| (cell.disc, cell.legal));
+                let label = match PlayerColor::try_from(disc) {
+                    Ok(player) => ui.read(|app| app.color(player)),
+                    Err(_) => tr!("empty"),
+                };
+                format!(
                     "{} {} {}",
                     square.to_string().to_uppercase(),
-                    match PlayerColor::try_from(disc) {
-                        Ok(color) => self.color(color),
-                        Err(_) => tr!("empty"),
-                    },
-                    if is_legal {
-                        tr!("legal_move")
-                    } else {
-                        "".into()
-                    }
-                ))
-                .aria_row_index(index / 8)
-                .aria_column_index(index % 8)
-                .when(
-                    self.board_focus.is_focused(window) && self.board_cursor == index,
-                    |cell| cell.aria_active_descendant(),
+                    label,
+                    if legal { tr!("legal_move") } else { "".into() }
                 )
-                .absolute()
-                .left(px((index % 8) as f32 * cell_side))
-                .top(px((index / 8) as f32 * cell_side))
-                .size(px(cell_side))
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(clickable, |cell| {
-                    cell.cursor_pointer()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.board_cursor = index;
-                            this.board_focus.focus(window, cx);
-                            this.action(Action::Cell(index), window, cx);
-                        }))
-                });
-
-            if disc != Disc::Empty {
-                // The material asset includes .02 world units of transparent
-                // padding around the original radius-.4 beveled disc.
-                let stone = board_disc(disc_diameter);
-                if let Some(before) = previous
-                    .map(|position| position.cell(index))
-                    .filter(|before| *before != disc)
-                {
-                    let move_id = self.session.game().cursor * 64 + index;
-                    cell = cell.child(stone.with_animation(
-                        ("disc-move", move_id),
-                        Animation::new(Duration::from_millis(400)),
-                        move |stone, delta| {
-                            if before == Disc::Empty {
-                                // A top-down orthographic drop keeps the disc's
-                                // apparent size; its falling shadow settles below.
-                                let height = (1. - delta).powi(3) * cell_side * 0.12;
-                                disc_finish(stone, disc, cell_side, height)
-                            } else {
-                                let height = (std::f32::consts::PI * delta).cos().abs().max(0.1);
-                                disc_finish(
-                                    stone.h(px(disc_diameter * height)),
-                                    if delta < 0.5 { before } else { disc },
-                                    cell_side,
-                                    0.,
-                                )
-                            }
-                        },
-                    ));
-                } else {
-                    cell = cell.child(disc_finish(stone, disc, cell_side, 0.));
+            })
+            .accessibility_state(move || AccessibilityState {
+                selected: ui.is_focused("board-grid") && ui.read(|app| app.board_cursor == index),
+                ..AccessibilityState::default()
+            })
+            .left(move || layout_px((index % 8) as f32 * cell_side.get()))
+            .top(move || layout_px((index / 8) as f32 * cell_side.get()))
+            .w(move || layout_px(cell_side.get()))
+            .h(move || layout_px(cell_side.get()))
+            .items_center()
+            .justify_center()
+            .focusable(false)
+            .style_when(clickable, |style| style.cursor_pointer())
+            .on_press(move || {
+                if clickable() {
+                    ui.update(|app| app.board_cursor = index);
+                    ui.focus("board-grid");
+                    ui.action(Action::Cell(index));
+                } else if state.with(|state| state.ai_waiting) {
+                    ui.update(ReversiApp::show_ai_paused_hint);
                 }
-            } else if let Some(candidate) = candidate {
-                let label = display_score(candidate.score, ScorePrecision::Whole);
-                let progress = candidate_progress(candidate);
-                cell = cell.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(2.))
+            });
+        let disc = view()
+            .relative()
+            .flex_shrink_0()
+            .rounded_full()
+            .w(move || layout_px(diameter.get()))
+            .h(move || {
+                let after = cell.with(|cell| cell.disc);
+                let before =
+                    state.with(|state| state.motion.map(|(_, _, before)| before.cell(index)));
+                let scale = before
+                    .filter(|before| *before != Disc::Empty && *before != after)
+                    .map_or(1., |_| {
+                        (std::f32::consts::PI * progress.get()).cos().abs().max(0.1)
+                    });
+                layout_px(diameter.get() * scale)
+            })
+            .style_when(
+                move || cell.with(|cell| cell.disc == Disc::Empty),
+                |style| style.hidden(),
+            )
+            .style_with(move |style| {
+                let side = cell_side.get();
+                let dropping = state.with(|state| {
+                    state
+                        .motion
+                        .is_some_and(|(_, _, before)| before.cell(index) == Disc::Empty)
+                });
+                let height = if dropping {
+                    (1. - progress.get()).powi(3) * side * 0.12
+                } else {
+                    0.
+                };
+                style.shadow([BoxShadow {
+                    offset_x: px(-side * 0.04 - height),
+                    offset_y: px(-side * 0.03 - height),
+                    blur: px(side * 0.035 + height * 0.4),
+                    spread: px(-side * 0.025),
+                    color: color(0x000000).opacity(77. / 255.).into(),
+                    inset: false,
+                }])
+            })
+            .child(
+                image(move || {
+                    let after = cell.with(|cell| cell.disc);
+                    let disc = state
+                        .with(|state| state.motion.map(|(_, _, before)| before.cell(index)))
+                        .filter(|before| {
+                            *before != Disc::Empty && *before != after && progress.get() < 0.5
+                        })
+                        .unwrap_or(after);
+                    assets::image(if disc == Disc::Black {
+                        "board/disc-black.png"
+                    } else {
+                        "board/disc-white.png"
+                    })
+                })
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ResizeMode::Stretch),
+            );
+        element = element
+            .child(disc)
+            .child(
+                view()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(2.))
+                    .style_when(
+                        move || cell.with(|cell| cell.candidate.is_none()),
+                        |style| style.hidden(),
+                    )
+                    .child(
+                        text(move || {
+                            cell.with(|cell| {
+                                cell.candidate
+                                    .as_ref()
+                                    .map(|candidate| candidate.label.clone())
+                                    .unwrap_or_default()
+                            })
+                        })
                         .text_size(px(18.))
                         .line_height(px(25.2))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(rgb(if is_best { 0x52b885 } else { 0xffffff }))
-                        .child(label)
-                        .when(
-                            progress < 1. && !self.session.candidates_complete(),
-                            |overlay| overlay.child(search_bar(cell_side, progress)),
-                        ),
-                );
-            } else {
-                if show_legal && is_legal {
-                    cell = cell.child(
-                        div()
-                            .size(px(cell_side * 0.26))
-                            .rounded_full()
-                            .bg(rgba(0xffffff4d)),
-                    );
-                }
-                if show_waiting && is_legal {
-                    cell = cell.child(div().absolute().mt(px(2.)).child(search_bar(cell_side, 0.)));
-                }
-            }
-            if last_move.is_some_and(|(_, record)| record.square == Some(square)) {
-                cell = cell.child(
-                    div()
-                        .absolute()
-                        .size(px(disc_diameter + 2. * ring_width))
-                        .rounded_full()
-                        .border(px(ring_width))
-                        .border_color(rgb(GOLD)),
-                );
-            }
-            if thinking == Some(square) && is_legal {
-                for ripple in 0..3 {
-                    cell = cell.child(
-                        div()
-                            .absolute()
-                            .rounded(px(2.))
-                            .border_2()
-                            .border_color(rgb(AI_COLOR))
-                            .with_animation(
-                                ("thinking-ripple", index * 3 + ripple),
-                                Animation::new(Duration::from_millis(1500)).repeat(),
-                                move |ring, delta| {
-                                    let phase = (delta + ripple as f32 * 0.2) % 1.;
-                                    ring.size(px(cell_side * (0.5 + phase * 0.6)))
-                                        .opacity(0.7 * (1. - phase))
+                        .text_color(move || {
+                            color(
+                                if cell.with(|cell| {
+                                    cell.candidate
+                                        .as_ref()
+                                        .is_some_and(|candidate| candidate.best)
+                                }) {
+                                    0x52b885
+                                } else {
+                                    0xffffff
                                 },
-                            ),
-                    );
-                }
-                cell = cell.child(icon("bot.svg", 22., AI_COLOR).with_animation(
-                    ("thinking-bot", index),
-                    Animation::new(Duration::from_millis(2000)).repeat(),
-                    |bot, delta| {
-                        let wave = (delta * std::f32::consts::TAU).sin();
-                        let scale = 1. + wave.abs() * 0.05;
-                        bot.with_transformation(
-                            Transformation::rotate(radians(wave * 10_f32.to_radians()))
-                                .with_scaling(size(scale, scale)),
-                        )
-                    },
-                ));
-            } else if is_legal
-                && let Some(trail_index) = thinking_trail
-                    .iter()
-                    .position(|previous| *previous == Some(square))
-            {
-                cell = cell.child(
-                    icon("bot.svg", 18. - trail_index as f32 * 3., AI_COLOR)
-                        .opacity(0.7 - trail_index as f32 * 0.15),
-                );
-            }
-            cells = cells.child(cell);
-        }
-        let cells = cells.id("board-cells").when(ai_waiting, |cells| {
-            cells.on_click(cx.listener(|this, _, _, cx| {
-                this.show_ai_paused_hint();
-                cx.notify();
-            }))
-        });
-
-        let mut board = div()
-            .id("board-grid")
-            .role(Role::Grid)
-            .aria_label(tr!("board"))
-            .aria_description(tr!("board_keyboard_help"))
-            .aria_row_count(8)
-            .aria_column_count(8)
-            .track_focus(&self.board_focus.clone().tab_stop(self.modal.is_none()))
-            .on_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
-                if let Some(index) = move_board_cursor(this.board_cursor, &event.keystroke.key) {
-                    this.board_cursor = index;
-                    cx.notify();
-                    cx.stop_propagation();
-                } else if matches!(event.keystroke.key.as_str(), "enter" | "space") {
-                    if playable && legal & (1_u64 << this.board_cursor) != 0 {
-                        this.action(Action::Cell(this.board_cursor), window, cx);
-                    } else if ai_waiting {
-                        this.show_ai_paused_hint();
-                        cx.notify();
-                    }
-                    cx.stop_propagation();
-                }
-            }))
-            .relative()
-            .size(px(side))
-            .flex_shrink_0()
-            .child(
-                div()
-                    .absolute()
-                    .left(px(rim - frame_width))
-                    .top(px(rim - frame_width))
-                    .size(px(board_side + frame_width * 2.))
-                    .bg(rgb(0x010102))
-                    .border(px(cell_side * 0.01))
-                    .border_color(rgb(0x040407)),
+                            )
+                        }),
+                    )
+                    .child(
+                        search_bar(cell_side, move || {
+                            cell.with(|cell| {
+                                cell.candidate
+                                    .as_ref()
+                                    .map_or(0., |candidate| candidate.progress)
+                            })
+                        })
+                        .style_when(
+                            move || {
+                                state.with(|state| state.complete)
+                                    || cell.with(|cell| {
+                                        cell.candidate
+                                            .as_ref()
+                                            .is_none_or(|candidate| candidate.progress >= 1.)
+                                    })
+                            },
+                            |style| style.hidden(),
+                        ),
+                    ),
             )
-            .child(cells);
-        let columns = ["A", "B", "C", "D", "E", "F", "G", "H"];
-        let rows = ["1", "2", "3", "4", "5", "6", "7", "8"];
-        let label_size = cell_side * 0.3;
-        let label_edge = rim - cell_side * 0.5 - label_size / 2.;
-        for index in 0..8 {
-            let offset = rim + index as f32 * cell_side;
-            board = board
-                .child(
-                    board_label(columns[index], cell_side, label_size, label_size)
-                        .font_family("Noto Sans")
-                        .left(px(offset))
-                        .top(px(label_edge)),
-                )
-                .child(
-                    board_label(rows[index], label_size, cell_side, label_size)
-                        .font_family("Noto Sans")
-                        .left(px(label_edge))
-                        .top(px(offset)),
-                );
+            .child(
+                view()
+                    .rounded_full()
+                    .bg(color(0xffffff).opacity(77. / 255.))
+                    .w(move || layout_px(cell_side.get() * 0.26))
+                    .h(move || layout_px(cell_side.get() * 0.26))
+                    .style_when(
+                        move || {
+                            !state.with(|state| {
+                                state.show_legal
+                                    && state.cells[index].legal
+                                    && state.cells[index].disc == Disc::Empty
+                                    && state.cells[index].candidate.is_none()
+                            })
+                        },
+                        |style| style.hidden(),
+                    ),
+            )
+            .child(
+                view()
+                    .absolute()
+                    .mt(px(2.))
+                    .style_when(
+                        move || {
+                            !state.with(|state| {
+                                state.show_waiting
+                                    && state.cells[index].legal
+                                    && state.cells[index].disc == Disc::Empty
+                                    && state.cells[index].candidate.is_none()
+                            })
+                        },
+                        |style| style.hidden(),
+                    )
+                    .child(search_bar(cell_side, || 0.)),
+            )
+            .child(
+                view()
+                    .absolute()
+                    .rounded_full()
+                    .border_color(color(GOLD))
+                    .w(move || layout_px(diameter.get() + 2. * ring.get()))
+                    .h(move || layout_px(diameter.get() + 2. * ring.get()))
+                    .border(move || stroke_px(ring.get()))
+                    .style_when(move || !cell.with(|cell| cell.last), |style| style.hidden()),
+            )
+            .child(when(
+                move || cell.with(|cell| cell.thinking && cell.legal),
+                move || thinking(cell_side),
+            ))
+            .child(when(
+                move || cell.with(|cell| cell.legal && !cell.thinking && cell.trail.is_some()),
+                move || {
+                    assets::icon("bot.svg", 18., AI_COLOR)
+                        .w(move || {
+                            layout_px(18. - cell.with(|cell| cell.trail.unwrap_or(0)) as f32 * 3.)
+                        })
+                        .h(move || {
+                            layout_px(18. - cell.with(|cell| cell.trail.unwrap_or(0)) as f32 * 3.)
+                        })
+                        .opacity(move || {
+                            0.7 - cell.with(|cell| cell.trail.unwrap_or(0)) as f32 * 0.15
+                        })
+                },
+            ));
+        cells = cells.child(element);
+    }
+    board = board.child(cells);
+    for (index, (column, row)) in ["A", "B", "C", "D", "E", "F", "G", "H"]
+        .into_iter()
+        .zip(["1", "2", "3", "4", "5", "6", "7", "8"])
+        .enumerate()
+    {
+        board = board
+            .child(
+                board_label(column, 0., 0., 0.)
+                    .left(move || layout_px(rim.get() + index as f32 * cell_side.get()))
+                    .top(move || layout_px(rim.get() - cell_side.get() * 0.65))
+                    .w(move || layout_px(cell_side.get()))
+                    .h(move || layout_px(cell_side.get() * 0.3))
+                    .child(
+                        text(column)
+                            .font_family("Noto Sans")
+                            .text_size(move || px(cell_side.get() * 0.3))
+                            .line_height(move || px(cell_side.get() * 0.3)),
+                    ),
+            )
+            .child(
+                board_label(row, 0., 0., 0.)
+                    .left(move || layout_px(rim.get() - cell_side.get() * 0.65))
+                    .top(move || layout_px(rim.get() + index as f32 * cell_side.get()))
+                    .w(move || layout_px(cell_side.get() * 0.3))
+                    .h(move || layout_px(cell_side.get()))
+                    .child(
+                        text(row)
+                            .font_family("Noto Sans")
+                            .text_size(move || px(cell_side.get() * 0.3))
+                            .line_height(move || px(cell_side.get())),
+                    ),
+            );
+    }
+    board
+}
+
+pub(super) fn board_key(ui: Ui, key: &str) -> bool {
+    let index = ui.read(|app| app.board_cursor);
+    if let Some(next) = move_board_cursor(index, key) {
+        ui.update(|app| app.board_cursor = next);
+        true
+    } else if matches!(key, "enter" | "space") {
+        let state = ui.read(presentation);
+        if state.playable && state.cells[index].legal {
+            ui.action(Action::Cell(index));
+        } else if state.ai_waiting {
+            ui.update(ReversiApp::show_ai_paused_hint);
         }
-        board
+        true
+    } else {
+        false
     }
 }
 
-pub(super) fn board_label(label: &'static str, width: f32, height: f32, font_size: f32) -> Div {
-    div()
+pub(super) fn board_label(label: &'static str, width: f32, height: f32, font_size: f32) -> View {
+    view()
         .absolute()
         .w(px(width))
         .h(px(height))
-        .flex()
         .items_center()
         .justify_center()
-        .text_size(px(font_size))
-        .line_height(px(height))
-        .font_weight(FontWeight::NORMAL)
-        .text_color(rgb(0xa0a0b0))
-        .child(label)
+        .text_color(color(0xa0a0b0))
+        .child((font_size > 0.).then(|| {
+            text(label)
+                .font_weight(FontWeight::NORMAL)
+                .text_size(px(font_size))
+                .line_height(px(height))
+        }))
 }
 
-fn board_disc(diameter: f32) -> Div {
-    div()
-        .relative()
-        .size(px(diameter))
-        .flex_shrink_0()
-        .rounded_full()
-}
-
-fn disc_shadow(cell_side: f32, height: f32) -> BoxShadow {
-    BoxShadow {
-        inset: false,
-        color: rgba(0x0000004d).into(),
-        offset: point(
-            px(-cell_side * 0.04 - height),
-            px(-cell_side * 0.03 - height),
-        ),
-        blur_radius: px(cell_side * 0.035 + height * 0.4),
-        spread_radius: px(-cell_side * 0.025),
-    }
-}
-
-fn disc_finish(stone: Div, disc: Disc, cell_side: f32, drop_height: f32) -> Div {
-    stone
-        .shadow(vec![disc_shadow(cell_side, drop_height)])
-        .child(
-            img(if disc == Disc::Black {
-                "board/disc-black.png"
-            } else {
-                "board/disc-white.png"
+fn thinking(cell_side: Memo<f32>) -> View {
+    let phase = animated_value(0.);
+    let wave = animated_value(0.);
+    let ripple = Animation::timing(&phase, 1., Timing::new(1500., Easing::Linear)).looped(None);
+    let wobble = Animation::keyframes(
+        &wave,
+        [
+            Keyframe::at(0., 0.).ease(Easing::Curve(Curve::Sin, EaseMode::Out)),
+            Keyframe::at(0.25, 1.).ease(Easing::Curve(Curve::Sin, EaseMode::In)),
+            Keyframe::at(0.5, 0.).ease(Easing::Curve(Curve::Sin, EaseMode::Out)),
+            Keyframe::at(0.75, -1.).ease(Easing::Curve(Curve::Sin, EaseMode::In)),
+            Keyframe::at(1., 0.),
+        ],
+        KeyframeTiming::new(2000.),
+    )
+    .looped(None);
+    let a = ripple.clone();
+    let b = wobble.clone();
+    effect(move || {
+        if reduce_motion() {
+            a.stop();
+            b.stop();
+            phase.set(0.);
+            wave.set(0.);
+        } else {
+            a.start();
+            b.start();
+        }
+    });
+    cleanup(move || {
+        ripple.stop();
+        wobble.stop();
+    });
+    let mut layer = view()
+        .absolute()
+        .inset_0()
+        .items_center()
+        .justify_center()
+        .pointer_events(PointerEvents::None);
+    for index in 0..3 {
+        let shifted = phase.add(index as f32 * 0.2).modulo(1.);
+        let edge = shifted.mul(0.6).add(0.5);
+        let origin = edge.mul(-0.5).add(0.5);
+        let opacity = shifted.mul(-0.7).add(0.7);
+        layer = layer.child(
+            canvas(move || {
+                let side = cell_side.get();
+                let mut painter = Painter::new()
+                    .save()
+                    .scale(side, side)
+                    .stroke_color(color(AI_COLOR))
+                    .line_width(px(2. / side))
+                    .global_alpha(&opacity)
+                    .begin_path();
+                let start = painter.num(&origin);
+                let length = painter.num(&edge);
+                let radius = painter.num(2. / side);
+                painter
+                    .op(CanvasOp::Path(PathOp::RoundRect(
+                        [start, start, length, length],
+                        [radius; 4],
+                    )))
+                    .stroke()
+                    .restore()
             })
-            // Resolve both dimensions against the animated frame, not the
-            // image's intrinsic square aspect ratio in normal flow.
             .absolute()
             .inset_0()
-            .size_full()
-            .object_fit(ObjectFit::Fill),
-        )
+            .size_full(),
+        );
+    }
+    let rotation = wave.mul(10.);
+    let scale = wave.interpolate(&[-1., 0., 1.], &[1.05, 1., 1.05]);
+    layer.child(
+        assets::icon("bot.svg", 22., AI_COLOR)
+            .bind_rotate(&rotation)
+            .bind_scale(&scale),
+    )
 }
 
 fn candidate_progress(candidate: &Progress) -> f32 {
@@ -462,32 +646,30 @@ fn candidate_progress(candidate: &Progress) -> f32 {
     }
 }
 
-fn search_bar(cell_side: f32, progress: f32) -> Div {
-    let width = (cell_side - 8.).max(0.) * 0.7;
-    div()
-        .w(px(width))
+fn search_bar(cell_side: Memo<f32>, progress: impl Fn() -> f32 + 'static) -> View {
+    view()
+        .w(move || px((cell_side.get() - 8.).max(0.) * 0.7))
         .h(px(4.))
         .rounded_full()
         .overflow_hidden()
-        .bg(rgba(0x00000066))
+        .bg(color(0x000000).opacity(102. / 255.))
         .child(
-            div()
+            view()
                 .h_full()
-                .w(px(width * progress))
+                .w(move || px((cell_side.get() - 8.).max(0.) * 0.7 * progress()))
                 .rounded_full()
-                .bg(rgb(BLUE)),
+                .bg(color(BLUE)),
         )
 }
 
 impl ReversiApp {
-    /// Tells the player that the AI waits for the start/resume button.
     pub(super) fn show_ai_paused_hint(&mut self) {
         if let Some(label) = self.ai_resume_label() {
             self.notification.show(
-                tr!("waiting_for_ai").into(),
-                tr!("ai_paused_hint", action = label).into(),
+                tr!("waiting_for_ai").to_string(),
+                tr!("ai_paused_hint", action = label).to_string(),
                 "bot.svg",
-                std::time::Instant::now() + Duration::from_secs(3),
+                Instant::now() + Duration::from_secs(3),
             );
         }
     }

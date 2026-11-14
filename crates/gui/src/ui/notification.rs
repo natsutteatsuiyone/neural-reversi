@@ -1,20 +1,19 @@
 use std::time::{Duration, Instant};
 
-use gpui_kit::{prelude::*, *};
+use nsh_core::prelude::*;
 
 use super::assets::icon;
-use super::widgets::shadow;
-use super::{BLUE, GOLD, ReversiApp};
+use super::{BLUE, GOLD, Ui, color, rgba};
 
-/// Toast state: an optional timeout, pausing while hovered, and a 200ms exit.
 pub(super) struct Notification {
     message: String,
     description: String,
     icon: &'static str,
     until: Option<Instant>,
     hover_remaining: Option<Duration>,
-    height: Pixels,
+    height: Points,
     remove_at: Option<Instant>,
+    generation: u64,
 }
 
 impl Default for Notification {
@@ -27,6 +26,7 @@ impl Default for Notification {
             hover_remaining: None,
             height: px(0.),
             remove_at: None,
+            generation: 0,
         }
     }
 }
@@ -37,14 +37,18 @@ impl Notification {
     }
 
     pub(super) fn clear(&mut self) {
-        *self = Self::default();
+        let generation = self.generation;
+        *self = Self {
+            generation,
+            ..Self::default()
+        };
     }
 
-    /// Shows `message` until it is cleared or replaced.
     pub(super) fn show_error(&mut self, message: String, description: String) {
         *self = Self {
             message,
             description,
+            generation: self.generation.wrapping_add(1),
             ..Self::default()
         };
     }
@@ -61,11 +65,11 @@ impl Notification {
             description,
             icon,
             until: Some(until),
+            generation: self.generation.wrapping_add(1),
             ..Self::default()
         };
     }
 
-    /// Advances the timeout and exit animation; returns whether a redraw is needed.
     pub(super) fn tick(&mut self, now: Instant) -> bool {
         let mut changed = false;
         if self.until.is_some_and(|until| now >= until) {
@@ -96,126 +100,141 @@ impl Notification {
     }
 }
 
-impl ReversiApp {
-    pub(super) fn render_notification(
-        &self,
-        width: f32,
-        window: &Window,
-        cx: &Context<Self>,
-    ) -> AnyElement {
-        let notification = &self.notification;
-        let dark = matches!(
-            window.appearance(),
-            WindowAppearance::Dark | WindowAppearance::VibrantDark
-        );
-        let mobile = width <= 600.;
-        let toast_width = if mobile { (width - 32.).max(0.) } else { 356. };
-        let message: SharedString = notification.message.clone().into();
-        let exiting = notification.remove_at.is_some();
-        let height = notification.height;
-        let view = cx.entity().downgrade();
-        let toast = div()
-            .id("notification")
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .p_4()
-            .rounded(px(8.))
-            .border_1()
-            .border_color(rgb(if dark { 0x333333 } else { 0xededed }))
-            .bg(rgb(if dark { 0x000000 } else { 0xffffff }))
-            .text_color(rgb(if dark { 0xfcfcfc } else { 0x171717 }))
-            .text_size(px(13.))
-            .line_height(relative(1.5))
-            .shadow(vec![shadow(rgba(0x0000001a), 4., 12., 0.)])
-            .on_hover(cx.listener(|this, hovered, _, _| {
-                this.notification.hover(*hovered);
-            }))
-            .child(
-                div()
-                    .size_4()
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .ml(px(-3.))
-                    .mr_1()
-                    .child(
-                        icon(
-                            notification.icon,
-                            16.,
-                            if notification.icon == "trophy.svg" {
-                                GOLD
-                            } else {
-                                BLUE
-                            },
-                        )
-                        .ml(px(-1.)),
-                    ),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::MEDIUM)
-                            .whitespace_normal()
-                            .child(message.clone()),
+pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
+    when(
+        move || ui.read(|app| app.notification.is_visible()),
+        move || {
+            let visible = animated_value(0.);
+            let offset = animated_value(0.);
+            let generation = stored(None::<u64>);
+            let width = computed(move || {
+                ui.read(|app| {
+                    let width = app.viewport.width.0;
+                    if width <= 600. {
+                        (width - 32.).max(0.)
+                    } else {
+                        356.
+                    }
+                })
+            });
+            let transition = computed(move || {
+                ui.read(|app| {
+                    (
+                        app.notification.generation,
+                        app.notification.height.0,
+                        app.notification.remove_at.is_some(),
                     )
-                    .when(!notification.description.is_empty(), |content| {
-                        content.child(
-                            div()
-                                .font_weight(FontWeight::NORMAL)
-                                .line_height(relative(1.4))
-                                .text_color(rgb(if dark { 0xe8e8e8 } else { 0x3f3f3f }))
-                                .whitespace_normal()
-                                .child(notification.description.clone()),
-                        )
-                    }),
-            );
-        div()
-            .absolute()
-            .left(relative(0.5))
-            .ml(px(-toast_width * 0.5))
-            .w(px(toast_width))
-            .child(toast)
-            .child(
-                canvas(
-                    move |bounds, _, cx| {
-                        let _ = view.update(cx, |this, cx| {
-                            if this.notification.height != bounds.size.height {
-                                this.notification.height = bounds.size.height;
-                                cx.notify();
-                            }
-                        });
-                    },
-                    |_, _, _, _| (),
-                )
+                })
+            });
+            effect(move || {
+                let (next, height, exiting) = transition.get();
+                if height <= 0. {
+                    return;
+                }
+                let first = generation.get() != Some(next);
+                if first {
+                    generation.replace(Some(next));
+                    visible.set(0.);
+                    offset.set(-height);
+                }
+                let to = if exiting { 0. } else { 1. };
+                if reduce_motion() {
+                    visible.set(to);
+                    offset.set(0.);
+                } else {
+                    drop(visible.timing(to, 400., Easing::EASE));
+                    drop(offset.timing(if exiting { -height } else { 0. }, 400., Easing::EASE));
+                }
+            });
+            view()
                 .absolute()
-                .size_full(),
-            )
-            .with_animation(
-                (message, usize::from(exiting)),
-                Animation::new(Duration::from_millis(400)).with_easing(toast_ease),
-                move |toast, delta| {
-                    let visibility = if exiting { 1. - delta } else { delta };
-                    toast
-                        .top(px(if mobile { 16. } else { 24. }) - height * (1. - visibility))
-                        .opacity(visibility)
-                },
-            )
-            .into_any_element()
-    }
-}
-
-fn toast_ease(progress: f32) -> f32 {
-    let mut t = progress;
-    // CSS ease, Sonner's default 400ms transform/opacity transition.
-    for _ in 0..6 {
-        t -= (0.75 * t - 0.75 * t * t + t * t * t - progress) / (0.75 - 1.5 * t + 3. * t * t);
-    }
-    (0.3 * t + 2.4 * t * t - 1.7 * t * t * t).clamp(0., 1.)
+                .left(percentage(0.5))
+                .ml(move || px(-width.get() * 0.5))
+                .w(move || px(width.get()))
+                .top(move || {
+                    px(ui.read(|app| {
+                        if app.viewport.width.0 <= 600. {
+                            16.
+                        } else {
+                            24.
+                        }
+                    }))
+                })
+                .bind_opacity(&visible)
+                .bind_translate_y(&offset)
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.))
+                        .p_4()
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(move || color(if dark() { 0x333333 } else { 0xededed }))
+                        .bg(move || color(if dark() { 0x000000 } else { 0xffffff }))
+                        .text_color(move || color(if dark() { 0xfcfcfc } else { 0x171717 }))
+                        .text_size(px(13.))
+                        .line_height(nsh_core::LineHeight::Multiple(1.5))
+                        .shadow([BoxShadow {
+                            offset_y: px(4.),
+                            blur: px(12.),
+                            color: rgba(0x0000001a).into(),
+                            ..BoxShadow::default()
+                        }])
+                        .on_layout(move |bounds: &Bounds<Points>| {
+                            if ui.read(|app| app.notification.height) != bounds.size.height {
+                                ui.update(|app| app.notification.height = bounds.size.height);
+                            }
+                        })
+                        .on_mouse_enter(move |_: &MouseEvent| {
+                            ui.update(|app| app.notification.hover(true))
+                        })
+                        .on_mouse_leave(move |_: &MouseEvent| {
+                            ui.update(|app| app.notification.hover(false))
+                        })
+                        .child(
+                            view()
+                                .size_4()
+                                .flex_shrink_0()
+                                .flex_row()
+                                .items_center()
+                                .ml(px(-3.))
+                                .mr_1()
+                                .child(
+                                    when(
+                                        move || {
+                                            ui.read(|app| app.notification.icon == "trophy.svg")
+                                        },
+                                        || icon("trophy.svg", 16., GOLD),
+                                    )
+                                    .otherwise(|| icon("info.svg", 16., BLUE)),
+                                ),
+                        )
+                        .child(
+                            view()
+                                .flex_1()
+                                .min_w_0()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    text(move || ui.read(|app| app.notification.message.clone()))
+                                        .font_weight(FontWeight::MEDIUM),
+                                )
+                                .child(when(
+                                    move || ui.read(|app| !app.notification.description.is_empty()),
+                                    move || {
+                                        text(move || {
+                                            ui.read(|app| app.notification.description.clone())
+                                        })
+                                        .font_weight(FontWeight::NORMAL)
+                                        .line_height(nsh_core::LineHeight::Multiple(1.4))
+                                        .text_color(
+                                            move || color(if dark() { 0xe8e8e8 } else { 0x3f3f3f }),
+                                        )
+                                    },
+                                )),
+                        ),
+                )
+        },
+    )
 }

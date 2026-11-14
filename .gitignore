@@ -3,6 +3,8 @@
 .vscode
 eval*.zst
 .profiles/
+.nsh/
+.audit/
 
 # Ignore AI/LLM instruction files
 /.claude/

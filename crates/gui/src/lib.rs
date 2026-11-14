@@ -14,7 +14,12 @@ mod session;
 mod settings;
 mod ui;
 
-pub use ui::run;
+#[nsh_core::prelude::native_module("neural-reversi/native")]
+fn native(registry: &mut nsh_core::element::Registry) {
+    registry.register::<ui::App>();
+}
+
+pub use ui::{App, run};
 
 #[cfg(test)]
 mod tests {

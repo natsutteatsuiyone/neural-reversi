@@ -1,10 +1,10 @@
 # Reversi GUI
 
-A native Rust desktop application for playing and analyzing Reversi (Othello), built with GPUI Kit. The `gui` package and binary live in `crates/gui/Cargo.toml`.
+A native Rust desktop application for playing and analyzing Reversi (Othello), built with Native Shell (NSH) 0.5.1. The `gui` package and binary live in `crates/gui/Cargo.toml`.
 
 ## Architecture and functionality
 
-The GPUI window renders the board, game controls, move history, analysis, solver, and settings directly. The Rust game model owns positions and history. A background engine worker calls `reversi-core` directly and delivers search progress/results over channels, keeping searches off the UI thread. There is no browser frontend, IPC bridge, JavaScript runtime, or substitute AI implementation.
+NSH renders the board, game controls, move history, analysis, solver, and settings directly. The Rust game model owns positions and history. A background engine worker calls `reversi-core` directly and delivers search progress/results over channels, keeping searches off the UI thread. There is no browser frontend, IPC bridge, JavaScript runtime, or substitute AI implementation.
 
 - Play against the engine as either color, or play locally with two people.
 - Choose level-based or time-limited play; stop and resume engine activity.
@@ -18,7 +18,7 @@ The native interface retains the original neutral palette, compact toolbar, vert
 
 During a flip, the stone image follows the animated frame's width and height around the cell center; its intrinsic square image size must not participate in normal-flow layout.
 
-GPUI has no backdrop blur, so modal backgrounds use a translucent dim overlay and the floating history toolbar a near-opaque panel. Board coordinates embed the original Noto Sans glyphs, while setup previews and player cards retain the original flat stone materials.
+Modal backgrounds use a translucent dim overlay, and the floating history toolbar uses a near-opaque panel. Board coordinates embed the original Noto Sans glyphs, while setup previews and player cards retain the original flat stone materials.
 
 Setup input validates transcripts and board strings as they are edited. Invalid text shows its localized error without discarding the last valid preview, and prevents starting that position. Slider controls support pointer dragging and the original arrow, Home/End, and Page Up/Down keyboard behavior.
 
@@ -30,30 +30,30 @@ The WebAssembly application in `crates/web` is separate and continues to use Bun
 
 - Rust via [rustup](https://rustup.rs/), plus the native build tools for your OS.
 - Download `eval-*.zst` and `eval_sm-*.zst` from the [weights releases](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest), placing them in the repository root **before compiling**. The engine embeds its weights in the executable; distributed binaries do not need separate weight files.
-- A graphical desktop session and a compatible GPU/graphics driver to launch the application. Headless compilation and model/engine tests do not exercise window rendering.
+- A graphical desktop session to launch the application. Headless UI tests exercise the retained element tree and event handling, but do not verify native window rendering.
 
 ### Windows
 
-Use the MSVC Rust toolchain and Visual Studio Build Tools with the Desktop development with C++ workload and Windows SDK. Release builds need the SDK's `fxc.exe` shader compiler; set `GPUI_FXC_PATH` to its full path if GPUI cannot discover the installed SDK. GPUI uses the native Windows graphics backend; a working GPU driver is required. WebView2 and browser drivers are not dependencies.
+Use Windows 10 version 1809 or later, the MSVC Rust toolchain, and Visual Studio Build Tools with the Desktop development with C++ workload and Windows SDK. NSH uses Win32, Direct2D, and DirectWrite. The GUI does not create web views. The backend includes WebView2 bindings, but this application does not need a WebView2 runtime for its interface.
 
 ### Linux
 
-GPUI Kit enables GPUI's X11, Wayland, and Fontconfig/font-kit integration. On Ubuntu 24.04/Debian-family systems, install:
+NSH requires GTK 4.14 or later. On Ubuntu 24.04, install:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y \
-  build-essential clang cmake pkg-config libclang-dev \
-  libasound2-dev libfontconfig1-dev libfreetype6-dev libglib2.0-dev \
-  libssl-dev libwayland-dev libx11-xcb-dev libxkbcommon-x11-dev \
-  libxcb-shape0-dev libxcb-xfixes0-dev libvulkan-dev
+  build-essential clang cmake pkg-config libclang-dev libssl-dev \
+  libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 ```
 
-CI installs the same dependencies through `.github/actions/setup-rust`. Other distributions need the equivalent development packages. At runtime, use an X11 or Wayland session, installed fonts, the Vulkan loader, and a compatible Vulkan driver (for example, the appropriate Mesa or vendor driver). A display server alone is not sufficient if its graphics driver cannot support GPUI. The binary is dynamically linked to system libraries; it is not a self-contained AppImage and may not run on systems older than its build environment. GTK/WebKit development packages are not required for the GUI.
+CI installs the same dependencies through `.github/actions/setup-rust`. Other distributions need the equivalent development packages and GTK version. NSH's Linux backend links GStreamer even though the GUI does not use media controls. The GUI disables NSH's optional `webview` feature, so WebKitGTK development packages are not required.
+
+At runtime, use an X11 or Wayland desktop session with GTK 4.14 or later and GStreamer. The binary is dynamically linked to system libraries. It is not a self-contained AppImage and may not run on systems older than its build environment.
 
 ### macOS
 
-Install full Xcode and select its developer directory with `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`. GPUI Kit enables GPUI's runtime shader compilation, so the build does not invoke `xcrun metal`. A Metal-capable macOS environment is required. The distribution task currently targets Apple Silicon (`aarch64-apple-darwin`); Intel macOS builds are not provided by that task. Packaging additionally uses the system `codesign`, `ditto`, and `hdiutil` commands.
+Use macOS 14 or later and install Xcode's command line tools with `xcode-select --install`. NSH uses AppKit, Core Animation, and CoreText. The distribution task currently targets Apple Silicon (`aarch64-apple-darwin`). It does not provide Intel macOS builds. Packaging additionally uses the system `codesign`, `ditto`, and `hdiutil` commands.
 
 ## Development
 
@@ -81,7 +81,7 @@ cargo clippy -p gui --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-CI checks and tests the native package on Windows, Linux, and macOS; workspace linting also includes it. Tests exercise Rust model and engine behavior, not a WebDriver/browser surface. For a UI smoke check, launch `cargo run -p gui`, play a legal move, start and stop a search, navigate history, and open setup/settings on an actual desktop.
+CI tests the workspace, including the GUI, on Windows and Linux. Workspace linting also includes the GUI. The tests cover the Rust model, engine integration, and NSH headless UI flows. Headless tests do not verify native drawing, fonts, text input, or clipboard integration. To check those behaviors, launch `cargo run -p gui`, play a legal move, start and stop a search, navigate history, copy a transcript, and open setup/settings on an actual desktop. macOS builds and native rendering need separate verification.
 
 ## Configuration persistence
 

@@ -7,6 +7,6 @@
     )
 )]
 
-fn main() {
-    gui::run();
+fn main() -> impl std::process::Termination {
+    gui::run()
 }

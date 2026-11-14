@@ -1,400 +1,426 @@
-use gpui_kit::{prelude::*, *};
+use nsh_base::{radio, radio_group};
+use nsh_core::prelude::*;
 use reversi_core::level::{ENDGAME_STEPS, Level};
 
+use super::analysis::activity_icon;
+use super::assets::icon;
 use super::format::{ScorePrecision, display_score, whole_score};
-use super::widgets::{activity_icon, arrow_keys, flat_stone, interactive};
-use super::{ACCENT, Action, BACKGROUND, BLUE, PANEL, RED, ReversiApp, SECONDARY};
+use super::widgets::{control, flat_stone, focusable};
+use super::{ACCENT, Action, BACKGROUND, BLUE, PANEL, RED, SECONDARY, Ui, color, rgba};
 use crate::session::Activity;
-use crate::settings::Settings;
 
-impl ReversiApp {
-    pub(super) fn render_solver(&self, cx: &Context<Self>) -> Div {
-        let searching = self.session.activity() == Some(Activity::Solver);
-        let caption = tr!("candidates");
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .min_h_0()
-            .bg(rgb(PANEL))
-            .text_size(px(12.))
-            .line_height(relative(1.4285714))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_4()
-                    .py(px(10.))
-                    .border_b_1()
-                    .border_color(rgba(0xffffff1a))
-                    .child(activity_icon("solver-activity", searching))
-                    .child(div().font_weight(FontWeight::MEDIUM).child(tr!("solver")))
-                    .when(searching, |header| {
-                        header.child(
-                            div()
-                                .rounded_full()
-                                .px_2()
-                                .py(px(2.))
-                                .text_size(px(12.))
-                                .line_height(relative(1.5))
-                                .text_color(rgb(BLUE))
-                                .bg(rgba(0x7ba0c833))
-                                .child({
-                                    let seconds =
-                                        self.session.search_elapsed().unwrap_or_default().as_secs();
-                                    format!(
-                                        "{} {}:{:02}",
-                                        tr!("solving"),
-                                        seconds / 60,
-                                        seconds % 60
-                                    )
-                                }),
-                        )
-                    })
-                    .when(self.session.is_solver_stopped(), |header| {
-                        header.child(div().text_size(px(12.)).child(tr!("solver_stopped")))
-                    })
-                    .child(div().flex_1())
-                    .child(self.control(
-                        "solver-exit",
-                        "x.svg",
-                        tr!("exit_solver"),
-                        Action::ExitSolver,
-                        true,
-                        cx,
-                    )),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .px_4()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(rgba(0xffffff1a))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                self.control(
-                                    "solver-back",
-                                    "arrow-left.svg",
-                                    tr!("undo"),
-                                    Action::Navigate(self.session.previous_cursor()),
-                                    self.session.game().cursor > 0,
-                                    cx,
-                                )
-                                .border_color(rgba(0xffffff0f))
-                                .bg(rgb(BACKGROUND)),
-                            )
-                            .child(div().flex_1())
-                            .when(searching || self.session.is_solver_stopped(), |row| {
-                                row.child(
-                                    self.control(
-                                        "solver-pause",
-                                        if searching { "square.svg" } else { "play.svg" },
-                                        if searching {
-                                            tr!("stop")
-                                        } else {
-                                            tr!("resume")
-                                        },
-                                        Action::Pause,
-                                        true,
-                                        cx,
-                                    )
-                                    .border_color(if searching {
-                                        rgba(0x00000000)
-                                    } else {
-                                        rgba(0xffffff0f)
-                                    })
-                                    .bg(rgb(BACKGROUND))
-                                    .when(searching, |button| {
-                                        button.bg(rgba(0xc45c5c33)).text_color(rgb(RED))
-                                    }),
-                                )
-                            }),
-                    )
-                    .child(solver_options(&self.settings, cx)),
-            )
-            .child(
-                div()
-                    .id("solver-candidates")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .p_4()
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(0.275))
-                                    .pr(px(0.275))
-                                    .text_size(px(12.))
-                                    .line_height(relative(1.5))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(rgb(SECONDARY))
-                                    .children(
-                                        caption
-                                            .chars()
-                                            .map(|character| div().child(character.to_string())),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(flat_stone(self.session.game().position().turn, 16.))
-                                    .child(
-                                        div()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .child(self.color(self.session.game().position().turn)),
-                                    ),
-                            ),
-                    )
-                    .when(self.session.candidates().is_empty(), |list| {
-                        list.child(
-                            div()
-                                .px_4()
-                                .py_6()
-                                .text_center()
-                                .text_color(rgb(SECONDARY))
-                                .child(self.session.search_error().map_or_else(
-                                    || {
-                                        if !self.session.game().position().board.has_legal_moves() {
-                                            tr!("solver_no_legal_moves")
-                                        } else if searching {
-                                            tr!("solving")
-                                        } else if self.session.is_solver_stopped() {
-                                            tr!("solver_no_results")
-                                        } else {
-                                            tr!("solver_pending")
-                                        }
-                                    },
-                                    |error| error.to_owned().into(),
-                                )),
-                        )
-                    })
-                    .child(div().flex().flex_col().gap_1().px_2().pb_3().children(
-                        self.session.candidates().iter().filter_map(|candidate| {
-                            let square = candidate.square?;
-                            let best = self.session.candidates().first().is_some_and(|best| {
-                                whole_score(best.score) == whole_score(candidate.score)
-                            });
-                            let pv_end = candidate
-                                .pv
-                                .match_indices(' ')
-                                .nth(7)
-                                .map_or(candidate.pv.len(), |(offset, _)| offset);
-                            Some(
-                                interactive(
-                                    // Keyed by move so focus follows it when scores reorder the list.
-                                    div().id(("candidate", square.index())),
-                                    format!(
-                                        "{} {}",
-                                        square,
-                                        display_score(candidate.score, ScorePrecision::Whole)
-                                    ),
-                                    true,
-                                )
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .px_3()
-                                .py_2()
-                                .rounded(px(8.))
-                                .text_size(px(15.))
-                                .cursor_pointer()
-                                .when(best, |row| row.bg(rgba(0x43a5751a)))
-                                .hover(|style| style.bg(rgba(0xffffff0d)))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.action(Action::Cell(square.index()), window, cx)
-                                }))
-                                .child(
-                                    div()
-                                        .w_12()
-                                        .flex_shrink_0()
-                                        .font_family("Consolas")
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(if best {
-                                            rgb(ACCENT)
-                                        } else {
-                                            rgba(0xffffffeb)
-                                        })
-                                        .child(square.to_string()),
-                                )
-                                .child(
-                                    div()
-                                        .w(px(56.))
-                                        .flex_shrink_0()
-                                        .font_family("Consolas")
-                                        .text_right()
-                                        .text_color(if best {
-                                            rgb(ACCENT)
-                                        } else {
-                                            rgba(0xffffff99)
-                                        })
-                                        .child(display_score(
-                                            candidate.score,
-                                            ScorePrecision::Whole,
-                                        )),
-                                )
-                                .child(
-                                    div()
-                                        .w_10()
-                                        .flex_shrink_0()
-                                        .text_right()
-                                        .text_size(px(13.))
-                                        .line_height(relative(1.5))
-                                        .text_color(rgb(SECONDARY))
-                                        .child(format!("{}%", candidate.probability)),
-                                )
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_size(px(13.))
-                                        .line_height(relative(1.5))
-                                        .font_family("Consolas")
-                                        .text_color(rgb(SECONDARY))
-                                        .child(candidate.pv[..pv_end].to_owned()),
-                                ),
-                            )
-                        }),
-                    )),
-            )
-    }
+pub(super) fn render_solver(ui: Ui) -> impl IntoElement {
+    let searching =
+        computed(move || ui.read(|app| app.session.activity() == Some(Activity::Solver)));
+    view().flex_col().w_full().h_full().min_h_0().bg(color(PANEL)).text_size(px(12.)).line_height(nsh_core::LineHeight::Multiple(1.4285714))
+        .child(view().flex_row().items_center().gap_3().px_4().py(px(10.)).border_b_1().border_color(rgba(0xffffff1a))
+            .child(activity_icon(ui,Activity::Solver))
+            .child(text(move||tr!("solver")).font_weight(FontWeight::MEDIUM))
+            .child(when(move||searching.get(),move||text(move||ui.read(|app| {
+                let seconds=app.session.search_elapsed().unwrap_or_default().as_secs();
+                format!("{} {}:{:02}",tr!("solving"),seconds/60,seconds%60)
+            })).rounded_full().px_2().py(px(2.)).text_size(px(12.)).line_height(nsh_core::LineHeight::Multiple(1.5)).text_color(color(BLUE)).bg(rgba(0x7ba0c833))))
+            .child(when(move||ui.read(|app|app.session.is_solver_stopped()),||text(move||tr!("solver_stopped")).text_size(px(12.))))
+            .child(view().flex_1())
+            .child(control(ui,"solver-exit","x.svg",move||tr!("exit_solver"),Action::ExitSolver,||true)))
+        .child(view().flex_col().gap_3().px_4().py_3().border_b_1().border_color(rgba(0xffffff1a))
+            .child(view().flex_row().items_center().gap_2()
+                .child(control(ui,"solver-back","arrow-left.svg",move||tr!("undo"),Action::Previous,
+                    move||ui.read(|app|app.session.game().cursor>0)).border_1().border_color(rgba(0xffffff0f)).bg(color(BACKGROUND)))
+                .child(view().flex_1())
+                .child(when(move||searching.get()||ui.read(|app|app.session.is_solver_stopped()),move||
+                    pause_button(ui,searching))))
+            .child(solver_options(ui,false)))
+        .child(scroll().flex_1().min_h_0()
+            .child(view().flex_col()
+                .child(view().flex_row().items_center().gap_3().p_4()
+                    .child(text(move||tr!("candidates")).text_size(px(12.)).line_height(nsh_core::LineHeight::Multiple(1.5)).font_weight(FontWeight::MEDIUM).text_color(color(SECONDARY)))
+                    .child(view().flex_row().items_center().gap_2()
+                        .child(when(move||ui.read(|app|app.session.game().position().turn==reversi_core::player_color::PlayerColor::Black),||flat_stone(true,16.))
+                            .otherwise(||flat_stone(false,16.)))
+                        .child(text(move||ui.read(|app|app.color(app.session.game().position().turn))).font_weight(FontWeight::MEDIUM))))
+                .child(when(move||ui.read(|app|app.session.candidates().is_empty()),move||
+                    text(move||ui.read(|app| app.session.search_error().map_or_else(|| {
+                        if !app.session.game().position().board.has_legal_moves(){tr!("solver_no_legal_moves")}
+                        else if app.session.activity()==Some(Activity::Solver){tr!("solving")}
+                        else if app.session.is_solver_stopped(){tr!("solver_no_results")}
+                        else{tr!("solver_pending")}
+                    },|error|error.to_owned().into())))
+                        .px_4().py_6().text_center().text_color(color(SECONDARY))))
+                .child(view().flex_col().gap_1().px_2().pb_3()
+                    .child(each(move||ui.read(|app|app.session.candidates().iter().filter_map(|p|p.square.map(|s|s.index())).collect::<Vec<_>>()),|square|*square,move|square,_|candidate_row(ui,square.get_untracked()))))))
 }
 
-/// Selectivity and mode radios showing `options`, the settings or the dialog draft.
-pub(super) fn solver_options(options: &Settings, cx: &Context<ReversiApp>) -> Div {
-    div()
-        .flex()
+fn candidate_row(ui: Ui, square: usize) -> impl IntoElement {
+    let id = format!("candidate-{square}");
+    let focus = focusable(ui, &id, || true, move || ui.action(Action::Cell(square)));
+    let focus_id = id;
+    let best = computed(move || {
+        ui.read(|app| {
+            let candidate = app
+                .session
+                .candidates()
+                .iter()
+                .find(|p| p.square.is_some_and(|s| s.index() == square));
+            candidate.is_some_and(|candidate| {
+                app.session
+                    .candidates()
+                    .first()
+                    .is_some_and(|first| whole_score(first.score) == whole_score(candidate.score))
+            })
+        })
+    });
+    nsh_base::button()
+        .element_ref(&focus)
+        .accessibility_label(move || {
+            ui.read(|app| {
+                app.session
+                    .candidates()
+                    .iter()
+                    .find(|p| p.square.is_some_and(|s| s.index() == square))
+                    .map_or_else(SharedString::default, |p| {
+                        format!(
+                            "{} {}",
+                            p.square.expect("candidate has its square"),
+                            display_score(p.score, ScorePrecision::Whole)
+                        )
+                        .into()
+                    })
+            })
+        })
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .rounded(px(8.))
+        .text_size(px(15.))
+        .bg(move || {
+            if best.get() {
+                rgba(0x43a5751a)
+            } else {
+                rgba(0)
+            }
+        })
+        .style_when(
+            move || ui.is_focus_visible(&focus_id),
+            |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+        )
+        .hover(|s| s.bg(rgba(0xffffff0d)))
+        .on_press(move || {
+            ui.focus(&format!("candidate-{square}"));
+            ui.action(Action::Cell(square));
+        })
+        .child(
+            text(
+                reversi_core::square::Square::from_u8(square as u8)
+                    .expect("candidate square")
+                    .to_string(),
+            )
+            .w_12()
+            .flex_shrink_0()
+            .font_family("Consolas")
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(move || {
+                if best.get() {
+                    color(ACCENT)
+                } else {
+                    rgba(0xffffffeb)
+                }
+            }),
+        )
+        .child(
+            text(move || {
+                ui.read(|app| {
+                    app.session
+                        .candidates()
+                        .iter()
+                        .find(|p| p.square.is_some_and(|s| s.index() == square))
+                        .map_or_else(String::new, |p| {
+                            display_score(p.score, ScorePrecision::Whole)
+                        })
+                })
+            })
+            .w(px(56.))
+            .flex_shrink_0()
+            .font_family("Consolas")
+            .text_right()
+            .text_color(move || {
+                if best.get() {
+                    color(ACCENT)
+                } else {
+                    rgba(0xffffff99)
+                }
+            }),
+        )
+        .child(
+            text(move || {
+                ui.read(|app| {
+                    app.session
+                        .candidates()
+                        .iter()
+                        .find(|p| p.square.is_some_and(|s| s.index() == square))
+                        .map_or_else(String::new, |p| format!("{}%", p.probability))
+                })
+            })
+            .w_10()
+            .flex_shrink_0()
+            .text_right()
+            .text_size(px(13.))
+            .line_height(nsh_core::LineHeight::Multiple(1.5))
+            .text_color(color(SECONDARY)),
+        )
+        .child(
+            text(move || {
+                ui.read(|app| {
+                    app.session
+                        .candidates()
+                        .iter()
+                        .find(|p| p.square.is_some_and(|s| s.index() == square))
+                        .map_or_else(String::new, |p| {
+                            let end =
+                                p.pv.match_indices(' ')
+                                    .nth(7)
+                                    .map_or(p.pv.len(), |(offset, _)| offset);
+                            p.pv[..end].to_owned()
+                        })
+                })
+            })
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .text_size(px(13.))
+            .line_height(nsh_core::LineHeight::Multiple(1.5))
+            .font_family("Consolas")
+            .text_color(color(SECONDARY)),
+        )
+}
+
+pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
+    let options = move |app: &super::ReversiApp| {
+        if draft {
+            app.draft.clone()
+        } else {
+            app.settings.clone()
+        }
+    };
+    let prefix = if draft { "draft" } else { "solver" };
+    view()
+        .flex_row()
         .flex_wrap()
         .gap_6()
         .child(
-            div()
-                .flex()
+            view()
                 .flex_col()
                 .gap_2()
                 .child(
-                    div()
+                    text(move || tr!("selectivity"))
                         .text_size(px(12.))
-                        .line_height(relative(1.5))
+                        .line_height(nsh_core::LineHeight::Multiple(1.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(rgb(SECONDARY))
-                        .child(tr!("selectivity")),
+                        .text_color(color(SECONDARY)),
                 )
-                .child(div().flex().flex_wrap().gap_3().children(
+                .child(radio_group().flex_row().flex_wrap().gap_3().children(
                     Level::ENDGAME_SELECTIVITY.into_iter().enumerate().map(
-                        |(index, selectivity)| {
-                            radio(
-                                ("selectivity", index),
-                                format!("{}%", selectivity.probability()),
-                                options.solver_selectivity == index,
-                                Action::Selectivity(index),
-                                cx,
-                            )
+                        move |(index, selectivity)| {
+                            let id = format!("{prefix}-selectivity-{index}");
+                            let focus_id = id.clone();
+                            let focus = focusable(
+                                ui,
+                                &id,
+                                || true,
+                                move || ui.action(Action::Selectivity(index)),
+                            );
+                            let selected =
+                                move || ui.read(|app| options(app).solver_selectivity == index);
+                            radio()
+                                .element_ref(&focus)
+                                .checked(selected)
+                                .style_when(
+                                    move || ui.is_focus_visible(&focus_id),
+                                    |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+                                )
+                                .on_change(move |_: &bool| {
+                                    ui.focus(&id);
+                                    ui.action(Action::Selectivity(index));
+                                })
+                                .flex_row()
+                                .items_center()
+                                .gap(px(6.))
+                                .text_size(px(12.))
+                                .line_height(nsh_core::LineHeight::Multiple(1.4285714))
+                                .text_color(rgba(0xffffffeb))
+                                .child(radio_dot(selected))
+                                .child(text(format!("{}%", selectivity.probability())))
                         },
                     ),
                 )),
         )
         .child(
-            div()
-                .flex()
+            view()
                 .flex_col()
                 .gap_2()
                 .child(
-                    div()
+                    text(move || tr!("mode"))
                         .text_size(px(12.))
-                        .line_height(relative(1.5))
+                        .line_height(nsh_core::LineHeight::Multiple(1.5))
                         .font_weight(FontWeight::MEDIUM)
-                        .text_color(rgb(SECONDARY))
-                        .child(tr!("mode")),
+                        .text_color(color(SECONDARY)),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap_3()
-                        .child(radio(
-                            "best-only",
-                            tr!("best_move_only"),
-                            !options.solver_multi_pv,
-                            Action::MultiPv(false),
-                            cx,
-                        ))
-                        .child(radio(
-                            "multi-pv",
-                            tr!("all_moves"),
-                            options.solver_multi_pv,
-                            Action::MultiPv(true),
-                            cx,
-                        )),
-                ),
+                .child(radio_group().flex_row().flex_wrap().gap_3().children(
+                    [false, true].into_iter().map(move |multi| {
+                        let id = format!("{prefix}-multi-{multi}");
+                        let focus_id = id.clone();
+                        let focus =
+                            focusable(ui, &id, || true, move || ui.action(Action::MultiPv(multi)));
+                        let selected = move || ui.read(|app| options(app).solver_multi_pv == multi);
+                        radio()
+                            .element_ref(&focus)
+                            .checked(selected)
+                            .style_when(
+                                move || ui.is_focus_visible(&focus_id),
+                                |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+                            )
+                            .on_change(move |_: &bool| {
+                                ui.focus(&id);
+                                ui.action(Action::MultiPv(multi));
+                            })
+                            .flex_row()
+                            .items_center()
+                            .gap(px(6.))
+                            .text_size(px(12.))
+                            .line_height(nsh_core::LineHeight::Multiple(1.4285714))
+                            .text_color(rgba(0xffffffeb))
+                            .child(radio_dot(selected))
+                            .child(text(move || {
+                                if multi {
+                                    tr!("all_moves")
+                                } else {
+                                    tr!("best_move_only")
+                                }
+                            }))
+                    }),
+                )),
         )
 }
 
-fn radio(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    selected: bool,
-    action: Action,
-    cx: &Context<ReversiApp>,
-) -> Stateful<Div> {
-    let label = label.into();
-    let (index, count) = match action {
-        Action::Selectivity(index) => (index, ENDGAME_STEPS),
-        Action::MultiPv(value) => (usize::from(value), 2),
-        _ => (0, 1),
-    };
-    interactive(div().id(id), label.clone(), true)
-        .role(Role::RadioButton)
-        .aria_toggled(selected.into())
-        .on_key_down(arrow_keys(
-            index,
-            count,
-            move |_, neighbor| match action {
-                Action::MultiPv(value) => Action::MultiPv(!value),
-                _ => Action::Selectivity(neighbor),
-            },
-            cx,
-        ))
-        .flex()
+fn radio_dot(selected: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
+    view()
+        .size_4()
+        .flex_shrink_0()
+        .rounded_full()
+        .border_1()
+        .border_color(move || {
+            if selected() {
+                color(ACCENT)
+            } else {
+                rgba(0xffffff0f)
+            }
+        })
+        .bg(move || if selected() { color(ACCENT) } else { rgba(0) })
         .items_center()
-        .gap(px(6.))
-        .text_size(px(12.))
-        .line_height(relative(1.4285714))
-        .text_color(rgba(0xffffffeb))
-        .cursor_pointer()
-        .on_click(cx.listener(move |this, _, window, cx| this.action(action, window, cx)))
-        .child(
-            div()
-                .size_4()
-                .flex_shrink_0()
-                .rounded_full()
-                .border_1()
-                .border_color(if selected {
-                    rgb(ACCENT)
-                } else {
-                    rgba(0xffffff0f)
-                })
-                .when(selected, |radio| radio.bg(rgb(ACCENT)))
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(selected, |radio| {
-                    radio.child(div().size_2().rounded_full().bg(rgb(0xffffff)))
-                }),
+        .justify_center()
+        .child(when(selected, || {
+            view().size_2().rounded_full().bg(color(0xffffff))
+        }))
+}
+
+fn pause_button(ui: Ui, searching: Memo<bool>) -> impl IntoElement {
+    let focus = focusable(
+        ui,
+        "solver-pause",
+        || true,
+        move || ui.action(Action::Pause),
+    );
+    nsh_base::button()
+        .element_ref(&focus)
+        .accessibility_label(move || {
+            if searching.get() {
+                tr!("stop")
+            } else {
+                tr!("resume")
+            }
+        })
+        .h_7()
+        .px_2()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_1()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(move || {
+            if searching.get() {
+                rgba(0)
+            } else {
+                rgba(0xffffff0f)
+            }
+        })
+        .bg(move || {
+            if searching.get() {
+                rgba(0xc45c5c33)
+            } else {
+                color(BACKGROUND)
+            }
+        })
+        .text_size(px(12.8))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(move || {
+            if searching.get() {
+                color(RED)
+            } else {
+                rgba(0xffffff99)
+            }
+        })
+        .style_when(
+            move || ui.is_focus_visible("solver-pause"),
+            |s| s.border_color(color(ACCENT)),
         )
-        .child(label)
+        .hover(|s| s.bg(rgba(0xc45c5c4d)))
+        .on_press(move || {
+            ui.focus("solver-pause");
+            ui.action(Action::Pause);
+        })
+        .child(
+            when(move || searching.get(), || icon("square.svg", 14., RED))
+                .otherwise(|| icon("play.svg", 14., SECONDARY)),
+        )
+        .child(text(move || {
+            if searching.get() {
+                tr!("stop")
+            } else {
+                tr!("resume")
+            }
+        }))
+}
+
+pub(super) fn focused_key(ui: Ui, key: &str) -> bool {
+    let forward = match key {
+        "right" | "down" => true,
+        "left" | "up" => false,
+        _ => return false,
+    };
+    for prefix in ["solver", "draft"] {
+        for index in 0..ENDGAME_STEPS {
+            if ui.is_focused(&format!("{prefix}-selectivity-{index}")) {
+                let next = if forward {
+                    (index + 1).min(ENDGAME_STEPS - 1)
+                } else {
+                    index.saturating_sub(1)
+                };
+                ui.action(Action::Selectivity(next));
+                ui.focus(&format!("{prefix}-selectivity-{next}"));
+                return true;
+            }
+        }
+        for multi in [false, true] {
+            if ui.is_focused(&format!("{prefix}-multi-{multi}")) {
+                let next = forward;
+                ui.action(Action::MultiPv(next));
+                ui.focus(&format!("{prefix}-multi-{next}"));
+                return true;
+            }
+        }
+    }
+    false
 }
