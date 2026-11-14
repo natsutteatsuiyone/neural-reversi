@@ -184,15 +184,14 @@ impl Session {
         &self.analyses
     }
 
-    /// The cursor one step back; the solver also steps over an automatic pass.
+    /// Returns the cursor one move back, stepping over an automatic pass.
     pub fn previous_cursor(&self) -> usize {
         let mut cursor = self.game.cursor.saturating_sub(1);
-        if self.is_solving()
-            && self
-                .game
-                .history
-                .get(cursor)
-                .is_some_and(|m| m.square.is_none())
+        if self
+            .game
+            .history
+            .get(cursor)
+            .is_some_and(|m| m.square.is_none())
         {
             cursor = cursor.saturating_sub(1);
         }
@@ -512,13 +511,12 @@ impl Session {
             return;
         }
         self.cancel(settings);
-        // Solver breadcrumbs collapse an automatic pass into the preceding move.
-        let cursor = if solving
-            && self
-                .game
-                .history
-                .get(cursor)
-                .is_some_and(|record| record.square.is_none())
+        // An automatic pass belongs to the preceding move.
+        let cursor = if self
+            .game
+            .history
+            .get(cursor)
+            .is_some_and(|record| record.square.is_none())
         {
             cursor + 1
         } else {
@@ -653,6 +651,53 @@ mod tests {
             assert!(Instant::now() < deadline, "session did not settle");
             session.tick(settings, Instant::now() + Duration::from_secs(2));
             thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn live_history_skips_forced_pass_and_resumes_play() {
+        for game_mode in [GameMode::Human, GameMode::AiWhite, GameMode::AiBlack] {
+            let mut settings = Settings {
+                game_mode: GameMode::Human,
+                timed: false,
+                hints: false,
+                ai_level: 1,
+                hash_size: 16,
+                ..Settings::default()
+            };
+            let mut session = Session::new(&settings);
+            run_until(&mut session, &settings, Session::is_ready);
+            let initial = Position::from_board_string(
+                "XO------\n--------\n--------\n--------\n--------\n--------\n--------\nXO------",
+                PlayerColor::Black,
+            )
+            .unwrap();
+            session.game = Game::new(initial);
+            session.game.play(Square::C1, None, None).unwrap();
+            settings.game_mode = game_mode;
+
+            session.navigate(1, &settings);
+            assert_eq!(session.game.cursor, 2);
+            assert_eq!(session.game.position().turn, PlayerColor::Black);
+            assert!(session.game.position().board.is_legal_move(Square::C8));
+            assert!(session.is_paused());
+            session.navigate(session.previous_cursor(), &settings);
+            assert_eq!(session.game.cursor, 0);
+            session.navigate(session.game.cursor + 1, &settings);
+            assert_eq!(session.game.cursor, 2);
+
+            if game_mode == GameMode::AiBlack {
+                session.toggle_pause(&settings);
+                run_until(&mut session, &settings, |s| s.activity().is_none());
+            } else {
+                session.play_move(Square::C8, &settings);
+            }
+            assert_eq!(session.game.cursor, 3);
+            assert_eq!(session.game.history[1].square, None);
+            assert_eq!(session.game.history[2].square, Some(Square::C8));
+            assert_eq!(session.game.history[2].player, PlayerColor::Black);
+            assert!(session.game.position().game_over());
+            assert!(!session.take_updates().contains(&Update::NoMove));
         }
     }
 

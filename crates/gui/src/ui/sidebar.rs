@@ -335,7 +335,7 @@ impl ReversiApp {
                                 "undo",
                                 "chevron-left.svg",
                                 "",
-                                Action::Navigate(game.cursor.saturating_sub(1)),
+                                Action::Navigate(self.session.previous_cursor()),
                                 can_back,
                                 cx,
                             ))
