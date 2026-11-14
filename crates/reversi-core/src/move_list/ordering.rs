@@ -88,7 +88,7 @@ impl MoveList {
         self.evaluate_moves_by_search::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
     }
 
-    /// Evaluates moves via shallow search, with an endgame-only mobility penalty.
+    /// Assigns ordering values using shallow search and mobility heuristics.
     fn evaluate_moves_by_search<NT: NodeType, SS: SearchStrategy>(
         &mut self,
         ctx: &mut SearchContext,

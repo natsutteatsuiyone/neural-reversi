@@ -57,7 +57,7 @@ pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
 
 /// A position evaluator backed by dual neural networks.
 pub struct Eval {
-    /// Main neural network for early and midgame evaluation.
+    /// Main neural network for evaluation at any game phase.
     network: Network,
     /// Small network optimized for endgame evaluation.
     network_sm: NetworkSmall,
