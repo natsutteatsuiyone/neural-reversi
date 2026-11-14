@@ -372,8 +372,10 @@ fn main() {
             fit_probcut::execute(&input).expect("Failed to execute fit-probcut");
         }
         SubCommands::FitEndgameProbcut { input, validate } => {
-            fit_endgame_probcut::execute(&input, validate.as_deref())
-                .expect("Failed to execute fit-endgame-probcut");
+            if let Err(error) = fit_endgame_probcut::execute(&input, validate.as_deref()) {
+                eprintln!("Failed to execute fit-endgame-probcut: {error}");
+                std::process::exit(1);
+            }
         }
         SubCommands::Shuffle {
             input_dir,

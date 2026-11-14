@@ -64,16 +64,29 @@ pub fn execute(input: &str, validate: Option<&str>) -> io::Result<()> {
         holdout_rows.len()
     );
 
-    let model = fit_verify(&fit_rows);
-    let screen: [f64; 2] = std::array::from_fn(|cut_node| {
+    if fit_rows.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "no samples in the fitting folds",
+        ));
+    }
+    let mut screen = [0.0; 2];
+    for (cut_node, margin) in screen.iter_mut().enumerate() {
         let mut gaps: Vec<f64> = fit_rows
             .iter()
             .filter(|r| usize::from(r.cut_node) == cut_node)
             .map(|r| r.score - r.eval)
             .collect();
+        if gaps.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("no samples with cut_node={cut_node} in the fitting folds"),
+            ));
+        }
         gaps.sort_by(f64::total_cmp);
-        gaps[((1.0 - SCREEN_RATES[cut_node]) * gaps.len() as f64) as usize]
-    });
+        *margin = gaps[((1.0 - SCREEN_RATES[cut_node]) * gaps.len() as f64) as usize];
+    }
+    let model = fit_verify(&fit_rows)?;
 
     if !holdout_rows.is_empty() {
         eprintln!("\n=== decisions replayed on the held-out games ===");
@@ -136,21 +149,37 @@ fn read_rows(input: &str) -> io::Result<Vec<Row>> {
     Ok(rows)
 }
 
-fn fit_verify(rows: &[&Row]) -> VerifyModel {
+fn fit_verify(rows: &[&Row]) -> io::Result<VerifyModel> {
     let rows: Vec<&Row> = rows
         .iter()
         .copied()
         .filter(|r| (0.0..=VERIFY_FIT_T_MAX).contains(&(r.score - r.beta)))
         .collect();
+    if rows.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("no fitting samples with 0 <= score - beta <= {VERIFY_FIT_T_MAX}"),
+        ));
+    }
     let mean = weighted_least_squares(rows.iter().map(|r| (r.features(), r.exact - r.score, 1.0)))
-        .expect("singular mean fit");
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "singular mean fit: insufficient independent fitting samples",
+            )
+        })?;
     let ln_sigma = weighted_least_squares(rows.iter().filter_map(|r| {
         let x = r.features();
         let residual = r.exact - r.score - dot(&mean, &x);
         (residual < 0.0).then(|| (x, (-residual).max(MIN_RESIDUAL).ln(), 1.0))
     }))
-    .expect("singular scale fit");
-    VerifyModel { mean, ln_sigma }
+    .ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "singular scale fit: insufficient independent negative-residual samples",
+        )
+    })?;
+    Ok(VerifyModel { mean, ln_sigma })
 }
 
 fn dot<const N: usize>(a: &[f64; N], b: &[f64; N]) -> f64 {
@@ -199,4 +228,106 @@ fn emit(model: &VerifyModel, screen: &[f64; 2]) {
 fn coefficients(values: &[f64]) -> String {
     let values: Vec<_> = values.iter().map(|v| format!("{v:.10}")).collect();
     format!("[{}]", values.join(", "))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn execute_rejects_missing_samples_in_fitting_folds() {
+        let fit_game = (0..).find(|&game| game_fold(game) != HOLDOUT_FOLD).unwrap();
+        let held_game = (0..).find(|&game| game_fold(game) == HOLDOUT_FOLD).unwrap();
+        let line = |game, cut_node| format!("{game},20,0,0,-1,0,1,{cut_node},0,0\n");
+        for (index, (data, message)) in [
+            (String::new(), "no samples in the fitting folds"),
+            (line(held_game, 0), "no samples in the fitting folds"),
+            (line(fit_game, 0), "no samples with cut_node=1"),
+            (line(fit_game, 1), "no samples with cut_node=0"),
+            (
+                line(fit_game, 0) + &line(held_game, 1),
+                "no samples with cut_node=1",
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-endgame-fit-{}-{index}.csv",
+                std::process::id()
+            ));
+            fs::write(
+                &path,
+                format!(
+                    "# main_weights={EVAL_FILE_NAME}\n{}\n{data}",
+                    trace_header()
+                ),
+            )
+            .unwrap();
+            let result = execute(path.to_str().unwrap(), None);
+            fs::remove_file(path).unwrap();
+            let error = result.unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(error.to_string().contains(message), "{error}");
+        }
+    }
+
+    fn fitting_rows() -> Vec<Row> {
+        let mut rows = Vec::new();
+        for empties in [14, 15, 18, 19] {
+            for beta in [-16.0, 0.0, 16.0] {
+                for gap in [-8.0, 0.0, 8.0] {
+                    for cut_node in [false, true] {
+                        for residual in [-1.0, 1.0] {
+                            rows.push(Row {
+                                game: 0,
+                                empties,
+                                eval: beta + gap,
+                                score: beta,
+                                exact: beta + residual,
+                                beta,
+                                cut_node,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        rows
+    }
+
+    #[test]
+    fn fit_verify_recovers_balanced_unit_residuals() {
+        let rows = fitting_rows();
+        let model = fit_verify(&rows.iter().collect::<Vec<_>>()).unwrap();
+        for coefficient in model.mean.iter().chain(&model.ln_sigma) {
+            assert!(coefficient.abs() < 1e-10, "{coefficient}");
+        }
+    }
+
+    #[test]
+    fn fit_verify_rejects_singular_and_filtered_samples() {
+        let mut rows = fitting_rows();
+        let error = fit_verify(&rows[..2].iter().collect::<Vec<_>>())
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("singular mean fit"));
+
+        for row in &mut rows {
+            row.exact = row.score;
+        }
+        let error = fit_verify(&rows.iter().collect::<Vec<_>>()).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("singular scale fit"));
+
+        for row in &mut rows {
+            row.score = row.beta - 1.0;
+        }
+        let error = fit_verify(&rows.iter().collect::<Vec<_>>()).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("no fitting samples with"));
+    }
 }
