@@ -107,7 +107,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
     }
 
     let n_empties = ctx.empty_list.count();
-    if n_empties == 60 && !multi_pv {
+    if board == Board::new() && !multi_pv {
         // Handle opening position with random move
         let mv = random_move(&board);
         return SearchResult {
@@ -627,6 +627,50 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
 mod tests {
     use super::node_type::NonPV;
     use super::*;
+
+    #[test]
+    fn random_opening_requires_the_initial_board_and_single_pv() {
+        let mut search = Search::new(
+            Rc::new(TranspositionTable::new(1)),
+            Rc::new(Eval::new().unwrap()),
+        );
+        let level = Level {
+            mid_depth: 2,
+            end_depth: 0,
+            perfect_depth: 0,
+        };
+        let initial = Board::new();
+        let other = Board::from_bitboards((1u64 << 27) | (1u64 << 28), (1u64 << 35) | (1u64 << 36));
+
+        let result = search.run(&initial, level, Selectivity::None, None, false);
+        assert_eq!(result.n_nodes, 0);
+        assert!(
+            initial
+                .legal_moves()
+                .iter()
+                .any(|sq| Some(sq) == result.best_move)
+        );
+
+        let result = search.run(&other, level, Selectivity::None, None, false);
+        assert!(
+            result.n_nodes > 0,
+            "noninitial four-disc board skipped search: {} nodes",
+            result.n_nodes
+        );
+        assert!(
+            other
+                .legal_moves()
+                .iter()
+                .any(|sq| Some(sq) == result.best_move)
+        );
+
+        let result = search.run(&initial, level, Selectivity::None, None, true);
+        assert!(result.n_nodes > 0);
+        assert_eq!(
+            result.multi_pv_scores.len(),
+            initial.legal_moves().iter().count()
+        );
+    }
 
     #[test]
     fn depth3_only_cuts_with_nonselective_tt_entries() {
