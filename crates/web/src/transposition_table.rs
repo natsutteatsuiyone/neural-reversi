@@ -281,8 +281,8 @@ impl TranspositionTable {
     ///
     /// Exact bounds always replace. A different key also replaces, since the
     /// caller already chose this slot as the cluster victim. For the same key,
-    /// non-exact results replace when depth regression is at most two plies,
-    /// selectivity is higher, or generation changed. If `best_move` is
+    /// non-exact results replace when depth regression is at most two plies
+    /// (four with higher selectivity), or generation changed. If `best_move` is
     /// [`None`], the existing move is preserved for same-key non-exact updates.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
@@ -309,7 +309,8 @@ impl TranspositionTable {
             true
         } else {
             (depth as i8) >= (existing.depth as i8).saturating_sub(2)
-                || (selectivity as u8) > existing.selectivity as u8
+                || (selectivity > existing.selectivity
+                    && (depth as i8) >= (existing.depth as i8).saturating_sub(4))
                 || generation != existing.generation
         };
 
@@ -586,6 +587,57 @@ mod tests {
         let data = tt.lookup(key).unwrap();
         assert_eq!(data.score, Score::from_raw(100));
         assert_eq!(data.depth, 15);
+    }
+
+    #[test]
+    fn test_selectivity_limits_depth_regression() {
+        let key = 0x123456789ABCDEF0;
+        for (depth, selectivity, should_replace) in [
+            (10, Selectivity::None, false),
+            (11, Selectivity::None, true),
+            (12, Selectivity::None, true),
+            (11, Selectivity::Level2, false),
+            (12, Selectivity::Level2, false),
+            (11, Selectivity::Level1, false),
+            (12, Selectivity::Level1, false),
+            (13, Selectivity::Level1, true),
+        ] {
+            let tt = TranspositionTable::new(1);
+            tt.store(
+                tt.probe(key).slot(),
+                key,
+                Score::from_raw(100),
+                Bound::Lower,
+                15,
+                Some(Square::D3),
+                Selectivity::Level2,
+                false,
+            );
+            tt.store(
+                tt.probe(key).slot(),
+                key,
+                Score::from_raw(50),
+                Bound::Upper,
+                depth,
+                None,
+                selectivity,
+                false,
+            );
+
+            let data = tt.lookup(key).unwrap();
+            if should_replace {
+                assert_eq!(data.depth, depth);
+                assert_eq!(data.score, Score::from_raw(50));
+                assert_eq!(data.bound, Bound::Upper);
+                assert_eq!(data.selectivity, selectivity);
+            } else {
+                assert_eq!(data.depth, 15);
+                assert_eq!(data.score, Score::from_raw(100));
+                assert_eq!(data.bound, Bound::Lower);
+                assert_eq!(data.selectivity, Selectivity::Level2);
+            }
+            assert_eq!(data.best_move, Some(Square::D3));
+        }
     }
 
     #[test]
