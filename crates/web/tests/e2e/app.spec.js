@@ -606,6 +606,46 @@ async function clickSquare(page, index) {
   await page.mouse.click(x, y);
 }
 
+test("recovers from a rejected move without logging it and accepts a retry", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    window.__rejectedMoves = 0;
+    window.Worker = class extends NativeWorker {
+      postMessage(message) {
+        // Force one illegal request through the real worker and WASM engine.
+        if (message.type === "human_move" && window.__rejectedMoves === 0) {
+          window.__rejectedMoves += 1;
+          super.postMessage({ ...message, payload: { index: 0 } });
+          return;
+        }
+        super.postMessage(message);
+      }
+    };
+  });
+  await waitForAppReady(page);
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.locator('input[type="range"]').fill("1");
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expectPlayable(page, 19);
+  await clickSquare(page, 19);
+  await expect.poll(() => page.evaluate(() => window.__rejectedMoves)).toBe(1);
+  await expectPlayable(page, 19);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(0);
+  await expect(page.locator("#empty-count")).toHaveText("60");
+  await expect(page.locator("#score-black")).toHaveText("2");
+  await expect(page.locator("#score-white")).toHaveText("2");
+  await expect(page.locator(".toast")).toHaveCount(0);
+
+  await clickSquare(page, 19);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(2);
+  await expect(page.locator("#move-log-scroll li").first()).toContainText("d3");
+  await expect(page.locator("#empty-count")).toHaveText("58");
+  await page.locator("#undo-button").click();
+  await expectPlayable(page, 19);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(0);
+  await expect(page.locator("#empty-count")).toHaveText("60");
+});
+
 test("ignores board clicks until the worker answers the last request", async ({ page }) => {
   await installFakeWorker(page);
   await waitForAppReady(page);
@@ -623,13 +663,18 @@ test("ignores board clicks until the worker answers the last request", async ({ 
   await clickSquare(page, 19);
   await clickSquare(page, 26);
   expect(await humanMoves()).toBe(1);
-  await expect(moveLog).toHaveCount(1);
+  await expect(moveLog).toHaveCount(0);
 
   await page.evaluate((gen) => {
     const worker = window.__fakeWorkers[0];
-    worker.emit({ type: "state_updated", payload: window.__aiMovedGameState, generation: gen });
+    worker.emit({
+      type: "state_updated",
+      payload: { ...window.__aiMovedGameState, humanMove: 19 },
+      generation: gen,
+    });
   }, generation);
   await expectPlayable(page, 18);
+  await expect(moveLog).toHaveCount(1);
   await page.locator("#undo-button").click();
   await expect(moveLog).toHaveCount(0);
 

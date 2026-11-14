@@ -292,6 +292,11 @@ worker.onmessage = async (event) => {
       break;
     case "state_updated":
       clearHints();
+      if (Number.isInteger(payload.humanMove)) {
+        state.lastHumanMove = payload.humanMove;
+        state.lastAiMove = null;
+        logMove(state.humanColor, payload.humanMove);
+      }
       syncStateFromGame(payload);
       if (payload?.aiPassed) {
         void showPassToast("ai");
@@ -517,9 +522,6 @@ async function handleCellClick(index) {
   // Aborts an in-flight hint search so the move applies immediately.
   clearHints();
   lockBoardUntilSync();
-  state.lastHumanMove = index;
-  state.lastAiMove = null;
-  logMove(state.humanColor, index);
   workerApi.humanMove(index);
 }
 

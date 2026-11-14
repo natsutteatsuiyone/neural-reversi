@@ -59,17 +59,17 @@ self.onmessage = async (event) => {
   switch (type) {
     case "human_move": {
       const moved = game.human_move(payload.index);
-      if (moved) {
-        const gameState = getGameState();
-        self.postMessage({
-          type: "state_updated",
-          payload: {
-            ...gameState,
-            aiPassed: !gameState.isGameOver && gameState.currentPlayer === gameState.humanColor,
-          },
-          generation: currentGeneration,
-        });
-      }
+      const gameState = getGameState();
+      self.postMessage({
+        type: "state_updated",
+        payload: {
+          ...gameState,
+          humanMove: moved ? payload.index : null,
+          aiPassed:
+            moved && !gameState.isGameOver && gameState.currentPlayer === gameState.humanColor,
+        },
+        generation: currentGeneration,
+      });
       break;
     }
     case "ai_move": {
