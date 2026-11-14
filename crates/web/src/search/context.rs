@@ -8,12 +8,14 @@ use reversi_core::{
     empty_list::EmptyList,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
     score::Score,
-    search::{root_move::RootMove, side_to_move::SideToMove},
+    search::side_to_move::SideToMove,
     square::Square,
     types::Depth,
 };
 
 use crate::transposition_table::TranspositionTable;
+
+use super::root_move::RootMove;
 
 use crate::{eval::Eval, move_list::MoveList, probcut::Selectivity};
 use wasm_bindgen::JsValue;

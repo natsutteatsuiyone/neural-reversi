@@ -3,17 +3,12 @@
 //! Node-level alpha-beta search used by both the midgame and endgame phases,
 //! specialized at compile time by [`NodeType`] and [`SearchStrategy`].
 
-use reversi_core::{
-    board::Board,
-    score::Score,
-    search::node_type::{NodeType, NonPV, PV},
-    stability,
-    types::Depth,
-};
+use reversi_core::{board::Board, score::Score, stability, types::Depth};
 
 use crate::move_list::MoveList;
 use crate::transposition_table::{Bound, TTSlot};
 
+use super::node_type::{NodeType, NonPV, PV};
 use super::{context::SearchContext, endgame, strategy::SearchStrategy};
 
 /// Depth threshold for switching from midgame to endgame search.

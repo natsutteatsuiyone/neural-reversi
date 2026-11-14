@@ -5,8 +5,10 @@
 
 pub mod context;
 mod endgame;
+pub(crate) mod node_type;
 mod pvs;
 pub mod result;
+mod root_move;
 pub(crate) mod strategy;
 mod task;
 
@@ -22,11 +24,12 @@ use reversi_core::{
     board::Board,
     flip,
     score::{DiscScore, Score},
-    search::node_type::{NodeType, PV, Root},
     square::Square,
 };
 
 use crate::transposition_table::{Bound, TranspositionTable};
+
+use self::node_type::{NodeType, PV, Root};
 
 use crate::{
     eval::Eval,

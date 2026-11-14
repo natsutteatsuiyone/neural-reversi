@@ -1,7 +1,8 @@
-use reversi_core::{board::Board, score::Score, search::node_type::NonPV, types::Depth};
+use reversi_core::{board::Board, score::Score, types::Depth};
 
 use crate::probcut as web_probcut;
 
+use super::node_type::NonPV;
 use super::{context::SearchContext, endgame};
 
 /// Marker trait for search strategy specialization.

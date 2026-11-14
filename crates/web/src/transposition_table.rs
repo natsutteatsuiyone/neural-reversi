@@ -6,9 +6,10 @@
 
 use std::cell::Cell;
 
-use reversi_core::{score::Score, search::node_type::NodeType, square::Square, types::Depth};
+use reversi_core::{score::Score, square::Square, types::Depth};
 
 use crate::probcut::Selectivity;
+use crate::search::node_type::NodeType;
 
 /// Number of entries per cluster.
 const CLUSTER_SIZE: usize = 2;

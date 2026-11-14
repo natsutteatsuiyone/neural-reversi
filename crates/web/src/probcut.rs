@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
-use reversi_core::{board::Board, score::Score, search::node_type::NonPV, types::Depth};
+use reversi_core::{board::Board, score::Score, types::Depth};
 
-use crate::search::{self, context::SearchContext, strategy::MidGameStrategy};
+use crate::search::{self, context::SearchContext, node_type::NonPV, strategy::MidGameStrategy};
 
 /// ProbCut selectivity level, ordered from most aggressive to disabled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
