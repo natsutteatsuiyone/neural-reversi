@@ -150,7 +150,7 @@ impl SearchStrategy for EndGameStrategy {
             None
         };
 
-        let nodes_before = ctx.counters.n_nodes;
+        let nodes_before = ctx.n_nodes;
         let caches = thread.endgame_caches();
         let n_empties = ctx.empty_list.count();
         let score_d = if n_empties > endgame::DEPTH_TO_SHALLOW_SEARCH {
@@ -202,7 +202,7 @@ impl SearchStrategy for EndGameStrategy {
         let score = Score::from_disc_diff(score_d);
 
         if let Some(tt_index) = tt_slot
-            && ctx.counters.n_nodes - nodes_before >= BOUNDARY_STORE_MIN_SUBTREE_NODES
+            && ctx.n_nodes - nodes_before >= BOUNDARY_STORE_MIN_SUBTREE_NODES
             && !thread.should_stop()
         {
             ctx.tt.store(

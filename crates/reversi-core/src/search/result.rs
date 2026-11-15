@@ -136,7 +136,7 @@ impl CompletedState {
                 it.depth,
                 it.selectivity,
                 it.is_endgame,
-                ctx.counters.clone(),
+                ctx.counters(),
             ),
             None => tt_move(board, ctx.tt).unwrap_or_else(|| quick_move(board, ctx.eval)),
         }

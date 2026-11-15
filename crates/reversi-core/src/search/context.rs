@@ -10,7 +10,7 @@ use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use crate::probcut::Selectivity;
 use crate::score::Score;
 use crate::search::correction_history::CorrectionHistory;
-use crate::search::counters::SearchCounters;
+use crate::search::counters::{SearchCounters, SearchStats};
 use crate::search::midgame::Helper;
 use crate::search::root_move::RootMoves;
 use crate::search::side_to_move::SideToMove;
@@ -20,17 +20,18 @@ use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 
 /// The search context that maintains all state during search operations.
-// The field order is the layout: `counters`, `tt`, `eval` and the empty
-// list's count share the cache line after `pattern_features`. The order rustc
-// picked on its own moved them apart and made ST hard-20 1.5% slower.
+// The field order is the layout: `n_nodes`, `tt`, `eval`, the three scalars
+// after it and the empty list's count share the cache line after
+// `pattern_features`. The order rustc picked on its own moved them apart and
+// made ST hard-20 1.5% slower.
 #[repr(C)]
 pub struct SearchContext<'a> {
     /// Pattern features for efficient neural network input
     pub pattern_features: PatternFeatures,
     /// Container for root moves and Multi-PV state
     pub root_moves: &'a RootMoves,
-    /// Diagnostic counters for search statistics.
-    pub counters: SearchCounters,
+    /// Number of nodes visited by this context.
+    pub n_nodes: u64,
     /// Lazy SMP helper thread searching with this context; `None` for the
     /// main thread's search and for split points.
     pub(in crate::search) helper: Option<Helper>,
@@ -41,16 +42,19 @@ pub struct SearchContext<'a> {
     pub tt: &'a TranspositionTable,
     /// Neural network evaluator for position assessment
     pub eval: &'a Eval,
-    /// List of empty squares on the board, optimized for quick access
-    pub empty_list: EmptyList,
-    /// Search stack for maintaining PV and search state at each ply
-    pub stack: SearchStack,
     /// Selectivity level
     pub selectivity: Selectivity,
     /// Current side to move
     pub side_to_move: SideToMove,
     /// Current evaluation mode (midgame vs endgame).
     pub eval_mode: EvalMode,
+    /// List of empty squares on the board, optimized for quick access
+    pub empty_list: EmptyList,
+    /// Search stack for maintaining PV and search state at each ply
+    pub stack: SearchStack,
+    /// Diagnostic counters other than `n_nodes`; last so that the
+    /// `search-stats` feature leaves the offsets above unchanged.
+    pub(crate) stats: SearchStats,
 }
 
 impl<'a> SearchContext<'a> {
@@ -65,7 +69,7 @@ impl<'a> SearchContext<'a> {
         let empty_list = EmptyList::new(board);
         let ply = empty_list.ply();
         SearchContext {
-            counters: SearchCounters::default(),
+            n_nodes: 0,
             side_to_move: SideToMove::Player,
             selectivity,
             empty_list,
@@ -77,6 +81,7 @@ impl<'a> SearchContext<'a> {
             eval_mode: EvalMode::Main,
             helper: None,
             correction_history: None,
+            stats: SearchStats::default(),
         }
     }
 
@@ -96,7 +101,7 @@ impl<'a> SearchContext<'a> {
         // target types are `Sync`, and only shared references are formed.
         let (tt, eval, root_moves) = unsafe { (tt.as_ref(), eval.as_ref(), root_moves.as_ref()) };
         SearchContext {
-            counters: SearchCounters::default(),
+            n_nodes: 0,
             side_to_move: task.side_to_move,
             empty_list,
             selectivity: task.selectivity,
@@ -108,6 +113,7 @@ impl<'a> SearchContext<'a> {
             eval_mode: task.eval_mode,
             helper: None,
             correction_history: None,
+            stats: SearchStats::default(),
         }
     }
 
@@ -172,7 +178,18 @@ impl<'a> SearchContext<'a> {
     /// Increments the node counter for search statistics.
     #[inline(always)]
     pub fn increment_nodes(&mut self) {
-        self.counters.increment_nodes();
+        self.n_nodes += 1;
+    }
+
+    /// Returns a snapshot of the search counters.
+    pub fn counters(&self) -> SearchCounters {
+        self.stats.with_nodes(self.n_nodes)
+    }
+
+    /// Adds `other`, counted by another search, to this context's counters.
+    pub fn merge_counters(&mut self, other: &SearchCounters) {
+        self.n_nodes += other.n_nodes;
+        self.stats.merge(other);
     }
 
     /// Returns the current pattern feature for neural network evaluation.

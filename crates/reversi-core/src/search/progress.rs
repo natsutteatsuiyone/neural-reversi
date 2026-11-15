@@ -56,7 +56,7 @@ impl SearchProgress {
             nodes,
             pv_line: rm.pv.clone(),
             is_endgame,
-            counters: ctx.counters.clone(),
+            counters: ctx.counters(),
         }
     }
 

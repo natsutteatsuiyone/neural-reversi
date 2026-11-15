@@ -96,7 +96,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     if let Some(history) = ctx.correction_history.take() {
         task.corrections.put(thread.idx(), history);
     }
-    ctx.counters.merge(&helper_results.counters);
+    ctx.merge_counters(&helper_results.counters);
 
     match outcome {
         Outcome::Done(mut completed) => {
@@ -162,7 +162,7 @@ fn iterate(
             if let Some(ref callback) = task.callback
                 && let Some(rm) = ctx.root_moves.current_pv()
             {
-                let nodes = ctx.counters.n_nodes + helpers.nodes();
+                let nodes = ctx.n_nodes + helpers.nodes();
                 callback(SearchProgress::from_iteration(
                     ctx, &rm, depth, max_depth, score, nodes, false,
                 ));
@@ -207,7 +207,7 @@ fn iterate(
                 max_depth, n_empties,
                 "time-controlled midgame searches always target all empties"
             );
-            if tm.should_enter_endgame(ctx.counters.n_nodes + helpers.nodes()) {
+            if tm.should_enter_endgame(ctx.n_nodes + helpers.nodes()) {
                 return Outcome::Endgame(completed, best_score);
             }
             return Outcome::Done(completed);

@@ -193,8 +193,8 @@ impl HelperSearch {
             );
             self.report
                 .nodes
-                .fetch_add(ctx.counters.n_nodes - reported_nodes, Ordering::Relaxed);
-            reported_nodes = ctx.counters.n_nodes;
+                .fetch_add(ctx.n_nodes - reported_nodes, Ordering::Relaxed);
+            reported_nodes = ctx.n_nodes;
             if thread.is_search_aborted() {
                 break;
             }
@@ -206,7 +206,7 @@ impl HelperSearch {
         }
 
         let mut results = self.report.results.lock().unwrap();
-        results.counters.merge(&ctx.counters);
+        results.counters.merge(&ctx.counters());
         results.completed.extend(last);
     }
 }

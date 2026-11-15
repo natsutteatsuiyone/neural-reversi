@@ -204,7 +204,7 @@ pub(super) fn solve_root(
                     n_empties,
                     n_empties,
                     score,
-                    ctx.counters.n_nodes,
+                    ctx.n_nodes,
                     true,
                 ));
             }
@@ -385,7 +385,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
     }
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.increment_stability_cut();
+        ctx.stats.increment_stability_cut();
         return score;
     }
 
@@ -502,7 +502,7 @@ pub(super) fn shallow_search(
     }
 
     if let Some(score) = stability_cutoff(board, n_empties, alpha) {
-        ctx.counters.increment_stability_cut();
+        ctx.stats.increment_stability_cut();
         return score;
     }
 
@@ -643,7 +643,7 @@ fn shallow_search_move(
         if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
             -score
         } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
-            ctx.counters.increment_stability_cut();
+            ctx.stats.increment_stability_cut();
             -score
         } else {
             let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);

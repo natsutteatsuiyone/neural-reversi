@@ -62,7 +62,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
 
         if let Some(score) = stability_cutoff(board, n_empties, alpha.to_disc_diff()) {
-            ctx.counters.increment_stability_cut();
+            ctx.stats.increment_stability_cut();
             return Score::from_disc_diff(score);
         }
     }
@@ -111,7 +111,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Transposition table probe
     let tt_probe_result = ctx.tt.probe(board, tt_key);
-    ctx.counters.increment_tt_probe();
+    ctx.stats.increment_tt_probe();
     let tt_move = tt_probe_result.best_move();
     let tt_pv = NT::PV_NODE || tt_probe_result.data().is_some_and(|data| data.is_pv());
 
@@ -119,7 +119,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     if !NT::PV_NODE {
         if let Some(tt_data) = tt_probe_result.data() {
             if tt_data.can_cut(beta, depth, ctx.selectivity, SS::IS_ENDGAME) {
-                ctx.counters.increment_tt_hit();
+                ctx.stats.increment_tt_hit();
                 return tt_data.score();
             }
 
@@ -133,14 +133,14 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 && tt_data.depth() >= depth
                 && tt_data.selectivity() >= ctx.selectivity
             {
-                ctx.counters.increment_tt_penalize();
+                ctx.stats.increment_tt_penalize();
                 ctx.tt.penalize(tt_probe_result.slot(), board, tt_data);
             }
         }
 
         // Enhanced Transposition Cutoff
         if use_etc {
-            ctx.counters.increment_etc_attempt();
+            ctx.stats.increment_etc_attempt();
             if let Some(score) = enhanced_transposition_cutoff::<SS>(
                 ctx,
                 board,
@@ -150,7 +150,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 tt_probe_result.slot(),
                 tt_pv,
             ) {
-                ctx.counters.increment_etc_cut();
+                ctx.stats.increment_etc_cut();
                 return score;
             }
         }
@@ -164,16 +164,16 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // ProbCut
     if !NT::PV_NODE && depth >= SS::MIN_PROBCUT_DEPTH {
-        ctx.counters.increment_probcut_attempt();
+        ctx.stats.increment_probcut_attempt();
         if let Some(score) = SS::try_probcut(ctx, board, depth, beta, cut_node, static_eval, thread)
         {
-            ctx.counters.increment_probcut_cut();
+            ctx.stats.increment_probcut_cut();
             return score;
         }
     }
 
     if !SS::IS_ENDGAME && !NT::PV_NODE && ctx.selectivity.is_enabled() {
-        ctx.counters.increment_tt_probcut_attempt();
+        ctx.stats.increment_tt_probcut_attempt();
         let pc_beta = beta + TT_PROBCUT_MARGIN;
         if let Some(tt_data) = tt_probe_result.data()
             && matches!(tt_data.bound(), Bound::Lower | Bound::Exact)
@@ -181,7 +181,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             && tt_data.selectivity() >= ctx.selectivity
             && tt_data.score() >= pc_beta
         {
-            ctx.counters.increment_tt_probcut_cut();
+            ctx.stats.increment_tt_probcut_cut();
             return pc_beta;
         }
     }
@@ -294,7 +294,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             );
             best_score = s;
             best_move = m;
-            ctx.counters.merge(&c);
+            ctx.merge_counters(&c);
 
             if thread.should_stop() {
                 return Score::ZERO;

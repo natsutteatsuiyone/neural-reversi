@@ -571,7 +571,7 @@ impl Thread {
             let (board, depth, node_type) = (task.board, task.depth, task.node_type);
             let mut ctx = SearchContext::from_split_point(&sp);
             self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
-            ctx.counters
+            ctx.counters()
         };
 
         {

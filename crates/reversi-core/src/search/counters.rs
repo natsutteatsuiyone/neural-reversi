@@ -30,10 +30,39 @@ macro_rules! search_stats {
                     { self.$field += other.$field; }
                 )*
             }
+        }
 
-            #[inline(always)]
-            pub(crate) fn increment_nodes(&mut self) {
-                self.n_nodes += 1;
+        /// The counters of [`SearchCounters`] other than `n_nodes`.
+        ///
+        /// `SearchContext` keeps them apart from `n_nodes` so that enabling
+        /// `search-stats` does not move its hot fields.
+        #[derive(Debug, Clone, Default)]
+        pub(crate) struct SearchStats {
+            $(
+                #[cfg(feature = "search-stats")]
+                $field: u64,
+            )*
+        }
+
+        impl SearchStats {
+            /// Returns these counters together with `n_nodes`.
+            pub(crate) fn with_nodes(&self, n_nodes: u64) -> SearchCounters {
+                SearchCounters {
+                    n_nodes,
+                    $(
+                        #[cfg(feature = "search-stats")]
+                        $field: self.$field,
+                    )*
+                }
+            }
+
+            /// Adds the counters of `other` other than `n_nodes`.
+            #[cfg_attr(not(feature = "search-stats"), expect(unused_variables))]
+            pub(crate) fn merge(&mut self, other: &SearchCounters) {
+                $(
+                    #[cfg(feature = "search-stats")]
+                    { self.$field += other.$field; }
+                )*
             }
 
             $(
