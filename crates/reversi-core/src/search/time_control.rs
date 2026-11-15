@@ -1,5 +1,6 @@
 //! Time control management for timed games.
 
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
@@ -193,6 +194,181 @@ pub enum TimeControlMode {
         main_time_ms: u64,
         time_per_move_ms: u64,
     },
+}
+
+/// Match-level time control configuration parsed from GTP `time_settings`.
+///
+/// Unlike [`TimeControlMode`], [`Self::JapaneseByo`] retains the full overtime
+/// period budget and stone count so callers can track multi-stone periods and
+/// derive per-move budgets from `time_left` updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeSettings {
+    /// No time limit.
+    #[default]
+    Infinite,
+
+    /// Fixed time per move (`time_settings 0 N 0`).
+    Byoyomi {
+        /// Time allowed per move in milliseconds.
+        time_per_move_ms: u64,
+    },
+
+    /// Main time bank plus per-move increment (`time_settings M N 0` or sudden death `M 0 S`).
+    Fischer {
+        /// Initial main time bank in milliseconds.
+        main_time_ms: u64,
+        /// Time added after each move in milliseconds (`0` for sudden death).
+        increment_ms: u64,
+    },
+
+    /// Japanese or Canadian overtime (`time_settings M N S` with `N > 0` and `S > 0`).
+    JapaneseByo {
+        /// Initial main time bank in milliseconds (`0` starts directly in overtime).
+        main_time_ms: u64,
+        /// Time budget for each overtime period in milliseconds.
+        byoyomi_time_ms: u64,
+        /// Number of moves required per overtime period.
+        byoyomi_stones: NonZeroU32,
+    },
+}
+
+impl TimeSettings {
+    /// Classifies GTP `time_settings` parameters (in seconds and stones) into a [`TimeSettings`].
+    ///
+    /// Stone counts outside Japanese overtime (`byoyomi_time_secs == 0`) carry no
+    /// meaning in GTP and are discarded.
+    #[must_use]
+    pub const fn from_gtp_secs(
+        main_time_secs: u64,
+        byoyomi_time_secs: u64,
+        byoyomi_stones: u32,
+    ) -> Self {
+        let main_time_ms = main_time_secs.saturating_mul(1000);
+        let byoyomi_time_ms = byoyomi_time_secs.saturating_mul(1000);
+        match (
+            main_time_ms,
+            byoyomi_time_ms,
+            NonZeroU32::new(byoyomi_stones),
+        ) {
+            (0, 0, _) => Self::Infinite,
+            (0, byoyomi_time_ms, None) => Self::Byoyomi {
+                time_per_move_ms: byoyomi_time_ms,
+            },
+            (main_time_ms, byoyomi_time_ms, Some(byoyomi_stones)) if byoyomi_time_ms > 0 => {
+                Self::JapaneseByo {
+                    main_time_ms,
+                    byoyomi_time_ms,
+                    byoyomi_stones,
+                }
+            }
+            (main_time_ms, increment_ms, _) => Self::Fischer {
+                main_time_ms,
+                increment_ms,
+            },
+        }
+    }
+
+    /// Returns whether a time limit is active (anything other than [`Self::Infinite`]).
+    #[inline]
+    #[must_use]
+    pub const fn is_enabled(self) -> bool {
+        !matches!(self, Self::Infinite)
+    }
+
+    /// Returns the main time setting in whole seconds for GTP `time_settings`.
+    #[inline]
+    #[must_use]
+    pub const fn main_time_secs(self) -> u64 {
+        match self {
+            Self::Infinite | Self::Byoyomi { .. } => 0,
+            Self::Fischer { main_time_ms, .. } | Self::JapaneseByo { main_time_ms, .. } => {
+                main_time_ms / 1000
+            }
+        }
+    }
+
+    /// Returns the overtime or increment setting in whole seconds for GTP `time_settings`.
+    #[inline]
+    #[must_use]
+    pub const fn byoyomi_time_secs(self) -> u64 {
+        match self {
+            Self::Infinite => 0,
+            Self::Byoyomi { time_per_move_ms } => time_per_move_ms / 1000,
+            Self::Fischer { increment_ms, .. } => increment_ms / 1000,
+            Self::JapaneseByo {
+                byoyomi_time_ms, ..
+            } => byoyomi_time_ms / 1000,
+        }
+    }
+
+    /// Returns the overtime stone count for GTP `time_settings` (`0` outside [`Self::JapaneseByo`]).
+    #[inline]
+    #[must_use]
+    pub const fn byoyomi_stones(self) -> u32 {
+        match self {
+            Self::JapaneseByo { byoyomi_stones, .. } => byoyomi_stones.get(),
+            Self::Infinite | Self::Byoyomi { .. } | Self::Fischer { .. } => 0,
+        }
+    }
+
+    /// Returns the initial [`TimeControlMode`] before any `time_left` update is received.
+    #[must_use]
+    pub const fn initial_time_control(self) -> TimeControlMode {
+        match self {
+            Self::Infinite => TimeControlMode::Infinite,
+            Self::Byoyomi { time_per_move_ms } => TimeControlMode::Byoyomi { time_per_move_ms },
+            Self::Fischer {
+                main_time_ms,
+                increment_ms,
+            } => TimeControlMode::Fischer {
+                main_time_ms,
+                increment_ms,
+            },
+            Self::JapaneseByo {
+                main_time_ms,
+                byoyomi_time_ms,
+                byoyomi_stones,
+            } => TimeControlMode::JapaneseByo {
+                main_time_ms,
+                time_per_move_ms: byoyomi_time_ms / byoyomi_stones.get() as u64,
+            },
+        }
+    }
+
+    /// Returns the single-move [`TimeControlMode`] for a player given their latest `time_left` state.
+    ///
+    /// In [`Self::JapaneseByo`], `byo_stones_left > 0` indicates an active overtime
+    /// period and divides `remaining_time_ms` evenly across the remaining stones;
+    /// `byo_stones_left == 0` indicates main time.
+    #[must_use]
+    pub const fn move_time_control(
+        self,
+        remaining_time_ms: u64,
+        byo_stones_left: u32,
+    ) -> TimeControlMode {
+        match self {
+            Self::Infinite => TimeControlMode::Infinite,
+            Self::Byoyomi { time_per_move_ms } => TimeControlMode::Byoyomi { time_per_move_ms },
+            Self::Fischer { increment_ms, .. } => TimeControlMode::Fischer {
+                main_time_ms: remaining_time_ms,
+                increment_ms,
+            },
+            Self::JapaneseByo {
+                byoyomi_time_ms,
+                byoyomi_stones,
+                ..
+            } => match NonZeroU32::new(byo_stones_left) {
+                Some(stones_left) => TimeControlMode::JapaneseByo {
+                    main_time_ms: 0,
+                    time_per_move_ms: remaining_time_ms / stones_left.get() as u64,
+                },
+                None => TimeControlMode::JapaneseByo {
+                    main_time_ms: remaining_time_ms,
+                    time_per_move_ms: byoyomi_time_ms / byoyomi_stones.get() as u64,
+                },
+            },
+        }
+    }
 }
 
 /// Time allocation and tracking during a search.
@@ -1056,5 +1232,244 @@ mod tests {
         assert!(!tm.is_time_up());
         record_abort(Some(&tm));
         assert!(tm.timed_out());
+    }
+
+    #[test]
+    fn time_settings_from_gtp_secs_classifies_all_eight_sign_combinations() {
+        let two = NonZeroU32::new(2).unwrap();
+
+        let untimed_zero = TimeSettings::from_gtp_secs(0, 0, 0);
+        assert_eq!(untimed_zero, TimeSettings::Infinite);
+        assert!(!untimed_zero.is_enabled());
+        assert_eq!(
+            (
+                untimed_zero.main_time_secs(),
+                untimed_zero.byoyomi_time_secs(),
+                untimed_zero.byoyomi_stones()
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(
+            untimed_zero.initial_time_control(),
+            TimeControlMode::Infinite
+        );
+
+        let untimed_stones = TimeSettings::from_gtp_secs(0, 0, 3);
+        assert_eq!(untimed_stones, TimeSettings::Infinite);
+        assert!(!untimed_stones.is_enabled());
+        assert_eq!(untimed_stones.byoyomi_stones(), 0);
+        assert_eq!(
+            untimed_stones.initial_time_control(),
+            TimeControlMode::Infinite
+        );
+
+        let pure_byo = TimeSettings::from_gtp_secs(0, 5, 0);
+        assert_eq!(
+            pure_byo,
+            TimeSettings::Byoyomi {
+                time_per_move_ms: 5_000
+            }
+        );
+        assert!(pure_byo.is_enabled());
+        assert_eq!(
+            (
+                pure_byo.main_time_secs(),
+                pure_byo.byoyomi_time_secs(),
+                pure_byo.byoyomi_stones()
+            ),
+            (0, 5, 0)
+        );
+        assert_eq!(
+            pure_byo.initial_time_control(),
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 5_000
+            }
+        );
+
+        let mainless_jp_byo = TimeSettings::from_gtp_secs(0, 10, 2);
+        assert_eq!(
+            mainless_jp_byo,
+            TimeSettings::JapaneseByo {
+                main_time_ms: 0,
+                byoyomi_time_ms: 10_000,
+                byoyomi_stones: two,
+            }
+        );
+        assert!(mainless_jp_byo.is_enabled());
+        assert_eq!(
+            (
+                mainless_jp_byo.main_time_secs(),
+                mainless_jp_byo.byoyomi_time_secs(),
+                mainless_jp_byo.byoyomi_stones()
+            ),
+            (0, 10, 2)
+        );
+        assert_eq!(
+            mainless_jp_byo.initial_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 5_000,
+            }
+        );
+
+        let sudden_death = TimeSettings::from_gtp_secs(60, 0, 0);
+        assert_eq!(
+            sudden_death,
+            TimeSettings::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+        assert!(sudden_death.is_enabled());
+        assert_eq!(
+            (
+                sudden_death.main_time_secs(),
+                sudden_death.byoyomi_time_secs(),
+                sudden_death.byoyomi_stones()
+            ),
+            (60, 0, 0)
+        );
+        assert_eq!(
+            sudden_death.initial_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+
+        let sudden_death_stones = TimeSettings::from_gtp_secs(60, 0, 3);
+        assert_eq!(
+            sudden_death_stones,
+            TimeSettings::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+        assert_eq!(sudden_death_stones.byoyomi_stones(), 0);
+        assert_eq!(
+            sudden_death_stones.initial_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+
+        let fischer = TimeSettings::from_gtp_secs(60, 5, 0);
+        assert_eq!(
+            fischer,
+            TimeSettings::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 5_000,
+            }
+        );
+        assert_eq!(
+            (
+                fischer.main_time_secs(),
+                fischer.byoyomi_time_secs(),
+                fischer.byoyomi_stones()
+            ),
+            (60, 5, 0)
+        );
+        assert_eq!(
+            fischer.initial_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 5_000,
+            }
+        );
+
+        let jp_byo = TimeSettings::from_gtp_secs(60, 10, 2);
+        assert_eq!(
+            jp_byo,
+            TimeSettings::JapaneseByo {
+                main_time_ms: 60_000,
+                byoyomi_time_ms: 10_000,
+                byoyomi_stones: two,
+            }
+        );
+        assert_eq!(
+            (
+                jp_byo.main_time_secs(),
+                jp_byo.byoyomi_time_secs(),
+                jp_byo.byoyomi_stones()
+            ),
+            (60, 10, 2)
+        );
+        assert_eq!(
+            jp_byo.initial_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 60_000,
+                time_per_move_ms: 5_000,
+            }
+        );
+    }
+
+    #[test]
+    fn time_settings_from_gtp_secs_saturates_on_u64_max() {
+        assert_eq!(
+            TimeSettings::from_gtp_secs(u64::MAX, 0, 0),
+            TimeSettings::Fischer {
+                main_time_ms: u64::MAX,
+                increment_ms: 0,
+            }
+        );
+        assert_eq!(
+            TimeSettings::from_gtp_secs(0, u64::MAX, 0),
+            TimeSettings::Byoyomi {
+                time_per_move_ms: u64::MAX,
+            }
+        );
+        assert_eq!(
+            TimeSettings::from_gtp_secs(u64::MAX, u64::MAX, 2),
+            TimeSettings::JapaneseByo {
+                main_time_ms: u64::MAX,
+                byoyomi_time_ms: u64::MAX,
+                byoyomi_stones: NonZeroU32::new(2).unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn time_settings_move_time_control_handles_main_time_and_overtime_periods() {
+        assert_eq!(
+            TimeSettings::Infinite.move_time_control(45_000, 3),
+            TimeControlMode::Infinite
+        );
+        assert_eq!(
+            TimeSettings::from_gtp_secs(0, 5, 0).move_time_control(99_000, 4),
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(
+            TimeSettings::from_gtp_secs(60, 5, 0).move_time_control(42_000, 4),
+            TimeControlMode::Fischer {
+                main_time_ms: 42_000,
+                increment_ms: 5_000,
+            }
+        );
+
+        let jp_byo = TimeSettings::from_gtp_secs(60, 10, 2);
+        assert_eq!(
+            jp_byo.move_time_control(25_000, 0),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 25_000,
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(
+            jp_byo.move_time_control(8_000, 2),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 4_000,
+            }
+        );
+        assert_eq!(
+            jp_byo.move_time_control(3_000, 1),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 3_000,
+            }
+        );
     }
 }

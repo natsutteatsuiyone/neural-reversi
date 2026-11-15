@@ -17,7 +17,7 @@ use crate::config::{Config, parse_engine_command, read_opening_file};
 use crate::display;
 use crate::engine::GtpEngine;
 use crate::error::{MatchRunnerError, Result};
-use crate::opening::{Opening, board_string, color, random_position};
+use crate::opening::{Opening, board_string, random_position};
 use crate::sprt::{Sprt, SprtResult, SprtStatus};
 use crate::statistics::{MatchStatistics, MatchWinner};
 use crate::time_tracker::TimeTracker;
@@ -174,16 +174,9 @@ fn play_game(
     time_tracker.reset();
 
     if time_tracker.is_enabled() {
-        black_engine.time_settings(
-            time_tracker.main_time_secs(),
-            time_tracker.byoyomi_time_secs(),
-            time_tracker.byoyomi_stones(),
-        )?;
-        white_engine.time_settings(
-            time_tracker.main_time_secs(),
-            time_tracker.byoyomi_time_secs(),
-            time_tracker.byoyomi_stones(),
-        )?;
+        let settings = time_tracker.settings();
+        black_engine.time_settings(settings)?;
+        white_engine.time_settings(settings)?;
     }
 
     let mut game_state = match opening {
@@ -193,8 +186,10 @@ fn play_game(
             state
         }
         Opening::Position(state) => {
-            black_engine.setboard(&board_string(state), color(state))?;
-            white_engine.setboard(&board_string(state), color(state))?;
+            let board = board_string(state);
+            let side = state.side_to_move();
+            black_engine.setboard(&board, side)?;
+            white_engine.setboard(&board, side)?;
             state.clone()
         }
     };
@@ -202,47 +197,36 @@ fn play_game(
     while !game_state.is_game_over() {
         check_interrupted()?;
         let mover = game_state.side_to_move();
-        let is_black = mover == PlayerColor::Black;
-        let current_color = if is_black { "black" } else { "white" };
 
         if time_tracker.is_enabled() {
-            let (black_time, black_stones) = time_tracker.black_time_left();
-            let (white_time, white_stones) = time_tracker.white_time_left();
-            black_engine.time_left("black", black_time, black_stones)?;
-            white_engine.time_left("black", black_time, black_stones)?;
-            black_engine.time_left("white", white_time, white_stones)?;
-            white_engine.time_left("white", white_time, white_stones)?;
+            for color in [PlayerColor::Black, PlayerColor::White] {
+                let (secs, stones) = time_tracker.time_left(color);
+                black_engine.time_left(color, secs, stones)?;
+                white_engine.time_left(color, secs, stones)?;
+            }
         }
 
         time_tracker.start_move();
-        let mv = if is_black {
-            black_engine.genmove("black")?
-        } else {
-            white_engine.genmove("white")?
+        let mv = match mover {
+            PlayerColor::Black => black_engine.genmove(mover)?,
+            PlayerColor::White => white_engine.genmove(mover)?,
         };
 
         let flagged = !time_tracker.end_move(mover) && time_tracker.is_enabled();
         if flagged || mv.eq_ignore_ascii_case("resign") {
-            return Ok(if is_black {
-                MatchResult {
+            return Ok(match mover {
+                PlayerColor::Black => MatchResult {
                     result: GameResult::WhiteWin,
                     score: -64,
-                }
-            } else {
-                MatchResult {
+                },
+                PlayerColor::White => MatchResult {
                     result: GameResult::BlackWin,
                     score: 64,
-                }
+                },
             });
         }
 
-        execute_move(
-            &mut game_state,
-            black_engine,
-            white_engine,
-            &mv,
-            current_color,
-        )?;
+        execute_move(&mut game_state, black_engine, white_engine, &mv, mover)?;
     }
 
     let (black_count, white_count) = game_state.score();
@@ -264,11 +248,7 @@ fn apply_opening_moves(
         .map_err(|error| MatchRunnerError::Game(format!("Invalid opening sequence: {error}")))?;
 
     for square in moves {
-        let color = if game_state.side_to_move() == PlayerColor::Black {
-            "black"
-        } else {
-            "white"
-        };
+        let color = game_state.side_to_move();
         game_state
             .make_move(square)
             .map_err(MatchRunnerError::Game)?;
@@ -300,7 +280,7 @@ fn execute_move(
     black_engine: &mut GtpEngine,
     white_engine: &mut GtpEngine,
     mv: &str,
-    current_color: &str,
+    mover: PlayerColor,
 ) -> Result<()> {
     let move_to_send = if mv.eq_ignore_ascii_case("pass") {
         game_state.make_pass().map_err(MatchRunnerError::Game)?;
@@ -315,12 +295,11 @@ fn execute_move(
         mv
     };
 
-    let opponent_engine = if current_color == "black" {
-        white_engine
-    } else {
-        black_engine
+    let opponent_engine = match mover {
+        PlayerColor::Black => white_engine,
+        PlayerColor::White => black_engine,
     };
-    opponent_engine.play(current_color, move_to_send)
+    opponent_engine.play(mover, move_to_send)
 }
 
 fn initialize_engines(config: &Config) -> Result<(GtpEngine, GtpEngine)> {

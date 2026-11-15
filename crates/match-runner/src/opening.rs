@@ -12,16 +12,14 @@ impl Opening {
     pub(crate) fn description(&self) -> String {
         match self {
             Self::Sequence(moves) => moves.clone(),
-            Self::Position(state) => format!("{} {}", board_string(state), color(state)),
+            Self::Position(state) => {
+                let side = match state.side_to_move() {
+                    PlayerColor::Black => 'B',
+                    PlayerColor::White => 'W',
+                };
+                format!("{} {side}", board_string(state))
+            }
         }
-    }
-}
-
-pub(crate) fn color(state: &GameState) -> &'static str {
-    if state.side_to_move() == PlayerColor::Black {
-        "B"
-    } else {
-        "W"
     }
 }
 

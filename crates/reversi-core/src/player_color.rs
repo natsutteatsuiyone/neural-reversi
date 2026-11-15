@@ -1,6 +1,7 @@
 //! Player colors for the side to move.
 
 use std::fmt;
+use std::str::FromStr;
 
 use crate::disc::Disc;
 
@@ -30,6 +31,59 @@ impl PlayerColor {
     #[inline]
     pub fn to_char(self) -> char {
         Disc::from(self).to_char()
+    }
+
+    /// Returns the lowercase color name (`"black"` or `"white"`).
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Black => "black",
+            Self::White => "white",
+        }
+    }
+
+    /// Returns `0` for [`Self::Black`] and `1` for [`Self::White`].
+    #[inline]
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self as usize - 1
+    }
+}
+
+impl fmt::Display for PlayerColor {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned when parsing a string into a [`PlayerColor`] fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlayerColorError;
+
+impl fmt::Display for PlayerColorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid player color (expected 'b', 'w', 'black', or 'white')")
+    }
+}
+
+impl std::error::Error for PlayerColorError {}
+
+impl FromStr for PlayerColor {
+    type Err = PlayerColorError;
+
+    /// Parses `"b"`, `"black"`, `"w"`, or `"white"` (ASCII case-insensitive,
+    /// surrounding whitespace trimmed) into a [`PlayerColor`].
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.eq_ignore_ascii_case("b") || s.eq_ignore_ascii_case("black") {
+            Ok(Self::Black)
+        } else if s.eq_ignore_ascii_case("w") || s.eq_ignore_ascii_case("white") {
+            Ok(Self::White)
+        } else {
+            Err(PlayerColorError)
+        }
     }
 }
 
@@ -64,6 +118,53 @@ impl TryFrom<Disc> for PlayerColor {
             Disc::Black => Ok(Self::Black),
             Disc::White => Ok(Self::White),
             Disc::Empty => Err(EmptyDiscError),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_str_accepts_short_and_long_names_case_insensitively_with_whitespace() {
+        for token in ["b", "B", "black", "BLACK", "Black", " b ", "\tBLACK\n"] {
+            assert_eq!(
+                token.parse::<PlayerColor>(),
+                Ok(PlayerColor::Black),
+                "{token:?}"
+            );
+        }
+        for token in ["w", "W", "white", "WHITE", "White", " w ", "\tWhite\r\n"] {
+            assert_eq!(
+                token.parse::<PlayerColor>(),
+                Ok(PlayerColor::White),
+                "{token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn from_str_rejects_board_disc_symbols_and_unknown_tokens() {
+        for token in ["", "   ", "-", "x", "X", "o", "O", "bl", "wh", "b w"] {
+            assert_eq!(
+                token.parse::<PlayerColor>(),
+                Err(PlayerColorError),
+                "{token:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn display_as_str_and_index_round_trip() {
+        assert_eq!(PlayerColor::Black.as_str(), "black");
+        assert_eq!(PlayerColor::White.as_str(), "white");
+        assert_eq!(PlayerColor::Black.to_string(), "black");
+        assert_eq!(PlayerColor::White.to_string(), "white");
+        assert_eq!(PlayerColor::Black.index(), 0);
+        assert_eq!(PlayerColor::White.index(), 1);
+        for color in [PlayerColor::Black, PlayerColor::White] {
+            assert_eq!(color.to_string().parse::<PlayerColor>(), Ok(color));
         }
     }
 }

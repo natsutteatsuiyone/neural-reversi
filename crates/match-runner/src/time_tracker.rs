@@ -6,22 +6,7 @@
 use std::time::Instant;
 
 use reversi_core::player_color::PlayerColor;
-
-/// Time control mode, automatically determined from GTP time_settings parameters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TimeControlMode {
-    /// No time control
-    None,
-    /// Fixed time per move (pure byoyomi)
-    /// GTP: `time_settings 0 N 0` means N seconds per move
-    Byoyomi,
-    /// Main time + increment per move (Fischer)
-    /// GTP: `time_settings M N 0` means M seconds main time + N seconds increment
-    Fischer,
-    /// Main time + fixed time per move after main time expires (Japanese byo-yomi)
-    /// GTP: `time_settings M N 1` means M seconds main time, then N seconds per move
-    JapaneseByo,
-}
+use reversi_core::search::time_control::TimeSettings;
 
 #[derive(Debug, Clone, Copy)]
 struct PlayerClock {
@@ -32,18 +17,36 @@ struct PlayerClock {
 }
 
 impl PlayerClock {
-    fn new(mode: TimeControlMode, main_time_ms: u64, byoyomi_stones: u32) -> Self {
-        let (time_ms, in_byoyomi) = match mode {
-            TimeControlMode::None => (u64::MAX, false),
-            TimeControlMode::Byoyomi => (0, true),
-            TimeControlMode::Fischer => (main_time_ms, false),
-            TimeControlMode::JapaneseByo => (main_time_ms, main_time_ms == 0),
-        };
-        Self {
-            time_ms,
-            byo_time_used_ms: 0,
-            byo_stones_left: byoyomi_stones,
-            in_byoyomi,
+    fn new(settings: TimeSettings) -> Self {
+        match settings {
+            TimeSettings::Infinite => Self {
+                time_ms: u64::MAX,
+                byo_time_used_ms: 0,
+                byo_stones_left: 0,
+                in_byoyomi: false,
+            },
+            TimeSettings::Byoyomi { .. } => Self {
+                time_ms: 0,
+                byo_time_used_ms: 0,
+                byo_stones_left: 0,
+                in_byoyomi: true,
+            },
+            TimeSettings::Fischer { main_time_ms, .. } => Self {
+                time_ms: main_time_ms,
+                byo_time_used_ms: 0,
+                byo_stones_left: 0,
+                in_byoyomi: false,
+            },
+            TimeSettings::JapaneseByo {
+                main_time_ms,
+                byoyomi_stones,
+                ..
+            } => Self {
+                time_ms: main_time_ms,
+                byo_time_used_ms: 0,
+                byo_stones_left: byoyomi_stones.get(),
+                in_byoyomi: main_time_ms == 0,
+            },
         }
     }
 }
@@ -51,139 +54,54 @@ impl PlayerClock {
 /// Tracks time for both players during a game.
 #[derive(Debug)]
 pub struct TimeTracker {
-    /// Time control mode (auto-detected from parameters)
-    mode: TimeControlMode,
-    /// Main time in milliseconds
-    main_time_ms: u64,
-    /// Byoyomi/increment time in milliseconds
-    byoyomi_time_ms: u64,
-    /// Byoyomi stones setting (from GTP time_settings)
-    byoyomi_stones: u32,
-    /// Per-player clocks, indexed as black then white.
+    settings: TimeSettings,
     players: [PlayerClock; 2],
-    /// Start time of current move
     move_start: Option<Instant>,
 }
 
 impl TimeTracker {
-    /// Creates a new TimeTracker with the specified time control settings.
-    ///
-    /// Time control mode is automatically determined from the parameters,
-    /// following GTP `time_settings` semantics:
-    ///
-    /// - `main_time=0, byoyomi_time=0`: No time control
-    /// - `main_time=0, byoyomi_time>0, stones=0`: Pure byoyomi (N seconds per move)
-    /// - `main_time>0, byoyomi_time>0, stones=0`: Fischer (main + increment)
-    /// - `main_time>0, byoyomi_time>0, stones>0`: Japanese byo-yomi (main + fixed per move)
-    /// - `main_time>0, byoyomi_time=0`: Sudden death
-    ///
-    /// # Arguments
-    ///
-    /// * `main_time_secs` - Main time in seconds (0 for no main time)
-    /// * `byoyomi_time_secs` - Byoyomi/increment time in seconds
-    /// * `byoyomi_stones` - Byoyomi stones (0 for increment/per-move, >0 for period)
+    /// Creates a new [`TimeTracker`] from GTP `time_settings` parameters (in seconds and stones).
     pub fn new(main_time_secs: u64, byoyomi_time_secs: u64, byoyomi_stones: u32) -> Self {
-        let main_time_ms = main_time_secs * 1000;
-        let byoyomi_time_ms = byoyomi_time_secs * 1000;
-
-        // Determine time control mode from parameters
-        let mode = Self::determine_mode(main_time_secs, byoyomi_time_secs, byoyomi_stones);
-
-        // Stones only have meaning in Japanese byo-yomi; zero them elsewhere so
-        // time_settings reports the same mode the tracker enforces.
-        let byoyomi_stones = if mode == TimeControlMode::JapaneseByo {
-            byoyomi_stones
-        } else {
-            0
-        };
-
-        let player = PlayerClock::new(mode, main_time_ms, byoyomi_stones);
-
+        let settings =
+            TimeSettings::from_gtp_secs(main_time_secs, byoyomi_time_secs, byoyomi_stones);
+        let player = PlayerClock::new(settings);
         Self {
-            mode,
-            main_time_ms,
-            byoyomi_time_ms,
-            byoyomi_stones,
+            settings,
             players: [player; 2],
             move_start: None,
         }
     }
 
-    /// Determines the time control mode from GTP time_settings parameters.
-    fn determine_mode(main_time: u64, byoyomi_time: u64, byoyomi_stones: u32) -> TimeControlMode {
-        if main_time == 0 && byoyomi_time == 0 {
-            // No time control
-            TimeControlMode::None
-        } else if main_time == 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
-            // Pure byoyomi: fixed time per move from the start
-            TimeControlMode::Byoyomi
-        } else if main_time == 0 && byoyomi_time > 0 && byoyomi_stones > 0 {
-            // Japanese byo-yomi with no main time: start directly in byoyomi phase
-            TimeControlMode::JapaneseByo
-        } else if main_time > 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
-            // Fischer: main time + increment per move
-            TimeControlMode::Fischer
-        } else if main_time > 0 && byoyomi_time > 0 && byoyomi_stones > 0 {
-            // Japanese byo-yomi: main time + fixed time per move after main time expires
-            TimeControlMode::JapaneseByo
-        } else if main_time > 0 && byoyomi_time == 0 {
-            // Sudden death: only main time, no increment
-            TimeControlMode::Fischer
-        } else {
-            TimeControlMode::None
-        }
+    /// Returns the match [`TimeSettings`].
+    #[must_use]
+    pub fn settings(&self) -> TimeSettings {
+        self.settings
     }
 
-    /// Returns true if time control is enabled.
+    /// Returns `true` if time control is enabled.
+    #[must_use]
     pub fn is_enabled(&self) -> bool {
-        !matches!(self.mode, TimeControlMode::None)
+        self.settings.is_enabled()
     }
 
-    /// Returns the main time setting in seconds (for time_settings command).
-    pub fn main_time_secs(&self) -> u64 {
-        self.main_time_ms / 1000
-    }
-
-    /// Returns the byoyomi/increment time in seconds (for time_settings command).
-    pub fn byoyomi_time_secs(&self) -> u64 {
-        self.byoyomi_time_ms / 1000
-    }
-
-    /// Returns the byoyomi stones setting (for time_settings command).
-    pub fn byoyomi_stones(&self) -> u32 {
-        self.byoyomi_stones
-    }
-
-    /// Returns `(time_secs, stones)` for the GTP `time_left` command for black.
+    /// Returns `(time_secs, stones)` for the GTP `time_left` command for `color`.
     ///
-    /// During main time: returns (main_time_remaining, 0).
-    /// During byoyomi: returns (period_time_remaining, stones_left_in_period).
-    pub fn black_time_left(&self) -> (u64, u32) {
-        self.player_time_left(PlayerColor::Black)
-    }
-
-    /// Returns `(time_secs, stones)` for the GTP `time_left` command for white.
-    pub fn white_time_left(&self) -> (u64, u32) {
-        self.player_time_left(PlayerColor::White)
-    }
-
-    fn player_time_left(&self, color: PlayerColor) -> (u64, u32) {
-        let player = self.player(color);
-        match self.mode {
-            TimeControlMode::Byoyomi => {
-                // Pure byoyomi: each move gets the full byoyomi time budget
-                (self.byoyomi_time_ms / 1000, 0)
-            }
-            TimeControlMode::JapaneseByo if player.in_byoyomi => {
-                // In byoyomi phase: report remaining period time and stones
-                let period_remaining_ms =
-                    self.byoyomi_time_ms.saturating_sub(player.byo_time_used_ms);
+    /// During main time, returns `(main_time_remaining, 0)`. During Japanese
+    /// overtime, returns `(period_time_remaining, stones_left_in_period)`.
+    #[must_use]
+    pub fn time_left(&self, color: PlayerColor) -> (u64, u32) {
+        let player = &self.players[color.index()];
+        match self.settings {
+            TimeSettings::Byoyomi { time_per_move_ms } => (time_per_move_ms / 1000, 0),
+            TimeSettings::JapaneseByo {
+                byoyomi_time_ms, ..
+            } if player.in_byoyomi => {
+                let period_remaining_ms = byoyomi_time_ms.saturating_sub(player.byo_time_used_ms);
                 (period_remaining_ms.div_ceil(1000), player.byo_stones_left)
             }
-            _ => {
-                // Main time phase (Fischer, JapaneseByo pre-byoyomi, None)
-                (player.time_ms.div_ceil(1000), 0)
-            }
+            TimeSettings::Infinite
+            | TimeSettings::Fischer { .. }
+            | TimeSettings::JapaneseByo { .. } => (player.time_ms.div_ceil(1000), 0),
         }
     }
 
@@ -192,15 +110,7 @@ impl TimeTracker {
         self.move_start = Some(Instant::now());
     }
 
-    /// Ends the clock for a move and updates the player's remaining time.
-    ///
-    /// # Arguments
-    ///
-    /// * `color` - Color of the player who made the move
-    ///
-    /// # Returns
-    ///
-    /// True if the player has time remaining, false if they flagged.
+    /// Ends the clock for a move, returning `false` if `color` flagged.
     pub fn end_move(&mut self, color: PlayerColor) -> bool {
         let elapsed_ms = self
             .move_start
@@ -210,51 +120,44 @@ impl TimeTracker {
         self.apply_elapsed(color, elapsed_ms)
     }
 
-    /// Apply elapsed time and update the player's remaining time.
-    ///
-    /// This is the core time control logic, separated from clock measurement
-    /// for testability.
     fn apply_elapsed(&mut self, color: PlayerColor, elapsed_ms: u64) -> bool {
-        match self.mode {
-            TimeControlMode::None => true,
-            TimeControlMode::Byoyomi => {
-                // Pure byoyomi: each move must be within the fixed time
-                elapsed_ms <= self.byoyomi_time_ms
-            }
-            TimeControlMode::Fischer => {
-                // Deduct time and add increment
-                let increment = self.byoyomi_time_ms;
-                let player = self.player_mut(color);
-
+        match self.settings {
+            TimeSettings::Infinite => true,
+            TimeSettings::Byoyomi { time_per_move_ms } => elapsed_ms <= time_per_move_ms,
+            TimeSettings::Fischer { increment_ms, .. } => {
+                let player = &mut self.players[color.index()];
                 if elapsed_ms >= player.time_ms {
                     player.time_ms = 0;
                     false
                 } else {
-                    player.time_ms = (player.time_ms - elapsed_ms).saturating_add(increment);
+                    player.time_ms = (player.time_ms - elapsed_ms).saturating_add(increment_ms);
                     true
                 }
             }
-            TimeControlMode::JapaneseByo => self.apply_japanese_byo(color, elapsed_ms),
+            TimeSettings::JapaneseByo {
+                byoyomi_time_ms,
+                byoyomi_stones,
+                ..
+            } => Self::apply_japanese_byo(
+                &mut self.players[color.index()],
+                byoyomi_time_ms,
+                byoyomi_stones.get(),
+                elapsed_ms,
+            ),
         }
     }
 
-    /// Apply Japanese byo-yomi time control for a move.
-    ///
-    /// In Japanese byo-yomi, after main time expires the player enters byoyomi:
-    /// they get `byoyomi_stones` moves within `byoyomi_time` seconds.
-    /// Completing all stones resets the period.
-    fn apply_japanese_byo(&mut self, color: PlayerColor, elapsed_ms: u64) -> bool {
-        let byoyomi_time_ms = self.byoyomi_time_ms;
-        let byoyomi_stones = self.byoyomi_stones;
-        let player = self.player_mut(color);
-
+    fn apply_japanese_byo(
+        player: &mut PlayerClock,
+        byoyomi_time_ms: u64,
+        byoyomi_stones: u32,
+        elapsed_ms: u64,
+    ) -> bool {
         if !player.in_byoyomi {
-            // Still in main time
             if elapsed_ms < player.time_ms {
                 player.time_ms -= elapsed_ms;
                 return true;
             }
-            // Main time exhausted, transition to byoyomi
             let overtime = elapsed_ms - player.time_ms;
             player.time_ms = 0;
             player.in_byoyomi = true;
@@ -262,7 +165,7 @@ impl TimeTracker {
             player.byo_time_used_ms = overtime;
 
             if overtime > byoyomi_time_ms {
-                return false; // Exceeded first period immediately
+                return false;
             }
 
             if overtime == 0 {
@@ -273,48 +176,29 @@ impl TimeTracker {
 
             player.byo_stones_left -= 1;
             if player.byo_stones_left == 0 {
-                // Completed the period, reset for next
                 player.byo_stones_left = byoyomi_stones;
                 player.byo_time_used_ms = 0;
             }
             return true;
         }
 
-        // Already in byoyomi phase
         player.byo_time_used_ms += elapsed_ms;
 
         if player.byo_time_used_ms > byoyomi_time_ms {
-            return false; // Period time exceeded
+            return false;
         }
 
         player.byo_stones_left -= 1;
         if player.byo_stones_left == 0 {
-            // Completed all stones in this period, reset for next
             player.byo_stones_left = byoyomi_stones;
             player.byo_time_used_ms = 0;
         }
         true
     }
 
-    fn player(&self, color: PlayerColor) -> &PlayerClock {
-        let [black, white] = &self.players;
-        match color {
-            PlayerColor::Black => black,
-            PlayerColor::White => white,
-        }
-    }
-
-    fn player_mut(&mut self, color: PlayerColor) -> &mut PlayerClock {
-        let [black, white] = &mut self.players;
-        match color {
-            PlayerColor::Black => black,
-            PlayerColor::White => white,
-        }
-    }
-
     /// Resets the time tracker for a new game.
     pub fn reset(&mut self) {
-        let player = PlayerClock::new(self.mode, self.main_time_ms, self.byoyomi_stones);
+        let player = PlayerClock::new(self.settings);
         self.players = [player; 2];
         self.move_start = None;
     }
@@ -340,7 +224,7 @@ mod tests {
     #[test]
     fn test_stones_zeroed_outside_japanese_byo() {
         let tracker = TimeTracker::new(60, 0, 3);
-        assert_eq!(tracker.byoyomi_stones(), 0);
+        assert_eq!(tracker.settings().byoyomi_stones(), 0);
         assert!(tracker.is_enabled());
     }
 
@@ -349,7 +233,7 @@ mod tests {
         let mut tracker = TimeTracker::new(0, 10, 0);
         assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(PlayerColor::Black, 5_000)); // 5s < 10s
-        assert_eq!(tracker.black_time_left(), (10, 0));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (10, 0));
     }
 
     #[test]
@@ -369,21 +253,21 @@ mod tests {
         let mut tracker = TimeTracker::new(10, 5, 0); // 10s + 5s increment
         assert!(tracker.apply_elapsed(PlayerColor::Black, 3_000)); // use 3s
         // Remaining: 10000 - 3000 + 5000 = 12000
-        assert_eq!(tracker.black_time_left().0, 12);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 12);
     }
 
     #[test]
     fn test_fischer_flag_exact_time() {
         let mut tracker = TimeTracker::new(10, 5, 0);
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 10_000)); // use exactly 10s -> flag
-        assert_eq!(tracker.black_time_left().0, 0);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 0);
     }
 
     #[test]
     fn test_fischer_flag_over_time() {
         let mut tracker = TimeTracker::new(10, 5, 0);
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 15_000)); // use 15s > 10s
-        assert_eq!(tracker.black_time_left().0, 0);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 0);
     }
 
     #[test]
@@ -392,7 +276,7 @@ mod tests {
         assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(PlayerColor::Black, 30_000)); // use 30s
         // Remaining: 60000 - 30000 + 0 = 30000
-        assert_eq!(tracker.black_time_left().0, 30);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 30);
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 30_000)); // exactly 30s -> flag
     }
 
@@ -401,7 +285,7 @@ mod tests {
         let mut tracker = TimeTracker::new(300, 30, 1);
         assert!(tracker.is_enabled());
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000)); // use 10s of main time
-        assert_eq!(tracker.black_time_left().0, 290);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 290);
     }
 
     #[test]
@@ -411,7 +295,7 @@ mod tests {
         // With stones=1, the stone is consumed and period resets
         assert!(tracker.apply_elapsed(PlayerColor::Black, 15_000));
         // Now in byoyomi with a fresh period (stone consumed, period reset)
-        assert_eq!(tracker.black_time_left(), (30, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (30, 1));
     }
 
     #[test]
@@ -427,7 +311,7 @@ mod tests {
         // Use exactly 10s → transitions to byoyomi immediately (overtime=0)
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
         // Now in byoyomi phase: fresh period
-        assert_eq!(tracker.black_time_left(), (30, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (30, 1));
         // Move in byoyomi: 25s <= 30s -> OK, period resets (stones=1)
         assert!(tracker.apply_elapsed(PlayerColor::Black, 25_000));
         // Exceed byoyomi: 35s > 30s -> flag
@@ -439,8 +323,8 @@ mod tests {
         let mut tracker = TimeTracker::new(300, 5, 0);
         tracker.apply_elapsed(PlayerColor::Black, 100_000); // black uses 100s
         tracker.reset();
-        assert_eq!(tracker.black_time_left().0, 300);
-        assert_eq!(tracker.white_time_left().0, 300);
+        assert_eq!(tracker.time_left(PlayerColor::Black).0, 300);
+        assert_eq!(tracker.time_left(PlayerColor::White).0, 300);
     }
 
     #[test]
@@ -448,13 +332,13 @@ mod tests {
         let mut tracker = TimeTracker::new(0, 10, 2);
         assert!(tracker.apply_elapsed(PlayerColor::Black, 4_000));
         assert!(tracker.apply_elapsed(PlayerColor::White, 6_000));
-        assert_eq!(tracker.black_time_left(), (6, 1));
-        assert_eq!(tracker.white_time_left(), (4, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (6, 1));
+        assert_eq!(tracker.time_left(PlayerColor::White), (4, 1));
         tracker.start_move();
         assert!(tracker.move_start.is_some());
         tracker.reset();
-        assert_eq!(tracker.black_time_left(), (10, 2));
-        assert_eq!(tracker.white_time_left(), (10, 2));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (10, 2));
+        assert_eq!(tracker.time_left(PlayerColor::White), (10, 2));
         assert!(tracker.move_start.is_none());
     }
 
@@ -466,29 +350,29 @@ mod tests {
     fn test_time_left_fischer_reports_main_time() {
         let mut tracker = TimeTracker::new(300, 5, 0);
         assert!(tracker.is_enabled());
-        assert_eq!(tracker.main_time_secs(), 300);
-        assert_eq!(tracker.byoyomi_time_secs(), 5);
-        assert_eq!(tracker.black_time_left(), (300, 0));
+        assert_eq!(tracker.settings().main_time_secs(), 300);
+        assert_eq!(tracker.settings().byoyomi_time_secs(), 5);
+        assert_eq!(tracker.time_left(PlayerColor::Black), (300, 0));
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (295, 0));
-        assert_eq!(tracker.white_time_left(), (300, 0));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (295, 0));
+        assert_eq!(tracker.time_left(PlayerColor::White), (300, 0));
     }
 
     #[test]
     fn test_time_left_preserves_subsecond_clock() {
         let mut tracker = TimeTracker::new(2, 0, 0);
         assert!(tracker.apply_elapsed(PlayerColor::Black, 501));
-        assert_eq!(tracker.black_time_left(), (2, 0));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (2, 0));
 
         assert!(tracker.apply_elapsed(PlayerColor::Black, 1_498));
-        assert_eq!(tracker.black_time_left(), (1, 0));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (1, 0));
     }
 
     #[test]
     fn test_time_left_japanese_byo_main_time_phase() {
         let tracker = TimeTracker::new(300, 30, 3);
         // In main time: reports main time, stones=0
-        assert_eq!(tracker.black_time_left(), (300, 0));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (300, 0));
     }
 
     #[test]
@@ -498,11 +382,11 @@ mod tests {
         // Stone 1: 4s
         assert!(tracker.apply_elapsed(PlayerColor::Black, 4_000));
         // time_used=4s, 1 stone left, remaining=6s
-        assert_eq!(tracker.black_time_left(), (6, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (6, 1));
         // Stone 2: 3s → period resets
         assert!(tracker.apply_elapsed(PlayerColor::Black, 3_000));
         // After reset: time_used=0, stones=2, remaining=10s
-        assert_eq!(tracker.black_time_left(), (10, 2));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (10, 2));
     }
 
     // =========================================================================
@@ -515,20 +399,20 @@ mod tests {
         let mut tracker = TimeTracker::new(10, 30, 3);
         // Exhaust main time
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (30, 3));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (30, 3));
         // Enter byoyomi: 3 stones in 30s
         // Stone 1: 8s → cumulative 8s ≤ 30s, 2 stones left
         assert!(tracker.apply_elapsed(PlayerColor::Black, 8_000));
-        assert_eq!(tracker.black_time_left(), (22, 2));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (22, 2));
         // Stone 2: 10s → cumulative 18s ≤ 30s, 1 stone left
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (12, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (12, 1));
         // Stone 3: 10s → cumulative 28s ≤ 30s, 0 stones left → period resets
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (30, 3));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (30, 3));
         // New period starts: Stone 1: 5s → cumulative 5s ≤ 30s
         assert!(tracker.apply_elapsed(PlayerColor::Black, 5_000));
-        assert_eq!(tracker.black_time_left(), (25, 2));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (25, 2));
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 25_001));
     }
 
@@ -539,13 +423,13 @@ mod tests {
         // Use 12s → exhausts 5s main, 7s overtime into byoyomi
         // 7s ≤ 20s → OK, stone 1 consumed, 1 stone left
         assert!(tracker.apply_elapsed(PlayerColor::Black, 12_000));
-        assert_eq!(tracker.black_time_left(), (13, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (13, 1));
         // Stone 2: 10s → cumulative 7+10=17s ≤ 20s → OK, period resets
         assert!(tracker.apply_elapsed(PlayerColor::Black, 10_000));
-        assert_eq!(tracker.black_time_left(), (20, 2));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (20, 2));
         // New period, stone 1: 15s → cumulative 15s ≤ 20s
         assert!(tracker.apply_elapsed(PlayerColor::Black, 15_000));
-        assert_eq!(tracker.black_time_left(), (5, 1));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (5, 1));
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 5_001));
     }
 
@@ -563,5 +447,46 @@ mod tests {
         assert!(tracker.apply_elapsed(PlayerColor::Black, 6_000));
         // Stone 2: 5s → cumulative 11s > 10s → flag
         assert!(!tracker.apply_elapsed(PlayerColor::Black, 5_000));
+    }
+
+    #[test]
+    fn test_all_eight_time_settings_combinations() {
+        let untimed_zero = TimeTracker::new(0, 0, 0);
+        assert!(!untimed_zero.is_enabled());
+        assert_eq!(untimed_zero.settings().byoyomi_stones(), 0);
+
+        let untimed_stones = TimeTracker::new(0, 0, 3);
+        assert!(!untimed_stones.is_enabled());
+        assert_eq!(untimed_stones.settings().byoyomi_stones(), 0);
+
+        let pure_byo = TimeTracker::new(0, 5, 0);
+        assert!(pure_byo.is_enabled());
+        assert_eq!(pure_byo.settings().byoyomi_stones(), 0);
+        assert_eq!(pure_byo.time_left(PlayerColor::Black), (5, 0));
+
+        let mainless_jp_byo = TimeTracker::new(0, 10, 2);
+        assert!(mainless_jp_byo.is_enabled());
+        assert_eq!(mainless_jp_byo.settings().byoyomi_stones(), 2);
+        assert_eq!(mainless_jp_byo.time_left(PlayerColor::Black), (10, 2));
+
+        let sudden_death = TimeTracker::new(60, 0, 0);
+        assert!(sudden_death.is_enabled());
+        assert_eq!(sudden_death.settings().byoyomi_stones(), 0);
+        assert_eq!(sudden_death.time_left(PlayerColor::Black), (60, 0));
+
+        let sudden_death_stones = TimeTracker::new(60, 0, 3);
+        assert!(sudden_death_stones.is_enabled());
+        assert_eq!(sudden_death_stones.settings().byoyomi_stones(), 0);
+        assert_eq!(sudden_death_stones.time_left(PlayerColor::Black), (60, 0));
+
+        let fischer = TimeTracker::new(60, 5, 0);
+        assert!(fischer.is_enabled());
+        assert_eq!(fischer.settings().byoyomi_stones(), 0);
+        assert_eq!(fischer.time_left(PlayerColor::Black), (60, 0));
+
+        let jp_byo = TimeTracker::new(60, 10, 2);
+        assert!(jp_byo.is_enabled());
+        assert_eq!(jp_byo.settings().byoyomi_stones(), 2);
+        assert_eq!(jp_byo.time_left(PlayerColor::Black), (60, 0));
     }
 }

@@ -8,180 +8,117 @@
 //! The implementation supports all essential GTP commands for game play and
 //! engine configuration, including moves, board setup, and engine information.
 
-use reversi_core::{
-    disc::Disc,
-    game_state::GameState,
-    level::{MAX_LEVEL, get_level},
-    player_color::PlayerColor,
-    search::{self, SearchRunOptions, time_control::TimeControlMode},
-    square::Square,
-};
-
-use crate::config::EngineConfig;
 use std::fmt::Write as _;
 use std::io::{self, BufRead, Write};
 
-/// Represents a parsed GTP command with its arguments.
-///
-/// Each variant encapsulates the command type and any required parameters,
-/// providing type safety and eliminating the need for runtime argument validation
-/// in most cases.
-#[derive(Debug, Clone)]
-pub enum Command {
-    /// Returns the GTP protocol version (always 2)
+use reversi_core::board::Board;
+use reversi_core::disc::Disc;
+use reversi_core::game_state::GameState;
+use reversi_core::level::{MAX_LEVEL, get_level};
+use reversi_core::player_color::PlayerColor;
+use reversi_core::search::time_control::{TimeControlMode, TimeSettings};
+use reversi_core::search::{self, SearchRunOptions};
+use reversi_core::square::Square;
+
+use crate::config::EngineConfig;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Command {
     ProtocolVersion,
-    /// Returns the engine name
     Name,
-    /// Returns the engine version
     Version,
-    /// Checks if a command is known to the engine
     #[allow(clippy::enum_variant_names)]
     KnownCommand(String),
-    /// Lists all supported commands
     ListCommands,
-    /// Terminates the GTP session
     Quit,
-    /// Sets the board size (only 8x8 supported)
     Boardsize(usize),
-    /// Clears the board to initial position
     ClearBoard,
-    /// Replaces the board position and side to move.
-    SetBoard { board: String, side: String },
-    /// Plays a move for the specified color
-    Play { color: String, move_str: String },
-    /// Generates and plays a move for the specified color
-    Genmove(String),
-    /// Displays the current board state
-    Showboard,
-    /// Undoes the last move
-    Undo,
-    /// Sets the engine's playing strength level (1 to [`MAX_LEVEL`])
-    SetLevel(usize),
-    /// Sets time control settings (main_time, byoyomi_time, byoyomi_stones)
-    TimeSettings {
-        main_time: u32,
-        byoyomi_time: u32,
-        byoyomi_stones: u32,
+    SetBoard {
+        board: String,
+        side: PlayerColor,
     },
-    /// Updates remaining time for a player (color, time, stones)
+    Play {
+        color: PlayerColor,
+        move_str: String,
+    },
+    Genmove(PlayerColor),
+    Showboard,
+    Undo,
+    SetLevel(usize),
+    TimeSettings(TimeSettings),
     TimeLeft {
-        color: String,
+        color: PlayerColor,
         time: u32,
         stones: u32,
     },
-    /// Represents an unknown or malformed command
-    Unknown(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CommandParseError {
+    UnknownOrMalformed(String),
+    InvalidColor,
+    InvalidSideToMove,
+}
+
+fn parse_setboard_side(side: &str) -> Option<PlayerColor> {
+    let side = side.trim();
+    if side.eq_ignore_ascii_case("x") {
+        Some(PlayerColor::Black)
+    } else if side.eq_ignore_ascii_case("o") {
+        Some(PlayerColor::White)
+    } else {
+        side.parse().ok()
+    }
 }
 
 impl Command {
-    /// Parses a command string and arguments into a Command enum variant.
-    ///
-    /// This method performs argument validation and converts string arguments
-    /// to appropriate types. Invalid commands or malformed arguments result
-    /// in the `Unknown` variant.
-    ///
-    /// # Arguments
-    /// * `cmd` - The command name as a string
-    /// * `args` - Command arguments as string slices
-    ///
-    /// # Returns
-    /// A `Command` enum variant representing the parsed command
-    fn from_str_with_args(cmd: &str, args: &[&str]) -> Self {
-        match cmd {
-            "protocol_version" => Command::ProtocolVersion,
-            "name" => Command::Name,
-            "version" => Command::Version,
-            "known_command" => {
-                if args.len() == 1 {
-                    Command::KnownCommand(args[0].to_string())
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
+    fn from_str_with_args(cmd: &str, args: &[&str]) -> Result<Self, CommandParseError> {
+        let unknown = || CommandParseError::UnknownOrMalformed(cmd.to_string());
+        match (cmd, args) {
+            ("protocol_version", _) => Ok(Self::ProtocolVersion),
+            ("name", _) => Ok(Self::Name),
+            ("version", _) => Ok(Self::Version),
+            ("known_command", [name]) => Ok(Self::KnownCommand((*name).to_string())),
+            ("list_commands", _) => Ok(Self::ListCommands),
+            ("quit", _) => Ok(Self::Quit),
+            ("boardsize", [size]) => size.parse().map(Self::Boardsize).map_err(|_| unknown()),
+            ("clear_board", _) => Ok(Self::ClearBoard),
+            ("setboard", [board, side]) => Ok(Self::SetBoard {
+                board: (*board).to_string(),
+                side: parse_setboard_side(side).ok_or(CommandParseError::InvalidSideToMove)?,
+            }),
+            ("play", [color, mv]) => Ok(Self::Play {
+                color: color.parse().map_err(|_| CommandParseError::InvalidColor)?,
+                move_str: mv.to_ascii_lowercase(),
+            }),
+            ("genmove", [color]) => color
+                .parse()
+                .map(Self::Genmove)
+                .map_err(|_| CommandParseError::InvalidColor),
+            ("showboard", _) => Ok(Self::Showboard),
+            ("undo", _) => Ok(Self::Undo),
+            ("set_level", [level]) => level.parse().map(Self::SetLevel).map_err(|_| unknown()),
+            ("time_settings", [main_time, byoyomi_time, byoyomi_stones]) => {
+                let main_time: u32 = main_time.parse().map_err(|_| unknown())?;
+                let byoyomi_time: u32 = byoyomi_time.parse().map_err(|_| unknown())?;
+                let byoyomi_stones: u32 = byoyomi_stones.parse().map_err(|_| unknown())?;
+                Ok(Self::TimeSettings(TimeSettings::from_gtp_secs(
+                    u64::from(main_time),
+                    u64::from(byoyomi_time),
+                    byoyomi_stones,
+                )))
             }
-            "list_commands" => Command::ListCommands,
-            "quit" => Command::Quit,
-            "boardsize" => {
-                if args.len() == 1 {
-                    if let Ok(size) = args[0].parse::<usize>() {
-                        Command::Boardsize(size)
-                    } else {
-                        Command::Unknown(cmd.to_string())
-                    }
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
+            ("time_left", [color, time, stones]) => {
+                let time: u32 = time.parse().map_err(|_| unknown())?;
+                let stones: u32 = stones.parse().map_err(|_| unknown())?;
+                let color = color.parse().map_err(|_| CommandParseError::InvalidColor)?;
+                Ok(Self::TimeLeft {
+                    color,
+                    time,
+                    stones,
+                })
             }
-            "clear_board" => Command::ClearBoard,
-            "setboard" if args.len() == 2 => Command::SetBoard {
-                board: args[0].to_string(),
-                side: args[1].to_string(),
-            },
-            "play" => {
-                if args.len() == 2 {
-                    Command::Play {
-                        color: args[0].to_lowercase(),
-                        move_str: args[1].to_lowercase(),
-                    }
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
-            }
-            "genmove" => {
-                if args.len() == 1 {
-                    Command::Genmove(args[0].to_lowercase())
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
-            }
-            "showboard" => Command::Showboard,
-            "undo" => Command::Undo,
-            "set_level" => {
-                if args.len() == 1 {
-                    if let Ok(level) = args[0].parse::<usize>() {
-                        Command::SetLevel(level)
-                    } else {
-                        Command::Unknown(cmd.to_string())
-                    }
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
-            }
-            "time_settings" => {
-                if args.len() == 3 {
-                    if let (Ok(main_time), Ok(byoyomi_time), Ok(byoyomi_stones)) = (
-                        args[0].parse::<u32>(),
-                        args[1].parse::<u32>(),
-                        args[2].parse::<u32>(),
-                    ) {
-                        Command::TimeSettings {
-                            main_time,
-                            byoyomi_time,
-                            byoyomi_stones,
-                        }
-                    } else {
-                        Command::Unknown(cmd.to_string())
-                    }
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
-            }
-            "time_left" => {
-                if args.len() == 3 {
-                    if let (Ok(time), Ok(stones)) = (args[1].parse::<u32>(), args[2].parse::<u32>())
-                    {
-                        Command::TimeLeft {
-                            color: args[0].to_lowercase(),
-                            time,
-                            stones,
-                        }
-                    } else {
-                        Command::Unknown(cmd.to_string())
-                    }
-                } else {
-                    Command::Unknown(cmd.to_string())
-                }
-            }
-            _ => Command::Unknown(cmd.to_string()),
+            _ => Err(unknown()),
         }
     }
 }
@@ -207,22 +144,25 @@ const COMMAND_NAMES: &[&str] = &[
     "time_left",
 ];
 
-/// Represents a GTP response that can be either successful or an error.
-///
-/// GTP responses are formatted with specific prefixes:
-/// - Success responses start with "="
-/// - Error responses start with "?"
-pub enum GtpResponse {
-    /// A successful command response with optional message
+enum GtpResponse {
     Success(String),
-    /// An error response with error message
     Error(String),
 }
 
+impl From<CommandParseError> for GtpResponse {
+    fn from(err: CommandParseError) -> Self {
+        let msg = match err {
+            CommandParseError::UnknownOrMalformed(cmd) => format!("unknown command: {cmd}"),
+            CommandParseError::InvalidColor => {
+                "invalid color (must be 'b', 'w', 'black', or 'white')".to_string()
+            }
+            CommandParseError::InvalidSideToMove => "invalid side to move".to_string(),
+        };
+        Self::Error(msg)
+    }
+}
+
 impl std::fmt::Display for GtpResponse {
-    /// Formats the response according to GTP protocol specifications.
-    ///
-    /// Success responses are prefixed with "=", error responses with "?".
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Success(msg) => write!(f, "= {msg}"),
@@ -231,41 +171,25 @@ impl std::fmt::Display for GtpResponse {
     }
 }
 
-/// The main GTP engine that handles command processing and game state.
-///
-/// This struct maintains the current game state, search engine configuration,
-/// and engine metadata required for GTP communication.
+#[derive(Debug, Clone, Copy)]
+struct PlayerClock {
+    remaining_time_ms: u64,
+    byo_stones_left: u32,
+}
+
+/// GTP engine that processes commands and owns game and search state.
 pub struct GtpEngine {
-    /// Current game state including board position and move history
     game: GameState,
-    /// Neural network search engine for move generation
     search: search::Search,
-    /// Current playing strength level (1 to [`MAX_LEVEL`])
     level: usize,
-    /// Engine name reported to GTP clients
     name: String,
-    /// Engine version reported to GTP clients
     version: String,
-    /// Time control mode for timed games
-    time_control: TimeControlMode,
-    /// Remaining time for Black in milliseconds
-    black_time_ms: u64,
-    /// Remaining time for White in milliseconds
-    white_time_ms: u64,
-    /// Remaining stones in the current byo-yomi period for Black
-    black_byo_stones_left: u32,
-    /// Remaining stones in the current byo-yomi period for White
-    white_byo_stones_left: u32,
+    time_settings: TimeSettings,
+    clocks: [Option<PlayerClock>; 2],
 }
 
 impl GtpEngine {
     /// Creates a new GTP engine with the specified configuration.
-    ///
-    /// # Arguments
-    /// * `config` - Resolved engine configuration
-    ///
-    /// # Returns
-    /// A new `GtpEngine` instance ready to process commands
     pub fn new(config: &EngineConfig) -> Self {
         Self {
             game: GameState::new(),
@@ -273,25 +197,12 @@ impl GtpEngine {
             level: config.level,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            time_control: TimeControlMode::Infinite,
-            black_time_ms: 0,
-            white_time_ms: 0,
-            black_byo_stones_left: 0,
-            white_byo_stones_left: 0,
+            time_settings: TimeSettings::Infinite,
+            clocks: [None; 2],
         }
     }
 
-    /// Runs the main GTP command loop.
-    ///
-    /// This method reads commands from stdin, processes them, and writes
-    /// responses to stdout according to the GTP protocol. The loop continues
-    /// until a `quit` command is received or an I/O error occurs.
-    ///
-    /// # Protocol Details
-    /// - Commands may be prefixed with an optional ID number
-    /// - Empty lines and lines starting with '#' are ignored
-    /// - Responses are formatted with '=' for success or '?' for errors
-    /// - Each response is followed by a blank line
+    /// Runs the main GTP command loop over stdin and stdout until `quit` or EOF.
     pub fn run(&mut self) {
         let stdin = io::stdin();
         let mut stdout = io::stdout();
@@ -309,9 +220,13 @@ impl GtpEngine {
                         continue;
                     }
 
-                    let command = Command::from_str_with_args(cmd, &args);
-                    let is_quit = matches!(command, Command::Quit);
-                    let response = self.handle_command(command);
+                    let (is_quit, response) = match Command::from_str_with_args(cmd, &args) {
+                        Ok(command) => (
+                            matches!(command, Command::Quit),
+                            self.handle_command(command),
+                        ),
+                        Err(err) => (false, GtpResponse::from(err)),
+                    };
 
                     if let Err(e) = self.output_response(&mut stdout, id, &response) {
                         eprintln!("Error writing output: {e}");
@@ -419,16 +334,6 @@ impl GtpEngine {
         stdout.flush()
     }
 
-    /// Processes a parsed command and returns the appropriate response.
-    ///
-    /// This is the main command dispatcher that routes commands to their
-    /// specific handler methods.
-    ///
-    /// # Arguments
-    /// * `command` - The parsed command to process
-    ///
-    /// # Returns
-    /// A `GtpResponse` containing the result of command execution
     fn handle_command(&mut self, command: Command) -> GtpResponse {
         match command {
             Command::ProtocolVersion => self.handle_protocol_version(),
@@ -439,23 +344,18 @@ impl GtpEngine {
             Command::Quit => self.handle_quit(),
             Command::Boardsize(size) => self.handle_boardsize(size),
             Command::ClearBoard => self.handle_clear_board(),
-            Command::SetBoard { board, side } => self.handle_setboard(&board, &side),
-            Command::Play { color, move_str } => self.handle_play(&color, &move_str),
-            Command::Genmove(color) => self.handle_genmove(&color),
+            Command::SetBoard { board, side } => self.handle_setboard(&board, side),
+            Command::Play { color, move_str } => self.handle_play(color, &move_str),
+            Command::Genmove(color) => self.handle_genmove(color),
             Command::Showboard => self.handle_showboard(),
             Command::Undo => self.handle_undo(),
             Command::SetLevel(level) => self.handle_set_level(level),
-            Command::TimeSettings {
-                main_time,
-                byoyomi_time,
-                byoyomi_stones,
-            } => self.handle_time_settings(main_time, byoyomi_time, byoyomi_stones),
+            Command::TimeSettings(settings) => self.handle_time_settings(settings),
             Command::TimeLeft {
                 color,
                 time,
                 stones,
-            } => self.handle_time_left(&color, time, stones),
-            Command::Unknown(cmd) => GtpResponse::Error(format!("unknown command: {cmd}")),
+            } => self.handle_time_left(color, time, stones),
         }
     }
 
@@ -536,13 +436,8 @@ impl GtpEngine {
         GtpResponse::Success("".to_string())
     }
 
-    fn handle_setboard(&mut self, text: &str, side: &str) -> GtpResponse {
-        let side = match side.to_ascii_lowercase().as_str() {
-            "b" | "black" | "x" => PlayerColor::Black,
-            "w" | "white" | "o" => PlayerColor::White,
-            _ => return GtpResponse::Error("invalid side to move".to_string()),
-        };
-        match reversi_core::board::Board::from_string(text, side) {
+    fn handle_setboard(&mut self, text: &str, side: PlayerColor) -> GtpResponse {
+        match Board::from_string(text, side) {
             // The search assumes at most 60 empties.
             Ok(board) if board.player_count() + board.opponent_count() < 4 => {
                 GtpResponse::Error("at least 4 discs required".to_string())
@@ -556,23 +451,11 @@ impl GtpEngine {
         }
     }
 
-    /// Handles the `play` command.
-    ///
-    /// Executes a move for the specified color. Validates that it's the correct
-    /// player's turn and that the move is legal, but accepts a pass for the side
-    /// that was already passed automatically.
-    ///
-    /// # Arguments
-    /// * `color` - The color making the move ("b"/"black" or "w"/"white")
-    /// * `move_str` - The move in coordinate notation (e.g., "d3") or "pass"
-    ///
-    /// # Returns
-    /// Success if the move was played, error if invalid
-    fn handle_play(&mut self, color: &str, move_str: &str) -> GtpResponse {
-        if move_str == "pass" && self.confirm_automatic_pass(color) {
-            return GtpResponse::Success("".to_string());
+    fn handle_play(&mut self, color: PlayerColor, move_str: &str) -> GtpResponse {
+        if move_str == "pass" && self.game.confirm_automatic_pass(color) {
+            return GtpResponse::Success(String::new());
         }
-        if let Err(msg) = self.validate_color(color) {
+        if let Err(msg) = self.ensure_turn(color) {
             return GtpResponse::Error(msg);
         }
 
@@ -581,35 +464,25 @@ impl GtpEngine {
                 return GtpResponse::Error("pass not allowed when legal moves exist".to_string());
             }
             return match self.game.make_pass() {
-                Ok(()) => GtpResponse::Success("".to_string()),
+                Ok(()) => GtpResponse::Success(String::new()),
                 Err(e) => GtpResponse::Error(e),
             };
         }
 
         match move_str.parse::<Square>() {
             Ok(sq) => match self.game.make_move(sq) {
-                Ok(()) => GtpResponse::Success("".to_string()),
+                Ok(()) => GtpResponse::Success(String::new()),
                 Err(_) => GtpResponse::Error("illegal move".to_string()),
             },
             Err(_) => GtpResponse::Error("invalid move format (use a1, b2, etc.)".to_string()),
         }
     }
 
-    /// Handles the `genmove` command.
-    ///
-    /// Generates and plays the best move for the specified color using the
-    /// neural network search engine. If time control is active, uses timed search.
-    ///
-    /// # Arguments
-    /// * `color` - The color to generate a move for
-    ///
-    /// # Returns
-    /// The generated move in coordinate notation, or "pass" if no legal moves
-    fn handle_genmove(&mut self, color: &str) -> GtpResponse {
-        if self.confirm_automatic_pass(color) {
+    fn handle_genmove(&mut self, color: PlayerColor) -> GtpResponse {
+        if self.game.confirm_automatic_pass(color) {
             return GtpResponse::Success("pass".to_string());
         }
-        if let Err(msg) = self.validate_color(color) {
+        if let Err(msg) = self.ensure_turn(color) {
             return GtpResponse::Error(msg);
         }
 
@@ -620,11 +493,7 @@ impl GtpEngine {
             };
         }
 
-        // Determine time control mode for this move. If no time control is set,
-        // fall back to depth-limited search based on the configured level so
-        // `genmove` returns promptly instead of thinking indefinitely.
-        let time_control = self.current_time_control();
-        let options = match time_control {
+        let options = match self.current_time_control() {
             TimeControlMode::Infinite => {
                 let level_idx = self.level.min(MAX_LEVEL);
                 SearchRunOptions::with_level(get_level(level_idx))
@@ -643,47 +512,13 @@ impl GtpEngine {
         }
     }
 
-    /// Gets the current time control mode based on remaining time.
     fn current_time_control(&self) -> TimeControlMode {
-        match self.time_control {
-            TimeControlMode::Infinite => TimeControlMode::Infinite,
-            TimeControlMode::Byoyomi { time_per_move_ms } => {
-                TimeControlMode::Byoyomi { time_per_move_ms }
-            }
-            TimeControlMode::Fischer { increment_ms, .. } => {
-                // Use remaining time for the current player
-                let remaining_time_ms = match self.game.side_to_move() {
-                    PlayerColor::Black => self.black_time_ms,
-                    PlayerColor::White => self.white_time_ms,
-                };
-                TimeControlMode::Fischer {
-                    main_time_ms: remaining_time_ms,
-                    increment_ms,
-                }
-            }
-            TimeControlMode::JapaneseByo {
-                time_per_move_ms: configured_time_per_move_ms,
-                ..
-            } => {
-                let (remaining_time_ms, byo_stones_left) = match self.game.side_to_move() {
-                    PlayerColor::Black => (self.black_time_ms, self.black_byo_stones_left),
-                    PlayerColor::White => (self.white_time_ms, self.white_byo_stones_left),
-                };
-
-                if byo_stones_left > 0 {
-                    // GTP reports the remaining time for the current byoyomi period.
-                    // Convert that shared period into a per-move budget for search.
-                    TimeControlMode::JapaneseByo {
-                        main_time_ms: 0,
-                        time_per_move_ms: remaining_time_ms / byo_stones_left as u64,
-                    }
-                } else {
-                    TimeControlMode::JapaneseByo {
-                        main_time_ms: remaining_time_ms,
-                        time_per_move_ms: configured_time_per_move_ms,
-                    }
-                }
-            }
+        let side = self.game.side_to_move();
+        match self.clocks[side.index()] {
+            Some(clock) => self
+                .time_settings
+                .move_time_control(clock.remaining_time_ms, clock.byo_stones_left),
+            None => self.time_settings.initial_time_control(),
         }
     }
 
@@ -787,160 +622,31 @@ impl GtpEngine {
         }
     }
 
-    /// Records the pass of `color` if the last move already passed for it automatically.
-    fn confirm_automatic_pass(&mut self, color: &str) -> bool {
-        let side = match color {
-            "b" | "black" => PlayerColor::Black,
-            "w" | "white" => PlayerColor::White,
-            _ => return false,
-        };
-        self.game.confirm_automatic_pass(side)
-    }
-
-    /// Validates that the specified color matches the current player to move.
-    ///
-    /// Accepts multiple formats: "b", "black", "w", "white" (case insensitive).
-    ///
-    /// # Arguments
-    /// * `color` - The color string to validate
-    ///
-    /// # Returns
-    /// `Ok(())` if valid, `Err(message)` if invalid or wrong player
-    fn validate_color(&self, color: &str) -> Result<(), String> {
-        let expected_color = match self.game.side_to_move() {
-            PlayerColor::Black => "b",
-            PlayerColor::White => "w",
-        };
-
-        if color != "b" && color != "w" && color != "black" && color != "white" {
-            return Err("invalid color (must be 'b', 'w', 'black', or 'white')".to_string());
-        }
-
-        let is_correct_color = (color == "b" || color == "black") && expected_color == "b"
-            || (color == "w" || color == "white") && expected_color == "w";
-
-        if !is_correct_color {
-            return Err(format!("wrong color, expected {expected_color}"));
-        }
-
-        Ok(())
-    }
-
-    /// Handles the `time_settings` command.
-    ///
-    /// Sets up time control for the game. GTP time_settings uses seconds,
-    /// which are converted to milliseconds internally.
-    ///
-    /// # Arguments
-    /// * `main_time` - Main time in seconds (0 for no main time)
-    /// * `byoyomi_time` - Byoyomi period time in seconds
-    /// * `byoyomi_stones` - Number of stones per byoyomi period (0: increment or per-move time)
-    ///
-    /// # Time Control Interpretation
-    /// - main_time=0, byoyomi_time>0, byoyomi_stones=0: Pure byoyomi (N seconds per move)
-    /// - main_time>0, byoyomi_time=0: Sudden death (main_time total)
-    /// - main_time>0, byoyomi_time>0, byoyomi_stones>0: Main time + byoyomi overtime
-    fn handle_time_settings(
-        &mut self,
-        main_time: u32,
-        byoyomi_time: u32,
-        byoyomi_stones: u32,
-    ) -> GtpResponse {
-        // Seconds are parsed as u32 so the millisecond values stay far from
-        // overflow in the time manager's percentage arithmetic.
-        let main_time_ms = u64::from(main_time) * 1000;
-        let byoyomi_time_ms = u64::from(byoyomi_time) * 1000;
-
-        self.black_byo_stones_left = 0;
-        self.white_byo_stones_left = 0;
-
-        if main_time == 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
-            // Pure byoyomi: N seconds per move (already in byoyomi from start)
-            self.time_control = TimeControlMode::Byoyomi {
-                time_per_move_ms: byoyomi_time_ms,
-            };
-        } else if main_time > 0 && byoyomi_time == 0 {
-            // Sudden death: total time for the game (Fischer with no increment)
-            self.time_control = TimeControlMode::Fischer {
-                main_time_ms,
-                increment_ms: 0,
-            };
-            self.black_time_ms = main_time_ms;
-            self.white_time_ms = main_time_ms;
-        } else if main_time > 0 && byoyomi_time > 0 && byoyomi_stones == 0 {
-            // Treat stones=0 as Fischer increment (GTP has no dedicated increment field).
-            self.time_control = TimeControlMode::Fischer {
-                main_time_ms,
-                increment_ms: byoyomi_time_ms,
-            };
-            self.black_time_ms = main_time_ms;
-            self.white_time_ms = main_time_ms;
-        } else if main_time > 0 && byoyomi_time > 0 {
-            // Canadian/Japanese byo yomi: main time + overtime periods
-            let time_per_move_ms = byoyomi_time_ms / byoyomi_stones as u64;
-            self.time_control = TimeControlMode::JapaneseByo {
-                main_time_ms,
-                time_per_move_ms,
-            };
-            self.black_time_ms = main_time_ms;
-            self.white_time_ms = main_time_ms;
-        } else if main_time == 0 && byoyomi_time > 0 && byoyomi_stones > 0 {
-            // Pure byoyomi with stones (Japanese style starting in byoyomi)
-            let time_per_move_ms = byoyomi_time_ms / byoyomi_stones as u64;
-            self.time_control = TimeControlMode::JapaneseByo {
-                main_time_ms: 0,
-                time_per_move_ms,
-            };
-            self.black_time_ms = byoyomi_time_ms;
-            self.white_time_ms = byoyomi_time_ms;
-            self.black_byo_stones_left = byoyomi_stones;
-            self.white_byo_stones_left = byoyomi_stones;
+    fn ensure_turn(&self, color: PlayerColor) -> Result<(), String> {
+        let expected = self.game.side_to_move();
+        if color == expected {
+            Ok(())
         } else {
-            // No time control (infinite)
-            self.time_control = TimeControlMode::Infinite;
+            let short = match expected {
+                PlayerColor::Black => 'b',
+                PlayerColor::White => 'w',
+            };
+            Err(format!("wrong color, expected {short}"))
         }
-
-        GtpResponse::Success("".to_string())
     }
 
-    /// Handles the `time_left` command.
-    ///
-    /// Updates the remaining time for a player. GTP uses seconds,
-    /// which are converted to milliseconds internally.
-    ///
-    /// # Arguments
-    /// * `color` - The player color ("b"/"black" or "w"/"white")
-    /// * `time` - Remaining time in seconds
-    /// * `stones` - Number of stones remaining in current period (0 if not applicable)
-    fn handle_time_left(&mut self, color: &str, time: u32, stones: u32) -> GtpResponse {
-        let time_ms = u64::from(time) * 1000;
-        let stones_left = if matches!(self.time_control, TimeControlMode::JapaneseByo { .. }) {
-            stones
-        } else {
-            0
-        };
+    fn handle_time_settings(&mut self, settings: TimeSettings) -> GtpResponse {
+        self.time_settings = settings;
+        self.clocks = [None; 2];
+        GtpResponse::Success(String::new())
+    }
 
-        match color {
-            "b" | "black" => {
-                self.black_time_ms = time_ms;
-                self.black_byo_stones_left = stones_left;
-            }
-            "w" | "white" => {
-                self.white_time_ms = time_ms;
-                self.white_byo_stones_left = stones_left;
-            }
-            _ => {
-                return GtpResponse::Error(
-                    "invalid color (must be 'b', 'w', 'black', or 'white')".to_string(),
-                );
-            }
-        }
-
-        // Note: Do not override the current time control mode here; `time_left`
-        // is used only to refresh remaining time. Changing modes causes engines
-        // to misinterpret clocks.
-
-        GtpResponse::Success("".to_string())
+    fn handle_time_left(&mut self, color: PlayerColor, time: u32, stones: u32) -> GtpResponse {
+        self.clocks[color.index()] = Some(PlayerClock {
+            remaining_time_ms: u64::from(time) * 1000,
+            byo_stones_left: stones,
+        });
+        GtpResponse::Success(String::new())
     }
 
     /// Checks if a command name is in the list of supported commands.
@@ -972,7 +678,7 @@ mod tests {
         // White (b1) has no move; Black can play c1.
         let text = format!("XO------X-------X-------{}", "-".repeat(40));
         assert!(matches!(
-            engine.handle_setboard(&text, "W"),
+            engine.handle_setboard(&text, PlayerColor::White),
             GtpResponse::Success(_)
         ));
         assert_eq!(engine.game.side_to_move(), PlayerColor::White);
@@ -985,14 +691,19 @@ mod tests {
             Disc::White
         );
         let before = *engine.game.board();
-        for (board, side) in [
-            ("X", "B"),
-            (text.as_str(), "invalid"),
-            (&"?".repeat(64), "B"),
-            (&format!("XO{}", "-".repeat(62)), "B"),
-        ] {
+        assert_eq!(
+            Command::from_str_with_args("setboard", &[text.as_str(), "invalid"]),
+            Err(CommandParseError::InvalidSideToMove)
+        );
+        assert_eq!(
+            exec_line(&mut engine, &format!("setboard {text} invalid")),
+            "? invalid side to move\n\n"
+        );
+        assert_eq!(*engine.game.board(), before);
+        assert_eq!(engine.game.side_to_move(), PlayerColor::White);
+        for board in ["X", &"?".repeat(64), &format!("XO{}", "-".repeat(62))] {
             assert!(matches!(
-                engine.handle_setboard(board, side),
+                engine.handle_setboard(board, PlayerColor::Black),
                 GtpResponse::Error(_)
             ));
             assert_eq!(*engine.game.board(), before);
@@ -1000,15 +711,15 @@ mod tests {
         }
         assert!(engine.is_known_command("setboard"));
         assert!(matches!(
-            engine.handle_play("white", "C1"),
+            engine.handle_play(PlayerColor::White, "C1"),
             GtpResponse::Error(_)
         ));
         assert!(matches!(
-            engine.handle_play("white", "pass"),
+            engine.handle_play(PlayerColor::White, "pass"),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_play("black", "C1"),
+            engine.handle_play(PlayerColor::Black, "C1"),
             GtpResponse::Success(_)
         ));
     }
@@ -1026,44 +737,44 @@ mod tests {
         // Black a1 leaves White without a move while Black can still play g1.
         let text = format!("-OXOOO--{}", "-".repeat(56));
         assert!(matches!(
-            engine.handle_setboard(&text, "B"),
+            engine.handle_setboard(&text, PlayerColor::Black),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_play("black", "a1"),
+            engine.handle_play(PlayerColor::Black, "a1"),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_play("white", "g1"),
+            engine.handle_play(PlayerColor::White, "g1"),
             GtpResponse::Error(_)
         ));
         assert!(matches!(
-            engine.handle_play("white", "pass"),
+            engine.handle_play(PlayerColor::White, "pass"),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_play("white", "pass"),
+            engine.handle_play(PlayerColor::White, "pass"),
             GtpResponse::Error(_)
         ));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
         assert_eq!(engine.game.side_to_move(), PlayerColor::White);
         assert!(matches!(
-            engine.handle_play("black", "g1"),
+            engine.handle_play(PlayerColor::Black, "g1"),
             GtpResponse::Error(_)
         ));
         assert!(matches!(
-            engine.handle_genmove("white"),
+            engine.handle_genmove(PlayerColor::White),
             GtpResponse::Success(mv) if mv == "pass"
         ));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
         assert!(engine.game.move_history().is_empty());
         assert!(matches!(
-            engine.handle_play("black", "a1"),
+            engine.handle_play(PlayerColor::Black, "a1"),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_genmove("white"),
+            engine.handle_genmove(PlayerColor::White),
             GtpResponse::Success(mv) if mv == "pass"
         ));
         assert!(matches!(engine.handle_undo(), GtpResponse::Success(_)));
@@ -1082,110 +793,361 @@ mod tests {
         let mut engine = GtpEngine::new(&config);
         let full = format!("{}O", "X".repeat(63));
         assert!(matches!(
-            engine.handle_setboard(&full, "B"),
+            engine.handle_setboard(&full, PlayerColor::Black),
             GtpResponse::Success(_)
         ));
         assert!(matches!(
-            engine.handle_genmove("black"),
+            engine.handle_genmove(PlayerColor::Black),
             GtpResponse::Error(_)
         ));
         assert!(matches!(
-            engine.handle_play("black", "pass"),
+            engine.handle_play(PlayerColor::Black, "pass"),
             GtpResponse::Error(_)
         ));
     }
 
     #[test]
     fn parses_zero_arg_commands() {
-        assert!(matches!(
+        assert_eq!(
             Command::from_str_with_args("protocol_version", &[]),
-            Command::ProtocolVersion
-        ));
-        assert!(matches!(
+            Ok(Command::ProtocolVersion)
+        );
+        assert_eq!(
             Command::from_str_with_args("list_commands", &[]),
-            Command::ListCommands
-        ));
-        assert!(matches!(
-            Command::from_str_with_args("quit", &[]),
-            Command::Quit
-        ));
+            Ok(Command::ListCommands)
+        );
+        assert_eq!(Command::from_str_with_args("quit", &[]), Ok(Command::Quit));
     }
 
     #[test]
     fn parses_boardsize_and_rejects_bad_args() {
-        match Command::from_str_with_args("boardsize", &["8"]) {
-            Command::Boardsize(8) => {}
-            other => panic!("expected Boardsize(8), got {other:?}"),
-        }
-        assert!(matches!(
+        assert_eq!(
+            Command::from_str_with_args("boardsize", &["8"]),
+            Ok(Command::Boardsize(8))
+        );
+        assert_eq!(
             Command::from_str_with_args("boardsize", &["abc"]),
-            Command::Unknown(_)
-        ));
-        assert!(matches!(
+            Err(CommandParseError::UnknownOrMalformed(
+                "boardsize".to_string()
+            ))
+        );
+        assert_eq!(
             Command::from_str_with_args("boardsize", &[]),
-            Command::Unknown(_)
-        ));
+            Err(CommandParseError::UnknownOrMalformed(
+                "boardsize".to_string()
+            ))
+        );
     }
 
     #[test]
     fn parses_play_and_lowercases_args() {
-        match Command::from_str_with_args("play", &["B", "D3"]) {
-            Command::Play { color, move_str } => {
-                assert_eq!(color, "b");
-                assert_eq!(move_str, "d3");
-            }
-            other => panic!("expected Play, got {other:?}"),
-        }
-        assert!(matches!(
+        assert_eq!(
+            Command::from_str_with_args("play", &["B", "D3"]),
+            Ok(Command::Play {
+                color: PlayerColor::Black,
+                move_str: "d3".to_string(),
+            })
+        );
+        assert_eq!(
             Command::from_str_with_args("play", &["b"]),
-            Command::Unknown(_)
-        ));
+            Err(CommandParseError::UnknownOrMalformed("play".to_string()))
+        );
+        assert_eq!(
+            Command::from_str_with_args("play", &["x", "d3"]),
+            Err(CommandParseError::InvalidColor)
+        );
     }
 
     #[test]
     fn parses_set_level() {
-        match Command::from_str_with_args("set_level", &["10"]) {
-            Command::SetLevel(10) => {}
-            other => panic!("expected SetLevel(10), got {other:?}"),
-        }
-        assert!(matches!(
+        assert_eq!(
+            Command::from_str_with_args("set_level", &["10"]),
+            Ok(Command::SetLevel(10))
+        );
+        assert_eq!(
             Command::from_str_with_args("set_level", &["abc"]),
-            Command::Unknown(_)
-        ));
+            Err(CommandParseError::UnknownOrMalformed(
+                "set_level".to_string()
+            ))
+        );
     }
 
     #[test]
     fn parses_time_commands() {
-        match Command::from_str_with_args("time_settings", &["300", "5", "1"]) {
-            Command::TimeSettings {
-                main_time,
-                byoyomi_time,
-                byoyomi_stones,
-            } => {
-                assert_eq!((main_time, byoyomi_time, byoyomi_stones), (300, 5, 1));
-            }
-            other => panic!("expected TimeSettings, got {other:?}"),
-        }
-        assert!(matches!(
+        assert_eq!(
+            Command::from_str_with_args("time_settings", &["300", "5", "1"]),
+            Ok(Command::TimeSettings(TimeSettings::from_gtp_secs(
+                300, 5, 1
+            )))
+        );
+        assert_eq!(
             Command::from_str_with_args("time_settings", &["300", "5", "x"]),
-            Command::Unknown(_)
-        ));
-        match Command::from_str_with_args("time_left", &["b", "60", "0"]) {
-            Command::TimeLeft {
-                color,
-                time,
-                stones,
-            } => {
-                assert_eq!(color, "b");
-                assert_eq!((time, stones), (60, 0));
-            }
-            other => panic!("expected TimeLeft, got {other:?}"),
-        }
+            Err(CommandParseError::UnknownOrMalformed(
+                "time_settings".to_string()
+            ))
+        );
+        assert_eq!(
+            Command::from_str_with_args("time_left", &["b", "60", "0"]),
+            Ok(Command::TimeLeft {
+                color: PlayerColor::Black,
+                time: 60,
+                stones: 0,
+            })
+        );
     }
 
     #[test]
     fn response_display_uses_gtp_prefixes() {
         assert_eq!(GtpResponse::Success("foo".to_string()).to_string(), "= foo");
         assert_eq!(GtpResponse::Error("bar".to_string()).to_string(), "? bar");
+    }
+
+    fn test_engine() -> GtpEngine {
+        GtpEngine::new(&EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        })
+    }
+
+    fn exec_line(engine: &mut GtpEngine, line: &str) -> String {
+        let (id, cmd, args) = engine.parse_input_line(line.trim());
+        let response = match Command::from_str_with_args(cmd, &args) {
+            Ok(command) => engine.handle_command(command),
+            Err(err) => GtpResponse::from(err),
+        };
+        let mut out = Vec::new();
+        engine.output_response(&mut out, id, &response).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn gtp_wire_contract_pins_command_arity_colors_and_error_precedence() {
+        let mut engine = test_engine();
+
+        assert_eq!(
+            exec_line(&mut engine, "1 known_command genmove"),
+            "=1 true\n\n"
+        );
+        assert_eq!(exec_line(&mut engine, "known_command foo"), "= false\n\n");
+        assert_eq!(
+            exec_line(&mut engine, "known_command"),
+            "? unknown command: known_command\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "known_command a b"),
+            "? unknown command: known_command\n\n"
+        );
+        assert_eq!(exec_line(&mut engine, "protocol_version extra"), "= 2\n\n");
+        assert_eq!(exec_line(&mut engine, "name extra"), "= Neural Reversi\n\n");
+        assert_eq!(
+            exec_line(&mut engine, "NAME"),
+            "? unknown command: NAME\n\n"
+        );
+        assert_eq!(exec_line(&mut engine, "42"), "? unknown command: 42\n\n");
+
+        assert_eq!(
+            exec_line(&mut engine, "boardsize abc"),
+            "? unknown command: boardsize\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "boardsize 9"),
+            "? unacceptable size (only 8x8 is supported)\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "set_level abc"),
+            "? unknown command: set_level\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "set_level 0"),
+            "? level must be between 1 and 30\n\n"
+        );
+
+        assert_eq!(
+            exec_line(&mut engine, "play x"),
+            "? unknown command: play\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play b d3 extra"),
+            "? unknown command: play\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play x d3"),
+            "? invalid color (must be 'b', 'w', 'black', or 'white')\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play o d3"),
+            "? invalid color (must be 'b', 'w', 'black', or 'white')\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play x z9"),
+            "? invalid color (must be 'b', 'w', 'black', or 'white')\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play w z9"),
+            "? wrong color, expected b\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "play b z9"),
+            "? invalid move format (use a1, b2, etc.)\n\n"
+        );
+        assert_eq!(exec_line(&mut engine, "play BLACK D3"), "= \n\n");
+        assert_eq!(
+            exec_line(&mut engine, "play b c3"),
+            "? wrong color, expected w\n\n"
+        );
+
+        assert_eq!(
+            exec_line(&mut engine, "genmove"),
+            "? unknown command: genmove\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "genmove w extra"),
+            "? unknown command: genmove\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "genmove x"),
+            "? invalid color (must be 'b', 'w', 'black', or 'white')\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "genmove black"),
+            "? wrong color, expected w\n\n"
+        );
+
+        assert_eq!(
+            exec_line(&mut engine, "time_left x 10 0"),
+            "? invalid color (must be 'b', 'w', 'black', or 'white')\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "time_left x abc 0"),
+            "? unknown command: time_left\n\n"
+        );
+        assert_eq!(exec_line(&mut engine, "time_left BLACK 45 0"), "= \n\n");
+        assert_eq!(exec_line(&mut engine, "time_left WHITE 50 0"), "= \n\n");
+
+        assert_eq!(
+            exec_line(&mut engine, "setboard short invalid"),
+            "? invalid side to move\n\n"
+        );
+        assert_eq!(
+            exec_line(&mut engine, "setboard xo b"),
+            "? Board string too short: expected 64 characters, got 2\n\n"
+        );
+        let start_board = format!("{}OX------XO{}", "-".repeat(27), "-".repeat(27));
+        assert_eq!(
+            exec_line(&mut engine, &format!("setboard {start_board} x")),
+            "= \n\n"
+        );
+        assert_eq!(engine.game.side_to_move(), PlayerColor::Black);
+        assert_eq!(
+            exec_line(&mut engine, &format!("setboard {start_board} O")),
+            "= \n\n"
+        );
+        assert_eq!(engine.game.side_to_move(), PlayerColor::White);
+    }
+
+    #[test]
+    fn gtp_time_settings_and_time_left_pin_all_eight_mode_combinations() {
+        let mut engine = test_engine();
+
+        assert_eq!(exec_line(&mut engine, "time_settings 0 0 0"), "= \n\n");
+        assert_eq!(engine.current_time_control(), TimeControlMode::Infinite);
+
+        assert_eq!(exec_line(&mut engine, "time_settings 0 0 3"), "= \n\n");
+        assert_eq!(engine.current_time_control(), TimeControlMode::Infinite);
+
+        assert_eq!(exec_line(&mut engine, "time_settings 0 5 0"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(exec_line(&mut engine, "time_left b 99 4"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: 5_000,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "time_settings 0 10 2"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(exec_line(&mut engine, "time_left b 6 2"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 3_000,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "time_settings 60 0 0"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "time_settings 60 0 3"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 0,
+            }
+        );
+        assert_eq!(exec_line(&mut engine, "time_left b 42 5"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 42_000,
+                increment_ms: 0,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "time_settings 60 5 0"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 5_000,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "time_settings 60 10 2"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 60_000,
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(exec_line(&mut engine, "time_left b 25 0"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 25_000,
+                time_per_move_ms: 5_000,
+            }
+        );
+        assert_eq!(exec_line(&mut engine, "time_left b 8 2"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::JapaneseByo {
+                main_time_ms: 0,
+                time_per_move_ms: 4_000,
+            }
+        );
     }
 }

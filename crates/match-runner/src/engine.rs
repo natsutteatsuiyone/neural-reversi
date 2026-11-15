@@ -13,6 +13,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use reversi_core::player_color::PlayerColor;
+use reversi_core::search::time_control::TimeSettings;
+
 use crate::error::{MatchRunnerError, Result};
 
 // GTP protocol constants
@@ -298,36 +301,25 @@ impl GtpEngine {
         Ok(())
     }
 
-    pub(crate) fn setboard(&mut self, board: &str, side: &str) -> Result<()> {
+    pub(crate) fn setboard(&mut self, board: &str, side: PlayerColor) -> Result<()> {
+        let side = match side {
+            PlayerColor::Black => 'B',
+            PlayerColor::White => 'W',
+        };
         let response = self.send_command(&format!("setboard {board} {side}"))?;
         Self::parse_success_response(&response)?;
         Ok(())
     }
 
-    /// Make a move on the engine's internal board.
-    ///
-    /// Sends a "play" GTP command to inform the engine of a move made
-    /// by the opponent or during opening setup.
-    ///
-    /// # Arguments
-    ///
-    /// * `color` - The color making the move ("black" or "white")
-    /// * `mv` - The move in algebraic notation (e.g., "f5" or "pass")
-    pub fn play(&mut self, color: &str, mv: &str) -> Result<()> {
+    /// Sends a `play` GTP command to apply `mv` for `color`.
+    pub fn play(&mut self, color: PlayerColor, mv: &str) -> Result<()> {
         let response = self.send_command(&format!("{GTP_CMD_PLAY} {color} {mv}"))?;
         Self::parse_success_response(&response)?;
         Ok(())
     }
 
-    /// Request the engine to generate a move.
-    ///
-    /// Sends a "genmove" GTP command asking the engine to choose and
-    /// return its best move for the specified color.
-    ///
-    /// # Arguments
-    ///
-    /// * `color` - The color for which to generate a move ("black" or "white")
-    pub fn genmove(&mut self, color: &str) -> Result<String> {
+    /// Sends a `genmove` GTP command and returns the chosen move for `color`.
+    pub fn genmove(&mut self, color: PlayerColor) -> Result<String> {
         let response = self.send_command(&format!("{GTP_CMD_GENMOVE} {color}"))?;
         Ok(Self::parse_success_response(&response)?.to_owned())
     }
@@ -336,31 +328,23 @@ impl GtpEngine {
     // Time Control
     // =============================================================================
 
-    /// Configure time control settings for the engine.
-    ///
-    /// Sends a "time_settings" GTP command to configure the engine's time control.
-    /// This command is optional and some engines may not support it.
-    pub fn time_settings(
-        &mut self,
-        main_time: u64,
-        byoyomi_time: u64,
-        byoyomi_stones: u32,
-    ) -> Result<()> {
+    /// Sends a `time_settings` GTP command, ignoring unsupported-command errors.
+    pub fn time_settings(&mut self, settings: TimeSettings) -> Result<()> {
         let response = self.send_command(&format!(
-            "time_settings {main_time} {byoyomi_time} {byoyomi_stones}"
+            "time_settings {} {} {}",
+            settings.main_time_secs(),
+            settings.byoyomi_time_secs(),
+            settings.byoyomi_stones(),
         ))?;
-        // Ignore errors - not all engines support time_settings
+        // Not all engines support time_settings.
         let _ = Self::parse_optional_response(&response);
         Ok(())
     }
 
-    /// Update the remaining time for a player.
-    ///
-    /// Sends a "time_left" GTP command to inform the engine of the current
-    /// remaining time for a player.
-    pub fn time_left(&mut self, color: &str, time: u64, stones: u32) -> Result<()> {
+    /// Sends a `time_left` GTP command for `color`, ignoring unsupported-command errors.
+    pub fn time_left(&mut self, color: PlayerColor, time: u64, stones: u32) -> Result<()> {
         let response = self.send_command(&format!("time_left {color} {time} {stones}"))?;
-        // Ignore errors - not all engines support time_left
+        // Not all engines support time_left.
         let _ = Self::parse_optional_response(&response);
         Ok(())
     }
