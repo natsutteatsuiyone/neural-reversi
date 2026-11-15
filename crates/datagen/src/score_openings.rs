@@ -1,10 +1,15 @@
-//! Score-openings module.
+//! Opening-position enumeration and evaluation into binary records.
 //!
-//! Enumerates every unique board position reachable within a given number of plies
-//! from the initial position, scores each one with the search algorithm, and writes
-//! the results in the shared binary record format. Supports resume by skipping
-//! positions already present in an existing output file.
+//! Enumerates every unique board position reachable within a given number of
+//! plies from the initial position, scores each one with the search algorithm,
+//! and writes the results in the shared binary record format.
 
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+use std::time::Duration;
+
+use anyhow::Context;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use reversi_core::board::Board;
 use reversi_core::level::Level;
@@ -13,21 +18,20 @@ use reversi_core::player_color::PlayerColor;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
-use std::collections::HashSet;
-use std::fs;
-use std::io;
-use std::path::Path;
-use std::time::Duration;
 
-use crate::record::{self, GameRecord, read_records_from_file, write_records_to_file};
+use crate::record::{
+    GameRecord, append_records, read_records_from_file, truncate_incomplete_record,
+};
 
-/// Enumerates all unique positions reachable within `depth` plies and scores each one.
-///
-/// Duplicate positions (reached via different move orders) are eliminated in memory.
-/// If the output file already exists, previously scored positions are loaded and skipped.
-pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::Result<()> {
-    if let Some(parent) = Path::new(output).parent() {
-        fs::create_dir_all(parent)?;
+pub(crate) fn execute(
+    depth: u8,
+    hash_size: usize,
+    level: Level,
+    output: &Path,
+) -> anyhow::Result<()> {
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create parent directory '{}'", parent.display()))?;
     }
 
     println!("Enumerating positions up to depth {depth}...");
@@ -43,11 +47,9 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
     drop(visited);
     println!("Found {} unique positions", positions.len());
 
-    // Load previously scored positions for resume
-    let output_path = Path::new(output);
-    record::truncate_incomplete_record(output_path)?;
-    let mut scored: HashSet<Board> = if output_path.exists() {
-        let records = read_records_from_file(output_path)?;
+    truncate_incomplete_record(output)?;
+    let mut scored: HashSet<Board> = if output.exists() {
+        let records = read_records_from_file(output)?;
         println!("Loaded {} existing records, resuming...", records.len());
         records.into_iter().map(|r| r.board).collect()
     } else {
@@ -71,8 +73,7 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
     pb.set_style(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({per_sec}) ETA:{eta_precise}",
-        )
-        .map_err(io::Error::other)?
+        )?
         .progress_chars("#>-"),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -94,7 +95,7 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
             ply,
             board,
             score,
-            game_score: score.round() as i8,
+            game_score: Some(score.round() as i8),
             side_to_move,
             is_random: false,
             sq: result.best_move().unwrap_or(Square::A1),
@@ -103,13 +104,13 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
         pb.inc(1);
 
         if batch.len() >= 1000 {
-            write_records_to_file(output_path, &batch)?;
+            append_records(output, &batch)?;
             batch.clear();
         }
     }
 
     if !batch.is_empty() {
-        write_records_to_file(output_path, &batch)?;
+        append_records(output, &batch)?;
     }
 
     pb.finish_and_clear();
@@ -121,10 +122,7 @@ pub fn execute(depth: u8, hash_size: usize, level: Level, output: &str) -> io::R
     Ok(())
 }
 
-/// Recursively enumerates all unique board positions reachable within `depth` plies.
-///
-/// Positions are canonicalized via [`Board::unique`] so that symmetric variants
-/// are treated as duplicates, reducing the total count by up to 8x.
+/// Recursively enumerates unique canonical board positions reachable within `depth` plies.
 fn enumerate_positions(
     board: &Board,
     side_to_move: PlayerColor,

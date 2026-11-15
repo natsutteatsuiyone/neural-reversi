@@ -1,4 +1,4 @@
-//! Fits the endgame ProbCut model from `endgame-trace` samples.
+//! Fits the endgame ProbCut model from [`TraceRow`] samples.
 //!
 //! - Verification ([`VerifyModel`]): the exact score given the
 //!   depth-[`VERIFY_DEPTH`] score. Fitted on attempts with
@@ -13,10 +13,7 @@
 //! Games in [`HOLDOUT_FOLD`] never enter the fit. The engine's decisions are
 //! replayed on them and, with `--validate`, on a separate trace.
 
-use std::{
-    fs::File,
-    io::{self, BufRead, BufReader},
-};
+use std::path::Path;
 
 use reversi_core::{
     eval::EVAL_FILE_NAME,
@@ -26,37 +23,38 @@ use reversi_core::{
     },
 };
 
-use crate::endgame_probcut::{HOLDOUT_FOLD, trace_header};
-use crate::fit_probcut::game_fold;
+use crate::endgame_probcut::{self, TraceRow};
 use crate::least_squares::weighted_least_squares;
+use crate::probcut::{HOLDOUT_FOLD, game_fold};
 
 /// Smallest negative residual, in discs, whose log enters the scale fit.
 const MIN_RESIDUAL: f64 = 1.0 / 64.0;
 
-/// One traced ProbCut attempt. Scores are in discs.
-struct Row {
-    game: u64,
-    empties: u32,
-    /// Static evaluation.
-    eval: f64,
-    /// Verification score.
-    score: f64,
-    exact: f64,
-    beta: f64,
-    cut_node: bool,
-}
-
-impl Row {
-    fn features(&self) -> [f64; NUM_VERIFY_FEATURES] {
-        VerifyModel::features(self.empties, self.cut_node, self.beta, self.eval)
-    }
+fn row_features(row: &TraceRow) -> [f64; NUM_VERIFY_FEATURES] {
+    VerifyModel::features(row.empties, row.cut_node, row.beta, row.eval)
 }
 
 /// Fits the model from `input` and prints the Rust block; with `validate`,
 /// also replays the engine's decisions on an `endgame-trace` file.
-pub fn execute(input: &str, validate: Option<&str>) -> io::Result<()> {
-    let rows = read_rows(input)?;
-    let (fit_rows, holdout_rows): (Vec<&Row>, Vec<&Row>) =
+pub(crate) fn execute(input: &Path, validate: Option<&Path>) -> anyhow::Result<()> {
+    let rows = endgame_probcut::read_trace_rows(input)?;
+    let (model, screen, holdout_rows) = fit_from_rows(&rows)?;
+
+    if !holdout_rows.is_empty() {
+        eprintln!("\n=== decisions replayed on the held-out games ===");
+        replay(&model, &screen, &holdout_rows);
+    }
+    if let Some(validate) = validate {
+        eprintln!("\n=== decisions replayed on the validation trace ===");
+        let trace_rows = endgame_probcut::read_trace_rows(validate)?;
+        replay(&model, &screen, &trace_rows.iter().collect::<Vec<_>>());
+    }
+    emit(&model, &screen);
+    Ok(())
+}
+
+fn fit_from_rows(rows: &[TraceRow]) -> anyhow::Result<(VerifyModel, [f64; 2], Vec<&TraceRow>)> {
+    let (fit_rows, holdout_rows): (Vec<&TraceRow>, Vec<&TraceRow>) =
         rows.iter().partition(|r| game_fold(r.game) != HOLDOUT_FOLD);
     eprintln!(
         "{} rows: {} for fitting, {} held out",
@@ -65,12 +63,8 @@ pub fn execute(input: &str, validate: Option<&str>) -> io::Result<()> {
         holdout_rows.len()
     );
 
-    if fit_rows.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "no samples in the fitting folds",
-        ));
-    }
+    anyhow::ensure!(!fit_rows.is_empty(), "no samples in the fitting folds");
+
     let mut screen = [0.0; 2];
     for (cut_node, margin) in screen.iter_mut().enumerate() {
         let mut gaps: Vec<f64> = fit_rows
@@ -78,107 +72,41 @@ pub fn execute(input: &str, validate: Option<&str>) -> io::Result<()> {
             .filter(|r| usize::from(r.cut_node) == cut_node)
             .map(|r| r.score - r.eval)
             .collect();
-        if gaps.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("no samples with cut_node={cut_node} in the fitting folds"),
-            ));
-        }
+        anyhow::ensure!(
+            !gaps.is_empty(),
+            "no samples with cut_node={cut_node} in the fitting folds"
+        );
         gaps.sort_by(f64::total_cmp);
         *margin = gaps[((1.0 - SCREEN_RATES[cut_node]) * gaps.len() as f64) as usize];
     }
     let model = fit_verify(&fit_rows)?;
-
-    if !holdout_rows.is_empty() {
-        eprintln!("\n=== decisions replayed on the held-out games ===");
-        replay(&model, &screen, &holdout_rows);
-    }
-    if let Some(validate) = validate {
-        eprintln!("\n=== decisions replayed on the validation trace ===");
-        let trace_rows = read_rows(validate)?;
-        replay(&model, &screen, &trace_rows.iter().collect::<Vec<_>>());
-    }
-    emit(&model, &screen);
-    Ok(())
+    Ok((model, screen, holdout_rows))
 }
 
-fn read_rows(input: &str) -> io::Result<Vec<Row>> {
-    let reader = BufReader::new(File::open(input)?);
-    let invalid = |msg: String| io::Error::new(io::ErrorKind::InvalidData, msg);
-    let mut lines = reader.lines();
-    let weights_line = lines
-        .next()
-        .ok_or_else(|| invalid("empty input".into()))??;
-    let weights = weights_line
-        .strip_prefix("# main_weights=")
-        .ok_or_else(|| invalid(format!("missing weights header: '{weights_line}'")))?;
-    if weights != EVAL_FILE_NAME {
-        return Err(invalid(format!(
-            "samples were generated with {weights}, but the engine uses {EVAL_FILE_NAME}"
-        )));
-    }
-    let header = lines
-        .next()
-        .ok_or_else(|| invalid("missing CSV header".into()))??;
-    if header != trace_header() {
-        return Err(invalid(format!(
-            "'{header}' is not the endgame-trace header '{}'",
-            trace_header()
-        )));
-    }
-
-    let mut rows = Vec::new();
-    for (line_no, line) in lines.enumerate() {
-        let line = line?;
-        let fields: Vec<&str> = line.split(',').collect();
-        let field = |i: usize| -> io::Result<f64> {
-            fields
-                .get(i)
-                .and_then(|f| f.parse().ok())
-                .ok_or_else(|| invalid(format!("line {}: bad field {i}", line_no + 3)))
-        };
-        rows.push(Row {
-            game: field(0)? as u64,
-            empties: field(1)? as u32,
-            eval: field(2)?,
-            score: field(3)?,
-            exact: field(4)?,
-            beta: field(5)?,
-            cut_node: field(7)? != 0.0,
-        });
-    }
-    Ok(rows)
-}
-
-fn fit_verify(rows: &[&Row]) -> io::Result<VerifyModel> {
-    let rows: Vec<&Row> = rows
+fn fit_verify(rows: &[&TraceRow]) -> anyhow::Result<VerifyModel> {
+    let rows: Vec<&TraceRow> = rows
         .iter()
         .copied()
         .filter(|r| (0.0..=VERIFY_FIT_T_MAX).contains(&(r.score - r.beta)))
         .collect();
-    if rows.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("no fitting samples with 0 <= score - beta <= {VERIFY_FIT_T_MAX}"),
-        ));
-    }
-    let mean = weighted_least_squares(rows.iter().map(|r| (r.features(), r.exact - r.score, 1.0)))
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "singular mean fit: insufficient independent fitting samples",
-            )
-        })?;
+    anyhow::ensure!(
+        !rows.is_empty(),
+        "no fitting samples with 0 <= score - beta <= {VERIFY_FIT_T_MAX}"
+    );
+    let mean = weighted_least_squares(
+        rows.iter()
+            .map(|r| (row_features(r), r.exact - r.score, 1.0)),
+    )
+    .ok_or_else(|| {
+        anyhow::anyhow!("singular mean fit: insufficient independent fitting samples")
+    })?;
     let ln_sigma = weighted_least_squares(rows.iter().filter_map(|r| {
-        let x = r.features();
+        let x = row_features(r);
         let residual = r.exact - r.score - dot(&mean, &x);
         (residual < 0.0).then(|| (x, (-residual).max(MIN_RESIDUAL).ln(), 1.0))
     }))
     .ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "singular scale fit: insufficient independent negative-residual samples",
-        )
+        anyhow::anyhow!("singular scale fit: insufficient independent negative-residual samples")
     })?;
     Ok(VerifyModel { mean, ln_sigma })
 }
@@ -189,7 +117,7 @@ fn dot<const N: usize>(a: &[f64; N], b: &[f64; N]) -> f64 {
 
 /// Replays the cut decisions (screen and verification) of every level on
 /// `rows`, and prints attempts, cuts, and wrong cuts per level.
-fn replay(model: &VerifyModel, screen: &[f64; 2], rows: &[&Row]) {
+fn replay(model: &VerifyModel, screen: &[f64; 2], rows: &[&TraceRow]) {
     eprintln!("  level  attempts     cuts  wrong");
     for level in ENDGAME_LEVELS {
         let (mut cuts, mut wrong) = (0, 0);
@@ -233,56 +161,47 @@ fn coefficients(values: &[f64]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
     #[test]
-    fn execute_rejects_missing_samples_in_fitting_folds() {
+    fn fit_from_rows_rejects_missing_samples_in_fitting_folds() {
         let fit_game = (0..).find(|&game| game_fold(game) != HOLDOUT_FOLD).unwrap();
         let held_game = (0..).find(|&game| game_fold(game) == HOLDOUT_FOLD).unwrap();
-        let line = |game, cut_node| format!("{game},20,0,0,-1,0,1,{cut_node},0,0\n");
-        for (index, (data, message)) in [
-            (String::new(), "no samples in the fitting folds"),
-            (line(held_game, 0), "no samples in the fitting folds"),
-            (line(fit_game, 0), "no samples with cut_node=1"),
-            (line(fit_game, 1), "no samples with cut_node=0"),
+        let row = |game, cut_node| TraceRow {
+            game,
+            empties: 20,
+            eval: 0.0,
+            score: 0.0,
+            exact: -1.0,
+            beta: 0.0,
+            cut_node,
+        };
+        for (rows, message) in [
+            (vec![], "no samples in the fitting folds"),
             (
-                line(fit_game, 0) + &line(held_game, 1),
+                vec![row(held_game, false)],
+                "no samples in the fitting folds",
+            ),
+            (vec![row(fit_game, false)], "no samples with cut_node=1"),
+            (vec![row(fit_game, true)], "no samples with cut_node=0"),
+            (
+                vec![row(fit_game, false), row(held_game, true)],
                 "no samples with cut_node=1",
             ),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let path = std::env::temp_dir().join(format!(
-                "neural-reversi-endgame-fit-{}-{index}.csv",
-                std::process::id()
-            ));
-            fs::write(
-                &path,
-                format!(
-                    "# main_weights={EVAL_FILE_NAME}\n{}\n{data}",
-                    trace_header()
-                ),
-            )
-            .unwrap();
-            let result = execute(path.to_str().unwrap(), None);
-            fs::remove_file(path).unwrap();
-            let error = result.unwrap_err();
-            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        ] {
+            let error = fit_from_rows(&rows).unwrap_err();
             assert!(error.to_string().contains(message), "{error}");
         }
     }
 
-    fn fitting_rows() -> Vec<Row> {
+    fn fitting_rows() -> Vec<TraceRow> {
         let mut rows = Vec::new();
         for empties in [14, 15, 18, 19] {
             for beta in [-16.0, 0.0, 16.0] {
                 for gap in [-8.0, 0.0, 8.0] {
                     for cut_node in [false, true] {
                         for residual in [-1.0, 1.0] {
-                            rows.push(Row {
+                            rows.push(TraceRow {
                                 game: 0,
                                 empties,
                                 eval: beta + gap,
@@ -314,21 +233,18 @@ mod tests {
         let error = fit_verify(&rows[..2].iter().collect::<Vec<_>>())
             .err()
             .unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("singular mean fit"));
 
         for row in &mut rows {
             row.exact = row.score;
         }
         let error = fit_verify(&rows.iter().collect::<Vec<_>>()).err().unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("singular scale fit"));
 
         for row in &mut rows {
             row.score = row.beta - 1.0;
         }
         let error = fit_verify(&rows.iter().collect::<Vec<_>>()).err().unwrap();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("no fitting samples with"));
     }
 }

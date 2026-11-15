@@ -1,19 +1,15 @@
-//! ProbCut training data generation module.
+//! Shared ProbCut game-fold assignment, move replay, and midgame ProbCut CSV I/O.
 //!
-//! This module generates training data for calculating ProbCut parameters by analyzing
-//! game positions with multiple search depths. For each position, it performs searches
-//! at various depths and records the correlation between shallow and deep search results.
-//!
-//! The generated CSV data can then be used to train regression models that predict
-//! deep search scores from shallow search results, enabling ProbCut optimizations
-//! in the search algorithm.
+//! Generates midgame shallow/deep search correlation CSVs (`datagen probcut`)
+//! and streams validated [`MidgameSample`] rows back for parameter fitting
+//! (`datagen fit-probcut`).
 
-use std::{
-    collections::HashSet,
-    fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Write},
-};
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::path::Path;
 
+use anyhow::Context;
 use reversi_core::{
     board::Board,
     constants::INITIAL_EMPTY_COUNT,
@@ -27,6 +23,11 @@ use reversi_core::{
     types::Depth,
 };
 
+pub(crate) const NUM_FOLDS: usize = 5;
+
+/// Game fold kept out of every fit.
+pub(crate) const HOLDOUT_FOLD: usize = NUM_FOLDS - 1;
+
 /// Transposition table size in MB for search
 const TT_SIZE_MB: usize = 256;
 
@@ -39,28 +40,137 @@ const MAX_SHALLOW_DEPTH: Depth = 7;
 /// The deep search depth must exceed the shallow depth by more than this
 const MIN_DEPTH_DIFFERENCE: Depth = 2;
 
-/// Midgame CSV header with an explicit game-blocking key.
-const CSV_HEADER: &[u8] = b"game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n";
+const MIDGAME_CSV_HEADER: &str = "game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff";
 
-/// Represents a single ProbCut training data sample.
-///
-/// Each sample contains the shallow and deep search results for a position,
-/// which will be used to train regression models for ProbCut parameter calculation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct MidgameSample {
+    pub game: u64,
+    ply: usize,
+    pub shallow_depth: Depth,
+    pub deep_depth: Depth,
+    pub diff: f64,
+}
+
+impl MidgameSample {
+    #[must_use]
+    pub(crate) fn new(
+        game: u64,
+        ply: usize,
+        shallow_depth: Depth,
+        deep_depth: Depth,
+        diff: f64,
+    ) -> Option<Self> {
+        (ply < INITIAL_EMPTY_COUNT).then_some(Self {
+            game,
+            ply,
+            shallow_depth,
+            deep_depth,
+            diff,
+        })
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn ply(&self) -> usize {
+        self.ply
+    }
+}
+
 #[derive(Debug)]
 struct ProbCutSample {
-    /// Move number in the game (0-59)
     ply: u32,
-    /// Shallow search depth
     shallow_depth: Depth,
-    /// Score from shallow search
     shallow_score: Score,
-    /// Deep search depth
     deep_depth: Depth,
 }
 
-/// Replays `moves` from the initial position, passing every position reached to
-/// `visit` before its move is played, and returns the final position with the
-/// side to move there.
+struct MidgameCsvWriter<W> {
+    writer: W,
+}
+
+impl MidgameCsvWriter<BufWriter<File>> {
+    fn create(path: &Path) -> anyhow::Result<Self> {
+        let file = File::create(path)
+            .with_context(|| format!("failed to create output file '{}'", path.display()))?;
+        Self::new(BufWriter::new(file))
+    }
+}
+
+impl<W: Write> MidgameCsvWriter<W> {
+    fn new(mut writer: W) -> anyhow::Result<Self> {
+        writeln!(writer, "{MIDGAME_CSV_HEADER}")?;
+        Ok(Self { writer })
+    }
+
+    fn write_sample(
+        &mut self,
+        game: usize,
+        sample: &ProbCutSample,
+        deep_score: Score,
+    ) -> io::Result<()> {
+        writeln!(
+            self.writer,
+            "{game},{},{},{},{},{},{}",
+            sample.ply,
+            sample.shallow_depth,
+            sample.shallow_score.to_disc_diff_f32(),
+            sample.deep_depth,
+            deep_score.to_disc_diff_f32(),
+            (deep_score - sample.shallow_score).to_disc_diff_f32()
+        )
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+#[must_use]
+pub(crate) fn game_fold(game: u64) -> usize {
+    // SplitMix64 gives stable, well-mixed folds even when game ids are
+    // consecutive input line numbers.
+    let mut value = game.wrapping_add(0x9e3779b97f4a7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    ((value ^ (value >> 31)) % NUM_FOLDS as u64) as usize
+}
+
+fn open_game_input(path: &Path) -> anyhow::Result<BufReader<File>> {
+    let file = File::open(path)
+        .with_context(|| format!("failed to open input file '{}'", path.display()))?;
+    Ok(BufReader::new(file))
+}
+
+fn read_game_lines(
+    reader: impl BufRead,
+    path: &Path,
+    mut visit: impl FnMut(usize, &[Square]) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    for (line_index, line_result) in reader.lines().enumerate() {
+        let game = line_index + 1;
+        let line = line_result
+            .with_context(|| format!("failed to read line {game} of '{}'", path.display()))?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let moves =
+            Square::parse_sequence(line).map_err(|e| anyhow::anyhow!("Line {game}: {e}"))?;
+        visit(game, &moves).with_context(|| format!("Line {game}"))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn for_each_game_line(
+    path: &Path,
+    visit: impl FnMut(usize, &[Square]) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    read_game_lines(open_game_input(path)?, path, visit)
+}
+
+/// Replays `moves` from the initial position, passing every reached position
+/// and move to `visit` before playing it, and returns the final position and
+/// side to move.
 ///
 /// Moves left over after the game has ended are ignored.
 ///
@@ -69,8 +179,8 @@ struct ProbCutSample {
 /// Returns an error if a move is illegal when reached.
 pub(crate) fn replay(
     moves: &[Square],
-    mut visit: impl FnMut(&Board, PlayerColor),
-) -> Result<(Board, PlayerColor), String> {
+    mut visit: impl FnMut(&Board, PlayerColor, Square),
+) -> anyhow::Result<(Board, PlayerColor)> {
     let mut game = GameState::new();
 
     for &sq in moves {
@@ -78,8 +188,8 @@ pub(crate) fn replay(
             break;
         }
 
-        visit(game.board(), game.side_to_move());
-        game.make_move(sq)?;
+        visit(game.board(), game.side_to_move(), sq);
+        game.make_move(sq).map_err(anyhow::Error::msg)?;
     }
 
     Ok((*game.board(), game.side_to_move()))
@@ -93,11 +203,11 @@ fn insert_midgame_position(visited: &mut HashSet<Board>, board: &Board) -> bool 
     visited.insert(*board)
 }
 
-/// Scores `board` at every depth in `0..=max_depth` that stays below the empty
-/// count, so no sample comes from a position the endgame solver read out exactly.
+/// Scores `board` at every depth in `0..=max_depth` strictly below the empty
+/// count so no sample comes from an exact endgame solve.
 ///
-/// Depth 0 is the static evaluation rather than a one-ply search, matching how
-/// the engine resolves a shallow depth of 0.
+/// Depth `0` uses static evaluation rather than a one-ply search, matching how
+/// the engine resolves a shallow depth of `0`.
 fn depth_scores(
     search: &mut Search,
     eval: &Eval,
@@ -126,85 +236,18 @@ fn depth_scores(
         .collect()
 }
 
-/// Writes one CSV row with the source game line number, pairing the sample's
-/// shallow result with `deep_score`.
-fn write_midgame_sample(
-    writer: &mut impl Write,
-    game: usize,
-    sample: &ProbCutSample,
-    deep_score: Score,
-) -> io::Result<()> {
-    writeln!(
-        writer,
-        "{game},{},{},{},{},{},{}",
-        sample.ply,
-        sample.shallow_depth,
-        sample.shallow_score.to_disc_diff_f32(),
-        sample.deep_depth,
-        deep_score.to_disc_diff_f32(),
-        (deep_score - sample.shallow_score).to_disc_diff_f32()
-    )
-}
+pub(crate) fn execute(input: &Path, output: &Path) -> anyhow::Result<()> {
+    let reader = open_game_input(input)?;
+    let mut writer = MidgameCsvWriter::create(output)?;
 
-/// Generates ProbCut training data.
-///
-/// Reads game sequences from the input file, analyzes each position with multiple
-/// search depths, and outputs training data as CSV. Each exact position is sampled
-/// once, while symmetric positions remain distinct because their depth-limited neural
-/// evaluations can differ. Only depths below the position's empty count are searched,
-/// so every sample reflects a genuine midgame search. The generated data includes
-/// shallow/deep search correlations that can be used to train regression models for
-/// ProbCut parameter calculation.
-///
-/// # Arguments
-///
-/// * `input` - Path to input file containing game sequences (one per line)
-/// * `output` - Path to output CSV file for training data
-///
-/// # Returns
-///
-/// Returns `Ok(())` on success, or an error if file operations fail.
-pub fn execute(input: &str, output: &str) -> io::Result<()> {
     let options = SearchOptions::new(TT_SIZE_MB);
     let mut search = Search::new(&options);
     let eval = search.eval().clone();
     let mut visited: HashSet<Board> = HashSet::new();
 
-    let input_file = File::open(input).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to open input file '{input}': {e}"),
-        )
-    })?;
-    let output_file = File::create(output).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to create output file '{output}': {e}"),
-        )
-    })?;
-    let reader = BufReader::new(input_file);
-    let mut writer = BufWriter::new(output_file);
-    writer.write_all(CSV_HEADER)?;
-
-    for (line_no, line_result) in reader.lines().enumerate() {
-        let line = line_result.map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("Failed to read line {}: {}", line_no + 1, e),
-            )
-        })?;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let moves = Square::parse_sequence(line).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("Invalid move: {e}"))
-        })?;
-
-        let game = line_no + 1;
+    read_game_lines(reader, input, |game, moves| {
         let mut samples: Vec<(ProbCutSample, Score)> = Vec::new();
-        replay(&moves, |board, _| {
+        replay(moves, |board, _, _| {
             if !insert_midgame_position(&mut visited, board) {
                 return;
             }
@@ -238,48 +281,212 @@ pub fn execute(input: &str, output: &str) -> io::Result<()> {
                         }),
                 );
             }
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
+        })?;
 
-        for (sample, deep_score) in samples.iter() {
-            write_midgame_sample(&mut writer, game, sample, *deep_score)?;
+        for (sample, deep_score) in &samples {
+            writer.write_sample(game, sample, *deep_score)?;
         }
         writer.flush()?;
 
-        println!("Processed {} lines", line_no + 1);
-    }
+        println!("Processed {game} lines");
+        Ok(())
+    })?;
 
     println!("ProbCut training data generation completed successfully");
     Ok(())
 }
 
+pub(crate) fn read_midgame_samples(
+    path: &Path,
+    mut visit: impl FnMut(MidgameSample),
+) -> anyhow::Result<()> {
+    let file = File::open(path)
+        .with_context(|| format!("failed to open input file '{}'", path.display()))?;
+    let reader = BufReader::new(file);
+
+    for (line_no, line_result) in reader.lines().enumerate() {
+        let line_number = line_no + 1;
+        let line = line_result.with_context(|| format!("failed to read line {line_number}"))?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("game,") {
+            continue;
+        }
+        if line.starts_with("ply,") {
+            anyhow::bail!(
+                "CSV has no game column; regenerate it with the current `probcut` command"
+            );
+        }
+
+        let sample = parse_midgame_row(line)
+            .ok_or_else(|| anyhow::anyhow!("invalid CSV row at line {line_number}: '{line}'"))?;
+        visit(sample);
+    }
+
+    Ok(())
+}
+
+fn parse_midgame_row(line: &str) -> Option<MidgameSample> {
+    let mut fields = line.split(',');
+    let game = fields.next()?.trim().parse().ok()?;
+    let ply = fields.next()?.trim().parse().ok()?;
+    let shallow_depth = fields.next()?.trim().parse().ok()?;
+    let shallow_score: f64 = fields.next()?.trim().parse().ok()?;
+    let deep_depth = fields.next()?.trim().parse().ok()?;
+    let deep_score: f64 = fields.next()?.trim().parse().ok()?;
+    let _f32_diff = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+
+    MidgameSample::new(
+        game,
+        ply,
+        shallow_depth,
+        deep_depth,
+        deep_score - shallow_score,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TempFile {
+        path: PathBuf,
+    }
+
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-probcut-{name}-{}-{id}.txt",
+                std::process::id()
+            ));
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 
     #[test]
-    fn csv_rows_include_the_input_game_line_number() {
+    fn csv_rows_include_the_input_game_line_number() -> anyhow::Result<()> {
         let sample = ProbCutSample {
             ply: 12,
             shallow_depth: 2,
             shallow_score: Score::from_raw(320),
             deep_depth: 7,
         };
-        let mut output = Vec::new();
+        let mut writer = MidgameCsvWriter::new(Vec::new())?;
 
-        write_midgame_sample(&mut output, 17, &sample, Score::from_raw(-128)).unwrap();
+        writer.write_sample(17, &sample, Score::from_raw(-128))?;
+        writer.flush()?;
 
         assert_eq!(
-            String::from_utf8(output).unwrap(),
-            "17,12,2,1.25,7,-0.5,-1.75\n"
+            String::from_utf8(writer.writer)?,
+            format!("{MIDGAME_CSV_HEADER}\n17,12,2,1.25,7,-0.5,-1.75\n")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn midgame_csv_writer_round_trips_through_reader() -> anyhow::Result<()> {
+        let csv_file = TempFile::new("midgame-round-trip");
+        {
+            let mut writer = MidgameCsvWriter::create(csv_file.path())?;
+            writer.write_sample(
+                17,
+                &ProbCutSample {
+                    ply: 12,
+                    shallow_depth: 2,
+                    shallow_score: Score::from_raw(320),
+                    deep_depth: 7,
+                },
+                Score::from_raw(-128),
+            )?;
+            writer.flush()?;
+        }
+
+        let mut samples = Vec::new();
+        read_midgame_samples(csv_file.path(), |sample| samples.push(sample))?;
+        assert_eq!(samples, [MidgameSample::new(17, 12, 2, 7, -1.75).unwrap()]);
+
+        let legacy = TempFile::new("midgame-legacy");
+        fs::write(
+            legacy.path(),
+            "ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n",
+        )?;
+        let err = read_midgame_samples(legacy.path(), |_| {}).unwrap_err();
+        assert!(err.to_string().contains("CSV has no game column"));
+        Ok(())
+    }
+
+    #[test]
+    fn parses_explicit_game_ids_and_recomputes_diff() {
+        let sample = parse_midgame_row("17,12,2,1.25,7,-0.5,999").unwrap();
+
+        assert_eq!(sample.game, 17);
+        assert_eq!(sample.ply(), 12);
+        assert_eq!(sample.shallow_depth, 2);
+        assert_eq!(sample.deep_depth, 7);
+        assert_eq!(sample.diff, -1.75);
+        assert!(parse_midgame_row("17,60,2,1.25,7,-0.5,-1.75").is_none());
+        assert!(parse_midgame_row("17,12,2,1.25,7,-0.5").is_none());
+        assert!(parse_midgame_row("17,12,2,1.25,7,-0.5,-1.75,0").is_none());
+    }
+
+    #[test]
+    fn for_each_game_line_preserves_one_based_ids_across_blank_lines() -> anyhow::Result<()> {
+        let games_file = TempFile::new("game-lines");
+        fs::write(games_file.path(), "\nf5d6\n   \nf5f6\n")?;
+
+        let mut seen = Vec::new();
+        for_each_game_line(games_file.path(), |game, moves| {
+            seen.push((game, moves.to_vec()));
+            Ok(())
+        })?;
+
+        assert_eq!(
+            seen,
+            vec![
+                (2, vec![Square::F5, Square::D6]),
+                (4, vec![Square::F5, Square::F6]),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn game_folds_are_stable_and_non_degenerate() {
+        // Pinned values guard the cross-run stability that game-blocked splits
+        // rely on.
+        assert_eq!(
+            (1..=8).map(game_fold).collect::<Vec<_>>(),
+            [0, 0, 3, 3, 3, 2, 2, 2]
+        );
+        let assignments: Vec<_> = (1..=100).map(game_fold).collect();
+        for fold in 0..NUM_FOLDS {
+            assert!(assignments.contains(&fold));
+        }
     }
 
     #[test]
     fn replay_rejects_illegal_move() {
         let moves = Square::parse_sequence("f5f5").unwrap();
 
-        assert!(replay(&moves, |_, _| {}).is_err());
+        assert!(replay(&moves, |_, _, _| {}).is_err());
     }
 
     #[test]
@@ -289,8 +496,8 @@ mod tests {
             .iter()
             .map(|sq| Square::from_u8((63 - sq.index()) as u8).unwrap())
             .collect();
-        let board = replay(&moves, |_, _| {}).unwrap().0;
-        let rotated_board = replay(&rotated_moves, |_, _| {}).unwrap().0;
+        let board = replay(&moves, |_, _, _| {}).unwrap().0;
+        let rotated_board = replay(&rotated_moves, |_, _, _| {}).unwrap().0;
 
         assert_eq!(rotated_board, board.rotate_180_clockwise());
         assert_eq!(board.unique(), rotated_board.unique());
@@ -299,5 +506,16 @@ mod tests {
         assert!(insert_midgame_position(&mut visited, &board));
         assert!(insert_midgame_position(&mut visited, &rotated_board));
         assert!(!insert_midgame_position(&mut visited, &board));
+    }
+
+    #[test]
+    fn execute_preserves_existing_output_when_input_open_fails() -> anyhow::Result<()> {
+        let missing = TempFile::new("missing-input");
+        let output = TempFile::new("existing-output");
+        fs::write(output.path(), "prior,csv,content\n")?;
+
+        assert!(execute(missing.path(), output.path()).is_err());
+        assert_eq!(fs::read_to_string(output.path())?, "prior,csv,content\n");
+        Ok(())
     }
 }

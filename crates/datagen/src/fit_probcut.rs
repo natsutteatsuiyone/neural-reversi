@@ -1,22 +1,19 @@
-//! Fits the midgame ProbCut model from generated CSV samples.
+//! Fits the midgame ProbCut model from [`MidgameSample`] streams.
 //!
 //! Game ids are assigned to deterministic folds before any cell aggregation.
 //! Cross-validation therefore keeps every position from a game on the same
 //! side of a train/holdout split. The final emitted parameters are refitted on
 //! all games after the fold diagnostics have been reported.
 
-use std::{
-    collections::{HashMap, HashSet},
-    fs::File,
-    io::{self, BufRead, BufReader},
-};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use reversi_core::constants::INITIAL_EMPTY_COUNT;
 
 use crate::least_squares::weighted_least_squares;
+use crate::probcut::{self, MidgameSample, NUM_FOLDS, game_fold};
 
 const NUM_PLY: usize = INITIAL_EMPTY_COUNT;
-pub(crate) const NUM_FOLDS: usize = 5;
 const MIN_POSITIONS_WITHOUT_SMOOTHING: usize = 200;
 const MIN_MEAN_CELLS: usize = 4;
 const MIN_SIGMA_CELLS: usize = 3;
@@ -61,15 +58,6 @@ impl CellStats {
     }
 }
 
-#[derive(Debug)]
-struct Sample {
-    game: u64,
-    ply: usize,
-    shallow: u32,
-    deep: u32,
-    diff: f64,
-}
-
 struct FoldData {
     cells: HashMap<(usize, u32, u32), CellStats>,
     positions: [HashSet<u64>; NUM_PLY],
@@ -92,12 +80,13 @@ struct Dataset {
 }
 
 impl Dataset {
-    fn add(&mut self, sample: Sample) {
+    fn add(&mut self, sample: MidgameSample) {
         let fold = game_fold(sample.game);
+        let ply = sample.ply();
         let data = &mut self.folds[fold];
-        data.positions[sample.ply].insert(sample.game);
+        data.positions[ply].insert(sample.game);
         data.cells
-            .entry((sample.ply, sample.shallow, sample.deep))
+            .entry((ply, sample.shallow_depth, sample.deep_depth))
             .or_default()
             .add_sample(sample.diff);
         self.games.insert(sample.game);
@@ -159,14 +148,10 @@ impl Default for PlyFit {
 ///
 /// Fold and in-sample diagnostics are printed to stderr so stdout can be
 /// redirected directly into a source snippet.
-pub fn execute(input: &str) -> io::Result<()> {
-    let dataset = read_dataset(input)?;
-    if dataset.samples == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("no samples found in '{input}'"),
-        ));
-    }
+pub(crate) fn execute(input: &Path) -> anyhow::Result<()> {
+    let mut dataset = Dataset::default();
+    probcut::read_midgame_samples(input, |sample| dataset.add(sample))?;
+    let fits = fit_dataset(&dataset, input)?;
 
     eprintln!(
         "loaded {} samples from {} games",
@@ -174,93 +159,27 @@ pub fn execute(input: &str) -> io::Result<()> {
         dataset.games.len()
     );
 
-    let all = aggregate_folds(&dataset, |_| true);
-    let fits = fit_all_plies(&all);
-    if !fits.iter().any(|fit| fit.fitted) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("no ply could be fitted from '{input}'; collect more samples"),
-        ));
-    }
-
     report_cross_validation(&dataset);
     report_in_sample(&fits);
     emit_params(&fits);
     Ok(())
 }
 
-fn read_dataset(input: &str) -> io::Result<Dataset> {
-    let file = File::open(input).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("failed to open input file '{input}': {e}"),
-        )
-    })?;
-    let reader = BufReader::new(file);
+fn fit_dataset(dataset: &Dataset, input: &Path) -> anyhow::Result<[PlyFit; NUM_PLY]> {
+    anyhow::ensure!(
+        dataset.samples > 0,
+        "no samples found in '{}'",
+        input.display()
+    );
 
-    let mut dataset = Dataset::default();
-
-    for (line_no, line_result) in reader.lines().enumerate() {
-        let line = line_result.map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("failed to read line {}: {e}", line_no + 1),
-            )
-        })?;
-        let line = line.trim();
-        if line.is_empty() || line.starts_with("game,") {
-            continue;
-        }
-        if line.starts_with("ply,") {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "CSV has no game column; regenerate it with the current `probcut` command",
-            ));
-        }
-
-        let sample = parse_row(line).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("invalid CSV row at line {}: '{line}'", line_no + 1),
-            )
-        })?;
-        dataset.add(sample);
-    }
-
-    Ok(dataset)
-}
-
-fn parse_row(line: &str) -> Option<Sample> {
-    let mut fields = line.split(',');
-    let game = fields.next()?.trim().parse().ok()?;
-    let ply = fields.next()?.trim().parse().ok()?;
-    let shallow = fields.next()?.trim().parse().ok()?;
-    let shallow_score: f64 = fields.next()?.trim().parse().ok()?;
-    let deep = fields.next()?.trim().parse().ok()?;
-    let deep_score: f64 = fields.next()?.trim().parse().ok()?;
-    // The diff column is recomputed from the scores; only its presence is checked.
-    fields.next()?;
-    // The ply bound keeps `Dataset::add` array indexing in range.
-    if fields.next().is_some() || ply >= NUM_PLY {
-        return None;
-    }
-
-    Some(Sample {
-        game,
-        ply,
-        shallow,
-        deep,
-        diff: deep_score - shallow_score,
-    })
-}
-
-pub(crate) fn game_fold(game: u64) -> usize {
-    // SplitMix64 gives stable, well-mixed folds even when game ids are
-    // consecutive input line numbers.
-    let mut value = game.wrapping_add(0x9e3779b97f4a7c15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
-    ((value ^ (value >> 31)) % NUM_FOLDS as u64) as usize
+    let all = aggregate_folds(dataset, |_| true);
+    let fits = fit_all_plies(&all);
+    anyhow::ensure!(
+        fits.iter().any(|fit| fit.fitted),
+        "no ply could be fitted from '{}'; collect more samples",
+        input.display()
+    );
+    Ok(fits)
 }
 
 fn aggregate_folds(dataset: &Dataset, include: impl Fn(usize) -> bool) -> AggregatedData {
@@ -576,17 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn parses_explicit_game_ids_and_recomputes_diff() {
-        let sample = parse_row("17,12,2,1.25,7,-0.5,999").unwrap();
-
-        assert_eq!(sample.game, 17);
-        assert_eq!(sample.ply, 12);
-        assert_eq!(sample.shallow, 2);
-        assert_eq!(sample.deep, 7);
-        assert_eq!(sample.diff, -1.75);
-    }
-
-    #[test]
     fn fit_uses_even_shallows_for_mean_and_all_shallows_for_sigma() {
         let expected_mean = [0.35, -0.04, 0.02, 1.2];
         let expected_sigma = [0.8, -0.06, 0.3];
@@ -640,39 +548,13 @@ mod tests {
     }
 
     #[test]
-    fn game_folds_are_stable_and_non_degenerate() {
-        // Pinned values guard the cross-run stability that game-blocked splits
-        // rely on.
-        assert_eq!(
-            (1..=8).map(game_fold).collect::<Vec<_>>(),
-            [0, 0, 3, 3, 3, 2, 2, 2]
-        );
-        let assignments: Vec<_> = (1..=100).map(game_fold).collect();
-        for fold in 0..NUM_FOLDS {
-            assert!(assignments.contains(&fold));
-        }
-    }
-
-    #[test]
     fn game_split_precedes_cell_aggregation() {
         let first_game = 1;
         let first_fold = game_fold(first_game);
         let second_game = (2..).find(|&game| game_fold(game) != first_fold).unwrap();
         let mut dataset = Dataset::default();
-        dataset.add(Sample {
-            game: first_game,
-            ply: 12,
-            shallow: 2,
-            deep: 7,
-            diff: 1.0,
-        });
-        dataset.add(Sample {
-            game: second_game,
-            ply: 12,
-            shallow: 2,
-            deep: 7,
-            diff: 9.0,
-        });
+        dataset.add(MidgameSample::new(first_game, 12, 2, 7, 1.0).unwrap());
+        dataset.add(MidgameSample::new(second_game, 12, 2, 7, 9.0).unwrap());
 
         let train = aggregate_folds(&dataset, |fold| fold != first_fold);
         let cell = train.cells[12][&(2, 7)];
@@ -719,24 +601,16 @@ mod tests {
     }
 
     #[test]
-    fn execute_rejects_a_nonempty_dataset_when_no_ply_can_be_fitted() {
-        let path = std::env::temp_dir().join(format!(
-            "neural-reversi-fit-probcut-no-fit-{}.csv",
-            std::process::id()
-        ));
-        std::fs::write(
-            &path,
-            "game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff\n\
-             1,10,0,0,3,1,1\n",
-        )
-        .unwrap();
+    fn fit_dataset_rejects_empty_or_unfitted_inputs() {
+        let empty = Dataset::default();
+        let err = fit_dataset(&empty, Path::new("empty.csv")).unwrap_err();
+        assert!(err.to_string().contains("no samples found"));
 
-        let result = execute(path.to_str().unwrap());
-        std::fs::remove_file(path).unwrap();
-        let error = result.expect_err("an all-sentinel parameter table must not be emitted");
-
-        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        assert!(error.to_string().contains("no ply could be fitted"));
+        let mut sparse = Dataset::default();
+        sparse.add(MidgameSample::new(1, 10, 0, 3, 1.0).unwrap());
+        let err = fit_dataset(&sparse, Path::new("sparse.csv"))
+            .expect_err("an all-sentinel parameter table must not be emitted");
+        assert!(err.to_string().contains("no ply could be fitted"));
     }
 
     #[test]

@@ -5,40 +5,33 @@
 //! positions are labeled by exact solves, so any game records can supply
 //! roots.
 
+use std::fs::File;
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::ops::RangeInclusive;
+use std::path::Path;
 #[cfg(feature = "trace")]
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
-use std::{
-    fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Write},
-};
 
+use anyhow::Context;
 use reversi_core::{
-    board::Board, player_color::PlayerColor, probcut::VERIFY_DEPTH, square::Square,
+    board::Board, eval::EVAL_FILE_NAME, player_color::PlayerColor, probcut::VERIFY_DEPTH,
+    square::Square,
 };
 #[cfg(feature = "trace")]
 use reversi_core::{
-    eval::{EVAL_FILE_NAME, EvalMode},
+    eval::EvalMode,
     level::{ENDGAME_STEPS, Level},
-    score::Score,
     search::{Search, SearchRunOptions, SearchSharedResources, options::SearchOptions},
 };
+#[cfg(any(feature = "trace", test))]
+use reversi_core::{probcut::Selectivity, score::Score};
 
-use crate::fit_probcut::{NUM_FOLDS, game_fold};
-use crate::probcut::replay;
+use crate::probcut::{HOLDOUT_FOLD, for_each_game_line, game_fold, replay};
 
-/// Game fold kept out of every fit.
-pub const HOLDOUT_FOLD: usize = NUM_FOLDS - 1;
-
-/// CSV header of `endgame-trace` output, whose columns `fit-endgame-probcut`
-/// reads by position.
-pub fn trace_header() -> String {
-    format!(
-        "game,empties,s0,s{VERIFY_DEPTH},exact,beta,selectivity,cut_node,engine_cut,replayed_cut"
-    )
-}
+const WEIGHTS_HEADER_PREFIX: &str = "# main_weights=";
 
 /// Per-worker transposition table.
 #[cfg(feature = "trace")]
@@ -53,6 +46,78 @@ const SEQUENTIAL_LABEL_EMPTIES: u32 = 24;
 #[cfg(feature = "trace")]
 const SEARCH_TT_MB: usize = 1024;
 
+/// One traced ProbCut attempt. Scores are in discs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TraceRow {
+    pub game: u64,
+    pub empties: u32,
+    /// Static evaluation.
+    pub eval: f64,
+    /// Verification score.
+    pub score: f64,
+    pub exact: f64,
+    pub beta: f64,
+    pub cut_node: bool,
+}
+
+#[cfg(any(feature = "trace", test))]
+struct TraceWriteRow {
+    game: usize,
+    empties: u32,
+    eval: Score,
+    score: Score,
+    exact: i32,
+    beta: Score,
+    selectivity: Selectivity,
+    cut_node: bool,
+    engine_cut: bool,
+    replayed_cut: bool,
+}
+
+#[cfg(any(feature = "trace", test))]
+struct EndgameTraceCsvWriter<W> {
+    writer: W,
+}
+
+#[cfg(any(feature = "trace", test))]
+impl EndgameTraceCsvWriter<BufWriter<File>> {
+    fn create(path: &Path) -> anyhow::Result<Self> {
+        let file = File::create(path)
+            .with_context(|| format!("failed to create output file '{}'", path.display()))?;
+        Self::new(BufWriter::new(file))
+    }
+}
+
+#[cfg(any(feature = "trace", test))]
+impl<W: Write> EndgameTraceCsvWriter<W> {
+    fn new(mut writer: W) -> anyhow::Result<Self> {
+        writeln!(writer, "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}")?;
+        writeln!(writer, "{}", trace_header())?;
+        Ok(Self { writer })
+    }
+
+    fn write_row(&mut self, row: &TraceWriteRow) -> std::io::Result<()> {
+        writeln!(
+            self.writer,
+            "{},{},{},{},{},{},{},{},{},{}",
+            row.game,
+            row.empties,
+            row.eval.to_disc_diff_f32(),
+            row.score.to_disc_diff_f32(),
+            row.exact,
+            row.beta.to_disc_diff_f32(),
+            row.selectivity.as_u8(),
+            u8::from(row.cut_node),
+            u8::from(row.engine_cut),
+            u8::from(row.replayed_cut),
+        )
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 /// The positions of one game whose empty count is in a given range.
 ///
 /// Each entry holds the board, the side to move, the move played, and the
@@ -63,37 +128,21 @@ struct GamePositions {
     positions: Vec<(Board, PlayerColor, Square, i32)>,
 }
 
-/// Parses `input` into games (1-based line numbers as game ids), keeping the
-/// positions with `empties` empty squares.
-fn read_games(
-    input: &str,
-    empties: std::ops::RangeInclusive<u32>,
-) -> io::Result<Vec<GamePositions>> {
-    let reader = BufReader::new(File::open(input).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("Failed to open input file '{input}': {e}"),
-        )
-    })?);
+fn trace_header() -> String {
+    format!(
+        "game,empties,s0,s{VERIFY_DEPTH},exact,beta,selectivity,cut_node,engine_cut,replayed_cut"
+    )
+}
+
+fn read_games(input: &Path, empties: RangeInclusive<u32>) -> anyhow::Result<Vec<GamePositions>> {
     let mut games = Vec::new();
-    for (line_no, line) in reader.lines().enumerate() {
-        let line = line?;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let game = line_no + 1;
-        let moves = Square::parse_sequence(line)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
+    for_each_game_line(input, |game, moves| {
         let mut positions = Vec::new();
-        let mut ply_moves = moves.iter();
-        let (final_board, final_side) = replay(&moves, |board, side| {
-            let sq = *ply_moves.next().unwrap();
+        let (final_board, final_side) = replay(moves, |board, side, sq| {
             if empties.contains(&board.empty_count()) {
                 positions.push((*board, side, sq, 0));
             }
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Line {game}: {e}")))?;
+        })?;
         let final_score = final_board.solve_disc_diff(final_board.empty_count());
         for (_, side, _, result) in &mut positions {
             *result = if *side == final_side {
@@ -103,7 +152,8 @@ fn read_games(
             };
         }
         games.push(GamePositions { game, positions });
-    }
+        Ok(())
+    })?;
     Ok(games)
 }
 
@@ -114,7 +164,7 @@ fn read_games(
 /// covers the range evenly.
 fn pick_roots(
     games: &[GamePositions],
-    empties: std::ops::RangeInclusive<u32>,
+    empties: RangeInclusive<u32>,
     fit_folds: bool,
 ) -> impl Iterator<Item = (usize, &(Board, PlayerColor, Square, i32))> {
     let span = empties.end() - empties.start() + 1;
@@ -136,15 +186,17 @@ fn pick_roots(
 ///
 /// The score is exact only if the game is played perfectly from the position
 /// on. Otherwise, run evaltest with `--solve-reference`.
-pub fn export_holdout(
-    input: &str,
-    output: &str,
+pub(crate) fn export_holdout(
+    input: &Path,
+    output: &Path,
     count: usize,
-    empties: std::ops::RangeInclusive<u32>,
+    empties: RangeInclusive<u32>,
     fit_folds: bool,
-) -> io::Result<()> {
+) -> anyhow::Result<()> {
     let games = read_games(input, empties.clone())?;
-    let mut writer = BufWriter::new(File::create(output)?);
+    let file = File::create(output)
+        .with_context(|| format!("failed to create output file '{}'", output.display()))?;
+    let mut writer = BufWriter::new(file);
     let mut written = 0;
     for (_, (board, side, sq, result)) in pick_roots(&games, empties, fit_folds).take(count) {
         let cells: String = Square::iter()
@@ -154,12 +206,99 @@ pub fn export_holdout(
         written += 1;
     }
     writer.flush()?;
-    eprintln!("Wrote {written} held-out positions to {output}");
+    eprintln!("Wrote {written} held-out positions to {}", output.display());
     Ok(())
 }
 
-/// Returns `([static evaluation, verification score], exact score)` of
-/// `board`.
+pub(crate) fn read_trace_rows(path: &Path) -> anyhow::Result<Vec<TraceRow>> {
+    let file = File::open(path).with_context(|| format!("failed to open '{}'", path.display()))?;
+    let reader = BufReader::new(file);
+    let mut lines = reader.lines();
+
+    let weights_line = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("empty input"))??;
+    let weights = weights_line
+        .strip_prefix(WEIGHTS_HEADER_PREFIX)
+        .ok_or_else(|| anyhow::anyhow!("missing weights header: '{weights_line}'"))?;
+    anyhow::ensure!(
+        weights == EVAL_FILE_NAME,
+        "samples were generated with {weights}, but the engine uses {EVAL_FILE_NAME}"
+    );
+
+    let header = lines
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("missing CSV header"))??;
+    let expected_header = trace_header();
+    anyhow::ensure!(
+        header == expected_header,
+        "'{header}' is not the endgame-trace header '{expected_header}'"
+    );
+
+    let mut rows = Vec::new();
+    for (line_no, line) in lines.enumerate() {
+        let line_number = line_no + 3;
+        let line = line.with_context(|| format!("failed to read line {line_number}"))?;
+        rows.push(parse_trace_row(&line, line_number)?);
+    }
+    Ok(rows)
+}
+
+fn parse_flag(value: &str, name: &str, line_number: usize) -> anyhow::Result<bool> {
+    match value {
+        "0" => Ok(false),
+        "1" => Ok(true),
+        _ => anyhow::bail!("line {line_number}: invalid {name} flag '{value}' (expected 0 or 1)"),
+    }
+}
+
+fn parse_trace_row(line: &str, line_number: usize) -> anyhow::Result<TraceRow> {
+    let fields: Vec<&str> = line.split(',').collect();
+    anyhow::ensure!(
+        fields.len() == 10,
+        "line {line_number}: expected 10 columns, got {}",
+        fields.len()
+    );
+    let parse_f64 = |index: usize, name: &str| -> anyhow::Result<f64> {
+        let value: f64 = fields[index]
+            .parse()
+            .with_context(|| format!("line {line_number}: bad field {index} ({name})"))?;
+        anyhow::ensure!(
+            value.is_finite(),
+            "line {line_number}: non-finite field {index} ({name})"
+        );
+        Ok(value)
+    };
+
+    let game: u64 = fields[0]
+        .parse()
+        .with_context(|| format!("line {line_number}: bad field 0 (game)"))?;
+    let empties: u32 = fields[1]
+        .parse()
+        .with_context(|| format!("line {line_number}: bad field 1 (empties)"))?;
+    let eval = parse_f64(2, "s0")?;
+    let score = parse_f64(3, "verify_score")?;
+    let exact = parse_f64(4, "exact")?;
+    let beta = parse_f64(5, "beta")?;
+    let _selectivity: u8 = fields[6]
+        .parse()
+        .with_context(|| format!("line {line_number}: bad field 6 (selectivity)"))?;
+    let cut_node = parse_flag(fields[7], "cut_node", line_number)?;
+    let _engine_cut = parse_flag(fields[8], "engine_cut", line_number)?;
+    let _replayed_cut = parse_flag(fields[9], "replayed_cut", line_number)?;
+
+    Ok(TraceRow {
+        game,
+        empties,
+        eval,
+        score,
+        exact,
+        beta,
+        cut_node,
+    })
+}
+
+/// Returns `([static evaluation, verification score], exact score)` of `board`.
 ///
 /// The first two are computed as endgame ProbCut sees them: main network, no
 /// selective pruning.
@@ -186,11 +325,11 @@ fn label(search: &mut Search, board: &Board) -> ([Score; 2], i32) {
 
 /// Which roots `endgame-trace` searches and which attempts it keeps.
 #[cfg(feature = "trace")]
-pub struct TraceOptions {
+pub(crate) struct TraceOptions {
     /// Number of roots to search.
     pub roots: usize,
     /// Empty counts the roots are drawn from, cycled by game id.
-    pub root_empties: std::ops::RangeInclusive<u32>,
+    pub root_empties: RangeInclusive<u32>,
     /// Draw roots from the fitting folds instead of the holdout fold.
     pub fit_folds: bool,
     /// Keep attempts whose position hash is divisible by this.
@@ -210,7 +349,7 @@ pub struct TraceOptions {
 /// engine's thresholds. `engine_cut` and `replayed_cut` must agree; if not,
 /// the labels differ from what the search saw.
 #[cfg(feature = "trace")]
-pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()> {
+pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyhow::Result<()> {
     use std::collections::{HashMap, HashSet};
 
     use reversi_core::probcut::{self, trace::TraceRecord};
@@ -309,9 +448,7 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
     });
     let labels = labels.into_inner().unwrap();
 
-    let mut writer = BufWriter::new(File::create(output)?);
-    writeln!(writer, "# main_weights={EVAL_FILE_NAME}")?;
-    writeln!(writer, "{}", trace_header())?;
+    let mut writer = EndgameTraceCsvWriter::create(output)?;
     let mut mismatches = 0;
     for (game, record) in &traced {
         let (scores, exact) = labels[&record.board];
@@ -329,17 +466,18 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
         };
         let engine_cut = record.result.is_some();
         mismatches += usize::from(engine_cut != replayed_cut);
-        writeln!(
-            writer,
-            "{game},{n_empties},{},{},{exact},{},{},{},{},{}",
-            scores[0].to_disc_diff_f32(),
-            scores[1].to_disc_diff_f32(),
-            record.beta.to_disc_diff_f32(),
-            record.selectivity.as_u8(),
-            u8::from(record.cut_node),
-            u8::from(engine_cut),
-            u8::from(replayed_cut),
-        )?;
+        writer.write_row(&TraceWriteRow {
+            game: *game,
+            empties: n_empties,
+            eval: scores[0],
+            score: scores[1],
+            exact,
+            beta: record.beta,
+            selectivity: record.selectivity,
+            cut_node: record.cut_node,
+            engine_cut,
+            replayed_cut,
+        })?;
     }
     writer.flush()?;
     eprintln!(
@@ -347,4 +485,117 @@ pub fn trace(input: &str, output: &str, options: &TraceOptions) -> io::Result<()
         traced.len()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TempFile {
+        path: PathBuf,
+    }
+
+    impl TempFile {
+        fn new(name: &str) -> Self {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-endgame-trace-{name}-{}-{id}.csv",
+                std::process::id()
+            ));
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+
+    #[test]
+    fn endgame_trace_csv_writer_round_trips_through_reader() -> anyhow::Result<()> {
+        let file = TempFile::new("round-trip");
+        {
+            let mut writer = EndgameTraceCsvWriter::create(file.path())?;
+            writer.write_row(&TraceWriteRow {
+                game: 42,
+                empties: 20,
+                eval: Score::from_raw(320),
+                score: Score::from_raw(-128),
+                exact: -3,
+                beta: Score::from_raw(256),
+                selectivity: Selectivity::Level2,
+                cut_node: true,
+                engine_cut: false,
+                replayed_cut: false,
+            })?;
+            writer.flush()?;
+        }
+
+        let rows = read_trace_rows(file.path())?;
+        assert_eq!(
+            rows,
+            [TraceRow {
+                game: 42,
+                empties: 20,
+                eval: 1.25,
+                score: -0.5,
+                exact: -3.0,
+                beta: 1.0,
+                cut_node: true,
+            }]
+        );
+
+        let wrong_weights = TempFile::new("wrong-weights");
+        fs::write(
+            wrong_weights.path(),
+            format!("# main_weights=stale.zst\n{}\n", trace_header()),
+        )?;
+        assert!(
+            read_trace_rows(wrong_weights.path())
+                .unwrap_err()
+                .to_string()
+                .contains("samples were generated with stale.zst")
+        );
+
+        let bad_flag = TempFile::new("bad-flag");
+        fs::write(
+            bad_flag.path(),
+            format!(
+                "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}\n{}\n1,20,0,0,-1,0,1,2,0,0\n",
+                trace_header()
+            ),
+        )?;
+        assert!(
+            read_trace_rows(bad_flag.path())
+                .unwrap_err()
+                .to_string()
+                .contains("invalid cut_node flag")
+        );
+
+        let short_row = TempFile::new("short-row");
+        fs::write(
+            short_row.path(),
+            format!(
+                "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}\n{}\n1,20,0,0,-1,0,1,0,0\n",
+                trace_header()
+            ),
+        )?;
+        assert!(
+            read_trace_rows(short_row.path())
+                .unwrap_err()
+                .to_string()
+                .contains("expected 10 columns")
+        );
+        Ok(())
+    }
 }

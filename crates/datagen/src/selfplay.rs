@@ -1,9 +1,15 @@
 //! Self-play module for generating training data.
 //!
-//! This module implements self-play game generation for neural network training.
-//! It supports both random game generation and generation from predefined opening
-//! sequences, with configurable search parameters.
+//! Generates neural-network training games from either random openings or
+//! predefined opening sequences with configurable search depths.
 
+use std::cmp;
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+use anyhow::Context;
 use rand::RngExt;
 use rand::seq::IteratorRandom;
 use reversi_core::board::Board;
@@ -13,55 +19,48 @@ use reversi_core::search::options::SearchOptions;
 use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 use reversi_core::types::Depth;
-use std::collections::HashMap;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use crate::opening;
-use crate::record::{
-    GameRecord, read_last_game_id, truncate_incomplete_record, write_records_to_file,
-};
+use crate::record::{GameRecord, append_records, read_last_game_id, truncate_incomplete_record};
 
-/// Minimum number of random moves at the start of each game
+/// Minimum number of random moves at the start of each game.
 const MIN_RANDOM_MOVES: u8 = 14;
 
-/// Exclusive upper bound on the number of random moves at the start of each game
+/// Exclusive upper bound on the number of random moves at the start of each game.
 const MAX_RANDOM_MOVES: u8 = 50;
 
-/// Minimum number of digits used in output file naming
+/// Minimum number of digits used in output file naming.
 const FILE_ID_DIGITS: usize = 5;
 
-/// Maximum size of the record cache
+/// Maximum size of the record cache.
 const MAX_CACHE_SIZE: usize = 1_000_000;
 
-/// How the random opening moves of a game are drawn.
-#[derive(Clone, Copy)]
-pub struct RandomMoveChoice {
+/// Parameters controlling how random opening moves of a game are drawn.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RandomMoveChoice {
     /// Depth of the Multi-PV search that scores the candidates.
     pub depth: Depth,
     /// Maximum number of best moves to draw from.
     pub top: usize,
     /// Maximum score loss, in discs, of a candidate against the best move.
     pub margin: f32,
-    /// Number of leading random moves drawn uniformly from all legal moves
-    /// instead.
+    /// Number of leading random moves drawn uniformly from all legal moves.
     pub uniform_moves: u8,
 }
 
-/// Tracks file rotation state across games to avoid re-scanning the output directory.
+/// File rotation state across games to avoid re-scanning the output directory.
 struct FileState {
     prefix: String,
-    output_dir: String,
+    output_dir: PathBuf,
     games_per_file: u32,
     file_id: u32,
     game_id: u16,
 }
 
 impl FileState {
-    fn new(prefix: &str, output_dir: &str, games_per_file: u32) -> io::Result<Self> {
-        let latest_file = fs::read_dir(output_dir)?
+    fn new(prefix: &str, output_dir: &Path, games_per_file: u32) -> anyhow::Result<Self> {
+        let latest_file = fs::read_dir(output_dir)
+            .with_context(|| format!("failed to read output directory '{}'", output_dir.display()))?
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
                 let name = entry.file_name();
@@ -83,11 +82,10 @@ impl FileState {
         if let Some((latest_id, path)) = latest_file {
             file_id = latest_id;
 
-            // Remove any trailing incomplete record left by a previous interrupted run
             truncate_incomplete_record(&path)?;
 
             if let Some(last_id) = read_last_game_id(&path)? {
-                let game_count = last_id as u32 + 1;
+                let game_count = u32::from(last_id) + 1;
                 if game_count >= games_per_file {
                     file_id += 1;
                 } else {
@@ -98,7 +96,7 @@ impl FileState {
 
         Ok(Self {
             prefix: prefix.to_owned(),
-            output_dir: output_dir.to_owned(),
+            output_dir: output_dir.to_path_buf(),
             games_per_file,
             file_id,
             game_id,
@@ -106,13 +104,13 @@ impl FileState {
     }
 
     fn file_path(&self, file_id: u32) -> PathBuf {
-        Path::new(&self.output_dir)
+        self.output_dir
             .join(format!("{}_{:0FILE_ID_DIGITS$}.bin", self.prefix, file_id))
     }
 
-    /// Returns the next game id, moving to a new file when the current one is full.
+    /// Returns the next game id, advancing to a new file when the current one is full.
     fn next_game_id(&mut self) -> u16 {
-        if self.game_id as u32 >= self.games_per_file {
+        if u32::from(self.game_id) >= self.games_per_file {
             self.file_id += 1;
             self.game_id = 0;
         }
@@ -122,51 +120,38 @@ impl FileState {
     }
 
     /// Counts the total number of games written across all files.
-    fn total_games(&self) -> io::Result<usize> {
+    fn total_games(&self) -> anyhow::Result<usize> {
         let mut total = 0usize;
         for fid in 0..self.file_id {
-            match read_last_game_id(&self.file_path(fid)) {
-                Ok(Some(last_id)) => total += last_id as usize + 1,
-                Ok(None) => {}
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
+            if let Some(last_id) = read_last_game_id(&self.file_path(fid))? {
+                total += usize::from(last_id) + 1;
             }
         }
-        total += self.game_id as usize;
+        total += usize::from(self.game_id);
         Ok(total)
     }
 
-    fn write_records(&mut self, game_records: &[GameRecord]) -> io::Result<()> {
+    fn write_records(&mut self, game_records: &[GameRecord]) -> anyhow::Result<()> {
         let file_path = self.file_path(self.file_id);
-        write_records_to_file(&file_path, game_records)
+        append_records(&file_path, game_records)
     }
 }
 
-/// Executes self-play with random openings to generate training data.
-///
-/// # Arguments
-///
-/// * `num_games` - Number of games to generate
-/// * `games_per_file` - Maximum games per output file
-/// * `hash_size` - Transposition table size in MB
-/// * `level` - Search level configuration
-/// * `random_choice` - How the random opening moves are drawn
-/// * `prefix` - Output file prefix
-/// * `output_dir` - Directory for output files
-///
-/// # Returns
-///
-/// Returns `Ok(())` on success, or an error if file operations fail.
-pub fn execute(
+pub(crate) fn execute(
     num_games: u32,
     games_per_file: u32,
     hash_size: usize,
     level: Level,
     random_choice: RandomMoveChoice,
     prefix: &str,
-    output_dir: &str,
-) -> io::Result<()> {
-    fs::create_dir_all(output_dir)?;
+    output_dir: &Path,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "failed to create output directory '{}'",
+            output_dir.display()
+        )
+    })?;
 
     let options = SearchOptions::new(hash_size);
 
@@ -178,7 +163,7 @@ pub fn execute(
         let game_id = file_state.next_game_id();
 
         let mut rng = rand::rng();
-        let num_random = std::cmp::min(
+        let num_random = cmp::min(
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
         );
@@ -196,31 +181,21 @@ pub fn execute(
     Ok(())
 }
 
-/// Executes self-play using predefined opening sequences.
-///
-/// # Arguments
-///
-/// * `openings_path` - Path to file containing opening sequences
-/// * `resume` - Whether to resume from last processed opening
-/// * `games_per_file` - Maximum games per output file
-/// * `hash_size` - Transposition table size in MB
-/// * `level` - Search level configuration
-/// * `prefix` - Output file prefix
-/// * `output_dir` - Directory for output files
-///
-/// # Returns
-///
-/// Returns `Ok(())` on success, or an error if operations fail.
-pub fn execute_with_openings(
-    openings_path: &str,
+pub(crate) fn execute_with_openings(
+    openings_path: &Path,
     resume: bool,
     games_per_file: u32,
     hash_size: usize,
     level: Level,
     prefix: &str,
-    output_dir: &str,
-) -> io::Result<()> {
-    fs::create_dir_all(output_dir)?;
+    output_dir: &Path,
+) -> anyhow::Result<()> {
+    fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "failed to create output directory '{}'",
+            output_dir.display()
+        )
+    })?;
 
     let options = SearchOptions::new(hash_size);
 
@@ -230,15 +205,10 @@ pub fn execute_with_openings(
 
     let opening_sequences = opening::load_openings(openings_path)?;
 
-    // If no openings, exit early
     if opening_sequences.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "No valid opening sequences found in the file",
-        ));
+        anyhow::bail!("No valid opening sequences found in the file");
     }
 
-    // Determine the starting opening index from the last written record
     let start_index = if resume {
         let total = file_state.total_games()?;
         if total > 0 {
@@ -263,23 +233,10 @@ pub fn execute_with_openings(
     Ok(())
 }
 
-/// Generates a random opening sequence for a game.
+/// Generates a random opening move sequence of up to `num_moves` plies.
 ///
-/// Creates a sequence of random moves for the start of a game: the first
-/// `choice.uniform_moves` are drawn uniformly from the legal moves and the
-/// rest by [`candidate_move`].
-/// The sequence may end with either player to move.
-///
-/// # Arguments
-///
-/// * `num_moves` - The number of random moves to generate. May be fewer
-///   if the game ends before this many moves have been played.
-/// * `search` - Search engine instance
-/// * `choice` - How the random moves are drawn
-///
-/// # Returns
-///
-/// A `Vec<Square>` containing the sequence of moves.
+/// Draws the first `choice.uniform_moves` moves uniformly from legal moves and
+/// the remaining moves via [`candidate_move`].
 fn generate_random_opening(
     num_moves: u8,
     search: &mut search::Search,
@@ -288,8 +245,8 @@ fn generate_random_opening(
     let mut opening = Vec::new();
     let mut game = GameState::new();
 
-    while opening.len() < num_moves as usize && !game.is_game_over() {
-        let sq = if opening.len() < choice.uniform_moves as usize {
+    while opening.len() < usize::from(num_moves) && !game.is_game_over() {
+        let sq = if opening.len() < usize::from(choice.uniform_moves) {
             random_move(game.board())
         } else {
             candidate_move(game.board(), search, choice)
@@ -301,19 +258,7 @@ fn generate_random_opening(
     opening
 }
 
-/// Plays a single game with the given opening sequence.
-///
-/// # Arguments
-///
-/// * `opening_sequence` - Sequence of moves to play at the start
-/// * `search` - Search engine instance
-/// * `lv` - Search level
-/// * `game_id` - Game identifier written to each record
-/// * `record_cache` - Cache for game records to avoid redundant searches
-///
-/// # Returns
-///
-/// Returns a vector of game records for the played game.
+/// Plays a single game starting from `opening_sequence` and returns its [`GameRecord`] entries.
 fn play_game(
     opening_sequence: &[Square],
     search: &mut search::Search,
@@ -327,7 +272,6 @@ fn play_game(
     let mut game = GameState::new();
     let mut game_records = Vec::new();
 
-    // Play opening moves
     for &sq in opening_sequence {
         if game.is_game_over() {
             break;
@@ -348,7 +292,6 @@ fn play_game(
         record_cache.clear();
     }
 
-    // Continue playing with search
     while !game.is_game_over() {
         let record = search_record(search, &game, lv, game_id, false);
         game.make_move(record.sq)
@@ -356,7 +299,6 @@ fn play_game(
         game_records.push(record);
     }
 
-    // Calculate final game scores
     if !game_records.is_empty() {
         let final_side_to_move = game.side_to_move();
         let final_board = *game.board();
@@ -364,18 +306,19 @@ fn play_game(
             .solve_disc_diff(final_board.empty_count())
             .value() as i8;
 
-        for record in game_records.iter_mut() {
-            record.game_score = if record.side_to_move == final_side_to_move {
+        for record in &mut game_records {
+            let outcome = if record.side_to_move == final_side_to_move {
                 final_score
             } else {
                 -final_score
             };
+            record.game_score = Some(outcome);
         }
     }
 
     let random_moves = game_records.iter().filter(|r| r.is_random).count();
     let total_moves = game_records.len();
-    let black_score = game_records.first().map_or(0, |r| r.game_score);
+    let black_score = game_records.first().and_then(|r| r.game_score).unwrap_or(0);
     let duration = game_start.elapsed();
     println!(
         "Game {}: score {:+}, moves {}/{} (random/total), {:.2}s",
@@ -389,7 +332,7 @@ fn play_game(
     game_records
 }
 
-/// Searches the current position of `game` and records the result.
+/// Searches the current position of `game` and returns a [`GameRecord`] with `game_score: None`.
 fn search_record(
     search: &mut search::Search,
     game: &GameState,
@@ -407,14 +350,14 @@ fn search_record(
             .score()
             .expect("search returned no legal move")
             .to_disc_diff_f32(),
-        game_score: 0,
+        game_score: None,
         side_to_move: game.side_to_move(),
         is_random,
         sq: result.best_move().expect("search returned no legal move"),
     }
 }
 
-/// Selects a random legal move from the current board position.
+/// Selects a random legal move from `board`.
 fn random_move(board: &Board) -> Square {
     let mut rng = rand::rng();
     board.legal_moves().iter().choose(&mut rng).unwrap()

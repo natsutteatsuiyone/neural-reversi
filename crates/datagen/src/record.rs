@@ -1,82 +1,254 @@
-//! Binary record format for training data I/O.
+//! Binary 27-byte record format and file I/O for training data.
+//!
+//! Wire layout (little-endian, packed, 27 bytes total):
+//! - `0..8`: `player` bitboard (`u64` LE)
+//! - `8..16`: `opponent` bitboard (`u64` LE)
+//! - `16..20`: `score` (`f32` LE, in discs)
+//! - `20`: `game_score` (`i8`, `i8::MIN` sentinel when unavailable)
+//! - `21`: `ply` (`u8`)
+//! - `22`: `is_random` (`u8`: encoded as `0` or `1`, decoded as `!= 0`)
+//! - `23`: `sq` (`u8`: square index `0..64`)
+//! - `24`: `side_to_move` (`u8`: encoded as `0` Black or `1` White, decoded as `0` => Black, non-zero => White)
+//! - `25..27`: `game_id` (`u16` LE)
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::path::Path;
+
+use anyhow::Context;
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::square::Square;
-use std::fs;
-use std::fs::OpenOptions;
-use std::io::{self, BufReader, BufWriter, Seek, SeekFrom, Write};
-use std::path::Path;
 
-/// Size of each record in bytes
-pub const RECORD_SIZE: u64 = 27;
+pub(crate) const RECORD_SIZE: usize = 27;
 
-/// Byte offsets of individual fields inside a serialized `GameRecord`.
-/// Must stay in sync with the write order in `write_records`.
-pub const SCORE_OFFSET: usize = 16;
-pub const GAME_SCORE_OFFSET: usize = 20;
-pub const PLY_OFFSET: usize = 21;
-pub const IS_RANDOM_OFFSET: usize = 22;
+const PLAYER_OFFSET: usize = 0;
+const OPPONENT_OFFSET: usize = 8;
+const SCORE_OFFSET: usize = 16;
+const GAME_SCORE_OFFSET: usize = 20;
+const PLY_OFFSET: usize = 21;
+const IS_RANDOM_OFFSET: usize = 22;
+const SQ_OFFSET: usize = 23;
+const SIDE_TO_MOVE_OFFSET: usize = 24;
+const GAME_ID_OFFSET: usize = 25;
 
-/// Sentinel value for `game_score` when the true game outcome is unavailable
-/// (records written by `score-openings` before it stored the rounded score).
-pub const GAME_SCORE_UNAVAILABLE: i8 = i8::MIN;
+const _: () = assert!(PLAYER_OFFSET + 8 == OPPONENT_OFFSET);
+const _: () = assert!(OPPONENT_OFFSET + 8 == SCORE_OFFSET);
+const _: () = assert!(SCORE_OFFSET + 4 == GAME_SCORE_OFFSET);
+const _: () = assert!(GAME_SCORE_OFFSET + 1 == PLY_OFFSET);
+const _: () = assert!(PLY_OFFSET + 1 == IS_RANDOM_OFFSET);
+const _: () = assert!(IS_RANDOM_OFFSET + 1 == SQ_OFFSET);
+const _: () = assert!(SQ_OFFSET + 1 == SIDE_TO_MOVE_OFFSET);
+const _: () = assert!(SIDE_TO_MOVE_OFFSET + 1 == GAME_ID_OFFSET);
+const _: () = assert!(GAME_ID_OFFSET + 2 == RECORD_SIZE);
 
-/// Represents a single position record from a self-play game.
-#[derive(Clone)]
-pub struct GameRecord {
+const GAME_SCORE_UNAVAILABLE: i8 = i8::MIN;
+
+const READ_BUFFER_RECORDS: usize = 4096;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GameRecord {
     pub game_id: u16,
     pub ply: u8,
     pub board: Board,
     pub score: f32,
-    pub game_score: i8,
+    pub game_score: Option<i8>,
     pub side_to_move: PlayerColor,
     pub is_random: bool,
     pub sq: Square,
 }
 
-/// Writes game records to a binary file (append mode).
-pub fn write_records_to_file(path: &Path, records: &[GameRecord]) -> io::Result<()> {
-    let file = OpenOptions::new().create(true).append(true).open(path)?;
-    let mut writer = BufWriter::new(file);
-    write_records(&mut writer, records)?;
-    writer.flush()
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct RewriteStats {
+    pub scanned: u64,
+    pub updated: u64,
 }
 
-/// Writes game records to the given writer.
+/// Unvalidated 27-byte wire record; [`Self::board`] and [`Self::decode`] check
+/// bitboard disjointness and square bounds on demand.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) struct RawRecord([u8; RECORD_SIZE]);
+
+impl RawRecord {
+    #[must_use]
+    pub(crate) fn from_record(record: &GameRecord) -> Self {
+        debug_assert_ne!(record.game_score, Some(GAME_SCORE_UNAVAILABLE));
+
+        let mut bytes = [0u8; RECORD_SIZE];
+        bytes[PLAYER_OFFSET..PLAYER_OFFSET + 8]
+            .copy_from_slice(&record.board.player().bits().to_le_bytes());
+        bytes[OPPONENT_OFFSET..OPPONENT_OFFSET + 8]
+            .copy_from_slice(&record.board.opponent().bits().to_le_bytes());
+        bytes[SCORE_OFFSET..SCORE_OFFSET + 4].copy_from_slice(&record.score.to_le_bytes());
+        bytes[GAME_SCORE_OFFSET] = record.game_score.unwrap_or(GAME_SCORE_UNAVAILABLE) as u8;
+        bytes[PLY_OFFSET] = record.ply;
+        bytes[IS_RANDOM_OFFSET] = u8::from(record.is_random);
+        bytes[SQ_OFFSET] = record.sq as u8;
+        bytes[SIDE_TO_MOVE_OFFSET] = u8::from(record.side_to_move != PlayerColor::Black);
+        bytes[GAME_ID_OFFSET..GAME_ID_OFFSET + 2].copy_from_slice(&record.game_id.to_le_bytes());
+        Self(bytes)
+    }
+
+    pub(crate) fn decode(&self) -> anyhow::Result<GameRecord> {
+        let board = self.board();
+        let side_to_move = if self.0[SIDE_TO_MOVE_OFFSET] == 0 {
+            PlayerColor::Black
+        } else {
+            PlayerColor::White
+        };
+        let sq_byte = self.0[SQ_OFFSET];
+        let sq =
+            Square::from_u8(sq_byte).ok_or_else(|| anyhow::anyhow!("Invalid square: {sq_byte}"))?;
+
+        Ok(GameRecord {
+            game_id: self.game_id(),
+            ply: self.ply(),
+            board,
+            score: self.score(),
+            game_score: self.game_score(),
+            side_to_move,
+            is_random: self.is_random(),
+            sq,
+        })
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn ply(&self) -> u8 {
+        self.0[PLY_OFFSET]
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn is_random(&self) -> bool {
+        self.0[IS_RANDOM_OFFSET] != 0
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn score(&self) -> f32 {
+        let bytes: [u8; 4] = self.0[SCORE_OFFSET..SCORE_OFFSET + 4]
+            .try_into()
+            .expect("4-byte score slice");
+        f32::from_le_bytes(bytes)
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn game_score(&self) -> Option<i8> {
+        let raw = self.0[GAME_SCORE_OFFSET] as i8;
+        (raw != GAME_SCORE_UNAVAILABLE).then_some(raw)
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn game_id(&self) -> u16 {
+        let bytes: [u8; 2] = self.0[GAME_ID_OFFSET..GAME_ID_OFFSET + 2]
+            .try_into()
+            .expect("2-byte game_id slice");
+        u16::from_le_bytes(bytes)
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn board(&self) -> Board {
+        let player = u64::from_le_bytes(
+            self.0[PLAYER_OFFSET..PLAYER_OFFSET + 8]
+                .try_into()
+                .expect("8-byte player slice"),
+        );
+        let opponent = u64::from_le_bytes(
+            self.0[OPPONENT_OFFSET..OPPONENT_OFFSET + 8]
+                .try_into()
+                .expect("8-byte opponent slice"),
+        );
+        Board::from_bitboards(Bitboard::new(player), Bitboard::new(opponent))
+    }
+
+    #[inline]
+    pub(crate) fn set_scores(&mut self, score: f32, game_score: Option<i8>, is_random: bool) {
+        debug_assert_ne!(game_score, Some(GAME_SCORE_UNAVAILABLE));
+
+        self.0[SCORE_OFFSET..SCORE_OFFSET + 4].copy_from_slice(&score.to_le_bytes());
+        self.0[GAME_SCORE_OFFSET] = game_score.unwrap_or(GAME_SCORE_UNAVAILABLE) as u8;
+        self.0[IS_RANDOM_OFFSET] = u8::from(is_random);
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn from_bytes(bytes: [u8; RECORD_SIZE]) -> Self {
+        Self(bytes)
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn as_bytes(&self) -> &[u8; RECORD_SIZE] {
+        &self.0
+    }
+}
+
 fn write_records(writer: &mut impl Write, records: &[GameRecord]) -> io::Result<()> {
     for record in records {
-        writer.write_u64::<LittleEndian>(record.board.player().bits())?;
-        writer.write_u64::<LittleEndian>(record.board.opponent().bits())?;
-        writer.write_f32::<LittleEndian>(record.score)?;
-        writer.write_i8(record.game_score)?;
-        writer.write_u8(record.ply)?;
-        writer.write_u8(if record.is_random { 1 } else { 0 })?;
-        writer.write_u8(record.sq as u8)?;
-        writer.write_u8(if record.side_to_move == PlayerColor::Black {
-            0
-        } else {
-            1
-        })?;
-        writer.write_u16::<LittleEndian>(record.game_id)?;
+        writer.write_all(&RawRecord::from_record(record).0)?;
     }
     Ok(())
 }
 
-/// Truncates any trailing incomplete record from a binary file.
-///
-/// If the file size is not a multiple of `RECORD_SIZE`, the trailing
-/// bytes are removed so that only complete records remain.
-pub fn truncate_incomplete_record(path: &Path) -> io::Result<()> {
+pub(crate) fn append_records(path: &Path, records: &[GameRecord]) -> anyhow::Result<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open '{}' for append", path.display()))?;
+    let mut writer = BufWriter::new(file);
+    write_records(&mut writer, records)
+        .with_context(|| format!("failed to write records to '{}'", path.display()))?;
+    writer
+        .flush()
+        .with_context(|| format!("failed to flush '{}'", path.display()))
+}
+
+pub(crate) fn append_raw_records(path: &Path, records: &[RawRecord]) -> anyhow::Result<()> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open '{}' for append", path.display()))?;
+    let mut writer = BufWriter::new(file);
+    for record in records {
+        writer
+            .write_all(&record.0)
+            .with_context(|| format!("failed to write raw record to '{}'", path.display()))?;
+    }
+    writer
+        .flush()
+        .with_context(|| format!("failed to flush '{}'", path.display()))
+}
+
+pub(crate) fn count_aligned_records(path: &Path) -> anyhow::Result<u64> {
+    let file_size = fs::metadata(path)
+        .with_context(|| format!("failed to inspect '{}'", path.display()))?
+        .len();
+    anyhow::ensure!(
+        file_size.is_multiple_of(RECORD_SIZE as u64),
+        "'{}' has size {file_size}, which is not a multiple of record size {RECORD_SIZE}",
+        path.display()
+    );
+    Ok(file_size / RECORD_SIZE as u64)
+}
+
+pub(crate) fn truncate_incomplete_record(path: &Path) -> anyhow::Result<()> {
     let file = match OpenOptions::new().write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
+        Err(e) => {
+            return Err(e).with_context(|| format!("failed to open '{}'", path.display()));
+        }
     };
     let file_size = file.metadata()?.len();
-    let remainder = file_size % RECORD_SIZE;
+    let remainder = file_size % RECORD_SIZE as u64;
     if remainder != 0 {
         let aligned = file_size - remainder;
         file.set_len(aligned)?;
@@ -91,78 +263,147 @@ pub fn truncate_incomplete_record(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Reads the `game_id` of the last complete record in a binary file.
-pub fn read_last_game_id(path: &Path) -> io::Result<Option<u16>> {
-    let mut file = fs::File::open(path)?;
+pub(crate) fn read_last_game_id(path: &Path) -> anyhow::Result<Option<u16>> {
+    let mut file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(e).with_context(|| format!("failed to open '{}'", path.display()));
+        }
+    };
     let file_size = file.metadata()?.len();
-    let aligned = file_size - file_size % RECORD_SIZE;
-    if aligned < RECORD_SIZE {
+    let aligned = file_size - file_size % RECORD_SIZE as u64;
+    if aligned < RECORD_SIZE as u64 {
         return Ok(None);
     }
-    // game_id is the last 2 bytes of each complete record
-    file.seek(SeekFrom::Start(aligned - 2))?;
-    Ok(Some(file.read_u16::<LittleEndian>()?))
+    file.seek(SeekFrom::Start(aligned - RECORD_SIZE as u64))?;
+    let mut raw = RawRecord([0u8; RECORD_SIZE]);
+    file.read_exact(&mut raw.0)?;
+    Ok(Some(raw.game_id()))
 }
 
-/// Reads all game records from a binary file.
-pub fn read_records_from_file(path: &Path) -> io::Result<Vec<GameRecord>> {
-    let metadata = fs::metadata(path)?;
-    let file_size = metadata.len();
+pub(crate) fn read_records_from_file(path: &Path) -> anyhow::Result<Vec<GameRecord>> {
+    let file = File::open(path).with_context(|| format!("failed to open '{}'", path.display()))?;
+    let file_size = file.metadata()?.len();
+    anyhow::ensure!(
+        file_size.is_multiple_of(RECORD_SIZE as u64),
+        "File size {} is not a multiple of record size {} for file {}",
+        file_size,
+        RECORD_SIZE,
+        path.display()
+    );
 
-    if file_size % RECORD_SIZE != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "File size {} is not a multiple of RECORD_SIZE {} for file {}",
-                file_size,
-                RECORD_SIZE,
-                path.display()
-            ),
-        ));
-    }
-
-    let num_records = (file_size / RECORD_SIZE) as usize;
-    let file = fs::File::open(path)?;
+    let num_records = usize::try_from(file_size / RECORD_SIZE as u64)?;
     let mut reader = BufReader::new(file);
+    let mut buffer = vec![0u8; RECORD_SIZE * READ_BUFFER_RECORDS.min(num_records)];
     let mut records = Vec::with_capacity(num_records);
+    let mut remaining = num_records;
 
-    for _ in 0..num_records {
-        let player = reader.read_u64::<LittleEndian>()?;
-        let opponent = reader.read_u64::<LittleEndian>()?;
-        let score = reader.read_f32::<LittleEndian>()?;
-        let game_score = reader.read_i8()?;
-        let ply = reader.read_u8()?;
-        let is_random_byte = reader.read_u8()?;
-        let sq_byte = reader.read_u8()?;
-        let side_to_move_byte = reader.read_u8()?;
-        let game_id = reader.read_u16::<LittleEndian>()?;
-
-        let board = Board::from_bitboards(Bitboard::new(player), Bitboard::new(opponent));
-        let side_to_move = if side_to_move_byte == 0 {
-            PlayerColor::Black
-        } else {
-            PlayerColor::White
-        };
-        let sq = Square::from_u8(sq_byte).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Invalid square: {sq_byte}"),
-            )
-        })?;
-
-        records.push(GameRecord {
-            game_id,
-            ply,
-            board,
-            score,
-            game_score,
-            side_to_move,
-            is_random: is_random_byte != 0,
-            sq,
-        });
+    while remaining > 0 {
+        let batch = remaining.min(READ_BUFFER_RECORDS);
+        let batch_bytes = batch * RECORD_SIZE;
+        reader.read_exact(&mut buffer[..batch_bytes])?;
+        for chunk in buffer[..batch_bytes].as_chunks::<RECORD_SIZE>().0 {
+            records.push(RawRecord(*chunk).decode()?);
+        }
+        remaining -= batch;
     }
 
     Ok(records)
+}
+
+pub(crate) fn visit_aligned_raw_records_or_warn(
+    path: &Path,
+    mut visit: impl FnMut(RawRecord),
+) -> anyhow::Result<()> {
+    let file_size = fs::metadata(path)
+        .with_context(|| format!("failed to inspect '{}'", path.display()))?
+        .len();
+    if file_size == 0 || !file_size.is_multiple_of(RECORD_SIZE as u64) {
+        eprintln!(
+            "Warning: {} skipped (size {} is not a positive multiple of record size {})",
+            path.display(),
+            file_size,
+            RECORD_SIZE,
+        );
+        return Ok(());
+    }
+
+    let file = File::open(path).with_context(|| format!("failed to open '{}'", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut remaining = usize::try_from(file_size / RECORD_SIZE as u64)?;
+    let mut buffer = vec![0u8; RECORD_SIZE * READ_BUFFER_RECORDS.min(remaining)];
+
+    while remaining > 0 {
+        let batch = remaining.min(READ_BUFFER_RECORDS);
+        let batch_bytes = batch * RECORD_SIZE;
+        reader.read_exact(&mut buffer[..batch_bytes])?;
+        for chunk in buffer[..batch_bytes].as_chunks::<RECORD_SIZE>().0 {
+            visit(RawRecord(*chunk));
+        }
+        remaining -= batch;
+    }
+    Ok(())
+}
+
+pub(crate) fn rewrite_raw_records(
+    path: &Path,
+    mut patch: impl FnMut(&mut RawRecord) -> bool,
+) -> anyhow::Result<RewriteStats> {
+    let file_size = fs::metadata(path)
+        .with_context(|| format!("failed to inspect '{}'", path.display()))?
+        .len();
+    if file_size == 0 || !file_size.is_multiple_of(RECORD_SIZE as u64) {
+        eprintln!(
+            "Warning: {} skipped (size {} is not a positive multiple of record size {})",
+            path.display(),
+            file_size,
+            RECORD_SIZE,
+        );
+        return Ok(RewriteStats::default());
+    }
+
+    let num_records = usize::try_from(file_size / RECORD_SIZE as u64)?;
+    let mut bytes = Vec::with_capacity(usize::try_from(file_size)?);
+    File::open(path)
+        .with_context(|| format!("failed to open '{}'", path.display()))?
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        bytes.len() == num_records * RECORD_SIZE,
+        "'{}' changed size while reading",
+        path.display()
+    );
+
+    let mut updated = 0u64;
+    for chunk in bytes.as_chunks_mut::<RECORD_SIZE>().0 {
+        let mut raw = RawRecord(*chunk);
+        if patch(&mut raw) {
+            *chunk = raw.0;
+            updated += 1;
+        }
+    }
+
+    if updated > 0 {
+        let temp_path = path.with_extension("bin.tmp");
+        {
+            let mut file = File::create(&temp_path)
+                .with_context(|| format!("failed to create '{}'", temp_path.display()))?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
+        fs::rename(&temp_path, path).with_context(|| {
+            format!(
+                "failed to rename '{}' to '{}'",
+                temp_path.display(),
+                path.display()
+            )
+        })?;
+    }
+
+    Ok(RewriteStats {
+        scanned: num_records as u64,
+        updated,
+    })
 }
 
 #[cfg(test)]
@@ -207,7 +448,7 @@ mod tests {
                 Bitboard::new(1 << (index + 8)),
             ),
             score: f32::from(index) + 0.5,
-            game_score: index as i8 - 2,
+            game_score: Some(index as i8 - 2),
             side_to_move: if index.is_multiple_of(2) {
                 PlayerColor::Black
             } else {
@@ -218,19 +459,8 @@ mod tests {
         }
     }
 
-    fn assert_record_eq(actual: &GameRecord, expected: &GameRecord) {
-        assert_eq!(actual.game_id, expected.game_id);
-        assert_eq!(actual.ply, expected.ply);
-        assert_eq!(actual.board, expected.board);
-        assert_eq!(actual.score, expected.score);
-        assert_eq!(actual.game_score, expected.game_score);
-        assert_eq!(actual.side_to_move, expected.side_to_move);
-        assert_eq!(actual.is_random, expected.is_random);
-        assert_eq!(actual.sq, expected.sq);
-    }
-
     #[test]
-    fn record_layout_matches_offsets() -> io::Result<()> {
+    fn record_layout_matches_offsets() -> anyhow::Result<()> {
         let record = GameRecord {
             game_id: 0xBEEF,
             ply: 42,
@@ -239,16 +469,24 @@ mod tests {
                 Bitboard::new(0xFEDC_BA98_7654_3210),
             ),
             score: 1.5,
-            game_score: -3,
+            game_score: Some(-3),
             side_to_move: PlayerColor::White,
             is_random: true,
             sq: Square::D3,
         };
         let mut bytes = Vec::new();
 
-        write_records(&mut bytes, &[record])?;
+        write_records(&mut bytes, std::slice::from_ref(&record))?;
 
-        assert_eq!(bytes.len(), RECORD_SIZE as usize);
+        assert_eq!(bytes.len(), RECORD_SIZE);
+        assert_eq!(
+            &bytes[PLAYER_OFFSET..PLAYER_OFFSET + 8],
+            &0x0123_4567_89AB_CDEFu64.to_le_bytes()
+        );
+        assert_eq!(
+            &bytes[OPPONENT_OFFSET..OPPONENT_OFFSET + 8],
+            &0xFEDC_BA98_7654_3210u64.to_le_bytes()
+        );
         assert_eq!(
             &bytes[SCORE_OFFSET..SCORE_OFFSET + 4],
             &1.5f32.to_le_bytes()
@@ -256,31 +494,63 @@ mod tests {
         assert_eq!(bytes[GAME_SCORE_OFFSET] as i8, -3);
         assert_eq!(bytes[PLY_OFFSET], 42);
         assert_eq!(bytes[IS_RANDOM_OFFSET], 1);
-        assert_eq!(&bytes[25..27], &0xBEEFu16.to_le_bytes());
+        assert_eq!(bytes[SQ_OFFSET], Square::D3 as u8);
+        assert_eq!(bytes[SIDE_TO_MOVE_OFFSET], 1);
+        assert_eq!(
+            &bytes[GAME_ID_OFFSET..GAME_ID_OFFSET + 2],
+            &0xBEEFu16.to_le_bytes()
+        );
+
+        let unavailable = GameRecord {
+            game_score: None,
+            ..record
+        };
+        let raw_unavailable = RawRecord::from_record(&unavailable);
+        assert_eq!(
+            raw_unavailable.as_bytes()[GAME_SCORE_OFFSET] as i8,
+            GAME_SCORE_UNAVAILABLE
+        );
+        assert_eq!(raw_unavailable.decode()?, unavailable);
         Ok(())
     }
 
     #[test]
-    fn record_round_trips_through_file() -> io::Result<()> {
+    fn record_round_trips_through_file() -> anyhow::Result<()> {
         let file = TempFile::new("round-trip");
-        let records = [make_record(1, 1), make_record(2, 7), make_record(3, 0xBEEF)];
+        let empty = TempFile::new("round-trip-empty");
+        let unaligned = TempFile::new("round-trip-unaligned");
+        let mut unavailable = make_record(4, 9);
+        unavailable.game_score = None;
+        let records = [
+            make_record(1, 1),
+            make_record(2, 7),
+            make_record(3, 0xBEEF),
+            unavailable,
+        ];
 
-        write_records_to_file(file.path(), &records)?;
+        append_records(file.path(), &records)?;
         let actual = read_records_from_file(file.path())?;
+        assert_eq!(actual, records);
 
-        assert_eq!(actual.len(), records.len());
-        for (actual, expected) in actual.iter().zip(&records) {
-            assert_record_eq(actual, expected);
-        }
+        File::create(empty.path())?;
+        assert!(read_records_from_file(empty.path())?.is_empty());
+
+        fs::write(unaligned.path(), [1u8, 2, 3])?;
+        assert!(
+            read_records_from_file(unaligned.path())
+                .unwrap_err()
+                .to_string()
+                .contains("not a multiple of record size")
+        );
         Ok(())
     }
 
     #[test]
-    fn truncate_incomplete_record_removes_partial_tail() -> io::Result<()> {
+    fn truncate_incomplete_record_removes_partial_tail() -> anyhow::Result<()> {
         let file = TempFile::new("partial-tail");
         let missing = TempFile::new("missing");
         let record = make_record(4, 11);
-        write_records_to_file(file.path(), std::slice::from_ref(&record))?;
+        append_records(file.path(), std::slice::from_ref(&record))?;
         OpenOptions::new()
             .append(true)
             .open(file.path())?
@@ -288,10 +558,9 @@ mod tests {
 
         truncate_incomplete_record(file.path())?;
 
-        assert_eq!(fs::metadata(file.path())?.len(), RECORD_SIZE);
+        assert_eq!(fs::metadata(file.path())?.len(), RECORD_SIZE as u64);
         let actual = read_records_from_file(file.path())?;
-        assert_eq!(actual.len(), 1);
-        assert_record_eq(&actual[0], &record);
+        assert_eq!(actual, [record]);
         assert!(!missing.path().exists());
         truncate_incomplete_record(missing.path())?;
         assert!(!missing.path().exists());
@@ -299,15 +568,17 @@ mod tests {
     }
 
     #[test]
-    fn read_last_game_id_reads_trailing_u16() -> io::Result<()> {
+    fn read_last_game_id_reads_trailing_u16() -> anyhow::Result<()> {
         let populated = TempFile::new("last-game-id");
         let empty = TempFile::new("empty");
+        let missing = TempFile::new("missing-last-game-id");
         let records = [make_record(5, 1), make_record(6, 7)];
-        write_records_to_file(populated.path(), &records)?;
-        fs::File::create(empty.path())?;
+        append_records(populated.path(), &records)?;
+        File::create(empty.path())?;
 
         assert_eq!(read_last_game_id(populated.path())?, Some(7));
         assert_eq!(read_last_game_id(empty.path())?, None);
+        assert_eq!(read_last_game_id(missing.path())?, None);
         Ok(())
     }
 }

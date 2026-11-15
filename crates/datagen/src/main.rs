@@ -10,6 +10,10 @@ mod score_openings;
 mod selfplay;
 mod shuffle;
 
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use reversi_core::level::{ENDGAME_STEPS, Level};
 use reversi_core::types::Depth;
@@ -46,10 +50,10 @@ enum SubCommands {
         prefix: Option<String>,
 
         #[arg(short, long)]
-        output_dir: String,
+        output_dir: PathBuf,
 
         #[arg(long)]
-        openings: Option<String>,
+        openings: Option<PathBuf>,
 
         #[arg(long, default_value = "false", requires = "openings")]
         resume: bool,
@@ -77,18 +81,18 @@ enum SubCommands {
     },
     Probcut {
         #[arg(short, long)]
-        input: String,
+        input: PathBuf,
 
         #[arg(short, long)]
-        output: String,
+        output: PathBuf,
     },
     /// Writes one endgame position per held-out game as OBF, for evaltest.
     EndgameHoldout {
         #[arg(short, long)]
-        input: String,
+        input: PathBuf,
 
         #[arg(short, long)]
-        output: String,
+        output: PathBuf,
 
         #[arg(long, default_value_t = 400)]
         count: usize,
@@ -107,10 +111,10 @@ enum SubCommands {
     /// with exact scores (requires the `trace` feature).
     EndgameTrace {
         #[arg(short, long)]
-        input: String,
+        input: PathBuf,
 
         #[arg(short, long)]
-        output: String,
+        output: PathBuf,
 
         #[arg(long, default_value_t = 400)]
         roots: usize,
@@ -138,24 +142,24 @@ enum SubCommands {
     },
     FitProbcut {
         #[arg(short, long)]
-        input: String,
+        input: PathBuf,
     },
     /// Fits the endgame ProbCut models from `endgame-trace` samples and prints
     /// the Rust block to stdout; diagnostics go to stderr.
     FitEndgameProbcut {
         #[arg(short, long)]
-        input: String,
+        input: PathBuf,
 
         /// `endgame-trace` output to check the fitted models against.
         #[arg(long)]
-        validate: Option<String>,
+        validate: Option<PathBuf>,
     },
     Shuffle {
         #[arg(short, long)]
-        input_dir: String,
+        input_dir: PathBuf,
 
         #[arg(short, long)]
-        output_dir: String,
+        output_dir: PathBuf,
 
         #[arg(short = 'p', long, default_value = "*.bin")]
         pattern: String,
@@ -215,7 +219,7 @@ enum SubCommands {
         end_depth: [Depth; ENDGAME_STEPS],
 
         #[arg(short, long)]
-        output: String,
+        output: PathBuf,
     },
     OverwriteScores {
         #[arg(
@@ -223,10 +227,10 @@ enum SubCommands {
             long,
             help = "Source binary file whose scores overwrite the targets"
         )]
-        source: String,
+        source: PathBuf,
 
         #[arg(short = 't', long, help = "Directory containing files to be updated")]
-        target_dir: String,
+        target_dir: PathBuf,
 
         #[arg(short = 'p', long, default_value = "*.bin")]
         pattern: String,
@@ -264,9 +268,8 @@ fn parse_end_depth(s: &str) -> Result<[Depth; ENDGAME_STEPS], String> {
     }
 }
 
-fn main() {
-    let args = Cli::parse();
-    match args.command {
+fn run(cli: Cli) -> anyhow::Result<()> {
+    match cli.command {
         SubCommands::Selfplay {
             games,
             games_per_file,
@@ -295,7 +298,7 @@ fn main() {
                     &prefix,
                     &output_dir,
                 )
-                .expect("Failed to execute selfplay with openings");
+                .context("failed to execute selfplay with openings")
             } else {
                 let random_choice = selfplay::RandomMoveChoice {
                     depth: random_depth,
@@ -312,14 +315,14 @@ fn main() {
                     &prefix,
                     &output_dir,
                 )
-                .expect("Failed to execute selfplay");
+                .context("failed to execute selfplay")
             }
         }
         SubCommands::Opening { depth } => {
-            opening::generate(depth);
+            opening::generate(depth).context("failed to execute opening")
         }
         SubCommands::Probcut { input, output } => {
-            probcut::execute(&input, &output).expect("Failed to execute probcut");
+            probcut::execute(&input, &output).context("failed to execute probcut")
         }
         SubCommands::EndgameHoldout {
             input,
@@ -328,16 +331,14 @@ fn main() {
             min_empties,
             max_empties,
             fit_folds,
-        } => {
-            endgame_probcut::export_holdout(
-                &input,
-                &output,
-                count,
-                min_empties..=max_empties,
-                fit_folds,
-            )
-            .expect("Failed to execute endgame-holdout");
-        }
+        } => endgame_probcut::export_holdout(
+            &input,
+            &output,
+            count,
+            min_empties..=max_empties,
+            fit_folds,
+        )
+        .context("failed to execute endgame-holdout"),
         #[cfg(feature = "trace")]
         SubCommands::EndgameTrace {
             input,
@@ -349,34 +350,29 @@ fn main() {
             one_in,
             max_per_empties,
             threads,
-        } => {
-            endgame_probcut::trace(
-                &input,
-                &output,
-                &endgame_probcut::TraceOptions {
-                    roots,
-                    root_empties: root_min_empties..=root_max_empties,
-                    fit_folds,
-                    one_in,
-                    max_per_empties,
-                    threads,
-                },
-            )
-            .expect("Failed to execute endgame-trace");
-        }
+        } => endgame_probcut::trace(
+            &input,
+            &output,
+            &endgame_probcut::TraceOptions {
+                roots,
+                root_empties: root_min_empties..=root_max_empties,
+                fit_folds,
+                one_in,
+                max_per_empties,
+                threads,
+            },
+        )
+        .context("failed to execute endgame-trace"),
         #[cfg(not(feature = "trace"))]
         SubCommands::EndgameTrace { .. } => {
-            eprintln!("endgame-trace needs datagen built with `--features trace`");
-            std::process::exit(1);
+            anyhow::bail!("endgame-trace needs datagen built with `--features trace`")
         }
         SubCommands::FitProbcut { input } => {
-            fit_probcut::execute(&input).expect("Failed to execute fit-probcut");
+            fit_probcut::execute(&input).context("failed to execute fit-probcut")
         }
         SubCommands::FitEndgameProbcut { input, validate } => {
-            if let Err(error) = fit_endgame_probcut::execute(&input, validate.as_deref()) {
-                eprintln!("Failed to execute fit-endgame-probcut: {error}");
-                std::process::exit(1);
-            }
+            fit_endgame_probcut::execute(&input, validate.as_deref())
+                .context("failed to execute fit-endgame-probcut")
         }
         SubCommands::Shuffle {
             input_dir,
@@ -405,7 +401,7 @@ fn main() {
                 append,
                 filter,
             )
-            .unwrap();
+            .context("failed to execute shuffle")
         }
         SubCommands::ScoreOpenings {
             depth,
@@ -416,17 +412,23 @@ fn main() {
         } => {
             let level = Level::with_depths(mid_depth, end_depth);
             score_openings::execute(depth, hash_size, level, &output)
-                .expect("Failed to execute score-openings");
+                .context("failed to execute score-openings")
         }
         SubCommands::OverwriteScores {
             source,
             target_dir,
             pattern,
-        } => {
-            overwrite_scores::execute(&source, &target_dir, &pattern)
-                .expect("Failed to execute overwrite-scores");
-        }
+        } => overwrite_scores::execute(&source, &target_dir, &pattern)
+            .context("failed to execute overwrite-scores"),
     }
+}
+
+fn main() -> ExitCode {
+    if let Err(error) = run(Cli::parse()) {
+        eprintln!("Error: {error:#}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

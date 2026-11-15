@@ -908,7 +908,6 @@ name = "datagen"
 version = "6.3.0"
 dependencies = [
  "anyhow",
- "byteorder",
  "clap",
  "gethostname",
  "glob",

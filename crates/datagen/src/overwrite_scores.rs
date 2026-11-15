@@ -1,41 +1,32 @@
-//! Overwrite-scores module.
+//! Canonical-board score patching across binary record files.
 //!
-//! Reads a source binary record file, builds a map from canonical board
-//! ([`Board::unique`]) to `(score, game_score, is_random)`, then scans every
-//! file matching a glob pattern in a target directory and overwrites those
-//! three fields of each record whose canonical board appears in the source.
+//! Reads a source binary record file, maps each canonical board
+//! ([`Board::unique`]) to `(score, game_score, is_random)`, and overwrites
+//! those three fields in matching target records while preserving original
+//! bitboards and untouched metadata.
 
-use glob::glob;
-use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use reversi_core::bitboard::Bitboard;
-use reversi_core::board::Board;
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::record::{
-    GAME_SCORE_OFFSET, IS_RANDOM_OFFSET, RECORD_SIZE, SCORE_OFFSET, read_records_from_file,
-};
+use glob::glob;
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
+use reversi_core::board::Board;
 
-const RECORD_SIZE_USIZE: usize = RECORD_SIZE as usize;
+use crate::record::{self, read_records_from_file};
 
 #[derive(Clone, Copy)]
 struct Patch {
     score: f32,
-    game_score: i8,
+    game_score: Option<i8>,
     is_random: bool,
 }
 
-/// Overwrites the `score`, `game_score`, and `is_random` fields of records in
-/// `target_dir` whose canonical board matches a record in `source`.
-pub fn execute(source: &str, target_dir: &str, pattern: &str) -> anyhow::Result<()> {
-    let source_path = Path::new(source);
-    let target_dir_path = Path::new(target_dir);
-
-    println!("Loading source records from {}...", source_path.display());
-    let source_records = read_records_from_file(source_path)?;
+/// Overwrites `score`, `game_score`, and `is_random` on records in `target_dir`
+/// whose canonical board matches a record in `source`.
+pub(crate) fn execute(source: &Path, target_dir: &Path, pattern: &str) -> anyhow::Result<()> {
+    println!("Loading source records from {}...", source.display());
+    let source_records = read_records_from_file(source)?;
     println!("Loaded {} source records", source_records.len());
 
     let mut score_map: HashMap<Board, Patch> = HashMap::with_capacity(source_records.len());
@@ -56,7 +47,7 @@ pub fn execute(source: &str, target_dir: &str, pattern: &str) -> anyhow::Result<
     }
     println!("{} unique canonical boards in source", score_map.len());
 
-    let target_files = find_target_files(target_dir_path, pattern)?;
+    let target_files = find_target_files(target_dir, pattern)?;
     if target_files.is_empty() {
         println!("No target files found - nothing to do.");
         return Ok(());
@@ -70,8 +61,7 @@ pub fn execute(source: &str, target_dir: &str, pattern: &str) -> anyhow::Result<
     pb.set_style(
         ProgressStyle::with_template(
             "{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} files ETA:{eta_precise}",
-        )
-        .map_err(io::Error::other)?
+        )?
         .progress_chars("#>-"),
     );
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -81,10 +71,16 @@ pub fn execute(source: &str, target_dir: &str, pattern: &str) -> anyhow::Result<
     let mut files_modified: u64 = 0;
 
     for path in &target_files {
-        let (scanned, updated) = update_file(path, &score_map)?;
-        total_records += scanned;
-        total_updated += updated;
-        if updated > 0 {
+        let stats = record::rewrite_raw_records(path, |raw| {
+            let Some(&patch) = score_map.get(&raw.board().unique()) else {
+                return false;
+            };
+            raw.set_scores(patch.score, patch.game_score, patch.is_random);
+            true
+        })?;
+        total_records += stats.scanned;
+        total_updated += stats.updated;
+        if stats.updated > 0 {
             files_modified += 1;
         }
         pb.inc(1);
@@ -120,47 +116,126 @@ fn find_target_files(dir: &Path, pattern: &str) -> anyhow::Result<Vec<PathBuf>> 
     Ok(files)
 }
 
-fn update_file(path: &Path, score_map: &HashMap<Board, Patch>) -> io::Result<(u64, u64)> {
-    let file_size = fs::metadata(path)?.len();
-    if file_size == 0 || file_size % RECORD_SIZE != 0 {
-        eprintln!(
-            "Warning: {} skipped (size {} is not a multiple of RECORD_SIZE {})",
-            path.display(),
-            file_size,
-            RECORD_SIZE
-        );
-        return Ok((0, 0));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::record::{GameRecord, append_records};
+    use reversi_core::{player_color::PlayerColor, square::Square};
+    use std::fs;
+    use std::io;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TempDir {
+        path: PathBuf,
     }
 
-    let num_records = (file_size / RECORD_SIZE) as usize;
-    let mut bytes = Vec::with_capacity(file_size as usize);
-    File::open(path)?.read_to_end(&mut bytes)?;
-
-    let mut updated = 0u64;
-    for i in 0..num_records {
-        let offset = i * RECORD_SIZE_USIZE;
-        let chunk = &bytes[offset..offset + RECORD_SIZE_USIZE];
-        let player_bits = u64::from_le_bytes(chunk[0..8].try_into().unwrap());
-        let opponent_bits = u64::from_le_bytes(chunk[8..16].try_into().unwrap());
-        let board = Board::from_bitboards(Bitboard::new(player_bits), Bitboard::new(opponent_bits));
-        if let Some(&patch) = score_map.get(&board.unique()) {
-            let score_bytes = patch.score.to_le_bytes();
-            bytes[offset + SCORE_OFFSET..offset + SCORE_OFFSET + 4].copy_from_slice(&score_bytes);
-            bytes[offset + GAME_SCORE_OFFSET] = patch.game_score as u8;
-            bytes[offset + IS_RANDOM_OFFSET] = u8::from(patch.is_random);
-            updated += 1;
+    impl TempDir {
+        fn new(name: &str) -> io::Result<Self> {
+            let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "neural-reversi-datagen-overwrite-{name}-{}-{id}",
+                std::process::id()
+            ));
+            fs::create_dir(&path)?;
+            Ok(Self { path })
         }
     }
 
-    if updated > 0 {
-        let temp_path = path.with_extension("bin.tmp");
-        {
-            let mut file = File::create(&temp_path)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
         }
-        fs::rename(&temp_path, path)?;
     }
 
-    Ok((num_records as u64, updated))
+    #[test]
+    fn execute_patches_matching_canonical_boards_and_preserves_other_fields() -> anyhow::Result<()>
+    {
+        use reversi_core::game_state::GameState;
+
+        let dir = TempDir::new("canonical")?;
+        let source_path = dir.path.join("source.bin");
+        let target_dir = dir.path.join("targets");
+        fs::create_dir(&target_dir)?;
+        let target_path = target_dir.join("part_00000.bin");
+
+        let after_d3 = *GameState::from_moves(&[Square::D3]).unwrap().board();
+        let after_f5 = *GameState::from_moves(&[Square::F5]).unwrap().board();
+        assert_eq!(after_d3.unique(), after_f5.unique());
+        assert_ne!(after_d3, after_f5);
+
+        let unmatched = *GameState::from_moves(&[Square::D3, Square::C3])
+            .unwrap()
+            .board();
+
+        let source_records = [
+            GameRecord {
+                game_id: 1,
+                ply: 1,
+                board: after_d3,
+                score: 1.0,
+                game_score: Some(2),
+                side_to_move: PlayerColor::White,
+                is_random: true,
+                sq: Square::C3,
+            },
+            GameRecord {
+                game_id: 2,
+                ply: 1,
+                board: after_d3.unique(),
+                score: -3.5,
+                game_score: Some(-4),
+                side_to_move: PlayerColor::Black,
+                is_random: false,
+                sq: Square::A1,
+            },
+        ];
+        append_records(&source_path, &source_records)?;
+
+        let target_records = [
+            GameRecord {
+                game_id: 77,
+                ply: 9,
+                board: after_f5,
+                score: 99.0,
+                game_score: Some(64),
+                side_to_move: PlayerColor::White,
+                is_random: true,
+                sq: Square::C5,
+            },
+            GameRecord {
+                game_id: 88,
+                ply: 10,
+                board: unmatched,
+                score: 0.25,
+                game_score: Some(1),
+                side_to_move: PlayerColor::Black,
+                is_random: true,
+                sq: Square::D6,
+            },
+        ];
+        append_records(&target_path, &target_records)?;
+
+        execute(&source_path, &target_dir, "*.bin")?;
+
+        let actual = read_records_from_file(&target_path)?;
+        assert_eq!(actual.len(), 2);
+
+        assert_eq!(actual[0].board, after_f5);
+        assert_eq!(actual[0].score, -3.5);
+        assert_eq!(actual[0].game_score, Some(-4));
+        assert!(!actual[0].is_random);
+        assert_eq!(actual[0].ply, 9);
+        assert_eq!(actual[0].side_to_move, PlayerColor::White);
+        assert_eq!(actual[0].sq, Square::C5);
+        assert_eq!(actual[0].game_id, 77);
+
+        assert_eq!(actual[1].board, unmatched);
+        assert_eq!(actual[1].score, 0.25);
+        assert_eq!(actual[1].game_score, Some(1));
+        assert!(actual[1].is_random);
+        assert_eq!(actual[1].game_id, 88);
+        Ok(())
+    }
 }
