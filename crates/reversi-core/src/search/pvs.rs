@@ -434,14 +434,9 @@ pub(super) fn search_split_point<NT: NodeType>(
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
 ) -> Score {
-    // One acquisition synchronizes with initialize_split_point; the split
-    // parameters and the move iterator stay stable until every helper clears
-    // its helpers_mask bit.
-    let guard = split_point.lock();
     let beta = split_point.task().beta;
     let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
-    drop(guard);
 
     // move_iter.next() is a lock-free fetch_add: helpers claim moves without
     // the lock, which is only taken to publish results.
