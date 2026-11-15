@@ -521,14 +521,9 @@ impl Thread {
                 .expect("searching thread must have an active split point")
         };
 
-        // The lock acquisition synchronizes with initialize_split_point,
-        // after which the task and split parameters stay stable until
-        // every helper has finished.
-        let guard = sp.lock();
         let task = sp.task();
         let (board, depth, node_type) = (task.board, task.depth, task.node_type);
         let mut ctx = SearchContext::from_split_point(&sp);
-        drop(guard);
 
         self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
 
