@@ -1,7 +1,7 @@
 //! Root move management.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
@@ -46,14 +46,13 @@ impl RootMove {
 /// Thread-safe container for root moves during search.
 ///
 /// This struct manages the list of moves being searched at the root position,
-/// along with Multi-PV state. It can be cloned to share across threads via Arc.
-#[derive(Clone)]
+/// along with Multi-PV state, shared by reference across search threads.
 pub struct RootMoves {
     /// Shared list of root moves being searched.
-    moves: Arc<Mutex<Vec<RootMove>>>,
+    moves: Mutex<Vec<RootMove>>,
     /// Current PV index for Multi-PV search.
     /// Moves at indices < pv_idx are already part of earlier PV lines.
-    pv_idx: Arc<AtomicUsize>,
+    pv_idx: AtomicUsize,
 }
 
 impl RootMoves {
@@ -65,8 +64,8 @@ impl RootMoves {
             moves.push(RootMove::new(m.sq));
         }
         Self {
-            moves: Arc::new(Mutex::new(moves)),
-            pv_idx: Arc::new(AtomicUsize::new(0)),
+            moves: Mutex::new(moves),
+            pv_idx: AtomicUsize::new(0),
         }
     }
 

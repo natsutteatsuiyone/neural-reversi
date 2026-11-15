@@ -20,6 +20,7 @@ use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::node_type::{NonPV, Root};
 use crate::search::result::{CompletedState, SearchResult};
+use crate::search::root_move::RootMoves;
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::{record_abort, should_stop_iteration};
@@ -63,12 +64,14 @@ const DEPTH1_MOVE_ORDER_MASKS: [Bitboard; 10] = [
 /// solver, whose split points then share the work among the same threads.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
+    let root_moves = RootMoves::new(&board);
 
     let mut ctx = SearchContext::new(
         &board,
         task.mid_selectivity,
-        task.tt.clone(),
-        task.eval.clone(),
+        &root_moves,
+        &task.tt,
+        &task.eval,
     );
 
     if let Some(mode) = task.eval_mode {

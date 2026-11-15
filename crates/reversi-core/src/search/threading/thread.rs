@@ -367,14 +367,34 @@ impl Thread {
         ctx: &mut SearchContext,
         req: SplitRequest,
     ) -> (Score, Option<Square>, SearchCounters) {
+        struct SplitUnwindGuard<'a> {
+            thread: &'a Thread,
+            sp: &'a Arc<SplitPoint>,
+        }
+
+        impl Drop for SplitUnwindGuard<'_> {
+            fn drop(&mut self) {
+                // Keep helpers' borrowed `SplitPointTask` references alive
+                // until every worker leaves this split point before unwind drops
+                // the owner's `RootMoves` or `SearchTask`.
+                while !self.sp.state().helpers_mask.none() {
+                    thread::yield_now();
+                }
+                self.thread.finalize_split_point(self.sp);
+            }
+        }
+
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 
         // Initialize the split point with search parameters
         self.initialize_split_point(sp, ctx, req);
+        let unwind_guard = SplitUnwindGuard { thread: self, sp };
 
         // Enter idle loop as owner thread - will return when all searchers finish
         self.idle_loop();
+
+        std::mem::forget(unwind_guard);
 
         // Clean up the split point
         self.finalize_split_point(sp);
@@ -514,6 +534,26 @@ impl Thread {
     /// Searches this thread's share of its active split point, then tries to
     /// join another one.
     fn search_active_split_point(self: &Arc<Self>) {
+        struct UnwindCleanup<'a> {
+            thread: &'a Thread,
+            sp: &'a Arc<SplitPoint>,
+        }
+
+        impl Drop for UnwindCleanup<'_> {
+            fn drop(&mut self) {
+                {
+                    let _guard = self.thread.lock();
+                    *self.thread.active_split_point_mut() = None;
+                    self.thread.reset_cutoff_cache();
+                    self.thread.searching.store(false, Ordering::Release);
+                }
+                let _guard = self.sp.lock();
+                let sp_state = self.sp.state();
+                sp_state.set_all_helpers_searching(false);
+                sp_state.helpers_mask.reset(self.thread.idx);
+            }
+        }
+
         let sp = {
             let _guard = self.lock();
             self.active_split_point()
@@ -521,11 +561,18 @@ impl Thread {
                 .expect("searching thread must have an active split point")
         };
 
-        let task = sp.task();
-        let (board, depth, node_type) = (task.board, task.depth, task.node_type);
-        let mut ctx = SearchContext::from_split_point(&sp);
+        let cleanup = UnwindCleanup {
+            thread: self,
+            sp: &sp,
+        };
 
-        self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
+        let counters = {
+            let task = sp.task();
+            let (board, depth, node_type) = (task.board, task.depth, task.node_type);
+            let mut ctx = SearchContext::from_split_point(&sp);
+            self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
+            ctx.counters
+        };
 
         {
             let _guard = self.lock();
@@ -548,13 +595,14 @@ impl Thread {
         // `try_late_join`.
         let guard = sp.lock();
         let sp_state = sp.state();
-        sp.merge_counters_locked(&ctx.counters);
+        sp.merge_counters_locked(&counters);
         sp_state.set_all_helpers_searching(false);
         sp_state.helpers_mask.reset(self.idx);
 
         // After clearing our helpers_mask bit, the owner may observe none() and
         // tear down the split point, so we must not access sp data after this.
         drop(guard);
+        std::mem::forget(cleanup);
 
         self.try_late_join();
     }

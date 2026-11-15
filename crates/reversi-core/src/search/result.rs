@@ -138,7 +138,7 @@ impl CompletedState {
                 it.is_endgame,
                 ctx.counters.clone(),
             ),
-            None => tt_move(board, &ctx.tt).unwrap_or_else(|| quick_move(board, &ctx.eval)),
+            None => tt_move(board, ctx.tt).unwrap_or_else(|| quick_move(board, ctx.eval)),
         }
     }
 }
@@ -326,29 +326,46 @@ impl SearchResult {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
     use crate::constants::MAX_PLY;
     use crate::score::{DiscScore, Score};
+    use crate::search::root_move::RootMoves;
     use crate::transposition_table::Bound;
 
-    fn context(board: &Board) -> SearchContext {
-        let eval =
-            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
-        SearchContext::new(
-            board,
-            Selectivity::None,
-            Arc::new(TranspositionTable::new(0)),
-            Arc::new(eval),
-        )
+    struct TestResources {
+        root_moves: RootMoves,
+        tt: TranspositionTable,
+        eval: Eval,
+    }
+
+    impl TestResources {
+        fn new(board: &Board) -> Self {
+            let eval =
+                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
+            Self {
+                root_moves: RootMoves::new(board),
+                tt: TranspositionTable::new(0),
+                eval,
+            }
+        }
+
+        fn context(&self, board: &Board) -> SearchContext<'_> {
+            SearchContext::new(
+                board,
+                Selectivity::None,
+                &self.root_moves,
+                &self.tt,
+                &self.eval,
+            )
+        }
     }
 
     #[test]
     fn without_a_completed_iteration_reports_the_tt_move_then_the_quick_move() {
         let board = Board::new();
-        let ctx = context(&board);
-        let quick = quick_move(&board, &ctx.eval).best_move().unwrap();
+        let res = TestResources::new(&board);
+        let ctx = res.context(&board);
+        let quick = quick_move(&board, ctx.eval).best_move().unwrap();
         let tt_sq = board.legal_moves().iter().find(|&sq| sq != quick).unwrap();
         let probe = ctx.tt.probe(&board, board.hash());
         ctx.tt.store(
@@ -375,7 +392,8 @@ mod tests {
     #[test]
     fn completing_an_iteration_leaves_the_searched_line_order_in_place() {
         let board = Board::new();
-        let ctx = context(&board);
+        let res = TestResources::new(&board);
+        let ctx = res.context(&board);
         let order: Vec<Square> = ctx.root_moves.snapshot().iter().map(|rm| rm.sq).collect();
         let mut completed = CompletedState::new(2);
         let pv = [None; MAX_PLY];
@@ -404,16 +422,17 @@ mod tests {
     #[test]
     fn quick_move_returns_legal_one_ply_result_or_no_legal_move() {
         let board = Board::new();
-        let ctx = context(&board);
+        let res = TestResources::new(&board);
+        let ctx = res.context(&board);
 
-        let best_move = quick_move(&board, &ctx.eval)
+        let best_move = quick_move(&board, ctx.eval)
             .best_move()
             .expect("initial board has legal moves");
         assert!(board.is_legal_move(best_move));
 
         let no_move_board = Board::from_bitboards(Square::A1.bitboard(), 0);
         assert!(matches!(
-            quick_move(&no_move_board, &ctx.eval),
+            quick_move(&no_move_board, ctx.eval),
             SearchResult::NoLegalMove
         ));
     }

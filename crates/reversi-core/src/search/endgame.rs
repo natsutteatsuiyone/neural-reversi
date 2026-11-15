@@ -21,6 +21,7 @@ use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::node_type::Root;
 use crate::search::result::{CompletedState, SearchResult};
+use crate::search::root_move::RootMoves;
 use crate::search::strategy::EndGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::{record_abort, should_stop_endgame_iteration};
@@ -99,12 +100,14 @@ impl EndGameCaches {
 /// Performs root search for endgame positions using iterative selectivity.
 pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
+    let root_moves = RootMoves::new(&board);
 
     let mut ctx = SearchContext::new(
         &board,
         task.mid_selectivity,
-        task.tt.clone(),
-        task.eval.clone(),
+        &root_moves,
+        &task.tt,
+        &task.eval,
     );
     if ctx.root_moves.count() == 0 {
         // Handle no legal moves
@@ -687,11 +690,11 @@ mod tests {
             PlayerColor::Black,
         )
         .unwrap();
-        let tt = Arc::new(TranspositionTable::new(0));
-        let eval = Arc::new(
-            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
-        );
-        let mut ctx = SearchContext::new(&board, Selectivity::None, tt, eval);
+        let tt = TranspositionTable::new(0);
+        let eval =
+            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
+        let root_moves = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
         let mut caches = EndGameCaches::for_thread_count(1);
         let original_empty_count = ctx.empty_list.count();
 
@@ -721,7 +724,7 @@ mod tests {
         pool: &Arc<ThreadPool>,
         multi_pv: bool,
         callback: Option<Arc<crate::search::SearchProgressCallback>>,
-    ) -> (SearchContext, SearchTask, CompletedState) {
+    ) -> (RootMoves, SearchTask, CompletedState) {
         let board = Board::from_string(
             "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
             PlayerColor::Black,
@@ -731,8 +734,8 @@ mod tests {
         let eval = Arc::new(
             Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
         );
-        let ctx = SearchContext::new(&board, Selectivity::None, tt.clone(), eval.clone());
-        let mut fallback_moves = ctx.root_moves.snapshot();
+        let root_moves = RootMoves::new(&board);
+        let mut fallback_moves = root_moves.snapshot();
         fallback_moves[0].score = Score::from_disc_diff(DiscScore::new(4));
         let task = SearchTask {
             board,
@@ -747,14 +750,24 @@ mod tests {
             eval_mode: None,
             corrections: Default::default(),
         };
-        let mut completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
+        let mut completed = CompletedState::new(task.pv_count(root_moves.count()));
         completed.last = Some(Iteration {
             root_moves: fallback_moves,
             depth: 7,
             selectivity: Selectivity::Level2,
             is_endgame: false,
         });
-        (ctx, task, completed)
+        (root_moves, task, completed)
+    }
+
+    fn fallback_context<'a>(task: &'a SearchTask, root_moves: &'a RootMoves) -> SearchContext<'a> {
+        SearchContext::new(
+            &task.board,
+            Selectivity::None,
+            root_moves,
+            &task.tt,
+            &task.eval,
+        )
     }
 
     fn assert_is_fallback_result(result: &SearchResult) {
@@ -771,7 +784,8 @@ mod tests {
     fn solve_root_returns_fallback_when_aborted_before_completing_a_level() {
         let pool = ThreadPool::new(1);
         pool.abort_search();
-        let (mut ctx, task, completed) = solve_fallback_fixture(&pool, false, None);
+        let (root_moves, task, completed) = solve_fallback_fixture(&pool, false, None);
+        let mut ctx = fallback_context(&task, &root_moves);
 
         let result = solve_root(
             &mut ctx,
@@ -791,13 +805,14 @@ mod tests {
         let pool = ThreadPool::new(1);
         // Abort once the first PV line reports a completed selectivity level.
         let abort_pool = pool.clone();
-        let (mut ctx, task, completed) = solve_fallback_fixture(
+        let (root_moves, task, completed) = solve_fallback_fixture(
             &pool,
             true,
             Some(Arc::new(move |_progress: SearchProgress| {
                 abort_pool.abort_search();
             })),
         );
+        let mut ctx = fallback_context(&task, &root_moves);
 
         let result = solve_root(
             &mut ctx,
@@ -830,8 +845,9 @@ mod tests {
     fn single_pv_solve_keeps_fallback_when_aborted_below_level2() {
         let pool = ThreadPool::new(1);
         let abort_at = Arc::new(AtomicUsize::new(1));
-        let (mut ctx, task, completed) =
+        let (root_moves, task, completed) =
             solve_fallback_fixture(&pool, false, abort_on_report(&pool, &abort_at));
+        let mut ctx = fallback_context(&task, &root_moves);
 
         let result = solve_root(
             &mut ctx,
@@ -850,8 +866,9 @@ mod tests {
     fn single_pv_solve_reports_the_last_completed_level_on_abort() {
         let pool = ThreadPool::new(1);
         let abort_at = Arc::new(AtomicUsize::new(2));
-        let (mut ctx, task, completed) =
+        let (root_moves, task, completed) =
             solve_fallback_fixture(&pool, false, abort_on_report(&pool, &abort_at));
+        let mut ctx = fallback_context(&task, &root_moves);
 
         let result = solve_root(
             &mut ctx,
@@ -872,8 +889,9 @@ mod tests {
     fn multi_pv_solve_keeps_fallback_while_pv_lines_differ_in_selectivity() {
         let pool = ThreadPool::new(1);
         let abort_at = Arc::new(AtomicUsize::new(0));
-        let (mut ctx, task, completed) =
+        let (root_moves, task, completed) =
             solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
+        let mut ctx = fallback_context(&task, &root_moves);
         // Abort once the last PV line finishes its first level, while the
         // other lines have finished every level.
         let n_levels = Level::ENDGAME_SELECTIVITY.len();
@@ -899,8 +917,9 @@ mod tests {
     fn multi_pv_solve_reports_the_iteration_once_every_pv_line_finished() {
         let pool = ThreadPool::new(1);
         let abort_at = Arc::new(AtomicUsize::new(0));
-        let (mut ctx, task, completed) =
+        let (root_moves, task, completed) =
             solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
+        let mut ctx = fallback_context(&task, &root_moves);
         let n_levels = Level::ENDGAME_SELECTIVITY.len();
         abort_at.store(ctx.root_moves.count() * n_levels, Ordering::Relaxed);
 

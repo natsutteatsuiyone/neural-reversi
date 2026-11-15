@@ -1,4 +1,5 @@
 use std::cell::SyncUnsafeCell;
+use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
@@ -185,14 +186,14 @@ pub struct SplitPointTask {
     /// Current evaluation mode (midgame or endgame).
     pub eval_mode: EvalMode,
 
-    /// Shared transposition table for storing search results.
-    pub tt: Arc<TranspositionTable>,
+    /// Non-null pointer to the shared transposition table.
+    tt: NonNull<TranspositionTable>,
 
-    /// Container for root moves and Multi-PV state.
-    pub root_moves: RootMoves,
+    /// Non-null pointer to the root moves container on the root search frame.
+    root_moves: NonNull<RootMoves>,
 
-    /// Neural network evaluator for position evaluation.
-    pub eval: Arc<Eval>,
+    /// Non-null pointer to the neural network evaluator.
+    eval: NonNull<Eval>,
 
     /// List of empty squares for move generation optimization.
     pub empty_list: EmptyList,
@@ -216,6 +217,15 @@ pub struct SplitPointTask {
     pub parent_split_point: Option<Arc<SplitPoint>>,
 }
 
+// SAFETY: All other fields of `SplitPointTask` are `Send`. The three `NonNull`
+// targets (`TranspositionTable`, `RootMoves`, `Eval`) are `Sync` and outlive the
+// task because the owner holds them alive across `Thread::split`.
+unsafe impl Send for SplitPointTask {}
+
+// SAFETY: Every field is safe to share across threads: the pointed-to types are
+// `Sync` and `SplitPointTask` is cleared only after all helpers finish.
+unsafe impl Sync for SplitPointTask {}
+
 impl SplitPointTask {
     /// Creates task data for a split point.
     #[inline]
@@ -230,9 +240,9 @@ impl SplitPointTask {
             side_to_move: ctx.side_to_move,
             selectivity: ctx.selectivity,
             eval_mode: ctx.eval_mode,
-            tt: ctx.tt.clone(),
-            root_moves: ctx.root_moves.clone(),
-            eval: ctx.eval.clone(),
+            tt: NonNull::from(ctx.tt),
+            root_moves: NonNull::from(ctx.root_moves),
+            eval: NonNull::from(ctx.eval),
             empty_list: ctx.empty_list.clone(),
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
@@ -241,6 +251,18 @@ impl SplitPointTask {
             node_type: req.node_type,
             parent_split_point,
         }
+    }
+
+    /// Returns raw pointers to the shared `tt`, `eval`, and `root_moves`.
+    #[inline]
+    pub(in crate::search) fn shared_ptrs(
+        &self,
+    ) -> (
+        NonNull<TranspositionTable>,
+        NonNull<Eval>,
+        NonNull<RootMoves>,
+    ) {
+        (self.tt, self.eval, self.root_moves)
     }
 }
 

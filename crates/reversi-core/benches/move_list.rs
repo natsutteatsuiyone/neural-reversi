@@ -1,5 +1,4 @@
 use std::hint::black_box;
-use std::sync::Arc;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use rand::{SeedableRng, rngs::StdRng};
@@ -13,6 +12,7 @@ use reversi_core::legal_moves::LegalMoves;
 use reversi_core::move_list::MoveList;
 use reversi_core::probcut::Selectivity;
 use reversi_core::search::context::SearchContext;
+use reversi_core::search::root_move::RootMoves;
 use reversi_core::transposition_table::TranspositionTable;
 
 const N_CASES: usize = 256;
@@ -24,10 +24,30 @@ struct Case {
     moves: LegalMoves,
 }
 
-fn new_context(board: &Board) -> SearchContext {
-    let eval = Arc::new(Eval::new().expect("failed to load eval weights"));
-    let tt = Arc::new(TranspositionTable::new(1));
-    SearchContext::new(board, Selectivity::None, tt, eval)
+struct BenchResources {
+    eval: Eval,
+    tt: TranspositionTable,
+    root_moves: RootMoves,
+}
+
+impl BenchResources {
+    fn new(board: &Board) -> Self {
+        Self {
+            eval: Eval::new().expect("failed to load eval weights"),
+            tt: TranspositionTable::new(1),
+            root_moves: RootMoves::new(board),
+        }
+    }
+
+    fn context(&self, board: &Board) -> SearchContext<'_> {
+        SearchContext::new(
+            board,
+            Selectivity::None,
+            &self.root_moves,
+            &self.tt,
+            &self.eval,
+        )
+    }
 }
 
 fn random_cases(seed: u64) -> Vec<Case> {
@@ -47,7 +67,8 @@ fn random_cases(seed: u64) -> Vec<Case> {
 }
 
 fn evaluated_lists(cases: &[Case]) -> Vec<MoveList> {
-    let mut ctx = new_context(&cases[0].board);
+    let res = BenchResources::new(&cases[0].board);
+    let mut ctx = res.context(&cases[0].board);
 
     cases
         .iter()
@@ -85,7 +106,8 @@ fn bench_with_moves(c: &mut Criterion, cases: &[Case]) {
 
 fn bench_evaluate_fast(c: &mut Criterion, cases: &[Case]) {
     // Keep Eval::new() and weight loading outside the timed loop.
-    let mut ctx = new_context(&cases[0].board);
+    let res = BenchResources::new(&cases[0].board);
+    let mut ctx = res.context(&cases[0].board);
 
     c.bench_function("move_list::evaluate_fast", |b| {
         b.iter(|| {

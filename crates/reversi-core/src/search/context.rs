@@ -1,7 +1,5 @@
 //! Search context for maintaining state during game tree search.
 
-use std::sync::Arc;
-
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::constants::MAX_PLY;
@@ -26,11 +24,11 @@ use crate::transposition_table::TranspositionTable;
 // list's count share the cache line after `pattern_features`. The order rustc
 // picked on its own moved them apart and made ST hard-20 1.5% slower.
 #[repr(C)]
-pub struct SearchContext {
+pub struct SearchContext<'a> {
     /// Pattern features for efficient neural network input
     pub pattern_features: PatternFeatures,
     /// Container for root moves and Multi-PV state
-    pub root_moves: RootMoves,
+    pub root_moves: &'a RootMoves,
     /// Diagnostic counters for search statistics.
     pub counters: SearchCounters,
     /// Lazy SMP helper thread searching with this context; `None` for the
@@ -40,9 +38,9 @@ pub struct SearchContext {
     /// midgame root search or a Lazy SMP helper search runs.
     pub(in crate::search) correction_history: Option<Box<CorrectionHistory>>,
     /// Shared transposition table for storing search results
-    pub tt: Arc<TranspositionTable>,
+    pub tt: &'a TranspositionTable,
     /// Neural network evaluator for position assessment
-    pub eval: Arc<Eval>,
+    pub eval: &'a Eval,
     /// List of empty squares on the board, optimized for quick access
     pub empty_list: EmptyList,
     /// Search stack for maintaining PV and search state at each ply
@@ -55,14 +53,15 @@ pub struct SearchContext {
     pub eval_mode: EvalMode,
 }
 
-impl SearchContext {
+impl<'a> SearchContext<'a> {
     /// Creates a new search context for the given board position.
     pub fn new(
         board: &Board,
         selectivity: Selectivity,
-        tt: Arc<TranspositionTable>,
-        eval: Arc<Eval>,
-    ) -> SearchContext {
+        root_moves: &'a RootMoves,
+        tt: &'a TranspositionTable,
+        eval: &'a Eval,
+    ) -> SearchContext<'a> {
         let empty_list = EmptyList::new(board);
         let ply = empty_list.ply();
         SearchContext {
@@ -71,7 +70,7 @@ impl SearchContext {
             selectivity,
             empty_list,
             tt,
-            root_moves: RootMoves::new(board),
+            root_moves,
             eval,
             pattern_features: PatternFeatures::new(board, ply),
             stack: SearchStack::new(),
@@ -83,20 +82,27 @@ impl SearchContext {
 
     /// Creates a new search context from a parallel search split point.
     #[inline]
-    pub fn from_split_point(sp: &Arc<SplitPoint>) -> SearchContext {
+    pub fn from_split_point<'t>(sp: &'t SplitPoint) -> SearchContext<'t> {
         let task = sp.task();
         let empty_list = task.empty_list.clone();
         let ply = empty_list.ply();
         let pattern_features =
             PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
+        let (tt, eval, root_moves) = task.shared_ptrs();
+        // SAFETY: `task` stores pointers taken from the owner's
+        // `SearchContext` inside `Thread::split`. Under `TaskAliveWhileUsed`,
+        // `task` remains initialized and its pointees remain alive until every
+        // searcher clears its `helpers_mask` bit before `'t` ends. All three
+        // target types are `Sync`, and only shared references are formed.
+        let (tt, eval, root_moves) = unsafe { (tt.as_ref(), eval.as_ref(), root_moves.as_ref()) };
         SearchContext {
             counters: SearchCounters::default(),
             side_to_move: task.side_to_move,
             empty_list,
             selectivity: task.selectivity,
-            tt: task.tt.clone(),
-            root_moves: task.root_moves.clone(),
-            eval: task.eval.clone(),
+            tt,
+            root_moves,
+            eval,
             pattern_features,
             stack: SearchStack::new(),
             eval_mode: task.eval_mode,

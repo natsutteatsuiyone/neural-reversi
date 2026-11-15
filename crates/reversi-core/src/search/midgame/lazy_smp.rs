@@ -24,6 +24,7 @@ use crate::search::context::SearchContext;
 use crate::search::correction_history::CorrectionHistories;
 use crate::search::counters::SearchCounters;
 use crate::search::result::Iteration;
+use crate::search::root_move::RootMoves;
 use crate::search::threading::{HelperJob, Thread, ThreadPool};
 use crate::transposition_table::TranspositionTable;
 use crate::types::Depth;
@@ -159,11 +160,13 @@ impl HelperSearch {
     fn run(&self, thread: &Arc<Thread>) {
         let helper =
             Helper(NonZeroUsize::new(thread.idx()).expect("helpers run on worker threads"));
+        let root_moves = RootMoves::new(&self.board);
         let mut ctx = SearchContext::new(
             &self.board,
             self.selectivity,
-            self.tt.clone(),
-            self.eval.clone(),
+            &root_moves,
+            &self.tt,
+            &self.eval,
         );
         ctx.helper = Some(helper);
         ctx.correction_history = Some(self.corrections.take(thread.idx()));

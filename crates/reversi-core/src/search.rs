@@ -14,7 +14,7 @@ pub mod options;
 pub mod progress;
 mod pvs;
 pub mod result;
-pub(crate) mod root_move;
+pub mod root_move;
 pub mod side_to_move;
 pub mod stack;
 mod stop;
