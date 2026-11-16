@@ -49,12 +49,29 @@ async function installFakeWorker(page) {
           });
         }
         if (message.type === "reset") {
-          this.currentGameState = initialGameState;
+          this.currentGameState = window.__startGameState ?? initialGameState;
           this.emit({
             type: "state_updated",
-            payload: initialGameState,
+            payload: this.currentGameState,
             generation: message.generation,
           });
+        }
+        if (message.type === "replay_moves") {
+          this.currentGameState = window.__startGameState ?? initialGameState;
+          this.emit({
+            type: "replay_completed",
+            payload: this.currentGameState,
+            generation: message.generation,
+          });
+        }
+        if (message.type === "ai_move" && window.__aiMoveFailures > 0) {
+          window.__aiMoveFailures -= 1;
+          this.emit({
+            type: "error",
+            payload: { message: "unreachable", request: "ai_move" },
+            generation: message.generation,
+          });
+          return;
         }
         if (message.type === "ai_move") {
           this.currentGameState = window.__aiMovedGameState;
@@ -443,6 +460,89 @@ test("surfaces a load failure instead of hanging on the spinner", async ({ page 
   await expect(page.locator("#loading-overlay")).toBeVisible();
   await expect(page.locator("#loading-overlay")).toContainText("読み込みに失敗");
   await expect(page.getByRole("dialog", { name: "ゲーム設定" })).toBeHidden();
+});
+
+// The AI (White) moves first, so starting a game requests an AI move at once.
+async function startGameOnAiTurn(page, aiMoveFailures) {
+  await page.evaluate((failures) => {
+    window.__startGameState = { ...window.__initialGameState, currentPlayer: 2 };
+    window.__aiMoveFailures = failures;
+  }, aiMoveFailures);
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+}
+
+const aiMoveRequestCount = (page) =>
+  page.evaluate(
+    () =>
+      window.__fakeWorkers
+        .flatMap((worker) => worker.messages)
+        .filter((message) => message.type === "ai_move").length,
+  );
+
+test("restarts the engine and retries the AI move after a worker failure", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  await startGameOnAiTurn(page, 1);
+
+  await expect(page.locator(".toast")).toContainText("エンジンを再起動しました");
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(1);
+  await expect(page.locator(".thinking-badge")).toHaveCount(0);
+  expect(await aiMoveRequestCount(page)).toBe(2);
+  expect(await page.evaluate(() => window.__fakeWorkers[0].terminated)).toBe(true);
+});
+
+test("stops retrying a repeatedly failing AI move until a new game", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  await startGameOnAiTurn(page, 2);
+
+  await expect(page.locator(".toast")).toContainText("AIでエラーが続いています");
+  await expect(page.locator(".thinking-badge")).toHaveCount(0);
+  await page.waitForTimeout(250);
+  expect(await aiMoveRequestCount(page)).toBe(2);
+  await expect(page.locator("#new-game")).toBeEnabled();
+
+  await page.locator("#new-game").click();
+  await startGameOnAiTurn(page, 0);
+  await expect(page.locator("#move-log-scroll li")).toHaveCount(1);
+  expect(await aiMoveRequestCount(page)).toBe(3);
+});
+
+test("turns hints off and replaces the hint worker after it fails", async ({ page }) => {
+  await installFakeWorker(page);
+  await waitForAppReady(page);
+
+  const settingsDialog = page.getByRole("dialog", { name: "ゲーム設定" });
+  await settingsDialog.getByRole("button", { name: "ゲーム開始" }).click();
+  await expect(settingsDialog).toBeHidden();
+
+  await page.locator(".hint-toggle").click();
+  await expect.poll(() => hintRequestCount(page)).toBe(1);
+  const workerCountBefore = await page.evaluate(() => window.__fakeWorkers.length);
+
+  await page.evaluate(
+    (generation) => {
+      window.__fakeWorkers[1].emit({
+        type: "error",
+        payload: { message: "unreachable", request: "hint_replay" },
+        generation,
+      });
+    },
+    await latestHintGeneration(page),
+  );
+
+  await expect(page.locator("#hint-toggle")).not.toBeChecked();
+  await expect(page.locator(".toast")).toContainText("ヒントをオフにしました");
+  expect(await page.evaluate(() => window.__fakeWorkers[1].terminated)).toBe(true);
+  expect(await page.evaluate(() => window.__fakeWorkers.length)).toBe(workerCountBefore + 1);
+
+  await emitHumanTurn(page);
+  await page.waitForTimeout(250);
+  expect(await hintRequestCount(page)).toBe(1);
 });
 
 // Starts a game, then returns the generation carried by the latest main-worker

@@ -6,6 +6,10 @@ const LEVEL_MIN = 1;
 const LEVEL_MAX = 24;
 const DEFAULT_LEVEL = 12;
 const PASS_TOAST_DURATION_MS = 1400;
+const ERROR_TOAST_DURATION_MS = 6000;
+// Consecutive failed AI moves after which the AI stops retrying on its own, so
+// an error that repeats in one position cannot restart the engine forever.
+const MAX_AI_FAILURES = 2;
 const TOAST_FADE_DURATION_MS = 250;
 let toastSequenceId = 0;
 let forcedPassBlockId = 0;
@@ -13,9 +17,11 @@ let siteHeaderResizeObserver = null;
 let gameGeneration = 0;
 
 // --- Web Worker ---
-const worker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
-  type: "module",
-});
+let worker = null;
+// True from replacing a failed main worker until it has replayed the game.
+let recoveringWorker = false;
+// AI moves that failed in a row; reset by a completed AI move, Undo, or a new game.
+let aiFailures = 0;
 
 // Hints run on a dedicated worker so the main worker stays free to apply the
 // player's move instantly. The hint worker blocks on a full-depth search, so we
@@ -77,6 +83,9 @@ const locales = {
       passAi: "AIはパスしました。あなたの番です。",
       aiThinking: "AIが考え中です…",
       loadError: "読み込みに失敗しました。ページを再読み込みしてください。",
+      engineRestarted: "AIでエラーが起きたため、エンジンを再起動しました。",
+      engineHalted: "AIでエラーが続いています。「一手戻す」か「新しい対局」で続けてください。",
+      hintDisabled: "ヒントでエラーが起きたため、ヒントをオフにしました。",
     },
   },
   en: {
@@ -131,6 +140,9 @@ const locales = {
       passAi: "AI passed. Your turn.",
       aiThinking: "AI is thinking…",
       loadError: "Failed to load the app. Please reload the page.",
+      engineRestarted: "The AI hit an error, so the engine was restarted.",
+      engineHalted: "The AI keeps failing. Use Undo or New Game to continue.",
+      hintDisabled: "Hints hit an error and were turned off.",
     },
   },
 };
@@ -277,14 +289,32 @@ updateDocumentLang();
 updateDesktopLinkLocale();
 
 // --- Worker Communication ---
-worker.onmessage = async (event) => {
+function spawnMainWorker() {
+  worker = new Worker(new URL("./reversi-worker.js", import.meta.url), {
+    type: "module",
+  });
+  worker.onmessage = handleWorkerMessage;
+  worker.onerror = (event) => handleMainWorkerFailure(event?.message ?? event);
+  worker.onmessageerror = (event) => handleMainWorkerFailure(event);
+}
+
+async function handleWorkerMessage(event) {
   const { type, payload, generation } = event.data;
+  // A failure leaves the worker unusable whichever generation it served.
+  if (type === "error") {
+    handleMainWorkerFailure(payload?.message ?? payload);
+    return;
+  }
   if (generation !== undefined && generation !== gameGeneration) {
     return;
   }
 
   switch (type) {
     case "initialized":
+      if (recoveringWorker) {
+        workerApi.replayMoves(state.humanIsBlack, state.level, plainMoveHistory());
+        break;
+      }
       state.initialLoading = false;
       syncStateFromGame(payload);
       ensureHumanPassIfNeeded();
@@ -314,6 +344,7 @@ worker.onmessage = async (event) => {
         await board3d.waitForIdle();
       }
       state.aiThinking = false;
+      aiFailures = 0;
       const nextState = payload.gameState;
       const aiMoveOccurred = payload.move !== undefined;
       if (aiMoveOccurred) {
@@ -348,25 +379,43 @@ worker.onmessage = async (event) => {
       break;
     }
     case "replay_completed":
+      recoveringWorker = false;
       clearHints();
       syncStateFromGame(payload);
       runAiTurn();
+      ensureHumanPassIfNeeded();
       maybeAutoHint();
       break;
-    case "error":
-      state.loadError = currentLocale().messages.loadError;
-      break;
   }
-};
+}
 
-worker.onerror = (event) => {
-  console.error("Worker error:", event?.message ?? event);
-  state.loadError = currentLocale().messages.loadError;
-};
-worker.onmessageerror = (event) => {
-  console.error("Worker message error:", event);
-  state.loadError = currentLocale().messages.loadError;
-};
+// Replaces a failed main worker and replays the game into the new one. A
+// failure while loading, or while the replacement is still being set up, is
+// shown as a load failure instead, since retrying would not get further.
+function handleMainWorkerFailure(reason) {
+  console.error("Main worker failed:", reason);
+  if (state.initialLoading || recoveringWorker) {
+    recoveringWorker = false;
+    state.aiThinking = false;
+    state.initialLoading = true;
+    state.loadError = currentLocale().messages.loadError;
+    return;
+  }
+  if (state.aiThinking) {
+    aiFailures += 1;
+  }
+  state.aiThinking = false;
+  worker.terminate();
+  recoveringWorker = true;
+  gameGeneration += 1;
+  lockBoardUntilSync();
+  clearHints();
+  const messages = currentLocale().messages;
+  const notice = aiFailures >= MAX_AI_FAILURES ? messages.engineHalted : messages.engineRestarted;
+  void showToast(notice, { duration: ERROR_TOAST_DURATION_MS });
+  spawnMainWorker();
+  workerApi.init(state.humanIsBlack, state.level);
+}
 
 // --- Hint Worker Communication ---
 function handleHintMessage(event) {
@@ -378,8 +427,7 @@ function handleHintMessage(event) {
     return;
   }
   if (type === "error") {
-    // Hints are an optional aid; a failure here must not break play.
-    console.error("Hint worker failed:", payload?.message ?? payload);
+    handleHintWorkerFailure(payload?.message ?? payload);
     return;
   }
   if (generation !== hintGeneration || !state.hintLoading) {
@@ -413,17 +461,34 @@ function spawnHintWorker() {
     type: "module",
   });
   hintWorker.onmessage = handleHintMessage;
-  hintWorker.onerror = (event) => {
-    console.error("Hint worker error:", event?.message ?? event);
-  };
-  hintWorker.onmessageerror = (event) => {
-    console.error("Hint worker message error:", event);
-  };
+  hintWorker.onerror = (event) => handleHintWorkerFailure(event?.message ?? event);
+  hintWorker.onmessageerror = (event) => handleHintWorkerFailure(event);
   hintWorker.postMessage({
     type: "init",
     payload: { humanIsBlack: state.humanIsBlack, level: state.level },
     generation: hintGeneration,
   });
+}
+
+// Hints are an optional aid, so a failure must not break play. Hints are turned
+// off rather than retried, because the automatic hint for the same position
+// would fail again; a worker that never loaded is left alone for the same reason.
+function handleHintWorkerFailure(reason) {
+  console.error("Hint worker failed:", reason);
+  if (!hintWorkerReady) {
+    return;
+  }
+  const wasEnabled = state.hintEnabled;
+  state.hintEnabled = false;
+  state.hintLoading = false;
+  state.hints = null;
+  hintGeneration += 1;
+  hintWorker.terminate();
+  spawnHintWorker();
+  renderBoard3D();
+  if (wasEnabled) {
+    void showToast(currentLocale().messages.hintDisabled, { duration: ERROR_TOAST_DURATION_MS });
+  }
 }
 
 const workerApi = {
@@ -466,6 +531,7 @@ const workerApi = {
 
 void (function bootstrap() {
   try {
+    spawnMainWorker();
     workerApi.init(state.humanIsBlack, state.level);
     spawnHintWorker();
   } catch (e) {
@@ -557,7 +623,7 @@ function maybeAutoHint() {
     payload: {
       humanIsBlack: state.humanIsBlack,
       level: state.level,
-      moves: state.moveHistory.map((move) => ({ player: move.player, index: move.index })),
+      moves: plainMoveHistory(),
     },
     generation: hintGeneration,
   });
@@ -644,6 +710,7 @@ function handleCloseGameOverModal() {
 
 async function resetGame() {
   gameGeneration += 1;
+  aiFailures = 0;
   lockBoardUntilSync();
   skipNextBoardAnimation = true;
   clearHints();
@@ -665,7 +732,8 @@ function runAiTurn() {
     state.currentPlayer !== state.aiColor ||
     state.aiThinking ||
     state.showSettingsModal ||
-    state.delayAiUntilToast
+    state.delayAiUntilToast ||
+    aiFailures >= MAX_AI_FAILURES
   ) {
     return;
   }
@@ -959,9 +1027,14 @@ async function handleUndo() {
   // Convert reactive array to plain array for Worker
   lockBoardUntilSync();
   skipNextBoardAnimation = true;
-  const plainMoves = state.moveHistory.map((move) => ({ player: move.player, index: move.index }));
+  aiFailures = 0;
   gameGeneration += 1;
-  workerApi.replayMoves(state.humanIsBlack, state.level, plainMoves);
+  workerApi.replayMoves(state.humanIsBlack, state.level, plainMoveHistory());
+}
+
+// The move history as plain objects, which a worker message can carry.
+function plainMoveHistory() {
+  return state.moveHistory.map((move) => ({ player: move.player, index: move.index }));
 }
 
 // ESC key handler for modals

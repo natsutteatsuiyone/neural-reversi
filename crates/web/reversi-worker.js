@@ -12,48 +12,52 @@ let currentGeneration = 0;
 // final iteration's stats can be bundled into the `ai_moved` message.
 let lastSearchProgress = null;
 
+// Every request answers: a failure becomes an `error` reply instead of a
+// rejected promise, which would never reach the page's `onerror`. After a WASM
+// panic the instance may be inconsistent, so the page replaces this worker.
 self.onmessage = async (event) => {
   const { type, payload, generation } = event.data;
   if (generation !== undefined) {
     currentGeneration = generation;
   }
+  try {
+    await handleRequest(type, payload);
+  } catch (error) {
+    console.error(`Worker request "${type}" failed:`, error);
+    self.postMessage({
+      type: "error",
+      payload: { message: error?.message ?? String(error), request: type },
+      generation: currentGeneration,
+    });
+  }
+};
 
+async function handleRequest(type, payload) {
   if (type === "init") {
-    try {
-      const { module } = await importPreferredWasmModule({
-        relaxedPath: "/pkg-relaxed/web.js",
-        fallbackPath: "/pkg/web.js",
-      });
-      initModule = module.default;
-      Game = module.Game;
+    const { module } = await importPreferredWasmModule({
+      relaxedPath: "/pkg-relaxed/web.js",
+      fallbackPath: "/pkg/web.js",
+    });
+    initModule = module.default;
+    Game = module.Game;
 
-      // Initialize the WASM module
-      await initModule();
+    await initModule();
 
-      game = new Game(payload.humanIsBlack);
-      game.set_level(payload.level);
-      game.set_progress_callback((progress) => {
-        lastSearchProgress = progress;
-      });
-      self.postMessage({
-        type: "initialized",
-        payload: getGameState(),
-        generation: currentGeneration,
-      });
-    } catch (error) {
-      console.error("Failed to initialize WASM module:", error);
-      self.postMessage({
-        type: "error",
-        payload: { message: error.message },
-        generation: currentGeneration,
-      });
-    }
+    game = new Game(payload.humanIsBlack);
+    game.set_level(payload.level);
+    game.set_progress_callback((progress) => {
+      lastSearchProgress = progress;
+    });
+    self.postMessage({
+      type: "initialized",
+      payload: getGameState(),
+      generation: currentGeneration,
+    });
     return;
   }
 
   if (!game) {
-    console.error("Worker not initialized yet.");
-    return;
+    throw new Error("worker not initialized");
   }
 
   switch (type) {
@@ -158,7 +162,7 @@ self.onmessage = async (event) => {
       break;
     }
   }
-};
+}
 
 // Bundles the final search iteration's stats with the elapsed wall-clock time so
 // the UI can show depth, nodes, NPS, selectivity, and evaluation for the AI move.
