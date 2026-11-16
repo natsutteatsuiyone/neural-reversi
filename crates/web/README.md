@@ -42,6 +42,15 @@ bun run build
 
 Output will be in the `dist/` directory.
 
+## Checks
+
+```bash
+bun run lint        # oxlint
+bun run fmt         # format JS/CSS/HTML with oxfmt
+bun run fmt:check   # check formatting with oxfmt
+bun run verify      # lint, fmt:check, and cargo test -p web
+```
+
 ## Browser E2E Tests
 
 Install the Playwright browser once:
@@ -69,15 +78,16 @@ bun run test:e2e:ui
 
 Run FFO endgame test positions against the WebAssembly engine from the terminal.
 
-### Build
+### Build and Run
+
+```bash
+bun run bench:endgame
+```
+
+Or build the Node WASM target and invoke the script directly:
 
 ```bash
 bun run build:wasm:node
-```
-
-### Usage
-
-```bash
 bun scripts/endgame-bench.js [options]
 ```
 

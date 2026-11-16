@@ -27,7 +27,7 @@ use crate::sprt::SprtConfig;
 /// - No time control: `--main-time 0 --byoyomi-time 0`
 /// - Pure byoyomi (fixed time per move): `--main-time 0 --byoyomi-time N --byoyomi-stones 0`
 /// - Fischer (main time + increment): `--main-time M --byoyomi-time N --byoyomi-stones 0`
-/// - Japanese byo-yomi: `--main-time M --byoyomi-time N --byoyomi-stones 1`
+/// - Japanese byo-yomi: `--main-time M --byoyomi-time N --byoyomi-stones S` (`S >= 1`)
 #[derive(Parser, Debug)]
 #[command(
     author,

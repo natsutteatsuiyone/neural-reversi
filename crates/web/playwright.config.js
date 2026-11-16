@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const configDir = dirname(fileURLToPath(import.meta.url));
 
-const requiredWasmFiles = ["pkg/web.js", "pkg/web_bg.wasm"];
+const requiredWasmFiles = [
+  "pkg/web.js",
+  "pkg/web_bg.wasm",
+  "pkg-relaxed/web.js",
+  "pkg-relaxed/web_bg.wasm",
+];
 
 const missingWasmFiles = requiredWasmFiles.filter((file) => !existsSync(resolve(configDir, file)));
 

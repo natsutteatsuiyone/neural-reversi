@@ -14,11 +14,9 @@ NSH renders the board, game controls, move history, analysis, solver, and settin
 - Explore positions in the solver with selectable search modes and selectivity.
 - Adjust language, engine/search settings, and view application and third-party license information.
 
-The native interface retains the original neutral palette, compact toolbar, vertically stacked player cards, tabbed analysis area, and header settings menu. The top-down board uses the original frame/grid proportions and cached material textures baked from the former Three.js scene, with native placement/flip animations; the setup editor retains its separate flat preview. AI turns run automatically. **Stop** commits the best move found so far. Left/right arrow keys browse the retained history when no game search is active; a new move after undo replaces the discarded continuation. Hints can be interrupted by playing a move.
+The interface has a neutral palette, compact toolbar, vertically stacked player cards, tabbed analysis area, and header settings menu. The top-down board renders textured wood/felt materials with native placement and flip animations; the setup editor uses a flat preview. AI turns run automatically. **Stop** commits the best move found so far. Left/right arrow keys browse the retained history when no game search is active; a new move after undo replaces the discarded continuation. Hints can be interrupted by playing a move.
 
-During a flip, the stone image follows the animated frame's width and height around the cell center; its intrinsic square image size must not participate in normal-flow layout.
-
-Modal backgrounds use a translucent dim overlay, and the floating history toolbar uses a near-opaque panel. Board coordinates embed the original Noto Sans glyphs, while setup previews and player cards retain the original flat stone materials.
+Modal backgrounds use a translucent dim overlay, and the floating history toolbar uses a near-opaque panel. Board coordinates use embedded Noto Sans glyphs, and setup previews and player cards use flat stone icons.
 
 Setup input validates transcripts and board strings as they are edited. Invalid text shows its localized error without discarding the last valid preview, and prevents starting that position. Slider controls support pointer dragging and the original arrow, Home/End, and Page Up/Down keyboard behavior.
 
@@ -34,7 +32,7 @@ The WebAssembly application in `crates/web` is separate and continues to use Bun
 
 ### Windows
 
-Use Windows 10 version 1809 or later, the MSVC Rust toolchain, and Visual Studio Build Tools with the Desktop development with C++ workload and Windows SDK. NSH uses Win32, Direct2D, and DirectWrite. The GUI does not create web views. The backend includes WebView2 bindings, but this application does not need a WebView2 runtime for its interface.
+Use Windows 10 version 1809 or later, the MSVC Rust toolchain, and Visual Studio Build Tools with the Desktop development with C++ workload and Windows SDK. NSH uses Win32, Direct2D, and DirectWrite. The GUI does not create web views and does not need a WebView2 runtime.
 
 ### Linux
 
@@ -91,7 +89,7 @@ Settings are saved to `neural-reversi/native-settings.json` beneath the user's a
 - Linux: `$XDG_DATA_HOME/neural-reversi/native-settings.json`, or `~/.local/share/neural-reversi/native-settings.json` when unset.
 - macOS: `~/Library/Application Support/neural-reversi/native-settings.json`.
 
-Saved preferences include game mode, AI level or time limit, hint/analysis levels, hash size, analysis visibility, language, solver mode/selectivity, and panel sizes. Settings are not a saved-game file. On first load, the native application imports the neighboring legacy `settings.json` when available (including the former versioned frontend settings envelope), leaving that file untouched. Invalid settings or filesystem errors are surfaced by the application rather than silently discarding preferences. The automatic language setting uses the OS locale.
+Saved preferences include game mode (AI-as-Black currently launches as AI-as-White), AI level or time limit, hint/analysis levels, hash size, analysis visibility, language, solver mode/selectivity, and panel sizes. Settings are not a saved-game file. On first load, the native application imports the neighboring legacy `settings.json` when available (including the former versioned frontend settings envelope), leaving that file untouched. Invalid settings or filesystem errors are surfaced by the application rather than silently discarding preferences. The automatic language setting uses the OS locale.
 
 ## Distribution and platform notes
 
@@ -105,9 +103,9 @@ cargo make build-dist gui macos apple-m1
 
 The task builds `cargo build --release -p gui --bin gui --target ...` and writes versioned artifacts to `dist/`:
 
-- Windows: `neural-reversi-gui-<version>-windows-x86_64-<tier>.exe`.
-- Linux: `neural-reversi-gui-<version>-linux-x86_64_<tier>`.
-- macOS: `Neural Reversi.app` and `neural-reversi-gui-<version>-aarch64-apple-darwin.dmg`. The app contains the executable, an `Info.plist`, and `assets/icon.icns`; the disk image includes an Applications shortcut.
+- Windows: `neural-reversi-gui-<version>-windows-x86_64-<tier>.exe` (or `neural-reversi-gui-<version>-windows-native.exe` for `native`).
+- Linux: `neural-reversi-gui-<version>-linux-x86_64-<tier>` (or `neural-reversi-gui-<version>-linux-native` for `native`).
+- macOS: `Neural Reversi.app` and `neural-reversi-gui-<version>-aarch64-apple-darwin.dmg` (or `neural-reversi-gui-<version>-macos-native.dmg` for `native`). The app contains `Contents/MacOS/gui`, `Contents/Info.plist`, and `Contents/Resources/icon.icns`; the disk image includes an Applications shortcut.
 
 `native` targets the build machine's CPU. `portable` builds the x86-64-v2/v3/v4 variants on Windows/Linux and Apple Silicon on macOS. Select an executable compatible with the destination CPU; v3 needs AVX2 and v4 needs AVX-512. Platform SDKs and cross-compilers are not installed by this task, so selecting `all` platforms is not a substitute for building on each OS.
 

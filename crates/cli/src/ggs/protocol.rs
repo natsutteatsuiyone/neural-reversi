@@ -37,8 +37,8 @@ pub enum OsEvent {
     MatchState(MatchState),
     /// A join/update header whose board body was unavailable or unparseable.
     /// This commonly occurs when a reconnect races a persisted `client +`
-    /// setting; the session requests one verbose state after forcing
-    /// `client -`.
+    /// setting; since `client -` is already sent at login, the session
+    /// requests one verbose state via `tell /os moves`.
     MatchStateUnavailable {
         id: String,
         variant: Option<String>,
@@ -590,15 +590,14 @@ fn parse_color_mark(mark: &str) -> Option<PlayerColor> {
     }
 }
 
-/// Parse the leading time component from a comma-separated field and return it
-/// in milliseconds.
+/// Parses the leading time component from a comma-separated field and returns
+/// it in milliseconds.
 ///
 /// The server's `HHMMSS::print` (`Server/Central/src/HHMMSS.C`) uses `setw(5)`
-/// and typically emits:
-///   * `SS`         when compact or manually written messages use seconds
-///   * `MM:SS`      when time < 1 hour
-///   * `HH:MM:SS`   when time ≥ 1 hour
-///   * `DD.HH:MM:SS` when time ≥ 24 hours
+/// and emits `MM:SS`, `HH:MM:SS`, or `DD.HH:MM:SS` (a bare number never appears
+/// on live server clock lines; in GGS ask clock arguments a bare number means
+/// minutes, whereas this parser treats a bare number as seconds for compact or
+/// manual test inputs).
 ///
 /// We accept all four. Negative fields such as `-00:05` are clamped to 0 ms
 /// instead of dropping the whole clock, because GGS emits them once a player

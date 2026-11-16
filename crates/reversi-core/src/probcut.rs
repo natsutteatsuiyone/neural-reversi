@@ -38,11 +38,11 @@ pub enum Selectivity {
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
     #[default]
     Level1 = 1,
-    /// 86% confidence (t=1.5)
+    /// 86% confidence
     Level2 = 2,
-    /// 95% confidence (t=2.0)
+    /// 95% confidence
     Level3 = 3,
-    /// Most conservative: 99% confidence (t=3.3)
+    /// Most conservative: 99% confidence
     Level4 = 4,
     /// ProbCut disabled.
     None = 5,

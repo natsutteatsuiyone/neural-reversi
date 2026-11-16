@@ -1,4 +1,4 @@
-//! Move list extensions for reversi_web.
+//! Move list extensions for `web`.
 
 pub use reversi_core::move_list::MoveList;
 

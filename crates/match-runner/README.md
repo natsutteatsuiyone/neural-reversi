@@ -15,6 +15,9 @@ match-runner [OPTIONS] --engine1 <ENGINE1> --engine2 <ENGINE2> --opening-file <O
 - `-2, --engine2 <ENGINE2>`: Command for the second engine (executable path and arguments) (required)
 - `--engine2-working-dir <ENGINE2_WORKING_DIR>`: Working directory for the second engine
 - `-o, --opening-file <OPENING_FILE>`: File containing opening sequences, required unless `--ggs-random-discs` is used
+- `--ggs-random-discs <DISCS>`: Number of discs in generated GGS random positions (4–48, requires `--pairs`, conflicts with `--opening-file`)
+- `--pairs <PAIRS>`: Number of color-swapped random opening pairs (≥ 1, requires `--ggs-random-discs`)
+- `--seed <SEED>`: Reproducible random opening seed (requires `--ggs-random-discs`)
 - `--main-time <SECONDS>`: Main time in seconds (default: 0)
 - `--byoyomi-time <SECONDS>`: Byoyomi time in seconds (default: 0)
 - `--byoyomi-stones <STONES>`: Byoyomi stones (default: 0)
@@ -35,7 +38,8 @@ Time control follows the GTP `time_settings` command format. The mode is automat
 | Byoyomi | `--main-time 0 --byoyomi-time N` | N seconds per move |
 | Sudden death | `--main-time M --byoyomi-time 0` | M seconds for the whole game |
 | Fischer | `--main-time M --byoyomi-time N` | M seconds + N seconds increment per move |
-| Japanese byo-yomi | `--main-time M --byoyomi-time N --byoyomi-stones S` | M seconds main time, then S moves per N-second period |
+| Japanese byo-yomi | `--main-time M --byoyomi-time N --byoyomi-stones S` | M seconds main time, then S moves per N-second period (S ≥ 1) |
+| Japanese byo-yomi (immediate) | `--main-time 0 --byoyomi-time N --byoyomi-stones S` | S moves per N-second period from the start (S ≥ 1) |
 
 ### Opening File Format
 
@@ -66,7 +70,7 @@ match-runner --engine1 "cli gtp --level 10" --engine2 "cli gtp --level 10" --ggs
 
 The generator follows `Board::random_setup` and `Board::random_setup_2` in GGS `Service/Othello/src/OthelloImpl.C` with `NICOLET_RANDOM=1`. It fills shuffled rings around the center with randomized color balance and excludes each corner and its neighbors. For at least 10 discs, half of the attempts instead play random legal moves from a five-disc position, retry up to five times, and fall back to scattered discs. Seeds reproduce positions within this runner version. They do not reproduce the server's legacy random number stream.
 
-Both engines must advertise `known_command setboard` as `true`. The extension is `setboard <board> <side>`, where `<board>` contains exactly 64 `X`, `O`, or `-` characters in A1 through H1, A2 through H2 order, and `<side>` is `B` or `W`. Neural Reversi supports this command and resets its move history and search state. Invalid input leaves its position unchanged. Initial forced passes preserve the supplied side and use the normal GTP pass exchange.
+Both engines must advertise `known_command setboard` as `true`. The extension is `setboard <board> <side>`, where `<board>` contains exactly 64 `X`, `O`, or `-` characters in A1 through H1, A2 through H2 order, and `<side>` is `black` or `white`. Neural Reversi supports this command and resets its move history and search state. Invalid input leaves its position unchanged. Initial forced passes preserve the supplied side and use the normal GTP pass exchange.
 
 In GGS mode, two games form one synchro match. Sum both engine1-relative disc margins: a positive sum counts as one win, a negative sum as one loss, and zero as one draw. For example, +20 and -2 count as one win; +2 and -20 count as one loss. All W/L/D totals, live bars, recent results, Elo, LOS, and SPRT use these synchro outcomes. Elo and SPRT treat each completed match as one win/draw/loss sample; the size of the margin does not affect them. The report shows the expected score as "Score rate", counting a draw as half a win. It labels Elo and score rate "per match", and `--sprt-elo0`/`--sprt-elo1` are per-match Elo: the same bounds test a smaller per-game strength gap than in opening-file mode, so results are not directly comparable between the modes. The report also prints the GGS average rating score, which applies the GGS formula `0.5 + 0.375*r/(1 + 0.75*abs(r))` to each match's average margin `r`. Disc difference totals and per-game averages include every finished game, including the first game of an incomplete pair. Opening-file mode retains its per-game totals and pentanomial statistics.
 
@@ -126,7 +130,7 @@ match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings
 
 ### Match with SPRT Early Termination
 
-Stop as soon as either engine is proven at least 10 Elo stronger (α = β = 0.05):
+Stop as soon as SPRT decides between `engine1 − engine2 = −10` Elo (H0) and `+10` Elo (H1) (α = β = 0.05):
 
 ```bash
 match-runner --engine1 "./cli gtp" --engine2 "./cli gtp" --opening-file openings.txt --byoyomi-time 2 --sprt
@@ -143,10 +147,17 @@ The programs must support the following GTP commands:
 - `play <color> <move>` - Play a move of the specified color at the given coordinates
 - `genmove <color>` - Generate a move for the specified color
 
+In `--ggs-random-discs` mode, the following commands are also required:
+
+- `known_command setboard` - Must return `true`
+- `setboard <board> <side>` - Set up the 64-square board and side to move (`black` or `white`)
+
 When time control is enabled, the following commands are also used (optional support):
 
 - `time_settings <main_time> <byoyomi_time> <byoyomi_stones>` - Configure time control
 - `time_left <color> <time> <stones>` - Update remaining time for a player
+
+Running out of clock time and `resign` are recorded as a loss (`±64` discs) for the moving side. Illegal moves, invalid passes, and engine failures (including `--move-timeout`) abort the match and print partial results.
 
 ## Match Output
 
@@ -156,15 +167,15 @@ During the match, the tool displays:
 - Progress bar showing game completion
 
 After the match completes, detailed statistics are displayed including:
-- Total games played with win/loss/draw breakdown
-- Score percentage and average disc difference for each engine
-- ELO rating estimation with confidence intervals
-- Pentanomial statistics for paired game analysis
+- Total games (or GGS synchro matches) played with win/loss/draw breakdown
+- `engine1`-relative score rate and average disc difference
+- Elo rating estimation with confidence intervals and LOS
+- Pentanomial statistics (`Ptnml(0-2)`) in opening-file mode, or per-match Elo/score rate and GGS average rating score in `--ggs-random-discs` mode
 
 ## Building
 
 ```bash
-cargo build --release
+cargo build --release -p match-runner
 ```
 
 ### References

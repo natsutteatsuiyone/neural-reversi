@@ -84,8 +84,9 @@ fn si_count(n: f64) -> String {
 /// |search out of time
 /// ```
 ///
-/// Black's moves are upper case and `pa` is a pass. `move` adds the wait for
-/// the shared thread pool to `search`.
+/// Black's moves are upper case (`PA` for a pass) and White's are lower case
+/// (`pa` for a pass). `move` adds the wait for the shared thread pool to
+/// `search`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn channel_report(
     login: &str,
@@ -134,7 +135,8 @@ pub(super) fn channel_report(
     )
 }
 
-/// A report move: upper case for Black, `pa` for a pass.
+/// Returns a report move: upper case for Black (`PA` for a pass), lower case
+/// for White (`pa` for a pass).
 fn report_square(sq: Option<Square>, color: PlayerColor) -> String {
     let s = sq.map_or_else(|| "pa".to_string(), |sq| sq.to_string());
     if color == PlayerColor::Black {

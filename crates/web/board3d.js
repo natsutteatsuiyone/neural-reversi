@@ -1,14 +1,12 @@
-// Vanilla three.js 3D Reversi board.
-//
-// Visual design ported from the original Tauri GUI (Board3DScene + friends):
+// Vanilla three.js 3D Reversi board:
 // orthographic top-down camera, procedural green felt surface with grid grooves,
 // dark gunmetal frame, glossy MeshPhysical discs with drop/flip animations, gold
-// last-move ring and translucent valid-move dots. Kept framework-free so it can
-// be driven imperatively from the existing petite-vue app instead of react-three-fiber.
+// last-move ring, and translucent valid-move dots. Driven imperatively from the
+// petite-vue app.
 
 import * as THREE from "three";
 
-// --- Geometry constants (mirrors gui board3d-utils.ts) ---
+// --- Geometry constants ---
 const CELL_SIZE = 1;
 const BOARD_OFFSET = 3.5;
 const BOARD_WORLD_SIZE = CELL_SIZE * 8;
@@ -35,7 +33,7 @@ const CHAMFER_COLOR = "#4a4a55";
 const LABEL_COLOR = "#a0a0b0";
 const ACCENT_GOLD = "#b8956c";
 
-// --- Animation constants (mirrors gui Disc3D + timing.ts) ---
+// --- Animation constants ---
 const FLIP_DURATION_S = 0.4;
 const SEGMENTS = 32;
 const DROP_SPRING_STIFFNESS = 300;
@@ -234,7 +232,6 @@ export function createBoard3D(container, { onCellClick }) {
   camera.rotation.set(-Math.PI / 2, 0, 0);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  // Match react-three-fiber's <Canvas> defaults (used by the original GUI):
   // ACES filmic tone mapping deepens the felt/disc colors that otherwise wash
   // out flat under the bright environment map + directional lights.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -247,7 +244,7 @@ export function createBoard3D(container, { onCellClick }) {
   renderer.domElement.style.width = "100%";
   renderer.domElement.style.height = "100%";
 
-  // --- Lights (mirrors the original Board3DScene) ---
+  // --- Lights ---
   scene.add(new THREE.AmbientLight(0xffffff, 0.25));
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
   keyLight.position.set(5, 6, 4);
@@ -332,10 +329,10 @@ export function createBoard3D(container, { onCellClick }) {
   scene.add(hoverMesh);
 
   // --- Per-cell disc animation state ---
-  // Mirrors the GUI Disc3D cap lifecycle: keep the old bi-colored top/bottom
-  // materials while rolling 0→π, render that landing frame, then switch to the
-  // target material and snap back to rotation 0 in a one-frame settling state.
-  // The side material is eased separately so the edge does not pop at landing.
+  // Keep the old bi-colored top/bottom materials while rolling 0→π, render that
+  // landing frame, then switch to the target material and snap back to rotation 0
+  // in a one-frame settling state. The side material is eased separately so the
+  // edge does not pop at landing.
   /**
    * @type {Map<number, {
    *   mesh: THREE.Mesh,
@@ -416,8 +413,7 @@ export function createBoard3D(container, { onCellClick }) {
         scene.add(mesh);
         discs.set(index, next);
       } else if (cur && prev && cur !== prev && entry) {
-        // Flipped stone: roll forward 180° using the same material transition
-        // as the GUI.
+        // Flipped stone: roll forward 180° with the bi-colored material transition.
         if (skipAnimation) {
           disposeFlipSideMaterial(entry);
           entry.mesh.material = materialsForColor(cur);
@@ -566,8 +562,8 @@ export function createBoard3D(container, { onCellClick }) {
             entry.flipSideMaterial.color.copy(entry.sideColorTo);
             entry.flipSideMaterial.clearcoat = entry.sideClearcoatTo;
           }
-          // Render one landing frame with the old material at π, matching GUI's
-          // pre-settling frame where the bottom face has become the visible top.
+          // Render one landing frame with the old material at π before settling,
+          // where the bottom face has become the visible top.
           mesh.rotation.x = Math.PI;
           mesh.position.y = DISC_REST_Y;
           entry.state = "settling";

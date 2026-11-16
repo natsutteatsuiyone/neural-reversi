@@ -41,7 +41,7 @@ datagen selfplay --openings openings.txt --resume --hash-size 128 --mid-depth 12
 #### Data format
 
 Each board position is a 27-byte record. Multi-byte values use little-endian byte order, and
-the field order matters — see `src/record.rs::write_records`.
+the field order matters — see `src/record.rs` (module docs and `*_OFFSET` constants).
 
 | Offset | Field | Type |
 |--------|-------|------|
@@ -65,7 +65,7 @@ datagen opening --depth 9 > openings.txt
 
 #### Options
 
-- `--depth`: Maximum number of moves to include in the sequences (required, 1-20)
+- `--depth`: Number of moves in each sequence, including the first F5 (required, 1-20)
 
 ### probcut
 
@@ -137,11 +137,16 @@ change, until the models are refitted.
 - `endgame-trace`: runs Level1 to Level4 solves from game positions and
   records the ProbCut attempts whose position hash is divisible by
   `--one-in`.
+  - Options: `-i, --input <INPUT>`, `-o, --output <OUTPUT>`, `--roots <N>`
+    (default: 400), `--root-min-empties <N>` (default: 20),
+    `--root-max-empties <N>` (default: 24), `--fit-folds` (draw roots from
+    the fitting folds instead of the holdout fold), `--one-in <N>` (default:
+    64), `--max-per-empties <N>` (default: unlimited), and `--threads <N>`
+    (default: available parallelism).
   - Labeling: positions with 24 or more empties are solved one at a time
     with every thread; the rest are solved in parallel, one thread each.
-  - Output: a `# main_weights=` line, then one row per attempt: static
-    evaluation (`s0`), verification score (`s2`), exact score, beta, level,
-    and node type.
+  - Output: a `# main_weights=` line, then a CSV header row and one row per
+    attempt with 10 columns: `game,empties,s0,s2,exact,beta,selectivity,cut_node,engine_cut,replayed_cut`.
   - Check: it replays each cut decision from the sampled scores and reports
     how many differ from the engine's. Any difference means the samples do
     not match what the search saw.
@@ -156,10 +161,13 @@ change, until the models are refitted.
   held-out games and, with `--validate`, on another trace. The Rust block
   goes to stdout.
 - `endgame-holdout`: writes one position per game as OBF, scored with the
-  game's move and result, for `evaltest`. Options: `--min-empties`,
-  `--max-empties`, and `--fit-folds` (draw from the fitting folds instead of
-  fold 4). The score is exact only for endgame-corrected games; otherwise run
-  `evaltest` with `--solve-reference`.
+  game's move and result, for `evaltest`.
+  - Options: `-i, --input <INPUT>`, `-o, --output <OUTPUT>`, `--count <N>`
+    (default: 400), `--min-empties <N>` (default: 20), `--max-empties <N>`
+    (default: 26), and `--fit-folds` (draw from the fitting folds instead of
+    fold 4).
+  - The score is exact only for endgame-corrected games; otherwise run
+    `evaltest` with `--solve-reference`.
 
 #### Calibrating the tail schedule
 

@@ -1,7 +1,7 @@
 // Pattern table data shared between `build.rs` and the runtime module.
 //
 // Single source of truth for `EVAL_F2X`, the chunk-sum helper, and the
-// constants needed to generate the AVX2/AVX-512 chunk-sum lookup. Included
+// constants needed to generate the AVX2/AVX-512/NEON chunk-sum lookup. Included
 // from `build.rs` via `include!` and from `pattern_feature.rs` via
 // `#[path]`, so this file must only use primitive types and must contain no
 // `use` statements that depend on the rest of the crate.

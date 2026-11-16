@@ -338,9 +338,10 @@ impl TranspositionTable {
 
     /// Clears all entries.
     pub fn clear(&self) {
-        // SAFETY: TTEntry is #[repr(C)] and all-zero bytes represent the correct
-        // default state (key=0, TTData fields all zero, bound=0 = Bound::None).
-        // No concurrent access on single-threaded WASM.
+        // SAFETY: TTEntry is #[repr(C)] and all-zero bytes are a valid bit pattern
+        // for every field (bound=0 is Bound::None, so probe/lookup treat the entry
+        // as empty; best_move=0 decodes as Some(Square::A1), which is ignored when
+        // bound is Bound::None). No concurrent access on single-threaded WASM.
         unsafe {
             std::ptr::write_bytes(
                 self.table.as_ptr() as *mut u8,

@@ -1,12 +1,8 @@
 {
   "name": "reversi-web",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
-  "bin": {
-    "probcut-datagen": "./scripts/probcut-cli.js",
-    "endgame-bench": "./scripts/endgame-bench.js",
-    "network-bench": "./scripts/network-bench.js"
-  },
   "scripts": {
     "build:wasm:base": "wasm-pack build --target web --out-dir pkg --release",
     "build:wasm:relaxed": "cross-env RUSTFLAGS=\"-C target-feature=+simd128,+relaxed-simd\" wasm-pack build --target web --out-dir pkg-relaxed --release",

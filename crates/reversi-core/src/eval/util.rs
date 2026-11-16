@@ -166,7 +166,7 @@ pub fn neon_dpbusd_s32(
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
 ///
-/// Maps directly to the `USDOT` instruction on nightly builds.
+/// Maps directly to the `USDOT` instruction.
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon,i8mm")]
 #[inline]

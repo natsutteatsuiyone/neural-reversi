@@ -10,7 +10,7 @@
   --content-pad-x: clamp(16px, 3vw, 28px);
   --panel-width: 300px;
 
-  /* Palette ported from the original Tauri GUI (App.css) */
+  /* Color palette */
   --background: #1c1c21;
   --background-secondary: #252529;
 

@@ -130,7 +130,7 @@ impl MoveList {
         const MOBILITY_SCALE_SEARCH: i32 = Score::SCALE * 15 / 8;
         const POTENTIAL_MOBILITY_SCALE_SEARCH: i32 = Score::SCALE;
 
-        if SS::IS_ENDGAME && skip_search_ordering {
+        if skip_search_ordering {
             for mv in self.iter_mut() {
                 if Some(mv.sq) == tt_move {
                     mv.value = TT_MOVE_VALUE;
@@ -145,8 +145,9 @@ impl MoveList {
 
         // Depth-0 shallow scoring probes the eval cache for `next` itself
         // (deeper sort searches evaluate grandchildren instead). Callers only
-        // reach this path with `depth >= 4`, so `next` can never be a
-        // terminal position.
+        // reach this path with `depth >= crate::search::LMR_MIN_DEPTH` in
+        // midgame (or `ENDGAME_MIN_SORT_DEPTH` in endgame), so `next` can never
+        // be a terminal position.
         let use_cached_child_eval =
             sort_depth == 0 && Eval::should_use_main_network(ctx.eval_mode, ctx.ply() + 1);
 

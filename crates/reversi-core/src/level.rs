@@ -111,7 +111,10 @@ pub fn get_level(lv: usize) -> Level {
     LEVELS[lv]
 }
 
-/// Pre-configured difficulty levels ranging from 0 (easiest) to [`MAX_LEVEL`] (hardest).
+/// Pre-configured difficulty levels from 0 to [`MAX_LEVEL`] (hardest).
+///
+/// Index 0 is present in the table (with the same midgame depth as 1), while
+/// frontends expose `1..=MAX_LEVEL`.
 #[rustfmt::skip]
 const LEVELS: [Level; 31] = [
     Level::uniform(1, 1),

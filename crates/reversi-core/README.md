@@ -96,8 +96,8 @@ midgame vs. endgame; both are generic so the branches collapse at compile
 time (the `cut_node` flag is also threaded through). Before the full node
 body, PV leaves (`depth == 0`) return `SS::evaluate`, while NonPV nodes
 check the midgame-to-endgame shallow handoff
-(`n_empties <= EndGameStrategy::DEPTH_TO_SHALLOW`), dispatch
-`depth <= SS::DEPTH_TO_SHALLOW` to `SS::shallow_search`, and try
+(`!SS::IS_ENDGAME && depth >= n_empties && n_empties <= EndGameStrategy::DEPTH_TO_SHALLOW`),
+dispatch `depth <= SS::DEPTH_TO_SHALLOW` to `SS::shallow_search`, and try
 `stability_cutoff`. One node then proceeds, in order:
 
 1. **TT prefetch** — derive the key with `board.hash()` and software-prefetch
@@ -156,8 +156,8 @@ chosen so the bound check inside `TTEntryData::can_cut` is a bitwise AND.
 
 Iterative deepening with aspiration windows.
 
-- The opening position (60 empties) returns a random move immediately
-  unless `multi_pv` is requested.
+- The standard initial position (`Board::new()`) returns a random move
+  immediately unless `multi_pv` is requested.
 - The deepening step shrinks from `+2` plies to `+1` once `depth` exceeds
   `DEPTH_STEP_THRESHOLD`.
 - From `ASPIRATION_MIN_DEPTH` onwards, `aspiration_search` opens centered on
@@ -582,7 +582,8 @@ distributes time across the move.
   root or mid-search via the midgame handoff — the per-move budget
   switches from the Gaussian share to `ENDGAME_BANK_PERCENT` of the
   current hard limit, committing most of the remaining bank to the solve;
-  the rationale is documented on the constant.
+  in `Fischer` mode, `increment_ms` is added to that share (clamped to the
+  hard limit); the rationale is documented on the constant.
 - Pure byoyomi allocations are scoped to a single move; unused time
   cannot be banked, so iteration continues until the deadline aborts the
   search.
@@ -592,12 +593,12 @@ distributes time across the move.
 - After each completed iteration,
   `report_iteration(best_move, score, depth, window_clean)` recomputes the
   optimum time as `base · stability_scale · instability_factor ·
-  falling_factor`, clamped to a per-mode cap and the hard limit. The
+  falling`, clamped to a per-mode cap and the hard limit. The
   optimum doubles as the abort deadline; the timer thread re-reads it
   after every update.
 - `instability_factor` grows with an exponential moving average of
   best-move changes (`EMA_DECAY`, `INSTABILITY_WEIGHT`).
-- `falling_factor` scales with the score drop against the previous
+- `falling` scales with the score drop against the previous
   iteration (`FALLING_DIVISOR`), clamped to `[FALLING_MIN, FALLING_MAX]`;
   a rising score slightly shortens the search.
 - `stability_scale` shrinks along `STABILITY_SCALE` as the best move stays
@@ -608,7 +609,7 @@ distributes time across the move.
   early as `EASY_MIN_FRACTION` of the optimum, below the per-mode
   minimum-time gate.
 - Bank modes cap the scaled optimum at `MAX_FACTOR · base`; once
-  `falling_factor` reaches `FALLING_EMERGENCY`, the cap may additionally
+  `falling` reaches `FALLING_EMERGENCY`, the cap may additionally
   draw on a fraction of the bank reserve (`EXTENSION_RESERVE_DIVISOR`).
   Japanese byoyomi main time always caps at the reserve target, since
   falling into byoyomi is acceptable.
@@ -627,9 +628,10 @@ into the binary at build time via `include_bytes!`.
 
 `SearchSharedResources::new` passes `SearchOptions::with_eval_paths(...)`
 directly to `Eval::with_weight_files`, so default `Search::new` uses embedded
-weights unless paths are configured. `Eval::new` is the constructor that first
-looks next to the executable for `EVAL_FILE_NAME` / `EVAL_SM_FILE_NAME`, then
-falls back to embedded weights.
+weights unless paths are configured. `Eval::new` is a standalone constructor
+(currently used only by `benches/move_list.rs`, not by `Search` or the
+frontends) that first looks next to the executable for `EVAL_FILE_NAME` /
+`EVAL_SM_FILE_NAME`, then falls back to embedded weights.
 
 Filenames carry a hash: `eval-XXXXXXXX.zst` / `eval_sm-XXXXXXXX.zst`.
 Released weights live at

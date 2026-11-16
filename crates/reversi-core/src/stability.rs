@@ -368,7 +368,6 @@ fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: DiscScore) -
 /// below `alpha`, returns that score immediately.
 ///
 /// Returns [`None`] if the cutoff cannot be proven.
-///
 #[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: DiscScore) -> Option<DiscScore> {
     if alpha.value() >= NWS_STABILITY_THRESHOLD[n_empties as usize] as i32 {

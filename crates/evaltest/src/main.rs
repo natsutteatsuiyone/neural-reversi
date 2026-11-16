@@ -1235,8 +1235,8 @@ struct Args {
     #[arg(long)]
     threads: Option<usize>,
 
-    /// Problem set to run (preset: fforum, hard-20, hard-25, hard-30; or file path)
-    /// Can be specified multiple times. Default: all .obf files in problem directory.
+    /// Problem set to run (preset: `fforum`; problem name such as `hard-20`; or `.obf` file path).
+    /// Can be specified multiple times. Default: all `.obf` files in problem directory.
     #[arg(long)]
     problem: Vec<String>,
 

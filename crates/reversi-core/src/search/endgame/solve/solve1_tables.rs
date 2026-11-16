@@ -2,8 +2,10 @@
 //!
 //! `COUNT_FLIP_RAW` is the canonical 8x256 line-count table. The scalar path
 //! uses its aligned `COUNT_FLIP` view for indexed lookups, the BMI2 path reads
-//! the raw table at compile time when building its PEXT-specific per-square
-//! table, and NEON reads it at compile time to build `COUNT_PAIR`.
+//! `COUNT_FLIP` at runtime for row and file counts while reading
+//! `COUNT_FLIP_RAW` at compile time to build `DIAG_UNION_COUNT` (and
+//! `SOLVE1_TABLE`) for diagonals, and NEON reads `COUNT_FLIP_RAW` at compile
+//! time to build `COUNT_PAIR`.
 //!
 //! The remaining entries are kindergarten multiply/shift extractor parameters
 //! for scalar and NEON builds. They are cfg-excluded from BMI2 builds, where

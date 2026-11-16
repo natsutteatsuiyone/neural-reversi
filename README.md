@@ -98,7 +98,7 @@ allows `madvise` requests.
 - **[gui](crates/gui/)**: Native Rust graphical user interface built with NSH, calling `reversi-core` directly.
 - **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
 - **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
-- **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
+- **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games, shuffling/filtering, and ProbCut model fitting.
 - **[evaltest](crates/evaltest/)**: Evaluation test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
 
 ## Neural Network
