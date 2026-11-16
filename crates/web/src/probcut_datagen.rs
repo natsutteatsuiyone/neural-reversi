@@ -11,7 +11,8 @@ use js_sys::Function;
 use wasm_bindgen::prelude::*;
 
 use reversi_core::{
-    board::Board, player_color::PlayerColor, score::Score, square::Square, types::Depth,
+    board::Board, game_state::GameState, player_color::PlayerColor, score::Score, square::Square,
+    types::Depth,
 };
 
 use crate::{
@@ -56,21 +57,13 @@ struct ProbCutSample {
     deep_score: Score,
 }
 
-/// A pending endgame sample whose deep score is resolved once the final game result is known.
-struct EndgameSample {
-    ply: u32,
-    shallow_depth: Depth,
-    shallow_score: Score,
-    deep_depth: Depth,
-    side_to_move: PlayerColor,
-}
-
 /// Result returned to JavaScript containing generated samples and statistics.
 #[wasm_bindgen]
 pub struct ProbCutDatagenResult {
     samples_csv: String,
     total_samples: u32,
     total_positions: u32,
+    skipped_games: u32,
     cache_hit_rate: f64,
 }
 
@@ -95,6 +88,13 @@ impl ProbCutDatagenResult {
     #[wasm_bindgen(getter)]
     pub fn total_positions(&self) -> u32 {
         self.total_positions
+    }
+
+    /// Returns the number of games left out of the endgame data because
+    /// they stop before the end and so have no final result.
+    #[wasm_bindgen(getter)]
+    pub fn skipped_games(&self) -> u32 {
+        self.skipped_games
     }
 
     /// Returns the cache hit rate (0.0 to 1.0).
@@ -143,10 +143,13 @@ impl ProbCutDatagen {
 
     /// Processes multiple newline-separated game sequences with an optional progress callback.
     ///
+    /// A game may stop before the end.
+    ///
     /// # Errors
     ///
-    /// Returns an error if any game sequence contains an invalid move token, or
-    /// if the progress callback invocation fails.
+    /// Returns an error if any game sequence is not a legal game (an invalid
+    /// move token, an illegal move, or a move after the game has ended), or if
+    /// the progress callback invocation fails.
     pub fn process_games(
         &mut self,
         games: &str,
@@ -161,7 +164,9 @@ impl ProbCutDatagen {
         let mut all_samples = Vec::new();
 
         for (idx, &(line_index, line)) in lines.iter().enumerate() {
-            let samples = self.process_game_internal(line_index as u64 + 1, line)?;
+            let samples = self
+                .process_game_internal(line_index as u64 + 1, line)
+                .map_err(|e| JsValue::from_str(&e))?;
             all_samples.extend(samples);
 
             // Call progress callback if provided
@@ -186,18 +191,21 @@ impl ProbCutDatagen {
             }
         }
 
-        self.build_result(all_samples)
+        Ok(self.build_result(all_samples, 0))
     }
 
     /// Processes multiple newline-separated game sequences for endgame ProbCut analysis.
     ///
     /// Only positions with ply >= 30 are analyzed. The shallow search runs at a fixed
     /// depth and the deep score is the exact final game result (disc difference).
+    /// A game that stops before the end has no final result, so it is left out
+    /// and counted in [`ProbCutDatagenResult::skipped_games`].
     ///
     /// # Errors
     ///
-    /// Returns an error if any game sequence contains an invalid move token, or
-    /// if the progress callback invocation fails.
+    /// Returns an error if any game sequence is not a legal game (an invalid
+    /// move token, an illegal move, or a move after the game has ended), or if
+    /// the progress callback invocation fails.
     pub fn process_games_endgame(
         &mut self,
         games: &str,
@@ -210,10 +218,16 @@ impl ProbCutDatagen {
             .collect();
         let total_games = lines.len();
         let mut all_samples = Vec::new();
+        let mut skipped_games = 0;
 
         for (idx, &(line_index, line)) in lines.iter().enumerate() {
-            let samples = self.process_game_endgame_internal(line_index as u64 + 1, line)?;
-            all_samples.extend(samples);
+            match self
+                .process_game_endgame_internal(line_index as u64 + 1, line)
+                .map_err(|e| JsValue::from_str(&e))?
+            {
+                Some(samples) => all_samples.extend(samples),
+                None => skipped_games += 1,
+            }
 
             // Call progress callback if provided
             if let Some(ref callback) = progress_callback {
@@ -237,8 +251,39 @@ impl ProbCutDatagen {
             }
         }
 
-        self.build_result(all_samples)
+        Ok(self.build_result(all_samples, skipped_games))
     }
+}
+
+/// Replays the game on input line `game` and returns every position a move
+/// was played from, with its side to move, and the state after the last move.
+///
+/// # Errors
+///
+/// Returns an error naming the line if a move token is not a square, a move is
+/// illegal when reached, or a move follows the end of the game.
+fn replay_game(
+    game: u64,
+    game_sequence: &str,
+) -> Result<(Vec<(Board, PlayerColor)>, GameState), String> {
+    let moves = Square::parse_sequence(game_sequence).map_err(|e| format!("Line {game}: {e}"))?;
+    let mut state = GameState::new();
+    let mut positions = Vec::with_capacity(moves.len());
+
+    for (i, &sq) in moves.iter().enumerate() {
+        if !state.board().is_legal_move(sq) {
+            let reason = if state.is_game_over() {
+                "the game is already over"
+            } else {
+                "illegal move"
+            };
+            return Err(format!("Line {game}: move {} ({sq}): {reason}", i + 1));
+        }
+        positions.push((*state.board(), state.side_to_move()));
+        state.make_move(sq)?;
+    }
+
+    Ok((positions, state))
 }
 
 impl ProbCutDatagen {
@@ -247,34 +292,11 @@ impl ProbCutDatagen {
         &mut self,
         game: u64,
         game_sequence: &str,
-    ) -> Result<Vec<ProbCutSample>, JsValue> {
-        let game_sequence = game_sequence.trim();
-        if game_sequence.is_empty() {
-            return Ok(Vec::new());
-        }
-
+    ) -> Result<Vec<ProbCutSample>, String> {
+        let (positions, _) = replay_game(game, game_sequence)?;
         let mut samples = Vec::new();
-        let mut board = Board::new();
-        let mut side_to_move = PlayerColor::Black;
 
-        // Parse and process each move
-        for token in game_sequence.as_bytes().as_chunks::<2>().0 {
-            let move_str = std::str::from_utf8(token)
-                .map_err(|e| JsValue::from_str(&format!("Invalid UTF-8 in move token: {}", e)))?;
-
-            let sq = move_str
-                .parse::<Square>()
-                .map_err(|e| JsValue::from_str(&format!("Invalid move '{}': {}", move_str, e)))?;
-
-            // Handle pass if no legal moves
-            if !board.has_legal_moves() {
-                board = board.switch_players();
-                side_to_move = side_to_move.opposite();
-                if !board.has_legal_moves() {
-                    break;
-                }
-            }
-
+        for (board, _) in positions {
             let ply = 60 - board.empty_count();
 
             // Search at multiple depths and collect scores
@@ -295,16 +317,13 @@ impl ProbCutDatagen {
                     }
                 }
             }
-
-            // Make the move
-            board = board.make_move(sq);
-            side_to_move = side_to_move.opposite();
         }
 
         Ok(samples)
     }
 
-    /// Processes a single game for endgame ProbCut and returns the collected samples.
+    /// Processes a single game for endgame ProbCut and returns the collected
+    /// samples, or `None` if the game stops before the end.
     ///
     /// For each position at or beyond [`ENDGAME_START_PLY`], runs a single fixed-depth
     /// shallow search and pairs it with the exact final game result as the deep score.
@@ -312,73 +331,35 @@ impl ProbCutDatagen {
         &mut self,
         game: u64,
         game_sequence: &str,
-    ) -> Result<Vec<ProbCutSample>, JsValue> {
-        let game_sequence = game_sequence.trim();
-        if game_sequence.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut pending = Vec::new();
-        let mut board = Board::new();
-        let mut side_to_move = PlayerColor::Black;
-
-        for token in game_sequence.as_bytes().as_chunks::<2>().0 {
-            let move_str = std::str::from_utf8(token)
-                .map_err(|e| JsValue::from_str(&format!("Invalid UTF-8 in move token: {}", e)))?;
-
-            let sq = move_str
-                .parse::<Square>()
-                .map_err(|e| JsValue::from_str(&format!("Invalid move '{}': {}", move_str, e)))?;
-
-            // Handle pass if no legal moves
-            if !board.has_legal_moves() {
-                board = board.switch_players();
-                side_to_move = side_to_move.opposite();
-                if !board.has_legal_moves() {
-                    break;
-                }
-            }
-
-            let n_empties = board.empty_count();
-            let ply = 60 - n_empties;
-            if ply >= ENDGAME_START_PLY && ENDGAME_SHALLOW_DEPTH < n_empties {
-                let shallow_score = self.search_endgame_shallow(&board);
-                pending.push(EndgameSample {
-                    ply,
-                    shallow_depth: ENDGAME_SHALLOW_DEPTH,
-                    shallow_score,
-                    deep_depth: n_empties,
-                    side_to_move,
-                });
-            }
-
-            // Make the move
-            board = board.make_move(sq);
-            side_to_move = side_to_move.opposite();
+    ) -> Result<Option<Vec<ProbCutSample>>, String> {
+        let (positions, end) = replay_game(game, game_sequence)?;
+        if !end.is_game_over() {
+            return Ok(None);
         }
 
         // The deep score is the exact final result, oriented to each sample's side to move.
-        let final_score = board.solve(board.empty_count());
-        let samples = pending
-            .into_iter()
-            .map(|p| {
-                let deep_score = if p.side_to_move == side_to_move {
-                    final_score
-                } else {
-                    -final_score
-                };
-                ProbCutSample {
+        let final_score = end.board().solve(end.board().empty_count());
+        let mut samples = Vec::new();
+        for (board, side_to_move) in positions {
+            let n_empties = board.empty_count();
+            let ply = 60 - n_empties;
+            if ply >= ENDGAME_START_PLY && ENDGAME_SHALLOW_DEPTH < n_empties {
+                samples.push(ProbCutSample {
                     game,
-                    ply: p.ply,
-                    shallow_depth: p.shallow_depth,
-                    shallow_score: p.shallow_score,
-                    deep_depth: p.deep_depth,
-                    deep_score,
-                }
-            })
-            .collect();
+                    ply,
+                    shallow_depth: ENDGAME_SHALLOW_DEPTH,
+                    shallow_score: self.search_endgame_shallow(&board),
+                    deep_depth: n_empties,
+                    deep_score: if side_to_move == end.side_to_move() {
+                        final_score
+                    } else {
+                        -final_score
+                    },
+                });
+            }
+        }
 
-        Ok(samples)
+        Ok(Some(samples))
     }
 
     /// Runs the fixed-depth shallow endgame search and returns its score.
@@ -438,7 +419,11 @@ impl ProbCutDatagen {
     }
 
     /// Builds the result object from collected samples.
-    fn build_result(&self, samples: Vec<ProbCutSample>) -> Result<ProbCutDatagenResult, JsValue> {
+    fn build_result(
+        &self,
+        samples: Vec<ProbCutSample>,
+        skipped_games: u32,
+    ) -> ProbCutDatagenResult {
         // Convert samples to CSV
         let samples_csv = Self::samples_to_csv(&samples);
 
@@ -449,12 +434,13 @@ impl ProbCutDatagen {
             0.0
         };
 
-        Ok(ProbCutDatagenResult {
+        ProbCutDatagenResult {
             samples_csv,
             total_samples: samples.len() as u32,
             total_positions: self.positions,
+            skipped_games,
             cache_hit_rate,
-        })
+        }
     }
 
     /// Converts samples to a CSV string.
@@ -486,9 +472,8 @@ impl ProbCutDatagen {
 mod tests {
     use super::*;
 
-    #[test]
-    fn midgame_csv_preserves_source_game_line_numbers() {
-        let mut generator = ProbCutDatagen {
+    fn generator() -> ProbCutDatagen {
+        ProbCutDatagen {
             search: Search::new(
                 Rc::new(TranspositionTable::new(1)),
                 Rc::new(Eval::new().unwrap()),
@@ -497,7 +482,78 @@ mod tests {
             cache_hits: 0,
             cache_misses: 0,
             positions: 0,
-        };
+        }
+    }
+
+    /// Returns the moves of a game played to the end.
+    fn finished_game() -> Vec<Square> {
+        let mut state = GameState::new();
+        let mut moves = Vec::new();
+        while !state.is_game_over() {
+            let sq = state.board().legal_moves().iter().next().unwrap();
+            moves.push(sq);
+            state.make_move(sq).unwrap();
+        }
+        moves
+    }
+
+    fn record(moves: &[Square]) -> String {
+        moves.iter().map(Square::to_string).collect()
+    }
+
+    #[test]
+    fn a_record_that_is_not_a_legal_game_is_rejected_with_its_line() {
+        let finished = record(&finished_game());
+        let cases = [
+            ("f5f5", "Line 7: move 2 (f5): illegal move"),
+            ("f5a1", "Line 7: move 2 (a1): illegal move"),
+            ("f5d", "Line 7: "),
+            ("f5zz", "Line 7: "),
+            (&format!("{finished}a1"), "(a1): the game is already over"),
+        ];
+
+        let mut generator = generator();
+        for (game_sequence, expected) in cases {
+            let midgame = generator
+                .process_game_internal(7, game_sequence)
+                .map(|_| ())
+                .unwrap_err();
+            let endgame = generator
+                .process_game_endgame_internal(7, game_sequence)
+                .map(|_| ())
+                .unwrap_err();
+            assert!(midgame.contains(expected), "{game_sequence}: {midgame}");
+            assert_eq!(midgame, endgame);
+        }
+        assert_eq!(generator.positions, 0);
+    }
+
+    #[test]
+    fn endgame_leaves_out_a_game_that_stops_before_the_end() {
+        let moves = finished_game();
+        let finished = record(&moves);
+        let cut = record(&moves[..moves.len() - 1]);
+        assert!(moves.len() > ENDGAME_START_PLY as usize);
+
+        let mut generator = generator();
+        let result = generator
+            .process_games_endgame(&format!("{cut}\n{finished}"), None)
+            .unwrap();
+
+        assert_eq!(result.skipped_games, 1);
+        assert!(result.total_samples > 0);
+        assert!(
+            result
+                .samples_csv
+                .lines()
+                .skip(1)
+                .all(|line| line.starts_with("2,"))
+        );
+    }
+
+    #[test]
+    fn midgame_csv_preserves_source_game_line_numbers() {
+        let mut generator = generator();
         let result = generator.process_games("D3C3\n\nD3C5", None).unwrap();
         let mut lines = result.samples_csv.lines();
         assert_eq!(
@@ -558,16 +614,7 @@ mod tests {
         }
         assert!(!expected_plies.is_empty());
 
-        let mut generator = ProbCutDatagen {
-            search: Search::new(
-                Rc::new(TranspositionTable::new(1)),
-                Rc::new(Eval::new().unwrap()),
-            ),
-            score_cache: HashMap::new(),
-            cache_hits: 0,
-            cache_misses: 0,
-            positions: 0,
-        };
+        let mut generator = generator();
         let games = format!("{game_sequence}\n\n{game_sequence}");
         let result = generator.process_games_endgame(&games, None).unwrap();
         let mut lines = result.samples_csv.lines();

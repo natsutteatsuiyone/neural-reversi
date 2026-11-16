@@ -85,6 +85,12 @@ Statistics:
   Total positions: ${result.total_positions}
   Cache hit rate: ${(result.cache_hit_rate * 100).toFixed(1)}%
 `);
+  if (result.skipped_games > 0) {
+    console.log(
+      `Skipped ${result.skipped_games} games that stop before the end and so have no result
+`,
+    );
+  }
 
   console.log("Done!");
   datagen.free();

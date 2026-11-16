@@ -175,6 +175,11 @@ D3C3C4C5D6E3F4E6F5E2
 F5D6C3D3C4F4F6F3E6E7
 ```
 
+Every line must be a legal game from the initial position; a line with an
+illegal move, or with a move after the game has ended, stops the run with an
+error naming the line. A game may stop before the end, but `--endgame` needs
+the final result, so it skips such games and prints how many it skipped.
+
 ### Output Format
 
 CSV with columns: `game,ply,shallow_depth,shallow_score,deep_depth,deep_score,diff`
