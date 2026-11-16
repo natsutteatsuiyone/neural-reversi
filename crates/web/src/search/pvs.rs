@@ -145,16 +145,18 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
     }
 
-    ctx.tt.store(
-        tt_probe_result.slot(),
-        tt_key,
-        best_score,
-        Bound::classify::<NT>(best_score, org_alpha, beta),
-        depth,
-        best_move,
-        ctx.selectivity,
-        SS::IS_ENDGAME,
-    );
+    if !NT::ROOT_NODE || ctx.pv_idx() == 0 {
+        ctx.tt.store(
+            tt_probe_result.slot(),
+            tt_key,
+            best_score,
+            Bound::classify::<NT>(best_score, org_alpha, beta),
+            depth,
+            best_move,
+            ctx.selectivity,
+            SS::IS_ENDGAME,
+        );
+    }
 
     best_score
 }

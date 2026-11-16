@@ -673,6 +673,25 @@ mod tests {
     }
 
     #[test]
+    fn multi_pv_keeps_the_best_line_in_the_root_tt_entry() {
+        let tt = Rc::new(TranspositionTable::new(1));
+        let mut search = Search::new(Rc::clone(&tt), Rc::new(Eval::new().unwrap()));
+        let level = Level {
+            mid_depth: 4,
+            end_depth: 0,
+            perfect_depth: 0,
+        };
+        let board = Board::new().make_move(Square::F5);
+        assert!(board.legal_moves().count() > 1);
+
+        let result = search.run(&board, level, Selectivity::None, None, true);
+
+        let root = tt.lookup(board.hash()).unwrap();
+        assert_eq!(root.best_move, result.best_move);
+        assert_eq!(root.score, result.score);
+    }
+
+    #[test]
     fn depth3_only_cuts_with_nonselective_tt_entries() {
         let board = Board::new();
         let eval = Rc::new(Eval::new().unwrap());
