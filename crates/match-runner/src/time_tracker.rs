@@ -88,6 +88,10 @@ impl TimeTracker {
     ///
     /// During main time, returns `(main_time_remaining, 0)`. During Japanese
     /// overtime, returns `(period_time_remaining, stones_left_in_period)`.
+    ///
+    /// GTP carries whole seconds, so the time is rounded down: an engine that
+    /// spends all the time it is told about must not flag. A clock under one
+    /// second is therefore reported as `0`.
     #[must_use]
     pub fn time_left(&self, color: PlayerColor) -> (u64, u32) {
         let player = &self.players[color.index()];
@@ -97,11 +101,11 @@ impl TimeTracker {
                 byoyomi_time_ms, ..
             } if player.in_byoyomi => {
                 let period_remaining_ms = byoyomi_time_ms.saturating_sub(player.byo_time_used_ms);
-                (period_remaining_ms.div_ceil(1000), player.byo_stones_left)
+                (period_remaining_ms / 1000, player.byo_stones_left)
             }
             TimeSettings::Infinite
             | TimeSettings::Fischer { .. }
-            | TimeSettings::JapaneseByo { .. } => (player.time_ms.div_ceil(1000), 0),
+            | TimeSettings::JapaneseByo { .. } => (player.time_ms / 1000, 0),
         }
     }
 
@@ -359,13 +363,28 @@ mod tests {
     }
 
     #[test]
-    fn test_time_left_preserves_subsecond_clock() {
+    fn time_left_never_reports_more_than_the_clock_holds() {
+        // Sudden death: 1,001 ms and then 1 ms on the clock.
         let mut tracker = TimeTracker::new(2, 0, 0);
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 501));
-        assert_eq!(tracker.time_left(PlayerColor::Black), (2, 0));
-
-        assert!(tracker.apply_elapsed(PlayerColor::Black, 1_498));
+        assert!(tracker.apply_elapsed(PlayerColor::Black, 999));
         assert_eq!(tracker.time_left(PlayerColor::Black), (1, 0));
+        assert!(tracker.apply_elapsed(PlayerColor::Black, 1_000));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (0, 0));
+
+        // Fischer: 1,001 ms after the increment.
+        let mut tracker = TimeTracker::new(1, 1, 0);
+        assert!(tracker.apply_elapsed(PlayerColor::Black, 999));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (1, 0));
+
+        // Japanese byo-yomi main time: 1 ms left.
+        let mut tracker = TimeTracker::new(1, 10, 2);
+        assert!(tracker.apply_elapsed(PlayerColor::Black, 999));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (0, 0));
+
+        // Japanese byo-yomi period: 999 ms left for the second stone.
+        let mut tracker = TimeTracker::new(0, 10, 2);
+        assert!(tracker.apply_elapsed(PlayerColor::Black, 9_001));
+        assert_eq!(tracker.time_left(PlayerColor::Black), (0, 1));
     }
 
     #[test]
