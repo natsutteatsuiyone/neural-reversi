@@ -193,6 +193,13 @@ impl SearchContext {
         }
     }
 
+    /// Resets scores from pv_idx to end to `-Score::INF` before searching.
+    pub fn reset_root_move_scores_from_pv_idx(&mut self) {
+        for rm in self.root_moves.iter_mut().skip(self.pv_idx) {
+            rm.score = -Score::INF;
+        }
+    }
+
     /// Sorts root moves from pv_idx to end by descending score (stable sort).
     pub fn sort_root_moves_from_pv_idx(&mut self) {
         if self.pv_idx < self.root_moves.len() {

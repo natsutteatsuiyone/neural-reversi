@@ -47,8 +47,11 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     let mut move_list = MoveList::new(board);
-    if NT::ROOT_NODE && ctx.pv_idx() > 0 {
-        move_list.retain(board, |mv| ctx.root_move_in_pv_window(mv.sq));
+    if NT::ROOT_NODE {
+        ctx.reset_root_move_scores_from_pv_idx();
+        if ctx.pv_idx() > 0 {
+            move_list.retain(board, |mv| ctx.root_move_in_pv_window(mv.sq));
+        }
     }
     if move_list.count() == 0 {
         let next = board.switch_players();
@@ -210,4 +213,46 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use reversi_core::square::Square;
+
+    use super::*;
+    use crate::eval::Eval;
+    use crate::probcut::Selectivity;
+    use crate::search::node_type::Root;
+    use crate::search::strategy::MidGameStrategy;
+    use crate::transposition_table::TranspositionTable;
+
+    #[test]
+    fn root_search_resets_unsearched_sibling_scores_on_wipeout() {
+        // B4 wipes White out; D3 holds a `Score::MAX` left by an earlier search
+        // and comes after B4, where `best_root_move` would prefer it on a tie.
+        let board = Board::from_bitboards(
+            Square::E4.bitboard() | Square::D5.bitboard(),
+            Square::D4.bitboard() | Square::C4.bitboard(),
+        );
+        let tt = Rc::new(TranspositionTable::new(1));
+        let eval = Rc::new(Eval::new().unwrap());
+        let mut ctx = SearchContext::new(&board, Selectivity::None, tt, eval, None);
+        let position = |ctx: &SearchContext, sq| ctx.root_moves.iter().position(|rm| rm.sq == sq);
+        let b4 = position(&ctx, Square::B4).unwrap();
+        ctx.root_moves.swap(0, b4);
+        let last = ctx.root_moves.len() - 1;
+        let d3 = position(&ctx, Square::D3).unwrap();
+        ctx.root_moves.swap(last, d3);
+        ctx.root_moves[last].score = Score::MAX;
+
+        let score = search::<Root, MidGameStrategy>(&mut ctx, &board, 4, -Score::INF, Score::INF);
+
+        assert_eq!(score, Score::MAX);
+        assert_eq!(ctx.best_root_move().unwrap().sq, Square::B4);
+        for rm in &ctx.root_moves[1..] {
+            assert_eq!(rm.score, -Score::INF);
+        }
+    }
 }
