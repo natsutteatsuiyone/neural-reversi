@@ -11,7 +11,7 @@ use crate::eval::network::input_layer::{
 };
 use crate::eval::network::layer_stack::{LayerStack, load_layer_stacks};
 use crate::eval::pattern_feature::PatternFeature;
-use crate::eval::util::ceil_to_multiple;
+use crate::eval::util::{ceil_to_multiple, expect_end_of_weights};
 use crate::score::Score;
 use crate::util::align::Align64;
 
@@ -178,6 +178,7 @@ impl Network {
         let base_input = BaseInput::load(&mut decoder)?;
         let pa_input = PhaseAdaptiveInput::load(&mut decoder)?;
         let layer_stacks = load_layer_stacks(&mut decoder)?;
+        expect_end_of_weights(&mut decoder)?;
         Ok(Network {
             base_input,
             pa_input,

@@ -1,5 +1,7 @@
 //! Utility functions for neural network evaluation.
 
+use std::io::{self, Read};
+
 use crate::{
     eval::pattern_feature::{NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature},
     util::align::Align64,
@@ -35,6 +37,26 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
             N,
         );
         acc.assume_init()
+    }
+}
+
+/// Checks that `reader` has no data left after a network's weights.
+///
+/// The weight format has no header, so leftover data is the only sign that
+/// the stream was written for a different, larger network layout.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidData`] if data is left, or the error of
+/// the read.
+pub fn expect_end_of_weights<R: Read>(reader: &mut R) -> io::Result<()> {
+    match reader.read_exact(&mut [0u8]) {
+        Ok(()) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the weights continue past the end of this network's layout; they are for a different network",
+        )),
+        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
+        Err(e) => Err(e),
     }
 }
 

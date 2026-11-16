@@ -353,6 +353,19 @@ impl Network {
             layer_stacks.push(LayerStack::load(&mut decoder)?);
         }
 
+        // The format has no header, so leftover data is the only sign that
+        // the weights were written for a different, larger network layout.
+        match decoder.read_exact(&mut [0u8]) {
+            Ok(()) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "the weights continue past the end of this network's layout",
+                ));
+            }
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {}
+            Err(e) => return Err(e),
+        }
+
         Ok(Network {
             input_layer,
             layer_stacks,

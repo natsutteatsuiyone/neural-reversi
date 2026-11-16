@@ -10,7 +10,7 @@ use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PatternFeature};
-use crate::eval::util::feature_offset;
+use crate::eval::util::{expect_end_of_weights, feature_offset};
 use crate::score::Score;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
@@ -116,6 +116,7 @@ impl NetworkSmall {
             let output_layer = OutputLayer::load(&mut decoder)?;
             output_layers.push(output_layer);
         }
+        expect_end_of_weights(&mut decoder)?;
 
         // Select the optimal forward implementation at load time
         let forward_fn = Self::select_forward_fn();
@@ -874,6 +875,19 @@ mod tests {
         let empty_frame = zstd::stream::encode_all(&[][..], 0).unwrap();
         let err = NetworkSmall::from_bytes(&empty_frame).err().unwrap();
         assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn from_bytes_rejects_weights_longer_than_the_network_layout() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../").to_string()
+            + crate::eval::EVAL_SM_FILE_NAME;
+        let mut bytes = std::fs::read(path).unwrap();
+        assert!(NetworkSmall::from_bytes(&bytes).is_ok());
+
+        // A second zstd frame continues the decoded stream by one byte.
+        bytes.extend(zstd::stream::encode_all(&[0u8][..], 0).unwrap());
+        let err = NetworkSmall::from_bytes(&bytes).err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
