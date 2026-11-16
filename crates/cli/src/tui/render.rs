@@ -102,7 +102,8 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     let inner_area = info_block.inner(area);
     frame.render_widget(info_block, area);
 
-    let mut lines = Vec::new();
+    let mut head = Vec::new();
+    let lines = &mut head;
 
     // Game status
     let (black_count, white_count) = app.game.score();
@@ -160,48 +161,36 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::from(""));
     lines.push(Line::from("─".repeat(inner_area.width as usize)));
 
-    // Move history
-    let mut history = app
-        .game
-        .move_history()
-        .iter()
-        .filter_map(|entry| Some((entry.side_to_move, entry.action.square()?)))
-        .peekable();
-    if history.peek().is_some() {
-        lines.push(Line::from(Span::styled(
-            "History:",
-            Style::default().fg(Color::Cyan),
-        )));
+    // Move history rows, each with the number of moves it holds.
+    // Moves are green for Black, yellow for White.
+    let mut history: Vec<(Vec<Span>, usize)> = Vec::new();
+    let max_width = inner_area.width.saturating_sub(2) as usize;
+    let mut current_len = 1usize;
+    for entry in app.game.move_history() {
+        let Some(sq) = entry.action.square() else {
+            continue;
+        };
+        let move_str = format!("{} ", sq);
+        let move_len = move_str.len();
 
-        // Format moves with colors: green for Black, yellow for White
-        let max_width = inner_area.width.saturating_sub(2) as usize;
-        let mut current_spans: Vec<Span> = vec![Span::raw(" ")];
-        let mut current_len = 1usize;
-
-        for (side, sq) in history {
-            let move_str = format!("{} ", sq);
-            let move_len = move_str.len();
-
-            if current_len + move_len > max_width && current_len > 1 {
-                lines.push(Line::from(current_spans));
-                current_spans = vec![Span::raw(" ")];
-                current_len = 1;
-            }
-
-            let color = if side == PlayerColor::Black {
-                Color::Green
-            } else {
-                Color::Yellow
-            };
-            current_spans.push(Span::styled(move_str, Style::default().fg(color)));
-            current_len += move_len;
+        if history.is_empty() || (current_len + move_len > max_width && current_len > 1) {
+            history.push((vec![Span::raw(" ")], 0));
+            current_len = 1;
         }
 
-        if current_len > 1 {
-            lines.push(Line::from(current_spans));
-        }
+        let color = if entry.side_to_move == PlayerColor::Black {
+            Color::Green
+        } else {
+            Color::Yellow
+        };
+        let (spans, n_moves) = history.last_mut().expect("a row was just pushed");
+        spans.push(Span::styled(move_str, Style::default().fg(color)));
+        *n_moves += 1;
+        current_len += move_len;
     }
 
+    let mut tail = Vec::new();
+    let lines = &mut tail;
     lines.push(Line::from(""));
     lines.push(Line::from("─".repeat(inner_area.width as usize)));
     lines.push(Line::from(""));
@@ -278,6 +267,37 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
 
+    // When the panel is too short, give up the spacing first and then the
+    // oldest moves, so that the result and the status message stay visible.
+    let height = inner_area.height as usize;
+    let history_rows = |history: &[(Vec<Span>, usize)]| match history.len() {
+        0 => 0,
+        rows => rows + 1,
+    };
+    if head.len() + history_rows(&history) + tail.len() > height {
+        head.retain(|line| line.width() > 0);
+        tail.retain(|line| line.width() > 0);
+    }
+    let mut hidden_moves = 0;
+    while history.len() > 1 && head.len() + history_rows(&history) + tail.len() > height {
+        hidden_moves += history.remove(0).1;
+    }
+
+    let mut lines = head;
+    if !history.is_empty() {
+        let label = if hidden_moves > 0 {
+            format!("History (first {hidden_moves} moves hidden):")
+        } else {
+            "History:".to_string()
+        };
+        lines.push(Line::from(Span::styled(
+            label,
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.extend(history.into_iter().map(|(spans, _)| Line::from(spans)));
+    }
+    lines.extend(tail);
+
     let info = Paragraph::new(lines);
     frame.render_widget(info, inner_area);
 }
@@ -323,9 +343,6 @@ fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
 
 /// Renders the hints loading popup.
 fn render_hints_loading_popup(frame: &mut Frame) {
-    let area = centered_rect(40, 20, frame.area());
-    frame.render_widget(Clear, area);
-
     let lines = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -340,6 +357,8 @@ fn render_hints_loading_popup(frame: &mut Frame) {
             Style::default().fg(Color::DarkGray),
         )),
     ];
+    let area = popup_area(40, 20, &lines, frame.area());
+    frame.render_widget(Clear, area);
 
     let popup = Paragraph::new(lines)
         .alignment(ratatui::layout::Alignment::Center)
@@ -352,11 +371,11 @@ fn render_hints_loading_popup(frame: &mut Frame) {
     frame.render_widget(popup, area);
 }
 
+const HINTS_WIDTH_PERCENT: u16 = 60;
+
 /// Renders the hints popup.
 fn render_hints_popup(frame: &mut Frame, app: &App) {
-    let area = centered_rect(60, 50, frame.area());
-    frame.render_widget(Clear, area);
-
+    let bounds = frame.area();
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -375,13 +394,34 @@ fn render_hints_popup(frame: &mut Frame, app: &App) {
         Line::from("─".repeat(50)),
     ];
 
-    for (i, hint) in app.hints.iter().enumerate() {
-        let pv_str: String = hint
+    // One row per move: the popup cannot scroll, so when the terminal is too
+    // short the lowest-ranked moves are left out, and a long PV is cut.
+    const FRAME_SIZE: usize = 2;
+    const FOOTER_ROWS: usize = 2;
+    const ROW_PREFIX_WIDTH: usize = 20;
+    let rows = (bounds.height as usize).saturating_sub(lines.len() + FOOTER_ROWS + FRAME_SIZE);
+    let shown = if app.hints.len() > rows {
+        rows.saturating_sub(1)
+    } else {
+        app.hints.len()
+    };
+    let header_width = lines.iter().map(Line::width).max().unwrap_or_default();
+    let pv_width = (bounds.width as usize * HINTS_WIDTH_PERCENT as usize / 100)
+        .max(header_width + FRAME_SIZE)
+        .min(bounds.width as usize)
+        .saturating_sub(FRAME_SIZE + ROW_PREFIX_WIDTH);
+
+    for (i, hint) in app.hints.iter().take(shown).enumerate() {
+        let mut pv_str: String = hint
             .pv_line
             .iter()
             .map(|sq| format!("{sq}"))
             .collect::<Vec<_>>()
             .join(" ");
+        if pv_str.len() > pv_width {
+            pv_str.truncate(pv_width.saturating_sub(1));
+            pv_str.push('…');
+        }
 
         lines.push(Line::from(vec![
             Span::raw(format!("  {:2}  ", i + 1)),
@@ -401,13 +441,22 @@ fn render_hints_popup(frame: &mut Frame, app: &App) {
         ]));
     }
 
+    if shown < app.hints.len() {
+        lines.push(Line::from(Span::styled(
+            format!("  … {} more moves", app.hints.len() - shown),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Press Enter or Esc to close",
         Style::default().fg(Color::DarkGray),
     )));
 
-    let popup = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+    let area = popup_area(HINTS_WIDTH_PERCENT, 50, &lines, bounds);
+    frame.render_widget(Clear, area);
+    let popup = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan))
@@ -452,13 +501,7 @@ fn render_level_dialog(frame: &mut Frame, app: &App) {
         )),
     ];
 
-    let bounds = frame.area();
-    let mut area = centered_rect(40, 20, bounds);
-    let content_width = lines.iter().map(Line::width).max().unwrap_or_default() as u16;
-    area.width = area.width.max(content_width + 2).min(bounds.width);
-    area.height = area.height.max(lines.len() as u16 + 2).min(bounds.height);
-    area.x = bounds.x + (bounds.width - area.width) / 2;
-    area.y = bounds.y + (bounds.height - area.height) / 2;
+    let area = popup_area(40, 20, &lines, frame.area());
     frame.render_widget(Clear, area);
 
     let dialog = Paragraph::new(lines).block(
@@ -472,9 +515,6 @@ fn render_level_dialog(frame: &mut Frame, app: &App) {
 
 /// Renders the mode selection dialog.
 fn render_mode_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(45, 30, frame.area());
-    frame.render_widget(Clear, area);
-
     let mut lines = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -513,6 +553,8 @@ fn render_mode_dialog(frame: &mut Frame, app: &App) {
         "↑↓: Select  Enter: Confirm  Esc: Cancel",
         Style::default().fg(Color::DarkGray),
     )));
+    let area = popup_area(45, 30, &lines, frame.area());
+    frame.render_widget(Clear, area);
 
     let dialog = Paragraph::new(lines).block(
         Block::default()
@@ -525,9 +567,6 @@ fn render_mode_dialog(frame: &mut Frame, app: &App) {
 
 /// Renders the quit confirmation dialog.
 fn render_quit_dialog(frame: &mut Frame) {
-    let area = centered_rect(40, 15, frame.area());
-    frame.render_widget(Clear, area);
-
     let lines = vec![
         Line::from(""),
         Line::from(Span::styled(
@@ -539,6 +578,8 @@ fn render_quit_dialog(frame: &mut Frame) {
         Line::from(""),
         Line::from("Press Y to quit, N to cancel"),
     ];
+    let area = popup_area(40, 15, &lines, frame.area());
+    frame.render_widget(Clear, area);
 
     let dialog = Paragraph::new(lines)
         .alignment(ratatui::layout::Alignment::Center)
@@ -551,28 +592,34 @@ fn render_quit_dialog(frame: &mut Frame) {
     frame.render_widget(dialog, area);
 }
 
-/// Creates a centered rectangle with the given percentage of the parent area.
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let popup_layout = Layout::vertical([
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-    ])
-    .split(area);
-
-    Layout::horizontal([
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-    ])
-    .split(popup_layout[1])[1]
+/// Returns a centered popup area in `bounds` for `lines`: the given
+/// percentage of `bounds`, grown as far as `bounds` allows to show every line.
+fn popup_area(percent_x: u16, percent_y: u16, lines: &[Line], bounds: Rect) -> Rect {
+    let percent_of = |size: u16, percent: u16| size as usize * percent as usize / 100;
+    let content_width = lines.iter().map(Line::width).max().unwrap_or_default();
+    let width = percent_of(bounds.width, percent_x)
+        .max(content_width + 2)
+        .min(bounds.width as usize);
+    // Lines wider than the popup wrap onto further rows.
+    let inner_width = width.saturating_sub(2).max(1);
+    let content_height: usize = lines
+        .iter()
+        .map(|line| line.width().div_ceil(inner_width).max(1))
+        .sum();
+    let height = percent_of(bounds.height, percent_y)
+        .max(content_height + 2)
+        .min(bounds.height as usize);
+    let (width, height) = (width as u16, height as u16);
+    Rect::new(
+        bounds.x + (bounds.width - width) / 2,
+        bounds.y + (bounds.height - height) / 2,
+        width,
+        height,
+    )
 }
 
 /// Renders the board editor dialog.
 fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
-    let area = centered_rect(70, 55, frame.area());
-    frame.render_widget(Clear, area);
-
     let mut lines = vec![Line::from("")];
 
     // Tab bar
@@ -690,6 +737,8 @@ fn render_board_edit_dialog(frame: &mut Frame, app: &App) {
         "Tab: Switch  ←→: Side  Enter: Apply  Esc: Cancel",
         Style::default().fg(Color::DarkGray),
     )));
+    let area = popup_area(70, 55, &lines, frame.area());
+    frame.render_widget(Clear, area);
 
     let dialog = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
         Block::default()
@@ -724,4 +773,97 @@ fn render_side_selector(lines: &mut Vec<Line<'_>>, side: PlayerColor) {
         Span::styled("○ White", white_style),
         Span::raw("  (←→ to toggle)"),
     ]));
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{Terminal, backend::TestBackend};
+    use reversi_core::search::result::{PvMove, SearchResult};
+    use reversi_core::square::Square;
+
+    use super::*;
+    use crate::config::EngineConfig;
+
+    fn app() -> App {
+        App::new(&EngineConfig {
+            hash_size: 1,
+            level: 1,
+            threads: Some(1),
+            eval_file: None,
+            eval_sm_file: None,
+        })
+    }
+
+    /// Draws `app` on a `width` x `height` terminal and returns the screen text.
+    fn screen(app: &App, width: u16, height: u16) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(frame, app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    + "\n"
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_dialog_shows_its_key_help_on_a_small_terminal() {
+        let mut app = app();
+        app.board_edit_tab = BoardEditTab::BoardString;
+        app.board_edit_error = Some("Board string too short".into());
+        for (mode, last_line) in [
+            (UiMode::ConfirmQuit, "Press Y to quit, N to cancel"),
+            (UiMode::ModeSelect, "Enter: Confirm  Esc: Cancel"),
+            (UiMode::LevelSelect, "Enter: Confirm  Esc: Cancel"),
+            (UiMode::HintsLoading, "Press Esc to cancel"),
+            (UiMode::BoardEdit, "Enter: Apply  Esc: Cancel"),
+        ] {
+            app.ui_mode = mode;
+            let screen = screen(&app, 80, 24);
+            assert!(screen.contains(last_line), "{last_line:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn hints_that_do_not_fit_are_counted_and_the_key_help_stays() {
+        let mut app = app();
+        app.ui_mode = UiMode::Hints;
+        app.hints = Square::iter()
+            .take(20)
+            .map(|sq| PvMove {
+                sq,
+                score: Score::ZERO,
+                pv_line: vec![Square::A1; 40],
+            })
+            .collect();
+
+        // 24 rows hold the 7 fixed lines, the frame, 14 hints and the count.
+        let screen = screen(&app, 80, 24);
+        assert!(screen.contains("… 6 more moves"), "{screen}");
+        assert!(screen.contains("Press Enter or Esc to close"), "{screen}");
+        assert!(screen.contains("  14  "), "{screen}");
+        assert!(!screen.contains("  15  "), "{screen}");
+    }
+
+    #[test]
+    fn a_finished_game_shows_the_result_and_status_on_a_small_terminal() {
+        let mut app = app();
+        while !app.game.is_game_over() {
+            match app.game.board().legal_moves().iter().next() {
+                Some(sq) => app.game.make_move(sq).unwrap(),
+                None => app.game.make_pass().unwrap(),
+            }
+        }
+        app.last_ai_result = Some(SearchResult::new_random_move(Square::A1));
+        app.status_message = Some("Game is over!".into());
+
+        let screen = screen(&app, 80, 24);
+        assert!(screen.contains("Nodes:"), "{screen}");
+        assert!(screen.contains("*** Game Over ***"), "{screen}");
+        assert!(screen.contains("Game is over!"), "{screen}");
+        assert!(screen.contains("moves hidden"), "{screen}");
+    }
 }
