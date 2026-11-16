@@ -586,6 +586,9 @@ distributes time across the move.
 - Pure byoyomi allocations are scoped to a single move; unused time
   cannot be banked, so iteration continues until the deadline aborts the
   search.
+- In Japanese byoyomi main time, later moves are covered by byoyomi, so
+  the hard limit is the whole bank plus one byoyomi period, and the budget
+  never falls below that period.
 - After each completed iteration,
   `report_iteration(best_move, score, depth, window_clean)` recomputes the
   optimum time as `base · stability_scale · instability_factor ·
@@ -614,7 +617,7 @@ distributes time across the move.
   continues deepening).
 - A safety buffer derived from `TIME_BUFFER_MS` is subtracted to avoid time
   forfeit (`TIME_BUFFER_MS` for per-move allocations; `TIME_BUFFER_MS` plus
-  half of `TIME_BUFFER_MS` per estimated remaining move in bank modes).
+  half of `TIME_BUFFER_MS` per estimated remaining move in Fischer).
 
 ## Weight files
 

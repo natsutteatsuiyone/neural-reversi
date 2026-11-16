@@ -509,14 +509,21 @@ impl TimeManager {
                 }
             }
 
-            TimeControlMode::JapaneseByo { main_time_ms, .. } => {
-                let hard = Self::calculate_safe_time(main_time_ms, n_empties);
+            // Later moves are covered by byoyomi, so this move may spend the
+            // whole bank plus one byoyomi period, and never plans less than
+            // the period alone would give it.
+            TimeControlMode::JapaneseByo {
+                main_time_ms,
+                time_per_move_ms,
+            } => {
+                let byoyomi = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
+                let hard = main_time_ms.saturating_add(byoyomi);
                 let base = if is_endgame {
                     endgame_bank_budget(hard)
                 } else {
                     Self::allocate_budget(main_time_ms, 0, n_empties)
                 };
-                let base = base.min(hard);
+                let base = base.max(byoyomi).min(hard);
                 Allocation {
                     base_ms: base,
                     optimum_ms: base,
@@ -963,6 +970,25 @@ mod tests {
 
         assert_eq!(time_limits(&tm), time_limits(&byoyomi));
         assert!(!tm.uses_continuous_scaling());
+    }
+
+    #[test]
+    fn japanese_byo_low_main_time_still_spends_the_byoyomi_period() {
+        for main_time_ms in [0, 300, 1_000] {
+            for endgame in [false, true] {
+                let tm = make_japanese_byo_tm(main_time_ms, 10_000, 40);
+                tm.set_endgame_mode(endgame);
+                let (_, maxi, hard) = time_limits(&tm);
+                assert!(
+                    maxi >= 9_000,
+                    "main={main_time_ms} endgame={endgame}: deadline {maxi}ms wastes the 10s byoyomi"
+                );
+                assert!(
+                    hard < main_time_ms + 10_000,
+                    "main={main_time_ms} endgame={endgame}: hard limit {hard}ms overruns the clock"
+                );
+            }
+        }
     }
 
     #[test]
