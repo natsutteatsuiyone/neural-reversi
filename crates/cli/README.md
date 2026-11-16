@@ -217,7 +217,7 @@ cli show-licenses
 
 The CLI bundle is generated from the workspace-level `about.toml` +
 `about.hbs` by [cargo-about](https://github.com/EmbarkStudios/cargo-about).
-The native GPUI bundle is generated from the same configuration without
+The native NSH GUI bundle is generated from the same configuration without
 JavaScript dependencies. Regenerate both bundles after changing dependencies with:
 
 ```bash

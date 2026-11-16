@@ -11,7 +11,7 @@ This is an experimental project to develop a highly accurate neural network eval
 
 - Neural network-based position evaluation
 - High-performance multi-threaded search
-- Supports CLI, a native desktop GUI (GPUI), and WebAssembly
+- Supports CLI, a native desktop GUI (NSH), and WebAssembly
 
 ## Benchmarks (v6.3.0)
 
@@ -48,7 +48,7 @@ This is an experimental project to develop a highly accurate neural network eval
 - [Rust](https://www.rust-lang.org/tools/install)
 - [cargo-make](https://github.com/sagiegurari/cargo-make) (recommended)
 - [Bun](https://bun.sh/) (Web development only)
-- Desktop GUI: native platform build tools and graphics drivers; see the [GUI prerequisites](crates/gui/README.md#prerequisites). Linux requires X11/Wayland, Fontconfig, and Vulkan development/runtime libraries.
+- Desktop GUI: native platform build tools and graphics drivers; see the [GUI prerequisites](crates/gui/README.md#prerequisites). Linux requires an X11 or Wayland session, GTK 4.14 or later, and GStreamer development/runtime libraries.
 
 ### Setup
 
@@ -70,7 +70,7 @@ This is an experimental project to develop a highly accurate neural network eval
    ```
 
    ```bash
-   cargo run -p gui --release    # Launch the native GPUI desktop application
+   cargo run -p gui --release    # Launch the native NSH desktop application
    ```
 
    ```bash
@@ -95,7 +95,7 @@ allows `madvise` requests.
 
 - **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
 - **[cli](crates/cli/)**: Command-line interface for playing Reversi.
-- **[gui](crates/gui/)**: Native Rust graphical user interface built with GPUI, calling `reversi-core` directly.
+- **[gui](crates/gui/)**: Native Rust graphical user interface built with NSH, calling `reversi-core` directly.
 - **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
 - **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games and feature extraction.
