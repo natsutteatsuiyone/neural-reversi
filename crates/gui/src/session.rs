@@ -73,6 +73,8 @@ pub struct Session {
     run_id: u64,
     remaining_ms: u64,
     started: Option<Instant>,
+    /// The running clock's second as of the last [`Self::tick`].
+    displayed_second: Option<u64>,
     automatic_after: Option<Instant>,
     candidates: Vec<Progress>,
     /// Whether the search behind `candidates` ran to completion.
@@ -96,6 +98,7 @@ impl Session {
             run_id: 0,
             remaining_ms: settings.game_time_limit * 1000,
             started: None,
+            displayed_second: None,
             automatic_after: None,
             candidates: Vec::new(),
             candidates_complete: false,
@@ -205,8 +208,18 @@ impl Session {
     /// Handles engine events and automation due at `now`; returns whether
     /// anything visible may have changed.
     pub fn tick(&mut self, settings: &Settings, now: Instant) -> bool {
-        let mut changed = (self.activity == Some(Activity::Move) && settings.timed)
-            || self.activity == Some(Activity::Solver);
+        let elapsed = self.started.map_or(Duration::ZERO, |started| {
+            now.saturating_duration_since(started)
+        });
+        let second = match self.activity {
+            Some(Activity::Move) if settings.timed => {
+                Some(self.remaining_ms.saturating_sub(elapsed.as_millis() as u64) / 1000)
+            }
+            Some(Activity::Solver) => Some(elapsed.as_secs()),
+            _ => None,
+        };
+        let mut changed = second.is_some() && second != self.displayed_second;
+        self.displayed_second = second;
         if self.automatic_after.is_some_and(|after| now >= after) {
             self.automatic_after = None;
             self.automate(settings);
@@ -1026,5 +1039,34 @@ mod tests {
         session.navigate(2, &settings);
         assert_eq!(session.game().history.len(), 2);
         assert!(session.is_paused());
+    }
+
+    #[test]
+    fn tick_reports_running_clocks_only_when_their_displayed_second_changes() {
+        let settings = Settings {
+            game_mode: GameMode::Human,
+            hash_size: 16,
+            timed: true,
+            ..Settings::default()
+        };
+        let mut session = Session::new(&settings);
+        run_until(&mut session, &settings, Session::is_ready);
+
+        let started = Instant::now();
+        let at = |ms| started + Duration::from_millis(ms);
+        session.activity = Some(Activity::Move);
+        session.remaining_ms = 10_000;
+        session.started = Some(started);
+        assert!(session.tick(&settings, at(0)));
+        assert!(session.tick(&settings, at(1)));
+        assert!(!session.tick(&settings, at(50)));
+        assert!(!session.tick(&settings, at(1_000)));
+        assert!(session.tick(&settings, at(1_001)));
+
+        session.activity = Some(Activity::Solver);
+        assert!(session.tick(&settings, at(1_100)));
+        assert!(!session.tick(&settings, at(1_900)));
+        assert!(session.tick(&settings, at(2_000)));
+        assert!(!session.tick(&settings, at(2_200)));
     }
 }
