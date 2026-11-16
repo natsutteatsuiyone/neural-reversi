@@ -138,7 +138,20 @@ impl CompletedState {
                 it.is_endgame,
                 ctx.counters(),
             ),
-            None => tt_move(board, ctx.tt).unwrap_or_else(|| quick_move(board, ctx.eval)),
+            None => {
+                let mut result =
+                    tt_move(board, ctx.tt).unwrap_or_else(|| quick_move(board, ctx.eval));
+                if let SearchResult::BestMove {
+                    n_nodes, counters, ..
+                } = &mut result
+                {
+                    let mut searched = ctx.counters();
+                    searched.n_nodes += *n_nodes;
+                    *n_nodes = searched.n_nodes;
+                    *counters = searched;
+                }
+                result
+            }
         }
     }
 }
@@ -387,6 +400,37 @@ mod tests {
         ctx.tt.clear();
         let result = CompletedState::new(1).into_result(&ctx, &board);
         assert_eq!(result.best_move(), Some(quick));
+    }
+
+    #[test]
+    fn without_a_completed_iteration_the_searched_nodes_are_still_reported() {
+        let board = Board::new();
+        let res = TestResources::new(&board);
+        let mut ctx = res.context(&board);
+        ctx.n_nodes = 1_000;
+        let quick_nodes = quick_move(&board, ctx.eval).n_nodes();
+
+        let result = CompletedState::new(1).into_result(&ctx, &board);
+        assert_eq!(result.n_nodes(), 1_000 + quick_nodes);
+
+        let probe = ctx.tt.probe(&board, board.hash());
+        ctx.tt.store(
+            probe.slot(),
+            &board,
+            Score::ZERO,
+            Bound::Exact,
+            20,
+            board.legal_moves().iter().next(),
+            Selectivity::None,
+            false,
+            false,
+        );
+        let result = CompletedState::new(1).into_result(&ctx, &board);
+        assert_eq!(result.n_nodes(), 1_000);
+        let SearchResult::BestMove { counters, .. } = result else {
+            panic!("the start position has legal moves");
+        };
+        assert_eq!(counters.n_nodes, 1_000);
     }
 
     #[test]
