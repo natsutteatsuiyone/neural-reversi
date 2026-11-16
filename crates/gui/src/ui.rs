@@ -170,6 +170,7 @@ impl Ui {
         let locale_revision = signal(0);
         provide_context(LocaleRevision(locale_revision));
         let settings_writable = load_error.is_none();
+        // The user always plays Black at startup.
         if settings.game_mode == GameMode::AiBlack {
             settings.game_mode = GameMode::AiWhite;
         }

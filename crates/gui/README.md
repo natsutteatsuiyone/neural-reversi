@@ -89,7 +89,7 @@ Settings are saved to `neural-reversi/native-settings.json` beneath the user's a
 - Linux: `$XDG_DATA_HOME/neural-reversi/native-settings.json`, or `~/.local/share/neural-reversi/native-settings.json` when unset.
 - macOS: `~/Library/Application Support/neural-reversi/native-settings.json`.
 
-Saved preferences include game mode (AI-as-Black currently launches as AI-as-White), AI level or time limit, hint/analysis levels, hash size, analysis visibility, language, solver mode/selectivity, and panel sizes. Settings are not a saved-game file. On first load, the native application imports the neighboring legacy `settings.json` when available (including the former versioned frontend settings envelope), leaving that file untouched. Invalid settings or filesystem errors are surfaced by the application rather than silently discarding preferences. The automatic language setting uses the OS locale.
+Saved preferences include game mode (the user always plays Black at startup, so a saved AI-as-Black mode starts as AI-as-White), AI level or time limit, hint/analysis levels, hash size, analysis visibility, language, solver mode/selectivity, and panel sizes. Settings are not a saved-game file. On first load, the native application imports the neighboring legacy `settings.json` when available (including the former versioned frontend settings envelope), leaving that file untouched. Invalid settings or filesystem errors are surfaced by the application rather than silently discarding preferences. The automatic language setting uses the OS locale.
 
 ## Distribution and platform notes
 
