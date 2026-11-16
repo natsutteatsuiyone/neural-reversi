@@ -54,6 +54,12 @@ impl Game {
     }
 
     pub fn reset(&mut self, human_is_black: bool) {
+        self.search.init();
+        self.set_players(human_is_black);
+    }
+
+    /// Resets the board like [`Self::reset`] but keeps the transposition table.
+    pub fn reset_board(&mut self, human_is_black: bool) {
         self.set_players(human_is_black);
     }
 
@@ -205,7 +211,6 @@ impl Game {
 
 impl Game {
     fn set_players(&mut self, human_is_black: bool) {
-        self.search.init();
         self.human_player = if human_is_black {
             PlayerColor::Black
         } else {
@@ -445,6 +450,29 @@ mod tests {
         }
         assert_eq!(game.board(), board_before);
         assert_eq!(game.legal_moves(), legal);
+    }
+
+    #[test]
+    fn reset_board_keeps_the_transposition_table_for_the_next_hint() {
+        fn replay_and_search(game: &mut Game) -> u64 {
+            for square in [Square::F5, Square::F6, Square::E6] {
+                assert!(game.make_move_unchecked(square.index() as u8));
+            }
+            let level = level_for_position(game.mid_depth);
+            game.search
+                .run(&game.board, level, MIDGAME_SELECTIVITY, None, true)
+                .n_nodes
+        }
+
+        let mut game = Game::new(false);
+        game.set_level(6);
+        let cold = replay_and_search(&mut game);
+
+        game.reset(false);
+        assert_eq!(replay_and_search(&mut game), cold);
+
+        game.reset_board(false);
+        assert!(replay_and_search(&mut game) < cold);
     }
 
     #[test]
