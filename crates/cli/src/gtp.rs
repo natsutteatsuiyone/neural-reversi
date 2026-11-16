@@ -432,6 +432,7 @@ impl GtpEngine {
     /// Resets the game to the initial position and reinitializes the search engine.
     fn handle_clear_board(&mut self) -> GtpResponse {
         self.game = GameState::new();
+        self.clocks = [None; 2];
         self.search.init();
         GtpResponse::Success("".to_string())
     }
@@ -1147,6 +1148,29 @@ mod tests {
             TimeControlMode::JapaneseByo {
                 main_time_ms: 0,
                 time_per_move_ms: 4_000,
+            }
+        );
+    }
+
+    #[test]
+    fn clear_board_and_setboard_reset_player_clocks() {
+        let mut engine = test_engine();
+        assert_eq!(exec_line(&mut engine, "time_settings 60 5 0"), "= \n\n");
+        assert_eq!(exec_line(&mut engine, "time_left b 12 0"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 12_000,
+                increment_ms: 5_000,
+            }
+        );
+
+        assert_eq!(exec_line(&mut engine, "clear_board"), "= \n\n");
+        assert_eq!(
+            engine.current_time_control(),
+            TimeControlMode::Fischer {
+                main_time_ms: 60_000,
+                increment_ms: 5_000,
             }
         );
     }
