@@ -2,7 +2,8 @@
 //!
 //! `new` initializes asynchronously and reports `Ready` with id 0.
 //! Every submission and cancellation supersedes earlier generations. Cancelled
-//! jobs have no terminal event; `try_recv` also discards already-queued stale
+//! jobs have no terminal event, though a cancelled Initialize is still applied
+//! before later jobs; `try_recv` also discards already-queued stale
 //! events. Callers should retain the returned id when associating events with UI
 //! state. Initialize completes with `Ready`; all search requests complete with
 //! `Finished`. Dropping the handle cancels without joining engine threads.
@@ -213,9 +214,7 @@ fn worker(
         stop: StopToken::new(),
     };
     loop {
-        // Initial construction is required even if a request arrived before the
-        // worker started. Later obsolete jobs can be skipped without searching.
-        if job.id == 0 || is_current(&generation, job.id) {
+        if should_execute(&job, &generation) {
             let active_id = job.id;
             match execute(job, &mut search, &events, &generation) {
                 Ok((id, kind)) => emit(&events, &generation, id, kind),
@@ -231,6 +230,13 @@ fn worker(
             Err(_) => return,
         }
     }
+}
+
+/// Obsolete searches are skipped, but Initialize always runs: it builds the
+/// engine or applies a new hash size, which later jobs and the saved settings
+/// rely on even after a newer request superseded it.
+fn should_execute(job: &Job, generation: &AtomicU64) -> bool {
+    matches!(job.request, Request::Initialize { .. }) || is_current(generation, job.id)
 }
 
 fn execute(
@@ -378,6 +384,28 @@ mod tests {
     use reversi_core::level::MAX_LEVEL;
 
     use super::*;
+
+    #[test]
+    fn superseded_initialize_still_runs_but_superseded_search_does_not() {
+        let generation = AtomicU64::new(2);
+        let job = |request| Job {
+            id: 1,
+            request,
+            stop: StopToken::new(),
+        };
+        assert!(should_execute(
+            &job(Request::Initialize { hash_size: 2 }),
+            &generation
+        ));
+        assert!(!should_execute(
+            &job(Request::Move {
+                board: Board::new(),
+                level: 1,
+                remaining_ms: None,
+            }),
+            &generation
+        ));
+    }
 
     #[test]
     fn stop_before_the_worker_reaches_the_job_still_ends_its_search() {
