@@ -120,12 +120,26 @@ impl<W: Write> EndgameTraceCsvWriter<W> {
 
 /// The positions of one game whose empty count is in a given range.
 ///
-/// Each entry holds the board, the side to move, the move played, and the
-/// game's final result from the side to move. The result is the exact score
-/// only if the game is played perfectly from that position on.
+/// Each entry holds the board, the side to move, and the move played.
 struct GamePositions {
     game: usize,
-    positions: Vec<(Board, PlayerColor, Square, i32)>,
+    positions: Vec<(Board, PlayerColor, Square)>,
+    /// The final disc difference from Black's side, or `None` if the record
+    /// stops before the game is over (a resignation, a time loss, a cut line).
+    result: Option<i32>,
+}
+
+impl GamePositions {
+    /// Returns the game's result from `side`, if the game was played out.
+    ///
+    /// It is the exact score of a position only if the game is played
+    /// perfectly from that position on.
+    fn result_for(&self, side: PlayerColor) -> Option<i32> {
+        self.result.map(|black| match side {
+            PlayerColor::Black => black,
+            PlayerColor::White => -black,
+        })
+    }
 }
 
 fn trace_header() -> String {
@@ -140,18 +154,23 @@ fn read_games(input: &Path, empties: RangeInclusive<u32>) -> anyhow::Result<Vec<
         let mut positions = Vec::new();
         let (final_board, final_side) = replay(moves, |board, side, sq| {
             if empties.contains(&board.empty_count()) {
-                positions.push((*board, side, sq, 0));
+                positions.push((*board, side, sq));
             }
         })?;
-        let final_score = final_board.solve_disc_diff(final_board.empty_count());
-        for (_, side, _, result) in &mut positions {
-            *result = if *side == final_side {
-                final_score.value()
-            } else {
-                -final_score.value()
-            };
-        }
-        games.push(GamePositions { game, positions });
+        let result = final_board.is_game_over().then(|| {
+            let score = final_board
+                .solve_disc_diff(final_board.empty_count())
+                .value();
+            match final_side {
+                PlayerColor::Black => score,
+                PlayerColor::White => -score,
+            }
+        });
+        games.push(GamePositions {
+            game,
+            positions,
+            result,
+        });
         Ok(())
     })?;
     Ok(games)
@@ -166,7 +185,7 @@ fn pick_roots(
     games: &[GamePositions],
     empties: RangeInclusive<u32>,
     fit_folds: bool,
-) -> impl Iterator<Item = (usize, &(Board, PlayerColor, Square, i32))> {
+) -> impl Iterator<Item = (&GamePositions, &(Board, PlayerColor, Square))> {
     let span = empties.end() - empties.start() + 1;
     games
         .iter()
@@ -177,13 +196,14 @@ fn pick_roots(
                 .positions
                 .iter()
                 .find(|(board, ..)| board.empty_count() == target)?;
-            Some((g.game, position))
+            Some((g, position))
         })
 }
 
 /// Writes one position per game (see `pick_roots`) as an OBF line, scored
 /// with the game's move and result, for evaltest's per-level report.
 ///
+/// Games whose record stops before the end have no result and are left out.
 /// The score is exact only if the game is played perfectly from the position
 /// on. Otherwise, run evaltest with `--solve-reference`.
 pub(crate) fn export_holdout(
@@ -198,7 +218,13 @@ pub(crate) fn export_holdout(
         .with_context(|| format!("failed to create output file '{}'", output.display()))?;
     let mut writer = BufWriter::new(file);
     let mut written = 0;
-    for (_, (board, side, sq, result)) in pick_roots(&games, empties, fit_folds).take(count) {
+    let mut unfinished = 0;
+    let roots = pick_roots(&games, empties, fit_folds).filter_map(|(game, position)| {
+        let result = game.result_for(position.1);
+        unfinished += usize::from(result.is_none());
+        Some((position, result?))
+    });
+    for ((board, side, sq), result) in roots.take(count) {
         let cells: String = Square::iter()
             .map(|cell| board.disc_at(cell, *side).to_char())
             .collect();
@@ -207,6 +233,9 @@ pub(crate) fn export_holdout(
     }
     writer.flush()?;
     eprintln!("Wrote {written} held-out positions to {}", output.display());
+    if unfinished > 0 {
+        eprintln!("Skipped {unfinished} games that stop before the end and so have no result");
+    }
     Ok(())
 }
 
@@ -357,7 +386,7 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
     let games = read_games(input, options.root_empties.clone())?;
     let root_boards: Vec<(usize, Board)> =
         pick_roots(&games, options.root_empties.clone(), options.fit_folds)
-            .map(|(game, (board, ..))| (game, *board))
+            .map(|(game, (board, ..))| (game.game, *board))
             .take(options.roots)
             .collect();
 
@@ -596,6 +625,58 @@ mod tests {
                 .to_string()
                 .contains("expected 10 columns")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn holdout_leaves_out_games_that_stop_before_the_end() -> anyhow::Result<()> {
+        let mut game = reversi_core::game_state::GameState::new();
+        let mut moves = Vec::new();
+        while !game.is_game_over() {
+            match game.board().legal_moves().iter().next() {
+                Some(sq) => {
+                    moves.push(sq);
+                    game.make_move(sq).unwrap();
+                }
+                None => game.make_pass().unwrap(),
+            }
+        }
+        let (black, white) = game.score();
+        let result = black as i32 - white as i32;
+        assert_eq!(
+            game.board().empty_count(),
+            0,
+            "the fixture game fills the board"
+        );
+        let line = |moves: &[Square]| moves.iter().map(|sq| format!("{sq}")).collect::<String>();
+
+        // Games 1 to 8 are all in the fitting folds.
+        let export = |moves: &[Square]| -> anyhow::Result<String> {
+            let games = TempFile::new("holdout-games");
+            let obf = TempFile::new("holdout-obf");
+            fs::write(
+                games.path(),
+                format!(
+                    "{}
+",
+                    line(moves)
+                )
+                .repeat(8),
+            )?;
+            export_holdout(games.path(), obf.path(), 400, 20..=26, true)?;
+            Ok(fs::read_to_string(obf.path())?)
+        };
+
+        let finished = export(&moves)?;
+        assert_eq!(finished.lines().count(), 8);
+        for position in finished.lines() {
+            let black_to_move = position.contains(" X; ");
+            let expected = if black_to_move { result } else { -result };
+            assert!(position.ends_with(&format!(":{expected:+};")), "{position}");
+        }
+
+        // The record stops with 10 empties, after the exported positions.
+        assert_eq!(export(&moves[..50])?, "");
         Ok(())
     }
 }

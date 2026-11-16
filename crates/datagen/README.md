@@ -166,6 +166,8 @@ change, until the models are refitted.
     (default: 400), `--min-empties <N>` (default: 20), `--max-empties <N>`
     (default: 26), and `--fit-folds` (draw from the fitting folds instead of
     fold 4).
+  - Games whose record stops before the end (a resignation, a time loss) have
+    no result and are left out; their number is printed to stderr.
   - The score is exact only for endgame-corrected games; otherwise run
     `evaltest` with `--solve-reference`.
 
