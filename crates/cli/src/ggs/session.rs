@@ -557,6 +557,8 @@ impl Session {
     /// Policy:
     /// * If the offer is our own outgoing ask echoed back, do NOT self-accept
     ///   (the server rejects self-accepts anyway; see `EXE_Service::accept`).
+    ///   Cancel it when its game or clock is unsupported or every match slot
+    ///   is reserved, since the match it would start must be resigned.
     /// * Only offers addressed to us are accepted; global `*` and third-party
     ///   offers are ignored.
     /// * Unsupported direct offers are declined.
@@ -582,22 +584,26 @@ impl Session {
             self.pending_accepts.swap_remove(index);
         }
         if from == self.my_username.as_str() {
-            if !is_supported_ask_clock(&clock) {
-                return vec![
+            let cancel = |reason| {
+                vec![
                     SessionAction::Send(format!("tell /os cancel {id}")),
-                    SessionAction::Log(format!("cancelling offer {id}; unsupported clock {clock}")),
-                ];
+                    SessionAction::Log(format!("cancelling offer {id}; {reason}")),
+                ]
+            };
+            if !is_supported_ask_game(&game_type) {
+                return cancel(format!("unsupported game {game_type} {mode}"));
             }
-            if is_supported_ask_game(&game_type)
-                && !self.pending_accepts.iter().any(|pending| pending.id == id)
-                && self.reserved_match_slots() < self.max_matches
-            {
-                self.pending_accepts.push(PendingAccept::new(
-                    id,
-                    (to != "*").then_some(to),
-                    game_type,
-                ));
+            if !is_supported_ask_clock(&clock) {
+                return cancel(format!("unsupported clock {clock}"));
             }
+            if self.pending_accepts.iter().any(|pending| pending.id == id) {
+                return Vec::new();
+            }
+            if self.reserved_match_slots() >= self.max_matches {
+                return cancel(format!("maximum {} matches reached", self.max_matches));
+            }
+            self.pending_accepts
+                .push(PendingAccept::new(id, (to != "*").then_some(to), game_type));
             return Vec::new();
         }
         if to != self.my_username {
@@ -2855,6 +2861,26 @@ mod tests {
             "bob",
             "01:00,N0//02:00",
         ));
+        assert_eq!(actions[0], send("tell /os cancel .8"));
+    }
+
+    #[test]
+    fn own_unsupported_game_offer_is_cancelled() {
+        let mut s = new_session();
+        let actions = s.on_event(ask_offer_with_game(".8", "alice", "bob", "8k", "U"));
+        assert_eq!(actions[0], send("tell /os cancel .8"));
+    }
+
+    #[test]
+    fn own_offer_beyond_max_matches_is_cancelled() {
+        let mut s = session_with_max(1);
+        assert_eq!(s.on_event(ask_offer(".7", "alice", "bob")), Vec::new());
+        assert_eq!(
+            s.on_event(ask_offer(".7", "alice", "bob")),
+            Vec::new(),
+            "a repeated offer keeps its own reservation"
+        );
+        let actions = s.on_event(ask_offer(".8", "alice", "carol"));
         assert_eq!(actions[0], send("tell /os cancel .8"));
     }
 
