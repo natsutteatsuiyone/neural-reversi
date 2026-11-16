@@ -17,17 +17,19 @@ use super::widgets::BoardWidget;
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
+    let help = help_lines(app, area.width.saturating_sub(2) as usize);
+
     // Main layout: title, content, help bar
     let main_layout = Layout::vertical([
-        Constraint::Length(3), // Title
-        Constraint::Min(20),   // Content
-        Constraint::Length(3), // Help bar
+        Constraint::Length(3),                     // Title
+        Constraint::Min(20),                       // Content
+        Constraint::Length(help.len() as u16 + 2), // Help bar
     ])
     .split(area);
 
     render_title(frame, main_layout[0]);
     render_content(frame, main_layout[1], app);
-    render_help_bar(frame, main_layout[2], app);
+    render_help_bar(frame, main_layout[2], help);
 
     // Render overlays based on UI mode
     match app.ui_mode {
@@ -302,12 +304,15 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(info, inner_area);
 }
 
-/// Renders the help bar at the bottom.
-fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
-    let help_items = if app.ai_thinking() {
-        vec![("", "AI is thinking...")]
+/// Returns the help bar text laid out for `width` columns.
+///
+/// The keys are spaced out when they fit on one row. Otherwise they are packed
+/// closer and continue on further rows, so that no key is cut off.
+fn help_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+    let help_items: &[(&str, &str)] = if app.ai_thinking() {
+        &[("", "AI is thinking...")]
     } else {
-        vec![
+        &[
             ("Enter", "Move"),
             ("U", "Undo"),
             ("N", "New"),
@@ -320,20 +325,44 @@ fn render_help_bar(frame: &mut Frame, area: Rect, app: &App) {
         ]
     };
 
-    let spans: Vec<Span> = help_items
-        .iter()
-        .flat_map(|(key, desc)| {
-            vec![
-                Span::styled(
-                    format!(" [{key}] "),
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
-                ),
-                Span::raw(format!("{desc} ")),
-            ]
-        })
-        .collect();
+    let key_style = Style::default().fg(Color::Black).bg(Color::Cyan);
+    let items = |spaced: bool| -> Vec<[Span<'static>; 2]> {
+        help_items
+            .iter()
+            .map(|(key, desc)| {
+                let key = if spaced {
+                    format!(" [{key}] ")
+                } else {
+                    format!("[{key}]")
+                };
+                [Span::styled(key, key_style), Span::raw(format!("{desc} "))]
+            })
+            .collect()
+    };
+    let item_width = |item: &[Span; 2]| item[0].width() + item[1].width();
 
-    let help = Paragraph::new(Line::from(spans)).block(
+    let spaced = items(true);
+    if spaced.iter().map(item_width).sum::<usize>() <= width {
+        return vec![Line::from(spaced.into_flattened())];
+    }
+
+    let mut rows: Vec<Vec<Span>> = vec![Vec::new()];
+    let mut row_width = 0;
+    for item in items(false) {
+        let item_width = item_width(&item);
+        if row_width > 0 && row_width + item_width > width {
+            rows.push(Vec::new());
+            row_width = 0;
+        }
+        row_width += item_width;
+        rows.last_mut().expect("rows is never empty").extend(item);
+    }
+    rows.into_iter().map(Line::from).collect()
+}
+
+/// Renders the help bar at the bottom.
+fn render_help_bar(frame: &mut Frame, area: Rect, lines: Vec<Line>) {
+    let help = Paragraph::new(lines).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray)),
@@ -824,6 +853,37 @@ mod tests {
             app.ui_mode = mode;
             let screen = screen(&app, 80, 24);
             assert!(screen.contains(last_line), "{last_line:?} in\n{screen}");
+        }
+    }
+
+    #[test]
+    fn the_help_bar_shows_every_key_on_narrow_terminals() {
+        let app = app();
+        for (width, rows) in [(100, 1), (80, 1), (64, 2)] {
+            let screen = screen(&app, width, 30);
+            for key in ["[Enter]", "[U]", "[N]", "[I]", "[G]", "[M]", "[V]", "[E]"] {
+                assert!(
+                    screen.contains(key),
+                    "{key} at {width} columns
+{screen}"
+                );
+            }
+            assert!(
+                screen.contains("Quit"),
+                "{width} columns
+{screen}"
+            );
+            let help_rows = screen
+                .lines()
+                .rev()
+                .skip(1)
+                .take_while(|l| l.starts_with('│'));
+            assert_eq!(
+                help_rows.count(),
+                rows,
+                "{width} columns
+{screen}"
+            );
         }
     }
 
