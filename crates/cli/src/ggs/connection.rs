@@ -7,7 +7,7 @@
 //! [`crate::ggs::protocol::parse_server_messages`] consumes.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
@@ -30,7 +30,7 @@ pub enum Event {
     Log(String),
     /// A search or ponder worker acquired the engine and started searching.
     SearchStarted { game_id: String, search_id: u64 },
-    /// Reading interactive input failed.
+    /// Reading terminal input failed in the interactive frontend.
     InputFailed(String),
     /// A search for `game_id` ended: the move it chose (`None` means no legal
     /// move — a pass), or why it produced no move.
@@ -70,29 +70,15 @@ impl Connection {
 
         let (tx, rx) = mpsc::channel::<Event>();
 
-        // Socket reader thread.
         let socket_tx = tx.clone();
         thread::spawn(move || {
-            // GGS relays tells byte-for-byte, so lines are not guaranteed UTF-8.
             let reader = BufReader::new(reader_stream);
-            for line in reader.split(b'\n') {
-                match line {
-                    Ok(bytes) => {
-                        let mut line = String::from_utf8_lossy(&bytes).into_owned();
-                        if line.ends_with('\r') {
-                            line.pop();
-                        }
-                        if socket_tx.send(Event::Server(line)).is_err() {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        let _ = socket_tx.send(Event::SocketReadFailed(error.to_string()));
-                        return;
-                    }
-                }
-            }
-            let _ = socket_tx.send(Event::SocketClosed);
+            let event =
+                match forward_lines(reader, |line| socket_tx.send(Event::Server(line)).is_ok()) {
+                    Ok(()) => Event::SocketClosed,
+                    Err(error) => Event::SocketReadFailed(error.to_string()),
+                };
+            let _ = socket_tx.send(event);
         });
 
         Ok((
@@ -167,6 +153,29 @@ impl Connection {
 }
 
 /// Whether a server line terminates the current response block.
+/// Passes each `\n`-terminated line to `forward` until EOF, a read error, or
+/// `forward` returns `false`.
+///
+/// Lines are decoded lossily and lose a trailing `\r`: GGS relays tells
+/// byte-for-byte and piped input may use any encoding, so neither the server
+/// nor stdin is guaranteed to send UTF-8, and one undecodable line must not
+/// end the session.
+pub(super) fn forward_lines(
+    reader: impl BufRead,
+    mut forward: impl FnMut(String) -> bool,
+) -> io::Result<()> {
+    for line in reader.split(b'\n') {
+        let mut line = String::from_utf8_lossy(&line?).into_owned();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+        if !forward(line) {
+            break;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn is_message_boundary(line: &str) -> bool {
     matches!(line.trim(), "READY" | "ALERT")
 }
@@ -213,6 +222,35 @@ impl LineAccumulator {
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    fn read_all(bytes: &[u8]) -> Vec<String> {
+        let mut lines = Vec::new();
+        forward_lines(bytes, |line| {
+            lines.push(line);
+            true
+        })
+        .unwrap();
+        lines
+    }
+
+    #[test]
+    fn lines_survive_invalid_utf8_and_crlf() {
+        assert_eq!(
+            read_all(b"before\r\n\xff\xfe bad\nafter"),
+            ["before", "\u{fffd}\u{fffd} bad", "after"]
+        );
+    }
+
+    #[test]
+    fn forwarding_stops_when_the_receiver_is_gone() {
+        let mut seen = 0;
+        forward_lines(&b"one\ntwo\nthree\n"[..], |_| {
+            seen += 1;
+            false
+        })
+        .unwrap();
+        assert_eq!(seen, 1);
+    }
 
     #[test]
     fn multiple_chunks_are_independent() {

@@ -1,6 +1,6 @@
 use std::cell::Cell;
 use std::collections::{BTreeMap, VecDeque};
-use std::io::{self, BufRead, IsTerminal};
+use std::io::{self, IsTerminal};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -20,7 +20,7 @@ use ratatui::widgets::{
 };
 use ratatui::{DefaultTerminal, Frame};
 
-use super::connection::Event;
+use super::connection::{Event, forward_lines};
 use reversi_core::player_color::PlayerColor;
 use reversi_core::score::Score;
 use reversi_core::square::Square;
@@ -50,18 +50,15 @@ impl Frontend {
             thread::Builder::new()
                 .name("ggs-stdin".into())
                 .spawn(move || {
-                    for line in io::stdin().lock().lines() {
-                        match line {
-                            Ok(line) => {
-                                if tx.send(Event::Stdin(line)).is_err() {
-                                    break;
-                                }
-                            }
-                            Err(error) => {
-                                let _ = tx.send(Event::InputFailed(error.to_string()));
-                                break;
-                            }
-                        }
+                    let read = forward_lines(io::stdin().lock(), |line| {
+                        tx.send(Event::Stdin(line)).is_ok()
+                    });
+                    // Like EOF, a broken stdin only ends command input; the
+                    // engine keeps playing its games.
+                    if let Err(error) = read {
+                        let _ = tx.send(Event::Log(format!(
+                            "stdin read failed: {error}; no further commands are read"
+                        )));
                     }
                 })
                 .map_err(|e| format!("failed to start stdin reader: {e}"))?;
