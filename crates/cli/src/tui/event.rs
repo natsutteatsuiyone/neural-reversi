@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crossterm::event::{
-    self, Event as CrosstermEvent, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind,
+    self, Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind,
 };
 
 /// Application events.
@@ -92,24 +92,31 @@ pub fn poll_event(timeout: Duration, text_input: bool) -> std::io::Result<Option
 
     match event::read()? {
         CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
-            // Check for Shift+Tab (BackTab key code)
-            if matches!(key.code, KeyCode::BackTab) {
-                return Ok(Some(Event::BackTab));
-            }
-            // Check for Ctrl+C
-            if key.modifiers.contains(KeyModifiers::CONTROL)
-                && matches!(key.code, KeyCode::Char('c'))
-            {
-                return Ok(Some(Event::ForceQuit));
-            }
-            if text_input {
-                Ok(Some(map_key_event_text_input(key.code)))
-            } else {
-                Ok(Some(map_key_event(key.code)))
-            }
+            Ok(map_crossterm_key(key, text_input))
         }
         CrosstermEvent::Mouse(mouse) => Ok(map_mouse_event(mouse)),
         _ => Ok(None),
+    }
+}
+
+fn map_crossterm_key(key: KeyEvent, text_input: bool) -> Option<Event> {
+    if matches!(key.code, KeyCode::BackTab) {
+        return Some(Event::BackTab);
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c' | 'C'))
+    {
+        return Some(Event::ForceQuit);
+    }
+    if key
+        .modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
+        return None;
+    }
+    if text_input {
+        Some(map_key_event_text_input(key.code))
+    } else {
+        Some(map_key_event(key.code))
     }
 }
 
@@ -207,5 +214,35 @@ fn map_mouse_event(mouse: crossterm::event::MouseEvent) -> Option<Event> {
             None
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn modified_letters_do_not_trigger_plain_key_commands() {
+        let key = |c, modifiers| KeyEvent::new(KeyCode::Char(c), modifiers);
+
+        for text_input in [false, true] {
+            assert!(map_crossterm_key(key('n', KeyModifiers::CONTROL), text_input).is_none());
+            assert!(map_crossterm_key(key('u', KeyModifiers::ALT), text_input).is_none());
+            assert!(matches!(
+                map_crossterm_key(
+                    key('C', KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+                    text_input
+                ),
+                Some(Event::ForceQuit)
+            ));
+        }
+        assert!(matches!(
+            map_crossterm_key(key('n', KeyModifiers::NONE), false),
+            Some(Event::NewGame)
+        ));
+        assert!(matches!(
+            map_crossterm_key(key('X', KeyModifiers::SHIFT), true),
+            Some(Event::Char('X'))
+        ));
     }
 }
