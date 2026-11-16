@@ -123,6 +123,15 @@ impl RootMoves {
         self.moves.lock().unwrap().clone()
     }
 
+    /// Resets scores from `pv_idx` to end to `-Score::INF` before searching.
+    pub fn reset_scores_from_pv_idx(&self) {
+        let pv_idx = self.pv_idx();
+        let mut moves = self.moves.lock().unwrap();
+        for rm in moves.iter_mut().skip(pv_idx) {
+            rm.score = -Score::INF;
+        }
+    }
+
     /// Sorts root moves from pv_idx to end by score (stable sort).
     pub fn sort_from_pv_idx(&self) {
         let pv_idx = self.pv_idx();
@@ -287,5 +296,30 @@ mod tests {
             rms.moves_bb_from_pv_idx(),
             board.legal_moves().bitboard() & !sqs[0].bitboard()
         );
+    }
+
+    #[test]
+    fn reset_scores_from_pv_idx_resets_only_tail_scores() {
+        let rms = RootMoves::new(&Board::new());
+        let sqs = squares(&rms);
+        for (i, &sq) in sqs.iter().enumerate() {
+            rms.update(
+                sq,
+                Score::from_disc_diff(DiscScore::new((i + 1) as i32)),
+                true,
+                &pv_array(&[sq]),
+            );
+        }
+
+        rms.set_pv_idx(1);
+        rms.reset_scores_from_pv_idx();
+
+        assert_eq!(
+            rms.get(0).unwrap().score,
+            Score::from_disc_diff(DiscScore::new(1))
+        );
+        for i in 1..sqs.len() {
+            assert_eq!(rms.get(i).unwrap().score, -Score::INF);
+        }
     }
 }

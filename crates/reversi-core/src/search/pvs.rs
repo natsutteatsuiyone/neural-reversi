@@ -72,6 +72,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 
     // Move generation
     let mut move_list = if NT::ROOT_NODE {
+        ctx.root_moves.reset_scores_from_pv_idx();
         let moves = board.legal_moves() & ctx.root_moves.moves_bb_from_pv_idx();
         assert!(!moves.is_empty(), "pv_idx must leave a root move");
         MoveList::with_moves(board, moves)
@@ -844,5 +845,53 @@ mod tests {
             1
         );
         assert_eq!(lmr_max_reduction(30), 10);
+    }
+
+    #[test]
+    fn root_search_resets_unsearched_sibling_scores_on_wipeout() {
+        use crate::constants::MAX_PLY;
+        use crate::eval::Eval;
+        use crate::search::node_type::Root;
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::square::Square;
+        use crate::transposition_table::TranspositionTable;
+
+        let board = Board::from_bitboards(
+            Square::E4.bitboard() | Square::D5.bitboard(),
+            Square::D4.bitboard() | Square::C4.bitboard(),
+        );
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::with_weight_files(None, None).unwrap();
+        let root_moves = RootMoves::new(&board);
+        let stale_pv = [None; MAX_PLY];
+        root_moves.update(Square::D3, Score::MAX, true, &stale_pv);
+        root_moves.update(Square::B4, Score::ZERO, true, &stale_pv);
+
+        let pool = ThreadPool::new(1);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let score = search::<Root, MidGameStrategy>(
+            &mut ctx,
+            &board,
+            4,
+            -Score::INF,
+            Score::INF,
+            pool.main(),
+            false,
+        );
+        root_moves.sort_from_pv_idx();
+
+        assert_eq!(score, Score::MAX);
+        assert_eq!(root_moves.get(0).unwrap().sq, Square::B4);
+        assert_eq!(root_moves.get(0).unwrap().score, Score::MAX);
+        for i in 1..root_moves.count() {
+            assert_eq!(root_moves.get(i).unwrap().score, -Score::INF);
+        }
+        assert!(
+            root_moves
+                .snapshot()
+                .iter()
+                .any(|rm| rm.sq == Square::D3 && rm.score == -Score::INF)
+        );
     }
 }
