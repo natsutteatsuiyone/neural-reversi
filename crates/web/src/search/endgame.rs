@@ -122,8 +122,7 @@ fn null_window_search_with_ec(
         }
     }
 
-    if moves.has_single_bit_nonzero() {
-        let sq = moves.lsb_square_unchecked();
+    if let Some(sq) = moves.only_move() {
         let flipped = flip::flip(sq, board.player(), board.opponent());
         if flipped == board.opponent() {
             return DISC_SCORE_MAX;

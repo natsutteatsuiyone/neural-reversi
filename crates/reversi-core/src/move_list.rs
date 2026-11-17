@@ -7,6 +7,7 @@ mod move_array;
 mod ordering;
 
 use std::mem::MaybeUninit;
+use std::ops::Index;
 use std::slice;
 
 use crate::bitboard::Bitboard;
@@ -54,6 +55,15 @@ const _: () = assert!(std::mem::size_of::<Move>() == 16);
 pub struct MoveList {
     moves: MoveArray,
     wipeout_move: Option<Square>,
+}
+
+impl Index<usize> for MoveList {
+    type Output = Move;
+
+    #[inline(always)]
+    fn index(&self, index: usize) -> &Move {
+        &self.moves.as_slice()[index]
+    }
 }
 
 impl MoveList {
@@ -248,28 +258,18 @@ impl MoveList {
     }
 
     /// Swaps two moves in the list by index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `a` or `b` is not less than [`count`](Self::count).
     #[inline(always)]
     pub fn swap_moves(&mut self, a: usize, b: usize) {
-        let len = self.moves.len();
-        debug_assert!(
-            a < len && b < len,
-            "move index out of bounds: len is {len}, indexes are {a} and {b}"
-        );
-        // SAFETY: bounds checked above.
-        unsafe { self.moves.swap_unchecked(a, b) };
+        self.moves.as_mut_slice().swap(a, b);
     }
 
     #[inline]
     pub(crate) fn postpone_move(&mut self, index: usize) {
         self.moves.as_mut_slice()[index..].rotate_left(1);
-    }
-
-    /// Returns the move at the given index by value.
-    #[inline(always)]
-    pub fn move_at(&self, index: usize) -> Move {
-        debug_assert!(index < self.moves.len());
-        // SAFETY: caller ensures `index < self.count()`.
-        unsafe { self.moves.get_unchecked(index) }
     }
 
     /// Returns an iterator over all moves in the list.

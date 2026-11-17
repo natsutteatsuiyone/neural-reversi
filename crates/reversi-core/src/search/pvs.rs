@@ -210,7 +210,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 flip::flip(tt_move, board.player(), board.opponent()),
             )
         } else {
-            let mv = move_list.move_at(0);
+            let mv = move_list[0];
             (mv.sq, mv.flipped)
         };
         move_count = 1;
@@ -265,7 +265,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     if n_moves - move_count > 1 {
         move_list.evaluate_moves::<NT, SS>(ctx, board, depth, tt_move, alpha, cut_node);
         move_list.sort();
-    } else if n_moves == 2 && Some(move_list.move_at(0).sq) != tt_move {
+    } else if n_moves == 2 && Some(move_list[0].sq) != tt_move {
         move_list.swap_moves(0, 1);
     }
 
@@ -304,7 +304,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             break; // Split consumed all remaining moves
         }
 
-        let mv = move_list.move_at(idx);
+        let mv = move_list[idx];
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         let claim = claim_child::<SS>(thread, &next, depth);
         let eldest = idx == 0;

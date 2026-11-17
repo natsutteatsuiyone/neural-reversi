@@ -389,8 +389,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
         return score;
     }
 
-    if moves.has_single_bit_nonzero() {
-        let sq = moves.lsb_square_unchecked();
+    if let Some(sq) = moves.only_move() {
         let flipped = flip::flip(sq, board.player(), board.opponent());
         if flipped == board.opponent() {
             return DISC_SCORE_MAX;
@@ -506,8 +505,7 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    if moves.has_single_bit_nonzero() {
-        let sq = moves.lsb_square_unchecked();
+    if let Some(sq) = moves.only_move() {
         let score = shallow_search_move(ctx, board, sq, beta, sc);
         sc.store(cache_idx, board, alpha, score);
         return score;

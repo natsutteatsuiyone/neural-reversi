@@ -46,20 +46,13 @@ impl LegalMoves {
         self.0.contains(sq)
     }
 
-    /// Checks whether there is exactly one move, assuming the set is non-empty.
+    /// Returns the move if there is exactly one.
     #[inline(always)]
-    pub const fn has_single_bit_nonzero(self) -> bool {
-        self.0.has_single_bit_nonzero()
-    }
-
-    /// Returns the lowest square of the set.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the set is empty in debug mode.
-    #[inline(always)]
-    pub fn lsb_square_unchecked(self) -> Square {
-        self.0.lsb_square_unchecked()
+    pub fn only_move(self) -> Option<Square> {
+        if self.0.is_empty() || !self.0.has_single_bit_nonzero() {
+            return None;
+        }
+        self.0.lsb_square()
     }
 
     /// Returns the number of moves.

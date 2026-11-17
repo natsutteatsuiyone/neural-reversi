@@ -81,31 +81,15 @@ impl Bitboard {
         Bitboard(self.0 & self.0.wrapping_sub(1))
     }
 
-    /// Returns the [`Square`] corresponding to the least significant set bit.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the bitboard is empty in debug mode.
+    /// Returns the [`Square`] of the least significant set bit, or `None` if
+    /// the bitboard is empty.
     #[inline(always)]
-    pub fn lsb_square_unchecked(self) -> Square {
-        debug_assert!(
-            !self.is_empty(),
-            "lsb_square_unchecked called on empty bitboard"
-        );
-        // SAFETY: caller ensures non-empty; trailing_zeros() on a non-zero u64 is 0..=63.
-        unsafe { Square::from_u32_unchecked(self.0.trailing_zeros()) }
-    }
-
-    /// Removes and returns the least significant set bit as a [`Square`],
-    /// along with the updated bitboard.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the bitboard is empty in debug mode.
-    #[inline(always)]
-    pub fn pop_lsb(self) -> (Square, Self) {
-        debug_assert!(!self.is_empty(), "pop_lsb called on empty bitboard");
-        (self.lsb_square_unchecked(), self.clear_lsb())
+    pub fn lsb_square(self) -> Option<Square> {
+        if self.is_empty() {
+            return None;
+        }
+        // SAFETY: trailing_zeros() on a non-zero u64 is 0..=63.
+        Some(unsafe { Square::from_u32_unchecked(self.0.trailing_zeros()) })
     }
 
     /// Flips the bitboard vertically (rank 1 ↔ rank 8, etc.).
@@ -453,12 +437,8 @@ impl Iterator for BitboardIterator {
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bitboard.is_empty() {
-            return None;
-        }
-
-        let (square, rest) = self.bitboard.pop_lsb();
-        self.bitboard = rest;
+        let square = self.bitboard.lsb_square()?;
+        self.bitboard = self.bitboard.clear_lsb();
         Some(square)
     }
 }

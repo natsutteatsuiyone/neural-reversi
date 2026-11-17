@@ -79,26 +79,10 @@ impl MoveArray {
     }
 
     #[inline(always)]
-    pub(super) unsafe fn get_unchecked(&self, index: usize) -> Move {
-        debug_assert!(index < self.len);
-        // SAFETY: caller ensures `index < self.len`.
-        unsafe { *self.as_ptr().add(index) }
-    }
-
-    #[inline(always)]
     pub(super) unsafe fn get_unchecked_ref(&self, index: usize) -> &Move {
         debug_assert!(index < self.len);
         // SAFETY: caller ensures `index < self.len`.
         unsafe { &*self.as_ptr().add(index) }
-    }
-
-    #[inline(always)]
-    pub(super) unsafe fn swap_unchecked(&mut self, a: usize, b: usize) {
-        debug_assert!(a < self.len);
-        debug_assert!(b < self.len);
-        let ptr = self.as_mut_ptr();
-        // SAFETY: caller ensures `a, b < self.len`.
-        unsafe { ptr::swap(ptr.add(a), ptr.add(b)) };
     }
 
     #[inline(always)]
