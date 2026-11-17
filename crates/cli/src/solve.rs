@@ -10,6 +10,7 @@ use reversi_core::{
     level::{Level, get_level},
     obf::ObfPosition,
     player_color::PlayerColor,
+    score::Score,
     search::{Search, SearchRunOptions, SearchSharedResources},
     square::Square,
 };
@@ -244,11 +245,7 @@ fn solve_position(
         println!("Position #{}  Depth: {}", position_num, depth);
         print_all_moves_table_header();
         for pv_move in result.pv_moves() {
-            let score = if is_pass {
-                -(pv_move.score.to_disc_diff_f32().round() as i32)
-            } else {
-                pv_move.score.to_disc_diff_f32().round() as i32
-            };
+            let score = disc_score(pv_move.score, is_pass);
             let pv_string = if pv_move.pv_line.is_empty() {
                 format_root_move(pv_move.sq, move_side, is_pass, side_to_move)
             } else {
@@ -261,11 +258,7 @@ fn solve_position(
         return (elapsed, result.n_nodes());
     }
     let result_score = result.score().expect("search returned no legal move");
-    let score = if is_pass {
-        -(result_score.to_disc_diff_f32().round() as i32)
-    } else {
-        result_score.to_disc_diff_f32().round() as i32
-    };
+    let score = disc_score(result_score, is_pass);
     let pv_string = if result.pv_line().is_empty() {
         result
             .best_move()
@@ -285,6 +278,15 @@ fn solve_position(
     );
 
     (elapsed, result.n_nodes())
+}
+
+/// Rounds `score` to whole discs for the side to move in the position file.
+///
+/// `searched_after_pass` means that side had to pass, so `score` is from the
+/// opponent's point of view.
+fn disc_score(score: Score, searched_after_pass: bool) -> i32 {
+    let discs = score.to_disc_diff_f32().round() as i32;
+    if searched_after_pass { -discs } else { discs }
 }
 
 fn print_all_moves_row(score: impl Display, pv: impl Display) {
@@ -404,5 +406,93 @@ fn format_pass(side: PlayerColor) -> &'static str {
         "PS"
     } else {
         "ps"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Black owns C1-H1 and C8-H8 and White owns B1 and B8, so only Black can
+    /// move (A1 or A8), before and after either move.
+    fn only_black_can_move(side_to_move: PlayerColor) -> Board {
+        let black = 0xFC00_0000_0000_00FCu64;
+        let white = Square::B1.bitboard() | Square::B8.bitboard();
+        match side_to_move {
+            PlayerColor::Black => Board::from_bitboards(black, white),
+            PlayerColor::White => Board::from_bitboards(white, black),
+        }
+    }
+
+    #[test]
+    fn format_time_keeps_seconds_below_60() {
+        let cases = [
+            (Duration::ZERO, "0:00.000"),
+            (Duration::from_micros(59_999_500), "0:59.999"),
+            (Duration::from_secs(60), "1:00.000"),
+            (Duration::from_micros(3_599_999_500), "59:59.999"),
+            (Duration::from_secs(3600), "1:00:00.000"),
+            (Duration::from_millis(3_661_001), "1:01:01.001"),
+        ];
+        for (duration, expected) in cases {
+            assert_eq!(format_time(duration), expected, "{duration:?}");
+        }
+    }
+
+    #[test]
+    fn disc_score_rounds_to_nearest_and_negates_after_a_pass() {
+        let cases = [
+            (383, 1, -1),
+            (384, 2, -2),
+            (-383, -1, 1),
+            (-384, -2, 2),
+            (Score::MAX.value(), 64, -64),
+            (Score::MIN.value(), -64, 64),
+        ];
+        for (raw, expected, expected_after_pass) in cases {
+            let score = Score::from_raw(raw);
+            assert_eq!(disc_score(score, false), expected, "raw {raw}");
+            assert_eq!(disc_score(score, true), expected_after_pass, "raw {raw}");
+        }
+    }
+
+    #[test]
+    fn format_pv_inserts_a_pass_in_the_middle_of_the_line() {
+        let board = only_black_can_move(PlayerColor::Black);
+        let pv = [Square::A1, Square::A8];
+        assert_eq!(
+            format_pv_with_passes(&board, PlayerColor::Black, &pv, 8),
+            "a1 PS a8"
+        );
+    }
+
+    #[test]
+    fn format_pv_starts_with_a_pass_when_the_side_to_move_has_no_move() {
+        let board = only_black_can_move(PlayerColor::White);
+        let pv = [Square::A1, Square::A8];
+        assert_eq!(
+            format_pv_with_passes(&board, PlayerColor::White, &pv, 8),
+            "PS a1 PS a8"
+        );
+    }
+
+    #[test]
+    fn format_pv_counts_passes_toward_max_tokens() {
+        let board = only_black_can_move(PlayerColor::White);
+        let pv = [Square::A1, Square::A8];
+        assert_eq!(
+            format_pv_with_passes(&board, PlayerColor::White, &pv, 2),
+            "PS a1"
+        );
+    }
+
+    #[test]
+    fn format_pv_stops_at_an_illegal_move() {
+        let board = only_black_can_move(PlayerColor::Black);
+        let pv = [Square::D4, Square::A1];
+        assert_eq!(
+            format_pv_with_passes(&board, PlayerColor::Black, &pv, 8),
+            ""
+        );
     }
 }
