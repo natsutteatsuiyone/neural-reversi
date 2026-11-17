@@ -15,6 +15,9 @@ This is an experimental project to develop a highly accurate neural network eval
 
 ## Benchmarks (v6.3.0)
 
+Full results, including other machines and the comparison with the previous
+version: [docs/6.3.0/benchmarks.md](docs/6.3.0/benchmarks.md).
+
 ### Environment
 
 - **CPU:** AMD Ryzen 9 9950X3D
@@ -58,11 +61,11 @@ This is an experimental project to develop a highly accurate neural network eval
    cd neural-reversi
    ```
 
-2. Download the neural network weight files from the [latest release](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest)
-   and place them in the project root directory:
-   - `eval-*.zst`
-   - `eval_sm-*.zst`
-   - `eval_wasm-*.zst`
+2. Download the neural network weight files from the [weights releases](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases)
+   and place them in the project root directory. The build embeds the exact
+   file names written in the source, which are not always in the latest release:
+   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/reversi-core/src/eval.rs`
+   - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 3. Run the interface you want to use:
    ```bash
@@ -135,11 +138,11 @@ Distribution builds are driven by [cargo-make](https://github.com/sagiegurari/ca
    cargo install --force cargo-make
    ```
 
-2. Download the neural network weight files from the [latest release](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases/latest)
-   and place them in the project root directory:
-   - `eval-*.zst`
-   - `eval_sm-*.zst`
-   - `eval_wasm-*.zst`
+2. Download the neural network weight files from the [weights releases](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases)
+   and place them in the project root directory. The build embeds the exact
+   file names written in the source, which are not always in the latest release:
+   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/reversi-core/src/eval.rs`
+   - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 ### Distribution builds
 

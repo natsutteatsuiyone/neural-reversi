@@ -7,6 +7,7 @@
 - **CPU:** AMD Ryzen 9 9950X3D
 - **Threads:** 32
 - **Hash size:** 2048 MB
+- **CPB (Core Performance Boost):** disabled unless noted
 
 ### Evaluation Accuracy (depth 15)
 
