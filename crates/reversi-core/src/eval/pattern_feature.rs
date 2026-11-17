@@ -146,7 +146,7 @@ impl PatternFeature {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 impl PatternFeature {
     /// Returns a pointer to the internal data as a 128-bit WASM SIMD vector.
     ///
