@@ -4,6 +4,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use reversi_core::{
     eval::pattern_feature::{
         INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature,
+        calc_pattern_size,
     },
     score::Score,
 };
@@ -619,6 +620,19 @@ impl Network {
 
 #[inline(always)]
 fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
+    debug_assert!(
+        idx < NUM_PATTERN_FEATURES,
+        "feature index {} out of bounds (max {})",
+        idx,
+        NUM_PATTERN_FEATURES - 1
+    );
+    debug_assert!(
+        usize::from(pattern_feature[idx]) < calc_pattern_size(idx),
+        "feature value {} out of range for pattern {} (size {})",
+        pattern_feature[idx],
+        idx,
+        calc_pattern_size(idx)
+    );
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
 }

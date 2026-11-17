@@ -104,7 +104,7 @@ impl PatternFeature {
     }
 
     /// Creates a pattern feature from an explicit array.
-    pub const fn from_array(data: [u16; FEATURE_VECTOR_SIZE]) -> Self {
+    const fn from_array(data: [u16; FEATURE_VECTOR_SIZE]) -> Self {
         Self { data }
     }
 

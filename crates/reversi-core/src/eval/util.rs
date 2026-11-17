@@ -3,7 +3,9 @@
 use std::io::{self, Read};
 
 use crate::{
-    eval::pattern_feature::{NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature},
+    eval::pattern_feature::{
+        NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature, calc_pattern_size,
+    },
     util::align::Align64,
 };
 
@@ -62,8 +64,10 @@ pub fn expect_end_of_weights<R: Read>(reader: &mut R) -> io::Result<()> {
 
 /// Computes the feature offset for a given pattern feature index.
 ///
-/// `idx` must be less than [`NUM_PATTERN_FEATURES`]; entries are indexed with
-/// `get_unchecked` without runtime bounds checks in release builds.
+/// `idx` must be less than [`NUM_PATTERN_FEATURES`], and the feature value at
+/// `idx` must be less than [`calc_pattern_size`]`(idx)`. Release builds check
+/// neither, and the callers read weight rows at the returned offset without
+/// bounds checks.
 #[inline(always)]
 pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
     debug_assert!(
@@ -71,6 +75,13 @@ pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
         "feature index {} out of bounds (max {})",
         idx,
         NUM_PATTERN_FEATURES - 1
+    );
+    debug_assert!(
+        usize::from(pattern_feature[idx]) < calc_pattern_size(idx),
+        "feature value {} out of range for pattern {} (size {})",
+        pattern_feature[idx],
+        idx,
+        calc_pattern_size(idx)
     );
     *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
         + unsafe { pattern_feature.get_unchecked(idx) } as usize
@@ -298,6 +309,16 @@ mod tests {
         let pattern_feature = PatternFeature::new();
 
         let _ = feature_offset(&pattern_feature, NUM_PATTERN_FEATURES);
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "feature value")]
+    fn feature_offset_rejects_out_of_range_values_in_debug_builds() {
+        let mut pattern_feature = PatternFeature::new();
+        pattern_feature[0] = calc_pattern_size(0) as u16;
+
+        let _ = feature_offset(&pattern_feature, 0);
     }
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
