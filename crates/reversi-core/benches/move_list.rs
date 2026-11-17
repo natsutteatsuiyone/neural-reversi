@@ -66,8 +66,7 @@ fn random_cases(seed: u64) -> Vec<Case> {
     out
 }
 
-fn evaluated_lists(cases: &[Case]) -> Vec<MoveList> {
-    let res = BenchResources::new(&cases[0].board);
+fn evaluated_lists(res: &BenchResources, cases: &[Case]) -> Vec<MoveList> {
     let mut ctx = res.context(&cases[0].board);
 
     cases
@@ -104,9 +103,7 @@ fn bench_with_moves(c: &mut Criterion, cases: &[Case]) {
     });
 }
 
-fn bench_evaluate_fast(c: &mut Criterion, cases: &[Case]) {
-    // Keep Eval::new() and weight loading outside the timed loop.
-    let res = BenchResources::new(&cases[0].board);
+fn bench_evaluate_fast(c: &mut Criterion, res: &BenchResources, cases: &[Case]) {
     let mut ctx = res.context(&cases[0].board);
 
     c.bench_function("move_list::evaluate_fast", |b| {
@@ -159,10 +156,11 @@ fn bench_best_first(c: &mut Criterion, lists: &[MoveList]) {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let cases = random_cases(0x5eed_f00d);
-    let lists = evaluated_lists(&cases);
+    let res = BenchResources::new(&cases[0].board);
+    let lists = evaluated_lists(&res, &cases);
 
     bench_with_moves(c, &cases);
-    bench_evaluate_fast(c, &cases);
+    bench_evaluate_fast(c, &res, &cases);
     bench_sort(c, &lists);
     bench_best_first(c, &lists);
 }

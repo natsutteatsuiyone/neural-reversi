@@ -631,15 +631,16 @@ export function createBoard3D(container, { onCellClick }) {
     return view.showValidMoves && index >= 0 && view.legalMoves.includes(index);
   }
 
+  let hoveredIndex = -1;
+
   function onPointerMove(event) {
     const index = cellFromEvent(event);
     if (isPlayable(index)) {
-      const [x, z] = cellToWorld(Math.floor(index / 8), index % 8);
-      hoverMesh.position.set(x, 0.0015, z);
-      if (!hoverMesh.visible) {
+      if (!hoverMesh.visible || hoveredIndex !== index) {
+        const [x, z] = cellToWorld(Math.floor(index / 8), index % 8);
+        hoverMesh.position.set(x, 0.0015, z);
         hoverMesh.visible = true;
-        requestRender();
-      } else {
+        hoveredIndex = index;
         requestRender();
       }
       container.style.cursor = "pointer";
