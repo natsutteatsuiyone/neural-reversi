@@ -204,6 +204,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let mut move_count: usize = 0;
 
     if !NT::PV_NODE && (n_moves == 1 || tt_move.is_some()) {
+        debug_assert_eq!(beta.value(), alpha.value() + 1);
         let (sq, flipped) = if let Some(tt_move) = tt_move {
             (
                 tt_move,
@@ -255,7 +256,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 }
                 return best_score;
             }
-            alpha = score;
         }
     }
 
@@ -434,7 +434,7 @@ pub(super) fn search_split_point<NT: NodeType>(
     depth: Depth,
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
-) -> Score {
+) {
     let beta = split_point.task().beta;
     let cut_node = split_point.state().cut_node();
     let move_iter = split_point.move_iter();
@@ -474,7 +474,7 @@ pub(super) fn search_split_point<NT: NodeType>(
         // Abort check
         if thread.should_stop() {
             split_point.state().set_all_helpers_searching(false);
-            return Score::ZERO;
+            return;
         }
 
         let sp = split_point.state();
@@ -514,8 +514,6 @@ pub(super) fn search_split_point<NT: NodeType>(
             break;
         }
     }
-
-    split_point.state().best_score()
 }
 
 /// Performs enhanced transposition cutoff (ETC) by probing child positions.

@@ -49,9 +49,6 @@ assert_sq_matches_square!(
 /// Maximum number of features that any single square can participate in.
 const MAX_FEATURES_PER_SQUARE: usize = 5;
 
-/// Maximum number of features per square as `u32` for loop comparisons.
-const MAX_FEATURES_PER_SQUARE_U32: u32 = MAX_FEATURES_PER_SQUARE as u32;
-
 #[cfg(any(
     all(
         target_arch = "x86_64",
@@ -249,7 +246,7 @@ pub const fn calc_pattern_size(pattern_index: usize) -> usize {
 }
 
 /// Computes the total number of input features across all patterns.
-pub const fn sum_eval_f2x() -> usize {
+const fn sum_eval_f2x() -> usize {
     let mut total = 0;
     let mut i = 0;
     while i < NUM_PATTERN_FEATURES {
@@ -265,7 +262,7 @@ pub const fn sum_eval_f2x() -> usize {
 pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
 
 /// Precomputes the starting offset for each pattern feature in the feature vector.
-pub const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
+const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
     let mut offsets = [0; NUM_PATTERN_FEATURES];
     let mut current_offset = 0;
     let mut i = 0;
@@ -343,7 +340,7 @@ const fn generate_eval_x2f() -> [CoordinateToFeature; BOARD_SQUARES] {
             let (n_square, raw_squares) = EVAL_F2X_RAW[feature_idx];
             let feature_value = compute_pattern_feature_index_raw(board, n_square, raw_squares);
             if feature_value > 0 {
-                if n_features >= MAX_FEATURES_PER_SQUARE_U32 {
+                if n_features >= MAX_FEATURES_PER_SQUARE as u32 {
                     panic!(
                         "Square participates in more patterns than MAX_FEATURES_PER_SQUARE allows"
                     );

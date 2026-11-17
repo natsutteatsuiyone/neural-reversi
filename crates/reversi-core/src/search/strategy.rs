@@ -14,7 +14,7 @@ use crate::transposition_table::Bound;
 use crate::types::Depth;
 
 /// Marker trait for search strategy specialization.
-pub trait SearchStrategy: Copy + Clone + 'static {
+pub trait SearchStrategy: 'static {
     /// Whether this is an endgame search (used for TT storage flag).
     const IS_ENDGAME: bool;
 
@@ -61,11 +61,9 @@ pub trait SearchStrategy: Copy + Clone + 'static {
 }
 
 /// Midgame search strategy marker.
-#[derive(Copy, Clone)]
 pub struct MidGameStrategy;
 
 /// Endgame search strategy marker.
-#[derive(Copy, Clone)]
 pub struct EndGameStrategy;
 
 /// Minimum NWS subtree size, in nodes, required to share a boundary result.

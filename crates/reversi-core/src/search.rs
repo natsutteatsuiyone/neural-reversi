@@ -19,11 +19,11 @@ pub mod side_to_move;
 pub mod stack;
 mod stop;
 pub mod strategy;
-pub mod threading;
+pub(crate) mod threading;
 pub mod time_control;
 
 #[doc(hidden)]
-pub use endgame::{EndGameCaches, solve_last1};
+pub use endgame::solve_last1;
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
 pub(crate) use pvs::{LMR_MIN_DEPTH, search};
@@ -83,7 +83,6 @@ pub struct SearchSharedResources {
 }
 
 /// Position, resolved search settings, and shared resources for one root search.
-#[derive(Clone)]
 pub(crate) struct SearchTask {
     /// Board position to search.
     pub board: Board,

@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::probcut::Selectivity;
 use crate::search::threading::AbortState;
@@ -824,13 +824,9 @@ impl TimeManager {
         self.optimum_time_ms.load(Ordering::Relaxed)
     }
 
-    /// Returns the deadline instant, or [`None`] for infinite mode.
-    pub(crate) fn deadline(&self) -> Option<Instant> {
-        if self.mode == TimeControlMode::Infinite {
-            None
-        } else {
-            Some(self.start_time + Duration::from_millis(self.maxi_time_ms()))
-        }
+    /// Returns whether the search runs against a clock.
+    pub(crate) fn has_deadline(&self) -> bool {
+        self.mode != TimeControlMode::Infinite
     }
 
     /// Sets whether the search is in endgame mode.
@@ -919,6 +915,8 @@ fn is_debug_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     fn make_tm(mode: TimeControlMode, n_empties: u32) -> TimeManager {

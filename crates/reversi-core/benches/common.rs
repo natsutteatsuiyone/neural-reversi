@@ -47,45 +47,6 @@ pub(crate) fn choose_square(moves: LegalMoves, rng: &mut StdRng) -> Square {
         .expect("moves must contain the chosen square index")
 }
 
-pub(crate) fn playout_to_n_empty<const N_EMPTY: u32>(
-    mut board: Board,
-    rng: &mut StdRng,
-) -> Option<Board> {
-    while board.empty_count() > N_EMPTY {
-        let moves = board.legal_moves();
-        if moves.is_empty() {
-            let passed = board.switch_players();
-            if passed.legal_moves().is_empty() {
-                return None;
-            }
-            board = passed;
-            continue;
-        }
-
-        board = board.make_move(choose_square(moves, rng));
-    }
-
-    (board.empty_count() == N_EMPTY).then_some(board)
-}
-
-pub(crate) fn exact_endgame_score(board: &Board) -> i32 {
-    let moves = board.legal_moves();
-    if !moves.is_empty() {
-        return moves
-            .iter()
-            .map(|sq| -exact_endgame_score(&board.make_move(sq)))
-            .max()
-            .expect("non-empty move bitboard must yield at least one move");
-    }
-
-    let passed = board.switch_players();
-    if !passed.legal_moves().is_empty() {
-        return -exact_endgame_score(&passed);
-    }
-
-    board.solve_disc_diff(board.empty_count()).value()
-}
-
 pub(crate) fn add_random_bit(rng: &mut StdRng, occupied: &mut u64) -> u64 {
     loop {
         debug_assert_ne!(*occupied, u64::MAX);

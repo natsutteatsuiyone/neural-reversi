@@ -11,7 +11,6 @@ use crate::square::Square;
 #[allow(dead_code)]
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 mod flip_avx2;
-#[allow(dead_code)]
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512cd",

@@ -215,14 +215,6 @@ impl Bitboard {
         BitboardIterator::new(self)
     }
 
-    /// Returns a new bitboard after applying a player's move.
-    ///
-    /// XORs the current bitboard with both the flipped discs and the placed disc.
-    #[inline(always)]
-    pub fn apply_move(self, flipped: Bitboard, sq: Square) -> Bitboard {
-        self ^ flipped ^ sq.bitboard()
-    }
-
     /// Returns a new bitboard after toggling the flipped discs.
     #[inline(always)]
     pub fn apply_flip(self, flipped: Bitboard) -> Bitboard {

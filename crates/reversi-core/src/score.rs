@@ -1,7 +1,7 @@
 //! Search scores: [`Score`] with sub-disc precision and whole-disc [`DiscScore`].
 
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, Neg, Sub, SubAssign};
 
 /// Maximum possible score (disc difference).
 pub const DISC_SCORE_MAX: DiscScore = DiscScore::new(64);
@@ -216,33 +216,11 @@ impl Sub<i32> for Score {
     }
 }
 
-impl Mul<i32> for Score {
-    type Output = Self;
-    #[inline(always)]
-    fn mul(self, rhs: i32) -> Self {
-        Self(self.0 * rhs)
-    }
-}
-
 impl Div<i32> for Score {
     type Output = Self;
     #[inline(always)]
     fn div(self, rhs: i32) -> Self {
         Self(self.0 / rhs)
-    }
-}
-
-impl MulAssign<i32> for Score {
-    #[inline(always)]
-    fn mul_assign(&mut self, rhs: i32) {
-        self.0 *= rhs;
-    }
-}
-
-impl DivAssign<i32> for Score {
-    #[inline(always)]
-    fn div_assign(&mut self, rhs: i32) {
-        self.0 /= rhs;
     }
 }
 

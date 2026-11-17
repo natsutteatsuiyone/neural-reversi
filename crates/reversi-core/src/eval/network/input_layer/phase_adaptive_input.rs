@@ -150,9 +150,12 @@ impl PhaseAdaptiveInputLayer {
         }
     }
 
-    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[cfg(all(
+        target_arch = "x86_64",
+        target_feature = "avx2",
+        not(target_feature = "avx512bw")
+    ))]
     #[target_feature(enable = "avx2")]
-    #[allow(dead_code)]
     fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
         use std::arch::x86_64::*;
 

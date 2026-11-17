@@ -17,8 +17,6 @@ pub struct RootMove {
     pub sq: Square,
     /// Current best score for this move in the current iteration.
     pub score: Score,
-    /// Unused score field initialized to `-Score::INF`.
-    pub previous_score: Score,
     /// Running average score across iterations, used to center the aspiration
     /// window.
     pub average_score: Score,
@@ -35,7 +33,6 @@ impl RootMove {
         Self {
             sq,
             score: -Score::INF,
-            previous_score: -Score::INF,
             average_score: -Score::INF,
             mean_squared_score: 0,
             pv: Vec::new(),

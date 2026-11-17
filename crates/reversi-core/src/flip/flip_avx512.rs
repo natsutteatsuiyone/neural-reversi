@@ -23,7 +23,6 @@ use std::arch::x86_64::*;
 // Keep raw `vpsrlvq`: count 64 from `vplzcntq` must produce 0, but the
 // intrinsic goes through LLVM `lshr` poison handling and adds a mask/test.
 // Re-run the cargo-asm A/B before replacing this with an intrinsic.
-#[cfg(target_arch = "x86_64")]
 macro_rules! vpsrlvq_raw_ymm {
     ($src:expr, $cnt:expr) => {{
         let out: __m256i;
@@ -41,7 +40,6 @@ macro_rules! vpsrlvq_raw_ymm {
 }
 
 // Same raw-shift rationale as `vpsrlvq_raw_ymm!`.
-#[cfg(target_arch = "x86_64")]
 macro_rules! vpsrlvq_raw_zmm {
     ($src:expr, $cnt:expr) => {{
         let out: __m512i;
@@ -59,7 +57,6 @@ macro_rules! vpsrlvq_raw_zmm {
 }
 
 // Horizontal reductions.
-#[cfg(target_arch = "x86_64")]
 macro_rules! reduce_ymm_or_u64 {
     ($v:expr) => {{
         let x = _mm_or_si128(_mm256_castsi256_si128($v), _mm256_extracti128_si256($v, 1));
@@ -68,7 +65,6 @@ macro_rules! reduce_ymm_or_u64 {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! reduce_zmm_pair_or_u64 {
     ($flips:expr) => {{
         // OR-reduce each 256-bit half independently: f0 lands in lane 0, f1 in lane 4.
@@ -84,7 +80,6 @@ macro_rules! reduce_zmm_pair_or_u64 {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! reduce_zmm_two_pairs_or_u64 {
     ($flips01:expr, $flips23:expr) => {{
         let swap64_01 = _mm512_shuffle_epi32::<0x4e>($flips01);
@@ -114,7 +109,6 @@ macro_rules! reduce_zmm_two_pairs_or_u64 {
 // left-side LS1B chains in one body. Splitting those chains into smaller
 // helper macros makes the code shorter but tends to hide the scheduling that
 // protects this path from latency regressions.
-#[cfg(target_arch = "x86_64")]
 macro_rules! flip_prepared_ymm_body {
     ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr) => {{
         let mask_ptr =
@@ -150,7 +144,6 @@ macro_rules! flip_prepared_ymm_body {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! flip_prepared_ymm_body_min_left {
     ($x:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         let mask_ptr =
@@ -188,7 +181,6 @@ macro_rules! flip_prepared_ymm_body_min_left {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! flip_pair_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         // Each `LrmaskEntry` is one 64-byte-aligned cache line laid out as
@@ -230,7 +222,6 @@ macro_rules! flip_pair_body {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! flip_pair_wide_load_body {
     ($x0:expr, $x1:expr, $pp:expr, $no:expr, $zero:expr, $msb:expr, $all_ones:expr) => {{
         // Move-list generation calls the wide-load two-square helper in a dense
@@ -272,7 +263,6 @@ macro_rules! flip_pair_wide_load_body {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 macro_rules! flip_runtime_body {
     ($x:expr, $player:expr, $opponent:expr) => {{
         let pp = _mm256_set1_epi64x($player as i64);
@@ -283,14 +273,12 @@ macro_rules! flip_runtime_body {
     }};
 }
 
-#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
     unsafe { flip_runtime_body!(x, player, opponent) }
 }
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
-#[cfg(target_arch = "x86_64")]
 #[inline]
 pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
     flip_index(sq.index(), player, opponent)
@@ -306,7 +294,6 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
 /// single runtime square, including trailing singles in move-list generation.
 /// All methods are `#[inline(always)]` and are intended to fold into
 /// AVX-512-gated callers.
-#[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone)]
 pub(crate) struct BoardCtx {
     pp: __m512i,
@@ -316,7 +303,6 @@ pub(crate) struct BoardCtx {
     all_ones: __m512i,
 }
 
-#[cfg(target_arch = "x86_64")]
 impl BoardCtx {
     /// Broadcasts `(player, !opponent)` and the working constants into wide
     /// vector lanes.

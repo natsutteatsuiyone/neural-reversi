@@ -936,10 +936,6 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn forward_avx2_matches_scalar_for_sparse_feature_rows() {
-        if !is_x86_feature_detected!("avx2") {
-            return;
-        }
-
         let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
         let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
         let avx2_no_vnni = unsafe {
@@ -958,10 +954,6 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn forward_avx512_matches_scalar_for_sparse_feature_rows() {
-        if !is_x86_feature_detected!("avx512bw") {
-            return;
-        }
-
         let (pattern_feature, input_layer, output_layer, _) = build_forward_fixture();
         let scalar = NetworkSmall::forward_scalar(&pattern_feature, &input_layer, &output_layer);
         let avx512_no_vnni = unsafe {

@@ -7,7 +7,6 @@
 use crate::square::Square;
 use std::arch::x86_64::*;
 
-#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn mm_flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> __m128i {
     // SAFETY: this module is compiled only for AVX2 targets. `pos` must be a
@@ -55,7 +54,6 @@ fn mm_flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> __m128i {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 fn flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> u64 {
     let flip = mm_flip_prepared(pp, oo, pos);
@@ -65,7 +63,6 @@ fn flip_prepared(pp: __m256i, oo: __m256i, pos: usize) -> u64 {
 }
 
 /// Computes the bitboard of discs flipped by placing a disc at `sq`.
-#[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
 pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
@@ -74,14 +71,12 @@ pub fn flip(sq: Square, player: u64, opponent: u64) -> u64 {
 
 /// SIMD board context for runtime squares that share the same `(player,
 /// opponent)` board.
-#[cfg(target_arch = "x86_64")]
 #[derive(Copy, Clone)]
 pub(super) struct BoardCtx {
     pp: __m256i,
     oo: __m256i,
 }
 
-#[cfg(target_arch = "x86_64")]
 impl BoardCtx {
     #[inline(always)]
     pub fn new(player: u64, opponent: u64) -> Self {

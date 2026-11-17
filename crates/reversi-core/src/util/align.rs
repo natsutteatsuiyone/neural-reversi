@@ -9,14 +9,6 @@ use std::ops::{Deref, DerefMut};
 pub struct Align64<T>(pub T);
 
 impl<T> Align64<T> {
-    /// Returns a raw pointer to the wrapped value.
-    ///
-    /// The returned pointer is guaranteed to be 64-byte aligned.
-    #[allow(dead_code)]
-    pub fn as_ptr(&self) -> *const T {
-        &self.0 as *const T
-    }
-
     /// Returns a mutable raw pointer to the wrapped value.
     ///
     /// The returned pointer is guaranteed to be 64-byte aligned.

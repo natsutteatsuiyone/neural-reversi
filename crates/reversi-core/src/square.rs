@@ -102,7 +102,7 @@ impl Square {
     ///
     /// `index` must be < 64.
     #[inline]
-    pub unsafe fn from_usize_unchecked(index: usize) -> Square {
+    unsafe fn from_usize_unchecked(index: usize) -> Square {
         debug_assert!(
             index < 64,
             "Index out of bounds for Square enum. index: {index:?}"

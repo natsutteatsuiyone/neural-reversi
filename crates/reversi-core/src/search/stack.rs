@@ -5,9 +5,9 @@ use crate::square::Square;
 
 /// A record stored for each ply in the search stack.
 #[derive(Clone, Copy)]
-pub struct StackRecord {
+struct StackRecord {
     /// Principal variation line from this ply, terminated by the first [`None`].
-    pub pv: [Option<Square>; MAX_PLY],
+    pv: [Option<Square>; MAX_PLY],
 }
 
 /// PV (Principal Variation) tracking across all plies.

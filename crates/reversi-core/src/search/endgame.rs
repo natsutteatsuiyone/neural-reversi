@@ -78,14 +78,13 @@ const ASPIRATION_DELTA: Score = Score::from_disc_diff(DiscScore::new(1));
 /// Dummy score returned while unwinding a branch after a split-point beta cutoff.
 const SPLIT_CUTOFF_SCORE: DiscScore = DiscScore::new(0);
 
-#[doc(hidden)]
-pub struct EndGameCaches {
+pub(in crate::search) struct EndGameCaches {
     ec: EndGameCache<Deep>,
     pub(super) shallow: EndGameCache<Shallow>,
 }
 
 impl EndGameCaches {
-    pub fn for_thread_count(n_threads: usize) -> Self {
+    pub(in crate::search) fn for_thread_count(n_threads: usize) -> Self {
         let n_threads = n_threads.max(1);
         Self {
             ec: EndGameCache::new((TOTAL_EC_CACHE_BYTES / n_threads).max(MIN_EC_CACHE_BYTES)),

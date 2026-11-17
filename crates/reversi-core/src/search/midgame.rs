@@ -192,7 +192,7 @@ fn iterate(
         // A forced move needs no deep search under a deadline: answer after the
         // first completed iteration and bank the time. Score and PV are already
         // available for reporting.
-        if ctx.root_moves.count() == 1 && time_manager.is_some_and(|tm| tm.deadline().is_some()) {
+        if ctx.root_moves.count() == 1 && time_manager.is_some_and(|tm| tm.has_deadline()) {
             return Outcome::Done(completed);
         }
 

@@ -41,7 +41,7 @@ pub struct ThreadPool {
     thread_handles: Vec<JoinHandle<()>>,
 
     /// Number of threads in the pool.
-    pub size: usize,
+    pub(crate) size: usize,
 
     /// Global flag indicating if the engine is thinking.
     pub(super) thinking: Arc<AtomicBool>,
@@ -225,7 +225,7 @@ impl ThreadPool {
         let generation = self.abort_state.begin_search();
         let stop = stop.map(|token| token.attach(&self.abort_state, generation));
         if let Some(tm) = &task.time_manager
-            && tm.deadline().is_some()
+            && tm.has_deadline()
         {
             self.start_timer(tm.clone(), generation);
         }
@@ -260,7 +260,7 @@ impl ThreadPool {
     }
 
     /// Returns a reference to the main thread (thread 0).
-    pub fn main(&self) -> &Arc<Thread> {
+    pub(crate) fn main(&self) -> &Arc<Thread> {
         &self.threads[0]
     }
 
@@ -320,7 +320,7 @@ impl ThreadPool {
     ///
     /// This should be called after the search result is received, or before
     /// explicitly aborting a search, to ensure clean shutdown.
-    pub fn stop_timer(&self) {
+    pub(crate) fn stop_timer(&self) {
         self.timer_stop.store(true, Ordering::Release);
 
         // Join the timer thread if it exists
