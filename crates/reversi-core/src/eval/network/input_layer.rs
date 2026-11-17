@@ -108,16 +108,16 @@ fn accumulate_scalar<const DIMS: usize>(
             while j + 4 <= DIMS {
                 let acc_j = acc_ptr.add(j);
                 let row_j = row_ptr.add(j);
-                *acc_j += *row_j;
-                *acc_j.add(1) = *acc_j.add(1) + *row_j.add(1);
-                *acc_j.add(2) = *acc_j.add(2) + *row_j.add(2);
-                *acc_j.add(3) = *acc_j.add(3) + *row_j.add(3);
+                *acc_j = (*acc_j).wrapping_add(*row_j);
+                *acc_j.add(1) = (*acc_j.add(1)).wrapping_add(*row_j.add(1));
+                *acc_j.add(2) = (*acc_j.add(2)).wrapping_add(*row_j.add(2));
+                *acc_j.add(3) = (*acc_j.add(3)).wrapping_add(*row_j.add(3));
                 j += 4;
             }
 
             while j < DIMS {
                 let acc_j = acc_ptr.add(j);
-                *acc_j += *row_ptr.add(j);
+                *acc_j = (*acc_j).wrapping_add(*row_ptr.add(j));
                 j += 1;
             }
         }

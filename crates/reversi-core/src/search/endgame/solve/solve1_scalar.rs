@@ -9,6 +9,7 @@ use super::solve1_tables::{COUNT_FLIP, MULT_D9, PARAMS, SqParams};
 #[inline(always)]
 pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
     let alpha = alpha.value();
+    // SAFETY: the table has one entry per square.
     let pp = unsafe { PARAMS.get_unchecked(sq.index()) };
     let mut n_flipped = count_one(player, pp);
     let mut score = 2 * player.count_ones() as i32 - DISC_SCORE_MAX.value() + 2 + n_flipped;
@@ -42,6 +43,8 @@ fn count_one(p: u64, pp: &SqParams) -> i32 {
         >> 56) as usize;
 
     let count_flip = &COUNT_FLIP.0;
+    // SAFETY: `t0`..`t3` are COUNT_FLIP row numbers from the const-generated
+    // parameter table, and every extractor yields a byte (`>> 56` or `& 0xff`).
     let count = unsafe {
         *count_flip.get_unchecked(pp.t0 as usize).get_unchecked(idx0) as i32
             + *count_flip.get_unchecked(pp.t1 as usize).get_unchecked(idx1) as i32
@@ -52,6 +55,7 @@ fn count_one(p: u64, pp: &SqParams) -> i32 {
         count
     } else {
         let idx3 = ((p & pp.mask_d9).wrapping_mul(MULT_D9) >> 56) as usize;
+        // SAFETY: as above; `t3` is valid whenever the square has a d9 line.
         count + unsafe { *count_flip.get_unchecked(pp.t3 as usize).get_unchecked(idx3) as i32 }
     }
 }

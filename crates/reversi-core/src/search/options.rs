@@ -138,6 +138,9 @@ impl SearchRunOptions {
     }
 
     /// Forces a specific evaluation mode.
+    ///
+    /// Only the midgame search follows it: the endgame solve always picks its
+    /// own networks.
     #[must_use]
     pub fn with_eval_mode(mut self, mode: EvalMode) -> Self {
         self.eval_mode = Some(mode);

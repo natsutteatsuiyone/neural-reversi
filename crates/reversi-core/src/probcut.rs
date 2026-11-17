@@ -29,6 +29,9 @@ pub use endgame::{
 /// Midgame ProbCut scales its margin by [`Selectivity::t_value`]. Endgame
 /// ProbCut uses [`endgame_tail_multiplier`] instead, calibrated so the root
 /// score is exact with [`Selectivity::probability`].
+///
+/// The order is the declaration order, not the confidence order: `Mid`
+/// compares below `Level1` although its confidence is higher.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {

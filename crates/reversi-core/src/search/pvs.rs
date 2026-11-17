@@ -627,7 +627,7 @@ const LMR_ALLNODE_KEEP: i32 = 2;
 /// [`LMR_MIN_DEPTH`], which is where the gate below admits moves: the shallow
 /// search score minus penalties for the opponent's mobility and potential
 /// mobility. Below it ordering falls back to unscaled heuristics.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 #[inline(always)]
 fn compute_lmr_reduction<NT: NodeType, SS: SearchStrategy>(
     selectivity: Selectivity,

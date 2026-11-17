@@ -119,7 +119,7 @@ impl GameState {
     /// Returns an error if `sq` is not a legal move on the current board.
     pub fn make_move(&mut self, sq: Square) -> Result<(), String> {
         if !self.board.is_legal_move(sq) {
-            return Err(format!("Illegal move: {sq:?}"));
+            return Err(format!("Illegal move: {sq}"));
         }
 
         self.apply_action(HistoryAction::Play(sq));

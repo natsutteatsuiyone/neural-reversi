@@ -622,17 +622,14 @@ impl Thread {
     /// 5. Handles shutdown requests
     pub(super) fn main_thread_loop(self: Arc<Self>, receiver: Receiver<Message>) {
         loop {
-            // Check exit flag before blocking on receive
             if self.exit.load(Ordering::Acquire) {
                 break;
             }
 
-            // Block waiting for next message
             let message = receiver.recv();
 
             match message {
                 Ok(Message::StartThinking(task, stop, result_sender)) => {
-                    // Mark this thread as actively searching
                     self.searching.store(true, Ordering::Release);
 
                     // Keep a reference to the pool before task is consumed
@@ -653,7 +650,6 @@ impl Thread {
                     // Leave ThreadPool::drop to the caller, which owns the pool.
                     drop(pool);
 
-                    // Send result back to caller
                     // Ignore error if receiver was dropped (caller gave up waiting)
                     let _ = result_sender.send(result);
                 }

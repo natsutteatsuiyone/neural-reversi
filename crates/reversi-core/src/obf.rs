@@ -105,9 +105,9 @@ impl ObfPosition {
         }))
     }
 
-    /// Returns `true` when no scored moves are listed (typically a `PS:`-only line).
+    /// Returns `true` for a line that lists a `PS:` score and no moves.
     pub fn is_pass(&self) -> bool {
-        self.move_scores.is_empty()
+        self.pass_score.is_some() && self.move_scores.is_empty()
     }
 
     /// Returns the expected outcome score: the best-listed move's score when
@@ -165,7 +165,7 @@ pub enum ParseObfError {
         header: String,
     },
     /// The side-to-move marker is neither `X` nor `O`.
-    InvalidSideToMove(char),
+    InvalidSideToMove(String),
     /// The 64 board characters are invalid.
     InvalidBoard(BoardError),
     /// A segment is not of the form `move:score`.
@@ -199,7 +199,9 @@ impl fmt::Display for ParseObfError {
                 f,
                 "Board header too short (need 64 board chars + side): '{header}'"
             ),
-            ParseObfError::InvalidSideToMove(c) => write!(f, "Invalid side to move: '{c}'"),
+            ParseObfError::InvalidSideToMove(side) => {
+                write!(f, "Invalid side to move: '{side}'")
+            }
             ParseObfError::InvalidBoard(e) => write!(f, "Invalid board string: {e}"),
             ParseObfError::InvalidSegment { segment } => {
                 write!(f, "Invalid move:score format: '{segment}'")
@@ -238,19 +240,15 @@ fn parse_board_header(header: &str) -> Result<(Board, PlayerColor), ParseObfErro
     }
 
     let board_str = &header[..64];
-    let side_char =
-        header[64..]
-            .trim_start()
-            .chars()
-            .next()
-            .ok_or_else(|| ParseObfError::HeaderTooShort {
+    let side_to_move = match header[64..].trim() {
+        "X" => PlayerColor::Black,
+        "O" => PlayerColor::White,
+        "" => {
+            return Err(ParseObfError::HeaderTooShort {
                 header: header.to_string(),
-            })?;
-
-    let side_to_move = match side_char {
-        'X' => PlayerColor::Black,
-        'O' => PlayerColor::White,
-        other => return Err(ParseObfError::InvalidSideToMove(other)),
+            });
+        }
+        other => return Err(ParseObfError::InvalidSideToMove(other.to_string())),
     };
 
     let board = Board::from_string(board_str, side_to_move).map_err(ParseObfError::InvalidBoard)?;
@@ -332,7 +330,15 @@ mod tests {
     fn rejects_invalid_side_marker() {
         let line = format!("{INITIAL_BOARD} Z");
         let err = ObfPosition::parse(&line).unwrap_err();
-        assert_eq!(err, ParseObfError::InvalidSideToMove('Z'));
+        assert_eq!(err, ParseObfError::InvalidSideToMove("Z".to_string()));
+    }
+
+    #[test]
+    fn rejects_text_after_the_side_marker() {
+        for side in ["Xjunk", "XO", "X e6:+10"] {
+            let err = ObfPosition::parse(&format!("{INITIAL_BOARD} {side}")).unwrap_err();
+            assert_eq!(err, ParseObfError::InvalidSideToMove(side.to_string()));
+        }
     }
 
     #[test]
@@ -401,7 +407,7 @@ mod tests {
         assert_eq!(pass.expected_score(), Some(-4));
 
         let bare = parse(&format!("{INITIAL_BOARD}X"));
-        assert!(bare.is_pass());
+        assert!(!bare.is_pass());
         assert_eq!(bare.expected_score(), None);
     }
 

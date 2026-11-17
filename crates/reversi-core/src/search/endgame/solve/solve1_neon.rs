@@ -9,6 +9,7 @@ use super::solve1_tables::{COUNT_PAIR, META_HAS_D9, MULT_D9, NEON_PARAMS};
 #[inline(always)]
 pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
     let alpha = alpha.value();
+    // SAFETY: the table has one entry per square.
     let pp = unsafe { NEON_PARAMS.get_unchecked(sq.index()) };
     let meta = pp.meta;
     let c0 = ((meta >> 8) & 0xff) as usize;
@@ -25,6 +26,9 @@ pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
     // Each entry holds the mover's line count in its low byte and the
     // opponent's in its high byte, so both sides are summed in one pass.
     let pair = &COUNT_PAIR.0;
+    // SAFETY: `c0`..`c3` are COUNT_PAIR class numbers packed into `meta` by
+    // the const-generated parameter table, and every extractor yields a byte
+    // (`>> 56` or `& 0xff`).
     let mut packed = unsafe {
         *pair.get_unchecked(c0).get_unchecked(idx0) as u32
             + *pair.get_unchecked(c1).get_unchecked(idx1) as u32
@@ -33,6 +37,7 @@ pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
     if meta & META_HAS_D9 != 0 {
         let c3 = ((meta >> 32) & 0xff) as usize;
         let idx3 = ((player & pp.mask_d9).wrapping_mul(MULT_D9) >> 56) as usize;
+        // SAFETY: as above; `c3` is valid whenever `META_HAS_D9` is set.
         packed += unsafe { *pair.get_unchecked(c3).get_unchecked(idx3) as u32 };
     }
     let nf = (packed & 0xff) as i32;

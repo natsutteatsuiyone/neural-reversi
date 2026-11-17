@@ -379,7 +379,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         let mut weight_offset = 0usize;
         for segment in segments {
             for (i, &value) in segment.iter().enumerate() {
-                acc += (value as i32) * (self.weights[weight_offset + i] as i32);
+                acc = acc.wrapping_add((value as i32) * (self.weights[weight_offset + i] as i32));
             }
             weight_offset += segment.len();
         }

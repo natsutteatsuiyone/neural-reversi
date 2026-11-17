@@ -146,7 +146,6 @@ impl ThreadPool {
 
     /// Shuts down the thread pool and waits for all threads to exit.
     fn exit(&mut self) {
-        // Already shut down - nothing to do
         if self.threads.is_empty() {
             return;
         }
@@ -294,7 +293,6 @@ impl ThreadPool {
     ///   - Deadline is reached (requests abort)
     ///   - [`stop_timer`](Self::stop_timer) is called (search completed early)
     fn start_timer(&self, time_manager: Arc<TimeManager>, generation: u32) {
-        // Reset stop flag before spawning new timer
         self.timer_stop.store(false, Ordering::Release);
 
         let stop_flag = self.timer_stop.clone();
@@ -323,7 +321,6 @@ impl ThreadPool {
     /// This should be called after the search result is received, or before
     /// explicitly aborting a search, to ensure clean shutdown.
     pub fn stop_timer(&self) {
-        // Signal timer to stop
         self.timer_stop.store(true, Ordering::Release);
 
         // Join the timer thread if it exists

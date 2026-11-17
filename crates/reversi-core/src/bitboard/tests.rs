@@ -173,19 +173,13 @@ fn corner_stability_counts_occupied_corners_and_immediate_edge_neighbors() {
 }
 
 #[test]
-fn display_prints_rank_eight_first_with_exact_board_shape() {
-    let board = bitboard_from_squares(&[
-        Square::A1,
-        Square::H1,
-        Square::D4,
-        Square::E5,
-        Square::A8,
-        Square::H8,
-    ]);
+fn display_prints_rank_one_first_with_exact_board_shape() {
+    let board =
+        bitboard_from_squares(&[Square::A1, Square::D4, Square::E5, Square::A8, Square::H8]);
 
     assert_eq!(
         format!("{board}"),
-        "1......1\n........\n........\n....1...\n...1....\n........\n........\n1......1\n"
+        "1.......\n........\n........\n...1....\n....1...\n........\n........\n1......1\n"
     );
 }
 

@@ -82,7 +82,8 @@ const ENDGAME_LEVEL4_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
 };
 const CONTINUE_CURVE_BASE_EMPTIES: i32 = 30;
 
-/// Midgame-speed nodes the endgame solve needs to finish Level2 at the base empty count.
+/// Midgame-speed nodes the endgame solve needs to finish Level2
+/// (`ENDGAME_TRACKING_MIN_SELECTIVITY`) at the base empty count.
 const ENDGAME_ENTER_WORK: f64 = 1.04e9;
 const ENDGAME_ENTER_WORK_GROWTH: f64 = 1.65;
 const ENDGAME_ENTER_WORK_BASE_EMPTIES: i32 = 38;
@@ -870,6 +871,11 @@ impl TimeManager {
         self.window_clean.store(false, Ordering::Relaxed);
         self.prev_iter_score.store(NO_SCORE_BITS, Ordering::Relaxed);
     }
+
+    /// Returns whether running out of time aborted an iteration in progress.
+    pub(crate) fn timed_out(&self) -> bool {
+        self.timed_out.load(Ordering::Relaxed)
+    }
 }
 
 /// Records an aborted iteration as timed out when the deadline caused the
@@ -880,13 +886,6 @@ pub(crate) fn record_abort(time_manager: Option<&TimeManager>) {
         && tm.deadline_reached.load(Ordering::Relaxed)
     {
         tm.timed_out.store(true, Ordering::Relaxed);
-    }
-}
-
-impl TimeManager {
-    /// Returns whether running out of time aborted an iteration in progress.
-    pub(crate) fn timed_out(&self) -> bool {
-        self.timed_out.load(Ordering::Relaxed)
     }
 }
 

@@ -396,8 +396,9 @@ impl IntoIterator for Bitboard {
 // Display trait
 
 impl std::fmt::Display for Bitboard {
+    /// Prints rank 1 first, like [`Board`](crate::board::Board).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for rank in (0..8).rev() {
+        for rank in 0..8 {
             for file in 0..8 {
                 let sq = rank * 8 + file;
                 if (self.0 >> sq) & 1 != 0 {

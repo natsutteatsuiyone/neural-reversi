@@ -115,7 +115,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
             thread,
             base_score,
             completed,
-            Selectivity::Level2,
+            super::ENDGAME_TRACKING_MIN_SELECTIVITY,
         ),
     }
 }

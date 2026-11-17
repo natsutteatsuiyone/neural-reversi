@@ -270,7 +270,7 @@ impl NetworkSmall {
             if *value > 0 {
                 let clamped = (*value).min(ACTIVATION_CLAMP_MAX as i32);
                 let activation = (clamped * clamped) >> 10;
-                output += activation * (weight as i32);
+                output = output.wrapping_add(activation * (weight as i32));
             }
         }
 

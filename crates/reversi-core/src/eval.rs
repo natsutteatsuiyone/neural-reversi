@@ -79,13 +79,15 @@ fn missing_weights_error(path: &Path) -> io::Error {
     )
 }
 
-/// Loads weights from `path`, remapping a missing file to the
-/// weights-specific error message.
+/// Loads weights from `path`, naming the file in any error.
 fn load_weights<T>(path: &Path, load: fn(&Path) -> io::Result<T>) -> io::Result<T> {
-    match load(path) {
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Err(missing_weights_error(path)),
-        other => other,
-    }
+    load(path).map_err(|err| match err.kind() {
+        io::ErrorKind::NotFound => missing_weights_error(path),
+        kind => io::Error::new(
+            kind,
+            format!("Cannot load weights \"{}\": {err}", path.display()),
+        ),
+    })
 }
 
 impl Eval {
@@ -269,6 +271,18 @@ mod tests {
         let err = missing_weights_error(Path::new(".."));
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
         assert!(err.to_string().contains("weights file"));
+    }
+
+    #[test]
+    fn load_weights_names_the_file_when_its_content_is_invalid() {
+        let err = load_weights(Path::new("some/dir/eval-test.zst"), |_| {
+            Err::<(), _>(io::Error::new(io::ErrorKind::InvalidData, "bad magic"))
+        })
+        .unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("eval-test.zst"), "{err}");
+        assert!(err.to_string().contains("bad magic"), "{err}");
     }
 
     #[test]

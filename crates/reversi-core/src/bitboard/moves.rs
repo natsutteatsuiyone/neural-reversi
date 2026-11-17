@@ -411,7 +411,7 @@ pub(super) fn legal_moves_and_potential_portable(player: u64, opponent: u64) -> 
 }
 
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f,avx512vl")]
+#[target_feature(enable = "avx512vl")]
 #[inline]
 #[allow(dead_code)]
 pub(super) fn legal_moves_and_potential_avx512(player: u64, opponent: u64) -> (u64, u64) {

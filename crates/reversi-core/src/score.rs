@@ -10,6 +10,9 @@ pub const DISC_SCORE_MAX: DiscScore = DiscScore::new(64);
 pub const DISC_SCORE_MIN: DiscScore = DiscScore::new(-64);
 
 /// Infinity score for search algorithms.
+///
+/// This is not [`Score::INF`] in discs: the two sentinels do not convert
+/// into each other.
 pub const DISC_SCORE_INF: DiscScore = DiscScore::new(i8::MAX as i32);
 
 /// Disc-difference score: -64 to +64 for real game outcomes.

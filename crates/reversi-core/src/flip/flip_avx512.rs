@@ -283,12 +283,7 @@ macro_rules! flip_runtime_body {
     }};
 }
 
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "avx512f",
-    target_feature = "avx512cd",
-    target_feature = "avx512vl"
-))]
+#[cfg(target_arch = "x86_64")]
 #[inline(always)]
 pub fn flip_index(x: usize, player: u64, opponent: u64) -> u64 {
     unsafe { flip_runtime_body!(x, player, opponent) }

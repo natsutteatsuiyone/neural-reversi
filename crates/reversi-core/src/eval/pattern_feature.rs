@@ -969,46 +969,40 @@ impl PatternFeatures {
             let f2 = v128_load(f_ptr.add(2));
             let f3 = v128_load(f_ptr.add(3));
 
-            let mut sum0 = i16x8_splat(0);
-            let mut sum1 = i16x8_splat(0);
-            let mut sum2 = i16x8_splat(0);
-            let mut sum3 = i16x8_splat(0);
-
+            // `flipped` is non-empty: a move flips at least one disc.
             let first_idx = flipped.bits().trailing_zeros() as usize;
             let mut bits = flipped.bits() & (flipped.bits() - 1);
 
-            if bits != 0 || flipped.bits() != 0 {
-                let first_fp = ef.get_unchecked(first_idx).as_v128_ptr();
-                sum0 = v128_load(first_fp);
-                sum1 = v128_load(first_fp.add(1));
-                sum2 = v128_load(first_fp.add(2));
-                sum3 = v128_load(first_fp.add(3));
+            let first_fp = ef.get_unchecked(first_idx).as_v128_ptr();
+            let mut sum0 = v128_load(first_fp);
+            let mut sum1 = v128_load(first_fp.add(1));
+            let mut sum2 = v128_load(first_fp.add(2));
+            let mut sum3 = v128_load(first_fp.add(3));
 
-                if bits != 0 {
-                    loop {
-                        let idx1 = bits.trailing_zeros() as usize;
-                        bits = bits & (bits - 1);
-                        let fp1 = ef.get_unchecked(idx1).as_v128_ptr();
-                        sum0 = i16x8_add(sum0, v128_load(fp1));
-                        sum1 = i16x8_add(sum1, v128_load(fp1.add(1)));
-                        sum2 = i16x8_add(sum2, v128_load(fp1.add(2)));
-                        sum3 = i16x8_add(sum3, v128_load(fp1.add(3)));
+            if bits != 0 {
+                loop {
+                    let idx1 = bits.trailing_zeros() as usize;
+                    bits = bits & (bits - 1);
+                    let fp1 = ef.get_unchecked(idx1).as_v128_ptr();
+                    sum0 = i16x8_add(sum0, v128_load(fp1));
+                    sum1 = i16x8_add(sum1, v128_load(fp1.add(1)));
+                    sum2 = i16x8_add(sum2, v128_load(fp1.add(2)));
+                    sum3 = i16x8_add(sum3, v128_load(fp1.add(3)));
 
-                        if bits == 0 {
-                            break;
-                        }
+                    if bits == 0 {
+                        break;
+                    }
 
-                        let idx2 = bits.trailing_zeros() as usize;
-                        bits = bits & (bits - 1);
-                        let fp2 = ef.get_unchecked(idx2).as_v128_ptr();
-                        sum0 = i16x8_add(sum0, v128_load(fp2));
-                        sum1 = i16x8_add(sum1, v128_load(fp2.add(1)));
-                        sum2 = i16x8_add(sum2, v128_load(fp2.add(2)));
-                        sum3 = i16x8_add(sum3, v128_load(fp2.add(3)));
+                    let idx2 = bits.trailing_zeros() as usize;
+                    bits = bits & (bits - 1);
+                    let fp2 = ef.get_unchecked(idx2).as_v128_ptr();
+                    sum0 = i16x8_add(sum0, v128_load(fp2));
+                    sum1 = i16x8_add(sum1, v128_load(fp2.add(1)));
+                    sum2 = i16x8_add(sum2, v128_load(fp2.add(2)));
+                    sum3 = i16x8_add(sum3, v128_load(fp2.add(3)));
 
-                        if bits == 0 {
-                            break;
-                        }
+                    if bits == 0 {
+                        break;
                     }
                 }
             }

@@ -64,6 +64,11 @@ args = [
     "warnings",
 ]
 
+[tasks.clippy-core-default]
+description = "Run clippy on reversi-core without its optional features"
+command = "cargo"
+args = ["clippy", "-p", "reversi-core", "--all-targets", "--", "-D", "warnings"]
+
 [tasks.fmt]
 command = "cargo"
 args = ["fmt"]
@@ -88,7 +93,7 @@ RUSTDOCFLAGS = "-D warnings"
 
 [tasks.lint]
 description = "Run fmt check, clippy, and doc check"
-run_task = { name = ["fmt-check", "clippy", "doc-check"] }
+run_task = { name = ["fmt-check", "clippy", "clippy-core-default", "doc-check"] }
 
 [tasks.bench]
 command = "cargo"

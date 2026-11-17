@@ -239,7 +239,7 @@ impl FromStr for Square {
     /// Returns [`SquareError`] if the string is not a valid square representation.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.len() != 2 {
+        if s.len() != 2 || !s.is_ascii() {
             return Err(SquareError::InvalidFormat);
         }
 
@@ -382,6 +382,8 @@ mod tests {
 
     #[test]
     fn test_from_str_edge_cases() {
+        assert_eq!(Square::from_str("é"), Err(SquareError::InvalidFormat));
+
         // Test with whitespace
         assert_eq!(Square::from_str(" a1 ").unwrap(), Square::A1);
         assert_eq!(Square::from_str("\ta1\n").unwrap(), Square::A1);

@@ -50,7 +50,7 @@ pub struct SplitPointState {
     ///
     /// Relaxed atomic because late-join pre-checks read it lock-free as a
     /// heuristic hint; booking is re-validated under the split-point lock.
-    pub(super) owner_thread_idx: AtomicUsize,
+    owner_thread_idx: AtomicUsize,
 
     /// Bitmask tracking which threads are working on this split point.
     pub(super) helpers_mask: Align64<AtomicBitSet>,
@@ -61,10 +61,10 @@ pub struct SplitPointState {
     ///
     /// Relaxed atomic because late-join pre-checks read it lock-free as a
     /// heuristic hint; booking is re-validated under the split-point lock.
-    pub(super) level: AtomicUsize,
+    level: AtomicUsize,
 
     /// Whether the parent expected this node to produce a beta cutoff.
-    pub cut_node: AtomicBool,
+    cut_node: AtomicBool,
 }
 
 impl SplitPointState {
@@ -311,7 +311,6 @@ pub struct SplitPoint {
 }
 
 impl Default for SplitPoint {
-    /// Creates a new split point with default values.
     fn default() -> Self {
         SplitPoint {
             mutex: spinlock::SpinLock::new(),

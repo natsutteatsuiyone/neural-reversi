@@ -124,6 +124,9 @@ jobs:
     - name: Clippy
       run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+    - name: Clippy (reversi-core without optional features)
+      run: cargo clippy -p reversi-core --all-targets -- -D warnings
+
     - name: Doc check
       env:
         RUSTDOCFLAGS: -D warnings
