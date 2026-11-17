@@ -397,7 +397,7 @@ mod tests {
         assert_eq!(result.best_move(), Some(tt_sq));
         assert_eq!(result.depth(), 20);
 
-        ctx.tt.clear();
+        ctx.tt.clear_shared();
         let result = CompletedState::new(1).into_result(&ctx, &board);
         assert_eq!(result.best_move(), Some(quick));
     }

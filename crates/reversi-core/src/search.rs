@@ -239,7 +239,10 @@ impl Search {
     /// Clears the transposition table, resets the TT generation counter,
     /// flushes the evaluation cache and corrections, and resets endgame tracking.
     pub fn init(&mut self) {
-        self.tt.clear();
+        match Arc::get_mut(&mut self.tt) {
+            Some(tt) => tt.clear(),
+            None => self.tt.clear_shared(),
+        }
         self.tt.reset_generation();
         self.eval.clear_cache();
         self.corrections.clear();

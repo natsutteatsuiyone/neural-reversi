@@ -607,8 +607,7 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
-            // SAFETY: an all-zero `TTEntry` is the empty entry - `clear` relies
-            // on the same equivalence.
+            // SAFETY: an all-zero `TTEntry` is the empty entry.
             entries: unsafe { AlignedBuffer::zeroed(entries_size) },
             cluster_count,
             generation: AtomicU8::new(0),
@@ -621,17 +620,25 @@ impl TranspositionTable {
     }
 
     /// Clears all entries.
+    pub fn clear(&mut self) {
+        for entry in self.entries.iter_mut() {
+            *entry.seq.get_mut() = 0;
+            *entry.player.get_mut() = 0;
+            *entry.opponent.get_mut() = 0;
+            *entry.data.get_mut() = 0;
+        }
+    }
+
+    /// Clears all entries of a table that other threads may be using.
     ///
-    /// Must be called with no concurrent readers or writers.
-    pub fn clear(&self) {
-        // SAFETY: All TTEntry fields are AtomicU64 (interior-mutable via UnsafeCell),
-        // and zeroing bytes is equivalent to AtomicU64::new(0).
-        unsafe {
-            std::ptr::write_bytes(
-                self.entries.as_ptr() as *mut u8,
-                0,
-                self.entries.len() * mem::size_of::<TTEntry>(),
-            );
+    /// This is about twice as slow as [`clear`](Self::clear). A search that
+    /// runs during the call may keep or lose any of its entries.
+    pub fn clear_shared(&self) {
+        for entry in self.entries.iter() {
+            entry.seq.store(0, Ordering::Relaxed);
+            entry.player.store(0, Ordering::Relaxed);
+            entry.opponent.store(0, Ordering::Relaxed);
+            entry.data.store(0, Ordering::Relaxed);
         }
     }
 

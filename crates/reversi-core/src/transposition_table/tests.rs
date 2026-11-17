@@ -739,31 +739,35 @@ mod transposition_table {
 
     #[test]
     fn clear_removes_entries_without_resetting_generation() {
-        let tt = TranspositionTable::new(0);
-        let generation = tt.increment_generation();
-        let board = make_board(START_PLAYER, START_OPPONENT);
-        let key = board.hash();
-        let idx = tt.probe(&board, key).slot();
+        let clears: [fn(&mut TranspositionTable); 2] =
+            [TranspositionTable::clear, |tt| tt.clear_shared()];
+        for clear in clears {
+            let mut tt = TranspositionTable::new(0);
+            let generation = tt.increment_generation();
+            let board = make_board(START_PLAYER, START_OPPONENT);
+            let key = board.hash();
+            let idx = tt.probe(&board, key).slot();
 
-        tt.store(
-            idx,
-            &board,
-            raw_score(100),
-            Bound::Exact,
-            20,
-            sq(10),
-            Selectivity::Level1,
-            false,
-            false,
-        );
-        assert!(tt.lookup(&board, key).is_some());
-        assert!(tt.usage_rate() > 0.0);
+            tt.store(
+                idx,
+                &board,
+                raw_score(100),
+                Bound::Exact,
+                20,
+                sq(10),
+                Selectivity::Level1,
+                false,
+                false,
+            );
+            assert!(tt.lookup(&board, key).is_some());
+            assert!(tt.usage_rate() > 0.0);
 
-        tt.clear();
+            clear(&mut tt);
 
-        assert!(tt.lookup(&board, key).is_none());
-        assert_eq!(tt.usage_rate(), 0.0);
-        assert_eq!(tt.generation(), generation);
+            assert!(tt.lookup(&board, key).is_none());
+            assert_eq!(tt.usage_rate(), 0.0);
+            assert_eq!(tt.generation(), generation);
+        }
     }
 
     #[test]
