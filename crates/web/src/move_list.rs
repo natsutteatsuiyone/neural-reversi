@@ -168,7 +168,7 @@ pub(crate) fn evaluate_moves_fast(
 
 /// Returns the legal moves of two boards.
 #[inline(always)]
-fn legal_moves_pair(a: &Board, b: &Board) -> (Bitboard, Bitboard) {
+pub(crate) fn legal_moves_pair(a: &Board, b: &Board) -> (Bitboard, Bitboard) {
     cfg_select! {
         all(target_arch = "wasm32", target_feature = "simd128") => {
             use core::arch::wasm32::*;

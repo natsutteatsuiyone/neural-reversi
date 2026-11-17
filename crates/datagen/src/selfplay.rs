@@ -382,3 +382,151 @@ fn candidate_move(board: &Board, search: &mut search::Search, choice: RandomMove
         .expect("search returned no legal move")
         .sq
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use reversi_core::player_color::PlayerColor;
+
+    use super::*;
+
+    /// An output directory under the system temporary directory, removed on drop.
+    struct OutputDir(PathBuf);
+
+    impl OutputDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "neural-reversi-datagen-selfplay-{name}-{}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        /// Writes one record per game id to `file_name`.
+        fn write_games(&self, file_name: &str, game_ids: impl IntoIterator<Item = u16>) {
+            let records: Vec<GameRecord> = game_ids
+                .into_iter()
+                .map(|game_id| GameRecord {
+                    game_id,
+                    ply: 0,
+                    board: Board::new(),
+                    score: 0.0,
+                    game_score: None,
+                    side_to_move: PlayerColor::Black,
+                    is_random: false,
+                    sq: Square::D3,
+                })
+                .collect();
+            append_records(&self.0.join(file_name), &records).unwrap();
+        }
+
+        fn file_state(&self, games_per_file: u32) -> FileState {
+            FileState::new("game", &self.0, games_per_file).unwrap()
+        }
+    }
+
+    impl Drop for OutputDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// Takes the next game id and returns it with the file it belongs to.
+    fn next_game(state: &mut FileState) -> (u32, u16) {
+        let game_id = state.next_game_id();
+        (state.file_id, game_id)
+    }
+
+    #[test]
+    fn file_state_starts_at_the_first_game_in_an_empty_directory() {
+        let dir = OutputDir::new("empty");
+        let mut state = dir.file_state(3);
+
+        assert_eq!(state.total_games().unwrap(), 0);
+        assert_eq!(next_game(&mut state), (0, 0));
+    }
+
+    #[test]
+    fn file_state_continues_after_the_last_game_of_the_latest_file() {
+        let dir = OutputDir::new("continue");
+        dir.write_games("game_00000.bin", [0, 0, 1, 2]);
+        dir.write_games("game_00001.bin", [0, 1, 1]);
+        let mut state = dir.file_state(3);
+
+        assert_eq!(state.total_games().unwrap(), 5);
+        assert_eq!(next_game(&mut state), (1, 2));
+        assert_eq!(next_game(&mut state), (2, 0));
+    }
+
+    #[test]
+    fn file_state_starts_a_new_file_when_the_latest_file_is_full() {
+        let dir = OutputDir::new("full");
+        dir.write_games("game_00000.bin", [0, 1, 2]);
+        let mut state = dir.file_state(3);
+
+        assert_eq!(state.total_games().unwrap(), 3);
+        assert_eq!(next_game(&mut state), (1, 0));
+    }
+
+    #[test]
+    fn file_state_drops_a_partial_record_before_reading_the_last_game() {
+        let dir = OutputDir::new("partial");
+        dir.write_games("game_00000.bin", [0, 1]);
+        let path = dir.0.join("game_00000.bin");
+        let whole_records = fs::metadata(&path).unwrap().len();
+        // The tail would read as game id 0xFFFF if it were taken as a record.
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(&[0xFF; 26])
+            .unwrap();
+        let mut state = dir.file_state(3);
+
+        assert_eq!(fs::metadata(&path).unwrap().len(), whole_records);
+        assert_eq!(next_game(&mut state), (0, 2));
+    }
+
+    #[test]
+    fn file_state_ignores_files_that_are_not_its_own_output() {
+        let dir = OutputDir::new("other-files");
+        dir.write_games("game_00000.bin", [0]);
+        dir.write_games("other_00007.bin", [0, 1]);
+        dir.write_games("game_0007.bin", [0, 1]);
+        dir.write_games("game_00007.txt", [0, 1]);
+        dir.write_games("game_0000x.bin", [0, 1]);
+        let mut state = dir.file_state(3);
+
+        assert_eq!(next_game(&mut state), (0, 1));
+    }
+
+    #[test]
+    fn file_state_takes_the_highest_file_id_beyond_five_digits() {
+        let dir = OutputDir::new("six-digits");
+        dir.write_games("game_99999.bin", [0, 1, 2]);
+        dir.write_games("game_100000.bin", [0]);
+        let mut state = dir.file_state(3);
+
+        assert_eq!(next_game(&mut state), (100_000, 1));
+    }
+
+    /// `game_id` is a `u16` and `--games-per-file` goes up to 65535.
+    #[test]
+    fn file_state_handles_the_largest_games_per_file() {
+        let dir = OutputDir::new("largest");
+        dir.write_games("game_00000.bin", [65533]);
+        let mut state = dir.file_state(65535);
+
+        assert_eq!(next_game(&mut state), (0, 65534));
+        assert_eq!(next_game(&mut state), (1, 0));
+
+        let full = OutputDir::new("largest-full");
+        full.write_games("game_00000.bin", [65534]);
+        let mut state = full.file_state(65535);
+
+        assert_eq!(state.total_games().unwrap(), 65535);
+        assert_eq!(next_game(&mut state), (1, 0));
+    }
+}

@@ -501,6 +501,97 @@ mod tests {
         ));
     }
 
+    /// Returns whether some line of play from `board` flips a disc of `discs`.
+    ///
+    /// `discs` belong to the side to move if `owned_by_mover`, otherwise to
+    /// the other side.
+    fn reference_can_be_flipped(board: Board, discs: u64, owned_by_mover: bool) -> bool {
+        let owner = if owned_by_mover {
+            board.player()
+        } else {
+            board.opponent()
+        };
+        if discs & !owner.bits() != 0 {
+            return true;
+        }
+
+        let moves = board.legal_moves();
+        if moves.is_empty() {
+            let passed = board.switch_players();
+            return passed.has_legal_moves()
+                && reference_can_be_flipped(passed, discs, !owned_by_mover);
+        }
+        moves
+            .iter()
+            .any(|sq| reference_can_be_flipped(board.make_move(sq), discs, !owned_by_mover))
+    }
+
+    /// Returns a board with `n_empties` empty squares and random discs.
+    fn random_filled_board(rng: &mut StdRng, n_empties: u32) -> Board {
+        let mut empties = 0u64;
+        while empties.count_ones() < n_empties {
+            empties |= 1 << rng.random_range(0..64);
+        }
+        let player = rng.random::<u64>() & !empties;
+        Board::from_bitboards(player, !player & !empties)
+    }
+
+    /// Returns a board reached by random legal moves from the initial
+    /// position, or `None` if the game ends before `n_empties` are left.
+    fn random_played_board(rng: &mut StdRng, n_empties: u32) -> Option<Board> {
+        let mut board = Board::new();
+        while board.empty_count() > n_empties {
+            if !board.has_legal_moves() {
+                board = board.switch_players();
+                if !board.has_legal_moves() {
+                    return None;
+                }
+            }
+            let moves = board.legal_moves();
+            let sq = moves
+                .iter()
+                .nth(rng.random_range(0..moves.count() as usize))?;
+            board = board.make_move(sq);
+        }
+        Some(board)
+    }
+
+    #[test]
+    fn stable_discs_are_never_flipped_in_any_line_of_play() {
+        let mut rng = StdRng::seed_from_u64(0x5741_424c_4553);
+        let mut n_stable = 0;
+
+        for case in 0..600 {
+            let n_empties = 1 + case % 7;
+            let board = if case % 2 == 0 {
+                random_filled_board(&mut rng, n_empties)
+            } else {
+                match random_played_board(&mut rng, n_empties) {
+                    Some(board) => board,
+                    None => continue,
+                }
+            };
+
+            for (board, name) in [
+                (board, "side to move"),
+                (board.switch_players(), "other side"),
+            ] {
+                let stable = get_stable_discs(board.player(), board.opponent()).bits();
+                n_stable += stable.count_ones();
+
+                assert_eq!(stable & !board.player().bits(), 0, "{name} of {board:?}");
+                // Stability does not depend on whose turn it is.
+                assert!(
+                    !reference_can_be_flipped(board, stable, true)
+                        && !reference_can_be_flipped(board.switch_players(), stable, false),
+                    "{stable:#018x} is not stable for the {name} of {board:?}"
+                );
+            }
+        }
+
+        assert!(n_stable > 5000, "only {n_stable} stable discs were checked");
+    }
+
     #[test]
     fn stable_discs_include_full_edge_but_not_unprotected_inner_disc() {
         let player = Bitboard::new(0xff) | crate::square::Square::B2.bitboard();

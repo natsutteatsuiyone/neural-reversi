@@ -304,3 +304,24 @@ fn test_solve_20_case2() {
 
     assert_eq!(score(&result), 0);
 }
+
+/// White has no move in either position; Black does.
+#[test]
+fn pass_position_reports_no_legal_move_from_both_roots() {
+    let mut search = search();
+    let few_empties = "-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-";
+    let many_empties = "-OXXXXXX------------------------------------------------XXX-----";
+
+    for (name, board, level) in [
+        ("endgame root", few_empties, Level::perfect()),
+        ("midgame root", many_empties, Level::uniform(4, 0)),
+    ] {
+        let board = Board::from_string(board, PlayerColor::White).unwrap();
+        assert!(!board.has_legal_moves(), "{name}");
+        assert!(board.switch_players().has_legal_moves(), "{name}");
+
+        let result = search.run(&board, &SearchRunOptions::with_level(level));
+
+        assert!(matches!(result, SearchResult::NoLegalMove), "{name}");
+    }
+}

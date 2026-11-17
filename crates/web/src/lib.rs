@@ -11,6 +11,8 @@ mod config;
 mod endgame_solver;
 mod eval;
 mod game;
+#[cfg(test)]
+mod kernel_tests;
 mod level;
 mod move_list;
 mod probcut;

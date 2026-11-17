@@ -51,6 +51,14 @@ bun run fmt:check   # check formatting with oxfmt
 bun run verify      # lint, fmt:check, and cargo test -p web
 ```
 
+`cargo test -p web` runs on the host, so it only reaches the scalar fallbacks. To run the simd128 kernels (flip, move generation, and the network) against their scalar references, run the same tests as WebAssembly under Node.js, once per build:
+
+```bash
+bun run test:wasm   # wasm-pack test --node, for simd128 and for relaxed-simd
+```
+
+`node` must be a real executable on `PATH`; a shim script is not found. With mise, use `mise x node -- bun run test:wasm`.
+
 ## Browser E2E Tests
 
 Install the Playwright browser once:
