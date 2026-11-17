@@ -157,6 +157,17 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
     }
 
+    // Internal iterative reductions for PV/Cut nodes without a TT move.
+    if !SS::IS_ENDGAME
+        && !NT::ROOT_NODE
+        && !all_node
+        && ctx.selectivity.is_enabled()
+        && depth >= IIR_MIN_DEPTH
+        && tt_move.is_none()
+    {
+        depth -= 1;
+    }
+
     let static_eval = (!SS::IS_ENDGAME
         && !NT::ROOT_NODE
         && ctx.selectivity.is_enabled()
@@ -185,17 +196,6 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.stats.increment_tt_probcut_cut();
             return pc_beta;
         }
-    }
-
-    // Internal iterative reductions for PV/Cut nodes without a TT move.
-    if !SS::IS_ENDGAME
-        && !NT::ROOT_NODE
-        && !all_node
-        && ctx.selectivity.is_enabled()
-        && depth >= IIR_MIN_DEPTH
-        && tt_move.is_none()
-    {
-        depth -= 1;
     }
 
     let n_moves = move_list.count();
