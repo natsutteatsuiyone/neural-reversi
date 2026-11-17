@@ -13,7 +13,6 @@
 //! - 0 = current player's disc
 //! - 1 = opponent's disc
 //! - 2 = empty square
-use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
 
 use crate::bitboard::Bitboard;
@@ -441,33 +440,43 @@ static EVAL_X2F: [CoordinateToFeature; BOARD_SQUARES] = generate_eval_x2f();
 /// Maintains pattern features for each ply of the game, allowing
 /// incremental updates as moves are made.
 pub struct PatternFeatures {
-    p_features: [MaybeUninit<PatternFeature>; MAX_PLY],
-    o_features: [MaybeUninit<PatternFeature>; MAX_PLY],
+    p_features: [PatternFeature; MAX_PLY],
+    o_features: [PatternFeature; MAX_PLY],
 }
 
 impl PatternFeatures {
-    /// Creates an uninitialized `PatternFeatures` container.
-    ///
-    /// Callers must initialize the relevant ply slots before reading them.
-    fn uninit() -> Self {
+    /// Creates a container with every feature of every ply set to zero.
+    fn zeroed() -> Self {
         PatternFeatures {
-            p_features: [const { MaybeUninit::uninit() }; MAX_PLY],
-            o_features: [const { MaybeUninit::uninit() }; MAX_PLY],
+            p_features: [PatternFeature::new(); MAX_PLY],
+            o_features: [PatternFeature::new(); MAX_PLY],
         }
     }
 
     /// Returns a reference to the player's pattern feature at the given ply.
+    ///
+    /// The features describe a board only at the ply the container was
+    /// created with and at the plies [`update`](Self::update) has reached
+    /// from there.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is not less than [`MAX_PLY`].
     #[inline(always)]
     pub fn p_feature(&self, ply: usize) -> &PatternFeature {
-        debug_assert!(ply < MAX_PLY);
-        unsafe { self.p_features.get_unchecked(ply).assume_init_ref() }
+        &self.p_features[ply]
     }
 
     /// Returns a reference to the opponent's pattern feature at the given ply.
+    ///
+    /// See [`p_feature`](Self::p_feature) for which plies are meaningful.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is not less than [`MAX_PLY`].
     #[inline(always)]
     pub fn o_feature(&self, ply: usize) -> &PatternFeature {
-        debug_assert!(ply < MAX_PLY);
-        unsafe { self.o_features.get_unchecked(ply).assume_init_ref() }
+        &self.o_features[ply]
     }
 
     /// Creates pattern features by copying pre-computed features at the given ply.
@@ -479,25 +488,19 @@ impl PatternFeatures {
         p_feature: &PatternFeature,
         o_feature: &PatternFeature,
     ) -> Self {
-        debug_assert!(ply < MAX_PLY);
-        let mut pf = Self::uninit();
-        pf.p_features[ply] = MaybeUninit::new(*p_feature);
-        pf.o_features[ply] = MaybeUninit::new(*o_feature);
+        let mut pf = Self::zeroed();
+        pf.p_features[ply] = *p_feature;
+        pf.o_features[ply] = *o_feature;
         pf
     }
 
     /// Creates new pattern features from the given board position.
     pub fn new(board: &Board, ply: usize) -> Self {
-        debug_assert!(ply < MAX_PLY);
-
-        let mut pattern_features = Self::uninit();
-
-        pattern_features.p_features[ply] = MaybeUninit::new(PatternFeature::new());
-        pattern_features.o_features[ply] = MaybeUninit::new(PatternFeature::new());
+        let mut pattern_features = Self::zeroed();
 
         let o_board = board.switch_players();
-        let p_feature = unsafe { pattern_features.p_features[ply].assume_init_mut() };
-        let o_feature = unsafe { pattern_features.o_features[ply].assume_init_mut() };
+        let p_feature = &mut pattern_features.p_features[ply];
+        let o_feature = &mut pattern_features.o_features[ply];
         for (i, f2x) in EVAL_F2X.iter().enumerate() {
             for &sq in &f2x.squares[..f2x.n_square] {
                 p_feature[i] = p_feature[i] * 3 + get_square_color(board, sq);
@@ -546,8 +549,8 @@ impl PatternFeatures {
     ) {
         self.p_features[ply + 1] = self.p_features[ply];
         self.o_features[ply + 1] = self.o_features[ply];
-        let p_out = unsafe { self.p_features.get_unchecked_mut(ply + 1).assume_init_mut() };
-        let o_out = unsafe { self.o_features.get_unchecked_mut(ply + 1).assume_init_mut() };
+        let p_out = &mut self.p_features[ply + 1];
+        let o_out = &mut self.o_features[ply + 1];
 
         let placed = &EVAL_X2F[sq.index()];
 
@@ -626,13 +629,13 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in =
-                _mm512_load_si512(p_feats.get_unchecked(ply).assume_init_ref().as_m512_ptr());
-            let o_in =
-                _mm512_load_si512(o_feats.get_unchecked(ply).assume_init_ref().as_m512_ptr());
+            let p_in = _mm512_load_si512(p_feats.get_unchecked(ply).as_m512_ptr());
+            let o_in = _mm512_load_si512(o_feats.get_unchecked(ply).as_m512_ptr());
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m512i;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m512i;
+            let p_out_ptr =
+                std::ptr::from_mut(p_feats.get_unchecked_mut(ply + 1)).cast::<__m512i>();
+            let o_out_ptr =
+                std::ptr::from_mut(o_feats.get_unchecked_mut(ply + 1)).cast::<__m512i>();
 
             let side_mask: __mmask32 =
                 0u32.wrapping_sub((side_to_move != SideToMove::Player) as u32);
@@ -688,15 +691,17 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_m256_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_m256_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).as_m256_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_m256_ptr();
             let p_in0 = _mm256_load_si256(p_in_ptr);
             let p_in1 = _mm256_load_si256(p_in_ptr.add(1));
             let o_in0 = _mm256_load_si256(o_in_ptr);
             let o_in1 = _mm256_load_si256(o_in_ptr.add(1));
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut __m256i;
+            let p_out_ptr =
+                std::ptr::from_mut(p_feats.get_unchecked_mut(ply + 1)).cast::<__m256i>();
+            let o_out_ptr =
+                std::ptr::from_mut(o_feats.get_unchecked_mut(ply + 1)).cast::<__m256i>();
 
             let side_mask =
                 _mm256_set1_epi16(0i16.wrapping_sub((side_to_move != SideToMove::Player) as i16));
@@ -763,8 +768,8 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_neon_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).as_neon_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_neon_ptr();
 
             // Both outputs subtract one `f`, and that part does not depend on the
             // sum rows, so it is folded into the inputs while those loads are
@@ -785,8 +790,8 @@ impl PatternFeatures {
             let f_plus_sum_2 = vaddq_s16(f2, sum2);
             let f_plus_sum_3 = vaddq_s16(f3, sum3);
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut i16;
+            let p_out_ptr = std::ptr::from_mut(p_feats.get_unchecked_mut(ply + 1)).cast::<i16>();
+            let o_out_ptr = std::ptr::from_mut(o_feats.get_unchecked_mut(ply + 1)).cast::<i16>();
 
             if side_to_move == SideToMove::Player {
                 vst1q_s16(p_out_ptr, vsubq_s16(p_less_f0, f_plus_sum_0));
@@ -903,11 +908,11 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).as_v128_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_v128_ptr();
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
+            let p_out_ptr = std::ptr::from_mut(p_feats.get_unchecked_mut(ply + 1)).cast::<v128>();
+            let o_out_ptr = std::ptr::from_mut(o_feats.get_unchecked_mut(ply + 1)).cast::<v128>();
 
             v128_store(p_out_ptr, i16x8_sub(v128_load(p_in_ptr), delta_p0));
             v128_store(
@@ -1025,8 +1030,8 @@ impl PatternFeatures {
 
             let p_feats = &mut self.p_features;
             let o_feats = &mut self.o_features;
-            let p_in_ptr = p_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
-            let o_in_ptr = o_feats.get_unchecked(ply).assume_init_ref().as_v128_ptr();
+            let p_in_ptr = p_feats.get_unchecked(ply).as_v128_ptr();
+            let o_in_ptr = o_feats.get_unchecked(ply).as_v128_ptr();
 
             let p_in0 = v128_load(p_in_ptr);
             let p_in1 = v128_load(p_in_ptr.add(1));
@@ -1038,8 +1043,8 @@ impl PatternFeatures {
             let o_in2 = v128_load(o_in_ptr.add(2));
             let o_in3 = v128_load(o_in_ptr.add(3));
 
-            let p_out_ptr = p_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
-            let o_out_ptr = o_feats.get_unchecked_mut(ply + 1).as_mut_ptr() as *mut v128;
+            let p_out_ptr = std::ptr::from_mut(p_feats.get_unchecked_mut(ply + 1)).cast::<v128>();
+            let o_out_ptr = std::ptr::from_mut(o_feats.get_unchecked_mut(ply + 1)).cast::<v128>();
 
             let (delta_p0, delta_p1, delta_p2, delta_p3, delta_o0, delta_o1, delta_o2, delta_o3) =
                 if side_to_move == SideToMove::Player {
