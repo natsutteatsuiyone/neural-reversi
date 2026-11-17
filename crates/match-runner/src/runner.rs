@@ -58,16 +58,37 @@ fn contextualize_game_error(error: MatchRunnerError, game_number: usize) -> Matc
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum GameResult {
-    BlackWin,
-    WhiteWin,
-    Draw,
+/// Returns Black's score for a finished game, with the empty squares given
+/// to the winner.
+fn black_score(black_count: u32, white_count: u32) -> i32 {
+    match black_count.cmp(&white_count) {
+        CmpOrdering::Greater => 64 - white_count as i32 * 2,
+        CmpOrdering::Less => black_count as i32 * 2 - 64,
+        CmpOrdering::Equal => 0,
+    }
 }
 
-struct MatchResult {
-    result: GameResult,
-    score: i32,
+/// Returns Black's score when `loser` runs out of time or resigns.
+fn forfeit_black_score(loser: PlayerColor) -> i32 {
+    match loser {
+        PlayerColor::Black => -64,
+        PlayerColor::White => 64,
+    }
+}
+
+/// Converts Black's score into the winner and the score for engine 1.
+fn engine1_result(black_score: i32, engine1_is_black: bool) -> (MatchWinner, i32) {
+    let score = if engine1_is_black {
+        black_score
+    } else {
+        -black_score
+    };
+    let winner = match score.cmp(&0) {
+        CmpOrdering::Greater => MatchWinner::Engine1,
+        CmpOrdering::Less => MatchWinner::Engine2,
+        CmpOrdering::Equal => MatchWinner::Draw,
+    };
+    (winner, score)
 }
 
 pub(crate) fn run_match(config: &Config) -> Result<()> {
@@ -168,7 +189,7 @@ fn play_game(
     white_engine: &mut GtpEngine,
     opening: &Opening,
     time_tracker: &mut TimeTracker,
-) -> Result<MatchResult> {
+) -> Result<i32> {
     black_engine.clear_board()?;
     white_engine.clear_board()?;
     time_tracker.reset();
@@ -214,28 +235,14 @@ fn play_game(
 
         let flagged = !time_tracker.end_move(mover) && time_tracker.is_enabled();
         if flagged || mv.eq_ignore_ascii_case("resign") {
-            return Ok(match mover {
-                PlayerColor::Black => MatchResult {
-                    result: GameResult::WhiteWin,
-                    score: -64,
-                },
-                PlayerColor::White => MatchResult {
-                    result: GameResult::BlackWin,
-                    score: 64,
-                },
-            });
+            return Ok(forfeit_black_score(mover));
         }
 
         execute_move(&mut game_state, black_engine, white_engine, &mv, mover)?;
     }
 
     let (black_count, white_count) = game_state.score();
-    let (result, score) = match black_count.cmp(&white_count) {
-        CmpOrdering::Greater => (GameResult::BlackWin, 64 - white_count as i32 * 2),
-        CmpOrdering::Less => (GameResult::WhiteWin, black_count as i32 * 2 - 64),
-        CmpOrdering::Equal => (GameResult::Draw, 0),
-    };
-    Ok(MatchResult { result, score })
+    Ok(black_score(black_count, white_count))
 }
 
 fn apply_opening_moves(
@@ -342,20 +349,9 @@ fn play_opening_pair(
         };
 
         let game_number = statistics.total_games() as usize + 1;
-        let match_result = play_game(black_engine, white_engine, opening, time_tracker)
+        let black_score = play_game(black_engine, white_engine, opening, time_tracker)
             .map_err(|error| contextualize_game_error(error, game_number))?;
-        let winner = match match_result.result {
-            GameResult::BlackWin if is_swapped => MatchWinner::Engine2,
-            GameResult::BlackWin => MatchWinner::Engine1,
-            GameResult::WhiteWin if is_swapped => MatchWinner::Engine1,
-            GameResult::WhiteWin => MatchWinner::Engine2,
-            GameResult::Draw => MatchWinner::Draw,
-        };
-        let score = if is_swapped {
-            -match_result.score
-        } else {
-            match_result.score
-        };
+        let (winner, score) = engine1_result(black_score, !is_swapped);
 
         statistics.add_game(winner, score, opening.description(), !is_swapped);
         if let Some(first) = first_result {
@@ -406,6 +402,44 @@ mod tests {
                 assert_eq!(message, "Fatal error in game 3: Engine error: bad response");
             }
             other => panic!("expected game error, got {other}"),
+        }
+    }
+
+    #[test]
+    fn black_score_gives_empty_squares_to_the_winner() {
+        assert_eq!(black_score(40, 20), 24);
+        assert_eq!(black_score(20, 40), -24);
+        assert_eq!(black_score(30, 30), 0);
+        assert_eq!(black_score(13, 0), 64);
+        assert_eq!(black_score(0, 13), -64);
+        assert_eq!(black_score(33, 31), 2);
+    }
+
+    #[test]
+    fn engine1_result_follows_the_color_engine1_plays() {
+        assert_eq!(engine1_result(24, true), (MatchWinner::Engine1, 24));
+        assert_eq!(engine1_result(-24, true), (MatchWinner::Engine2, -24));
+        assert_eq!(engine1_result(24, false), (MatchWinner::Engine2, -24));
+        assert_eq!(engine1_result(-24, false), (MatchWinner::Engine1, 24));
+        assert_eq!(engine1_result(0, true), (MatchWinner::Draw, 0));
+        assert_eq!(engine1_result(0, false), (MatchWinner::Draw, 0));
+    }
+
+    #[test]
+    fn forfeit_counts_as_a_64_disc_loss_for_the_engine_that_forfeits() {
+        use PlayerColor::{Black, White};
+
+        for (loser, engine1_is_black, expected) in [
+            (Black, true, (MatchWinner::Engine2, -64)),
+            (White, true, (MatchWinner::Engine1, 64)),
+            (Black, false, (MatchWinner::Engine1, 64)),
+            (White, false, (MatchWinner::Engine2, -64)),
+        ] {
+            assert_eq!(
+                engine1_result(forfeit_black_score(loser), engine1_is_black),
+                expected,
+                "loser {loser:?}, engine1_is_black {engine1_is_black}"
+            );
         }
     }
 
