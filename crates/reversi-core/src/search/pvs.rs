@@ -6,13 +6,13 @@
 use std::sync::Arc;
 
 use crate::board::Board;
+use crate::eval::Eval;
 use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut::Selectivity;
 use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::endgame;
-use crate::search::midgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::{EndGameStrategy, SearchStrategy};
 use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
@@ -168,11 +168,18 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         depth -= 1;
     }
 
-    let static_eval = (!SS::IS_ENDGAME
+    // The correction history is updated against `raw_eval` corrected with the
+    // table at update time: descendants may have moved the same entry.
+    let raw_eval = (!SS::IS_ENDGAME
         && !NT::ROOT_NODE
         && ctx.selectivity.is_enabled()
         && depth >= SS::MIN_PROBCUT_DEPTH)
-        .then(|| midgame::evaluate(ctx, board));
+        .then(|| {
+            debug_assert!(Eval::should_use_main_network(ctx.eval_mode, ctx.ply()));
+            ctx.eval
+                .evaluate_main(ctx.pattern_feature(), board, ctx.ply(), board.hash())
+        });
+    let static_eval = raw_eval.map(|eval| ctx.correct_eval(board, eval));
 
     // ProbCut
     if !NT::PV_NODE && depth >= SS::MIN_PROBCUT_DEPTH {
@@ -249,7 +256,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                     SS::IS_ENDGAME,
                     tt_pv,
                 );
-                if let Some(eval) = static_eval
+                if let Some(eval) = raw_eval
                     && let Some(history) = &mut ctx.correction_history
                 {
                     history.update(board, eval, best_score, Bound::Lower, depth);
@@ -396,7 +403,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     }
 
     let bound = Bound::classify::<NT>(best_score, org_alpha, beta);
-    if let Some(eval) = static_eval
+    if let Some(eval) = raw_eval
         && let Some(history) = &mut ctx.correction_history
     {
         history.update(board, eval, best_score, bound, depth);

@@ -227,6 +227,12 @@ impl<'a> SearchContext<'a> {
         let eval = self
             .eval
             .evaluate_main(self.pattern_feature(), board, self.ply(), key);
+        self.correct_eval(board, eval)
+    }
+
+    /// Applies the search's corrections to a main-network evaluation of `board`.
+    #[inline(always)]
+    pub fn correct_eval(&self, board: &Board, eval: Score) -> Score {
         match &self.correction_history {
             Some(history) => history.correct(board, eval),
             None => eval,

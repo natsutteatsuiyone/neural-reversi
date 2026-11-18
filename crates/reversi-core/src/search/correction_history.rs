@@ -91,17 +91,19 @@ impl CorrectionHistory {
     }
 
     /// Moves the correction for `board`'s key squares by part of the gap between a
-    /// search `score` and the corrected static `eval`.
+    /// search `score` and the main network's `raw_eval` corrected with the
+    /// current table.
     ///
     /// A bound counts only when it shows the gap's sign.
     pub(in crate::search) fn update(
         &mut self,
         board: &Board,
-        eval: Score,
+        raw_eval: Score,
         score: Score,
         bound: Bound,
         depth: Depth,
     ) {
+        let eval = self.correct(board, raw_eval);
         let shows_gap = match bound {
             Bound::Lower => score > eval,
             Bound::Upper => score < eval,
@@ -117,5 +119,37 @@ impl CorrectionHistory {
         let step = depth.min(CORRECTION_FULL_STEP_DEPTH) as i32;
         let entry = &mut self.0[Self::index(board)];
         *entry = (i32::from(*entry) + gap * step / CORRECTION_STEP_DIV).clamp(-limit, limit) as i16;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_measures_gap_against_current_correction() {
+        let mut history = CorrectionHistory([0; 1 << CORRECTION_BITS]);
+        let board = Board::new();
+        let score = Score::from_disc_diff(DiscScore::new(4));
+
+        // A full step moves the entry by a quarter of the gap: 4 → 1 disc, then
+        // by a quarter of the remaining 3 discs, not of the original 4.
+        history.update(
+            &board,
+            Score::ZERO,
+            score,
+            Bound::Exact,
+            CORRECTION_FULL_STEP_DEPTH,
+        );
+        history.update(
+            &board,
+            Score::ZERO,
+            score,
+            Bound::Exact,
+            CORRECTION_FULL_STEP_DEPTH,
+        );
+
+        let expected = Score::from_raw(Score::SCALE + 3 * Score::SCALE / 4);
+        assert_eq!(history.correct(&board, Score::ZERO), expected);
     }
 }
