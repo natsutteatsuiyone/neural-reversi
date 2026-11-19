@@ -524,6 +524,36 @@ impl TTEntry {
         }
     }
 
+    /// Clears the slot through the SeqLock, preserving exclusive write access
+    /// and sequence monotonicity for concurrent readers and writers.
+    #[inline(always)]
+    fn clear_shared(&self) {
+        let empty = TTEntryData::from_u64(0);
+        for _ in 0..Self::SAVE_RETRIES {
+            let seq = self.seq.load(Ordering::Acquire);
+            if (seq & 1) != 0 {
+                std::hint::spin_loop();
+                continue;
+            }
+
+            // Skip already-empty slots without dirtying the cache line.
+            if self.data.load(Ordering::Relaxed) == 0 {
+                fence(Ordering::Acquire);
+                if self.seq.load(Ordering::Relaxed) == seq {
+                    return;
+                }
+                std::hint::spin_loop();
+                continue;
+            }
+
+            if self.seqlock_write(seq, 0, 0, empty) {
+                return;
+            }
+
+            std::hint::spin_loop();
+        }
+    }
+
     /// Tries to claim the slot from a specific stable snapshot and publish a new value.
     #[inline(always)]
     fn seqlock_write(
@@ -631,14 +661,12 @@ impl TranspositionTable {
 
     /// Clears all entries of a table that other threads may be using.
     ///
-    /// This is about twice as slow as [`clear`](Self::clear). A search that
-    /// runs during the call may keep or lose any of its entries.
+    /// Each occupied slot is cleared through the SeqLock, so a concurrent
+    /// search may keep or lose entries without ever observing a torn entry or
+    /// losing writer exclusion.
     pub fn clear_shared(&self) {
         for entry in self.entries.iter() {
-            entry.seq.store(0, Ordering::Relaxed);
-            entry.player.store(0, Ordering::Relaxed);
-            entry.opponent.store(0, Ordering::Relaxed);
-            entry.data.store(0, Ordering::Relaxed);
+            entry.clear_shared();
         }
     }
 
