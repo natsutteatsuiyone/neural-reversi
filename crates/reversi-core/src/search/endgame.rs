@@ -140,6 +140,9 @@ pub(super) fn solve_root(
 ) -> SearchResult {
     let time_manager = task.time_manager.as_deref();
     let use_time_control = time_manager.is_some();
+    #[cfg(feature = "search-stats")]
+    let mut endgame_start = (completed.last.is_some() && task.callback.is_some())
+        .then(|| (std::time::Instant::now(), ctx.counters()));
 
     if let Some(tm) = time_manager {
         // Enable endgame time management; the midgame handoff arrives with
@@ -197,7 +200,7 @@ pub(super) fn solve_root(
             if let Some(ref callback) = task.callback
                 && let Some(rm) = ctx.root_moves.current_pv()
             {
-                callback(SearchProgress::from_iteration(
+                let progress = SearchProgress::from_iteration(
                     ctx,
                     &rm,
                     n_empties,
@@ -205,7 +208,13 @@ pub(super) fn solve_root(
                     score,
                     ctx.n_nodes,
                     true,
-                ));
+                );
+                #[cfg(feature = "search-stats")]
+                let progress = SearchProgress {
+                    endgame_start: endgame_start.take(),
+                    ..progress
+                };
+                callback(progress);
             }
 
             // Check time control

@@ -2,7 +2,7 @@
 //!
 //! `n_nodes` is always live (used for NPS reporting). All other counters are
 //! gated on the `search-stats` Cargo feature so the hot path stays cold in
-//! production builds; only `evaltest` opts in. The `increment_*` methods
+//! production builds; only `search-test` opts in. The `increment_*` methods
 //! compile to a no-op when the feature is off.
 
 macro_rules! search_stats {
@@ -22,6 +22,16 @@ macro_rules! search_stats {
         }
 
         impl SearchCounters {
+            /// Returns the work recorded since an earlier progress snapshot.
+            #[cfg(feature = "search-stats")]
+            #[must_use]
+            pub fn delta_since(&self, previous: &Self) -> Self {
+                Self {
+                    n_nodes: self.n_nodes.saturating_sub(previous.n_nodes),
+                    $($field: self.$field.saturating_sub(previous.$field),)*
+                }
+            }
+
             /// Merges counters from another context (e.g. a parallel search thread).
             pub fn merge(&mut self, other: &SearchCounters) {
                 self.n_nodes += other.n_nodes;

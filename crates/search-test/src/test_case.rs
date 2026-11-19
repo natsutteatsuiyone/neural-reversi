@@ -57,7 +57,7 @@ impl TestCase {
     /// Comma-separated list of best moves (those tied with the highest score).
     ///
     /// Uses `Debug` formatting (uppercase, e.g. `E6`) to match the PV
-    /// output produced elsewhere in `evaltest`.
+    /// output produced elsewhere in `search-test`.
     pub fn best_moves_str(&self) -> String {
         self.position
             .best_moves()
@@ -188,7 +188,7 @@ fn parse_obf_file(path: &Path) -> Result<Vec<TestCase>, String> {
 /// Find the problem directory by searching, in order:
 /// 1. `<exe-dir>/problem`
 /// 2. `./problem`
-/// 3. `$EVALTEST_PROBLEM_DIR`
+/// 3. `$SEARCH_TEST_PROBLEM_DIR`
 pub fn find_problem_dir() -> Option<PathBuf> {
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent().map(|p| p.join("problem"))
@@ -202,7 +202,7 @@ pub fn find_problem_dir() -> Option<PathBuf> {
         return Some(cwd);
     }
 
-    if let Ok(dir) = std::env::var("EVALTEST_PROBLEM_DIR") {
+    if let Ok(dir) = std::env::var("SEARCH_TEST_PROBLEM_DIR") {
         let path = PathBuf::from(dir);
         if path.is_dir() {
             return Some(path);

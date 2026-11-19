@@ -1,12 +1,13 @@
-# Evaluation Test Suite
+# Search Test Suite
 
-Evaluation test suite runner for measuring the endgame search performance of Reversi (Othello) AI engines. Test positions are loaded from OBF (Othello Board Format) files in the `problem/` directory at the project root.
+Search test suite runner for measuring the search performance of Reversi (Othello) AI engines. Test positions are loaded from OBF (Othello Board Format) files in the `problem/` directory at the project root.
 
 ## Command Line Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--depth` or `-d` | Maximum search depth in plies | 60 |
+| `--time` or `-t` | Search time limit per position in milliseconds (conflicts with `--depth` and `--selective-only`) | - |
 | `--hash-size` | Transposition table size in MB | 1024 |
 | `--threads` | Number of parallel search threads | System default |
 | `--problem` | Problem set to run: preset name or `.obf` file path. Repeatable. | All `.obf` files in problem directory |
@@ -33,7 +34,7 @@ The problem directory is located automatically by checking, in order:
 
 1. A `problem/` directory next to the executable
 2. A `problem/` directory in the current working directory
-3. The path specified by the `EVALTEST_PROBLEM_DIR` environment variable
+3. The path specified by the `SEARCH_TEST_PROBLEM_DIR` environment variable
 
 Use `--problem-dir` to override this search.
 
@@ -42,43 +43,49 @@ Use `--problem-dir` to override this search.
 ### Run all problem files with default settings
 
 ```bash
-cargo run -p evaltest --release
+cargo run -p search-test --release
 ```
 
 ### Run with search depth and larger hash table
 
 ```bash
-cargo run -p evaltest --release -- --depth 20 --hash-size 2048
+cargo run -p search-test --release -- --depth 20 --hash-size 2048
+```
+
+### Run with a per-position time limit in milliseconds
+
+```bash
+cargo run -p search-test --release -- --problem fforum --time 1000
 ```
 
 ### Run a specific preset
 
 ```bash
-cargo run -p evaltest --release -- --problem fforum
+cargo run -p search-test --release -- --problem fforum
 ```
 
 ### Run multiple problem sets
 
 ```bash
-cargo run -p evaltest --release -- --problem fforum --problem hard-20
+cargo run -p search-test --release -- --problem fforum --problem hard-20
 ```
 
 ### Run a custom OBF file
 
 ```bash
-cargo run -p evaltest --release -- --problem /path/to/custom.obf
+cargo run -p search-test --release -- --problem /path/to/custom.obf
 ```
 
 ### Verbose output with per-iteration details
 
 ```bash
-cargo run -p evaltest --release -- --problem fforum -v
+cargo run -p search-test --release -- --problem fforum -v
 ```
 
 ### Multi-PV per-move comparison
 
 ```bash
-cargo run -p evaltest --release -- --problem fforum-1-19.obf --depth 12 --multipv
+cargo run -p search-test --release -- --problem fforum-1-19.obf --depth 12 --multipv
 ```
 
 ## Output Format
@@ -98,9 +105,8 @@ When multiple files are loaded, an overall statistics summary is printed at the 
 
 ### Multi-PV Mode
 
-With `--multipv`, every legal move at the root is scored (not just the best
-one) and compared against the per-move scores listed in the OBF entry. Each
-test case prints a markdown sub-table:
+With `--multipv`, the search scores every legal root move. Each completed
+non-pass position prints a table comparing those scores with the OBF entry:
 
 - **Move**: The candidate move from the engine's Multi-PV output (already
   sorted by descending searched score).
@@ -111,10 +117,11 @@ test case prints a markdown sub-table:
 - **Δ**: Absolute difference between Searched and Expected, or `-` when not
   comparable.
 
-An additional `### Multi-PV Statistics` block follows the section's existing
-summary, reporting the number of compared moves, per-move MAE, and per-move
-±3 / ±6 / ±9 accuracy buckets.
-Non-OBF-listed moves are excluded from the aggregate.
+If the search stops before it scores every legal move in one iteration, the
+case is marked `Multi-PV incomplete`. The `### Multi-PV Statistics` block
+reports completed positions out of all non-pass positions. Its move count,
+MAE, and ±3 / ±6 / ±9 accuracy use only OBF-listed moves from completed
+positions. When no moves can be compared, MAE and accuracy are shown as `N/A`.
 
 Notes:
 
@@ -140,8 +147,8 @@ With `-v`/`--verbose`, each test case displays:
   - **ProbCut%**: ProbCut cutoff rate
   - **ETC%**: Enhanced Transposition Cutoff rate
   - **Stab**: Stability cutoff count
-- A **total** row with cumulative values for the entire search
-- A **result** line including TT fill rate (sampled)
+- A **total** row for the entire search, even if no iteration completed. It includes work done by midgame helpers after their last reported iteration and work spent on interrupted iterations.
+- The final score, move, node count, elapsed time, NPS, and sampled TT fill rate
 - Aggregate search counter statistics (TT hit rate, ProbCut rate, ETC rate, stability cuts)
 
 ## Performance Metrics

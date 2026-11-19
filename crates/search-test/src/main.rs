@@ -1,6 +1,6 @@
-//! Evaluation Test Suite Runner for Reversi AI Engines
+//! Search Test Suite Runner for Reversi AI Engines
 //!
-//! This program runs evaluation test suites loaded from OBF (Othello Board Format) files,
+//! This program runs search test suites loaded from OBF (Othello Board Format) files,
 //! containing challenging positions used to evaluate the solving capabilities
 //! of Reversi/Othello engines.
 //!
@@ -21,10 +21,11 @@ use reversi_core::{
     probcut::Selectivity,
     score::{DiscScore, Score},
     search::{
-        self, SearchProgress, SearchRunOptions,
+        self, SearchConstraint, SearchProgress, SearchRunOptions,
         counters::SearchCounters,
         options::SearchOptions,
         result::{PvMove, SearchResult},
+        time_control::TimeControlMode,
     },
     square::Square,
     types::Depth,
@@ -42,24 +43,48 @@ const SCORE_TOLERANCE_ACCEPTABLE: f32 = 9.0;
 const PERFORMANCE_EXCELLENT: f64 = 80.0;
 const PERFORMANCE_GOOD: f64 = 60.0;
 
-/// Collected iteration progress data for verbose output.
+/// Completed iteration with its own counters and wall time.
 #[derive(Debug)]
 struct IterationData {
     depth: Depth,
     score: Score,
     best_move: Square,
-    nodes: u64,
     probability: i32,
     counters: SearchCounters,
-    tt_fill: f64,
     is_endgame: bool,
     elapsed: std::time::Duration,
 }
 
+struct IterationLog {
+    iterations: Vec<IterationData>,
+    last_report: (Instant, SearchCounters),
+}
+
+impl IterationLog {
+    fn record(&mut self, progress: SearchProgress, now: Instant) {
+        let Some(best_move) = progress.best_move else {
+            return;
+        };
+        let mut counters = progress.counters;
+        // Midgame progress also counts the helpers' completed iterations.
+        counters.n_nodes = progress.nodes;
+        let (start, baseline) = progress.endgame_start.as_ref().unwrap_or(&self.last_report);
+        self.iterations.push(IterationData {
+            depth: progress.depth,
+            score: progress.score,
+            best_move,
+            probability: progress.probability,
+            counters: counters.delta_since(baseline),
+            is_endgame: progress.is_endgame,
+            elapsed: now.duration_since(*start),
+        });
+        self.last_report = (now, counters);
+    }
+}
+
 /// Accuracy and cost of one endgame selectivity level, accumulated over test cases.
 ///
-/// Nodes and time are the level's own share: the delta from the previous
-/// iteration, so earlier levels and midgame iterations are not counted again.
+/// Nodes and time count only the work spent on this level.
 #[derive(Default, Clone, Copy)]
 struct LevelStats {
     cases: usize,
@@ -99,6 +124,7 @@ struct TestResult {
     score_difference: f32,
     move_accuracy: MoveAccuracy,
     counters: SearchCounters,
+    tt_fill: f64,
     pv_moves: Vec<PvMove>,
 }
 
@@ -125,6 +151,8 @@ struct SearchStats {
     good_score_count: usize,
     acceptable_score_count: usize,
     total_counters: SearchCounters,
+    mpv_eligible_cases: usize,
+    mpv_completed_cases: usize,
     mpv_score_differences: Vec<f32>,
     mpv_perfect_count: usize,
     mpv_good_count: usize,
@@ -208,11 +236,16 @@ impl SearchStats {
     }
 
     /// Accumulate per-move error statistics against OBF-listed expected scores.
-    fn update_multipv(&mut self, result: &TestResult, test_case: &TestCase) {
+    fn update_multipv(&mut self, pv_moves: &[PvMove], test_case: &TestCase) {
         if test_case.is_pass() {
             return;
         }
-        for pv in &result.pv_moves {
+        self.mpv_eligible_cases += 1;
+        if pv_moves.is_empty() {
+            return;
+        }
+        self.mpv_completed_cases += 1;
+        for pv in pv_moves {
             let Some(expected) = test_case.expected_score_for_move(pv.sq) else {
                 continue;
             };
@@ -262,6 +295,8 @@ impl SearchStats {
         self.good_score_count += other.good_score_count;
         self.acceptable_score_count += other.acceptable_score_count;
         self.total_counters.merge(&other.total_counters);
+        self.mpv_eligible_cases += other.mpv_eligible_cases;
+        self.mpv_completed_cases += other.mpv_completed_cases;
         self.mpv_score_differences
             .extend(&other.mpv_score_differences);
         self.mpv_perfect_count += other.mpv_perfect_count;
@@ -290,12 +325,7 @@ impl SearchStats {
             Score::from_disc_diff(DiscScore::new(test_case.expected_score())),
             |exact| orient(exact.score),
         );
-        let mut prev_nodes = 0;
-        let mut prev_elapsed = std::time::Duration::ZERO;
-        for iter in dedup_iterations(iterations) {
-            let (delta_nodes, delta_time) = (iter.nodes - prev_nodes, iter.elapsed - prev_elapsed);
-            prev_nodes = iter.nodes;
-            prev_elapsed = iter.elapsed;
+        for iter in iterations {
             if !iter.is_endgame || iter.depth != n_empties {
                 continue;
             }
@@ -308,8 +338,8 @@ impl SearchStats {
             level.exact += usize::from(error < 0.05);
             level.wdl_flips += usize::from(score.cmp(&Score::ZERO) != expected.cmp(&Score::ZERO));
             level.abs_error_sum += error as f64;
-            level.nodes += delta_nodes;
-            level.time += delta_time;
+            level.nodes += iter.counters.n_nodes;
+            level.time += iter.elapsed;
             if let Some(&value) = move_values.get(&iter.best_move) {
                 let loss = (expected - value).max(Score::ZERO).to_disc_diff_f32();
                 level.moves_judged += 1;
@@ -456,11 +486,19 @@ impl SearchStats {
         }
 
         let mpv_count = self.mpv_score_differences.len();
-        if multipv && mpv_count > 0 {
-            let (mpv_mae, _) = mae_rmse(&self.mpv_score_differences);
+        if multipv {
+            let move_mae = if mpv_count > 0 {
+                format!("{:.2}", mae_rmse(&self.mpv_score_differences).0)
+            } else {
+                "N/A".to_string()
+            };
             let mpv_stats = [
+                (
+                    "Positions completed",
+                    format!("{}/{}", self.mpv_completed_cases, self.mpv_eligible_cases),
+                ),
                 ("Moves compared", mpv_count.to_formatted_string(&Locale::en)),
-                ("Move MAE", format!("{mpv_mae:.2}")),
+                ("Move MAE", move_mae),
                 ("Move ±3", format_ratio(self.mpv_perfect_count, mpv_count)),
                 ("Move ±6", format_ratio(self.mpv_good_count, mpv_count)),
                 (
@@ -561,7 +599,7 @@ fn colorize_move(move_str: String, accuracy: MoveAccuracy) -> colored::ColoredSt
 fn execute_test_case(
     test_case: &TestCase,
     search: &mut search::Search,
-    level: Level,
+    constraint: &SearchConstraint,
     verbose: bool,
     multipv: bool,
 ) -> (TestResult, Vec<IterationData>) {
@@ -574,34 +612,33 @@ fn execute_test_case(
     };
     search.init();
 
-    let iterations: Arc<Mutex<Vec<IterationData>>> = Arc::new(Mutex::new(Vec::new()));
-    let iter_clone = iterations.clone();
-    let tt = search.tt().clone();
     let start = Instant::now();
-    let options = SearchRunOptions::with_level(level)
+    let log = Arc::new(Mutex::new(IterationLog {
+        iterations: Vec::new(),
+        last_report: (start, SearchCounters::default()),
+    }));
+    let callback_log = log.clone();
+    let base_options = match *constraint {
+        SearchConstraint::Level(level) => SearchRunOptions::with_level(level),
+        SearchConstraint::Time(mode) => SearchRunOptions::with_time(mode),
+    };
+    let options = base_options
         .multi_pv(multipv)
         .callback(move |progress: SearchProgress| {
-            let Some(best_move) = progress.best_move else {
-                return;
-            };
-            let elapsed = start.elapsed();
-            // Usage scans the table, so only verbose output pays for it.
-            let tt_fill = if verbose { tt.usage_rate() } else { 0.0 };
-            iter_clone.lock().unwrap().push(IterationData {
-                depth: progress.depth,
-                score: progress.score,
-                best_move,
-                nodes: progress.nodes,
-                probability: progress.probability,
-                counters: progress.counters,
-                tt_fill,
-                is_endgame: progress.is_endgame,
-                elapsed,
-            });
+            callback_log
+                .lock()
+                .unwrap()
+                .record(progress, Instant::now());
         });
 
     let result = search.run(&search_board, &options);
     let elapsed = start.elapsed();
+    // Usage scans the table, so only verbose output pays for it.
+    let tt_fill = if verbose {
+        search.tt().usage_rate()
+    } else {
+        0.0
+    };
 
     // For pass positions, negate the score back to the original player's perspective.
     let raw_score = result.score().expect("search returned no legal move");
@@ -628,10 +665,14 @@ fn execute_test_case(
         score_difference,
         move_accuracy,
         counters: result.counters(),
+        tt_fill,
         pv_moves: result.pv_moves().to_vec(),
     };
 
-    let iterations = std::mem::take(&mut *iterations.lock().unwrap());
+    let mut iterations = std::mem::take(&mut log.lock().unwrap().iterations);
+    // `Search::run` appends a final summary callback from `SearchResult` after
+    // the search finishes; drop it so `iterations` holds only completed iterations.
+    iterations.pop();
     (test_result, iterations)
 }
 
@@ -680,25 +721,6 @@ fn print_test_result(test_case: &TestCase, result: &TestResult, num_width: usize
         score_colored,
         expected
     );
-}
-
-/// Deduplicate consecutive iterations with the same depth, selectivity, and
-/// node count.
-///
-/// `Search::run()` emits a final progress callback that repeats the last
-/// iteration; this drops it. A level that adds no nodes still differs in
-/// selectivity, so it is kept.
-fn dedup_iterations(iterations: &[IterationData]) -> Vec<&IterationData> {
-    let mut result = Vec::with_capacity(iterations.len());
-    for iter in iterations {
-        if result.last().is_none_or(|prev: &&IterationData| {
-            (prev.nodes, prev.depth, prev.probability, prev.is_endgame)
-                != (iter.nodes, iter.depth, iter.probability, iter.is_endgame)
-        }) {
-            result.push(iter);
-        }
-    }
-    result
 }
 
 /// Format a rate as "X.Y%" or "-" if the denominator is zero.
@@ -823,33 +845,11 @@ impl ColWidths {
 ///
 /// Each row shows per-iteration deltas (not cumulative totals).
 /// A final "total" row shows cumulative values for the entire search.
-fn print_verbose_iterations(iterations: &[IterationData]) {
-    let iterations = dedup_iterations(iterations);
-    if iterations.is_empty() {
-        return;
-    }
-
-    // Pre-format all rows using per-iteration deltas.
-    let mut prev_nodes: u64 = 0;
-    let mut prev_elapsed = std::time::Duration::ZERO;
-    let mut prev_counters = SearchCounters::default();
+fn print_verbose_iterations(iterations: &[IterationData], result: &TestResult) {
     let rows: Vec<IterationRow> = iterations
         .iter()
         .map(|iter| {
-            let delta_nodes = iter.nodes - prev_nodes;
-            let delta_time = iter.elapsed - prev_elapsed;
-            prev_elapsed = iter.elapsed;
-            let delta_tt_hits = iter.counters.tt_hits - prev_counters.tt_hits;
-            let delta_tt_probes = iter.counters.tt_probes - prev_counters.tt_probes;
-            let delta_pc_cuts = iter.counters.probcut_cuts - prev_counters.probcut_cuts;
-            let delta_pc_attempts = iter.counters.probcut_attempts - prev_counters.probcut_attempts;
-            let delta_etc_cuts = iter.counters.etc_cuts - prev_counters.etc_cuts;
-            let delta_etc_attempts = iter.counters.etc_attempts - prev_counters.etc_attempts;
-            let delta_stab = iter.counters.stability_cuts - prev_counters.stability_cuts;
-
-            prev_nodes = iter.nodes;
-            prev_counters = iter.counters.clone();
-
+            let counters = &iter.counters;
             let depth = if iter.probability < 100 {
                 format!("{}@{}%", iter.depth, iter.probability)
             } else {
@@ -859,28 +859,29 @@ fn print_verbose_iterations(iterations: &[IterationData]) {
                 depth,
                 score: format!("{:>+.1}", iter.score.to_disc_diff_f32()),
                 best: format!("{:?}", iter.best_move),
-                nodes: delta_nodes.to_formatted_string(&Locale::en),
-                time: format!("{:.4}s", delta_time.as_secs_f64()),
-                tt_rate: format_rate(delta_tt_hits, delta_tt_probes),
-                pc_rate: format_rate(delta_pc_cuts, delta_pc_attempts),
-                etc_rate: format_rate(delta_etc_cuts, delta_etc_attempts),
-                stab: delta_stab.to_formatted_string(&Locale::en),
+                nodes: counters.n_nodes.to_formatted_string(&Locale::en),
+                time: format!("{:.4}s", iter.elapsed.as_secs_f64()),
+                tt_rate: format_rate(counters.tt_hits, counters.tt_probes),
+                pc_rate: format_rate(counters.probcut_cuts, counters.probcut_attempts),
+                etc_rate: format_rate(counters.etc_cuts, counters.etc_attempts),
+                stab: counters.stability_cuts.to_formatted_string(&Locale::en),
             }
         })
         .collect();
 
-    // Total row from last iteration's cumulative values.
-    let last = iterations.last().unwrap();
     let total_row = IterationRow {
         depth: "total".to_string(),
         score: String::new(),
         best: String::new(),
-        nodes: last.nodes.to_formatted_string(&Locale::en),
-        time: format!("{:.4}s", last.elapsed.as_secs_f64()),
-        tt_rate: format_rate(last.counters.tt_hits, last.counters.tt_probes),
-        pc_rate: format_rate(last.counters.probcut_cuts, last.counters.probcut_attempts),
-        etc_rate: format_rate(last.counters.etc_cuts, last.counters.etc_attempts),
-        stab: last
+        nodes: result.nodes.to_formatted_string(&Locale::en),
+        time: format!("{:.4}s", result.elapsed.as_secs_f64()),
+        tt_rate: format_rate(result.counters.tt_hits, result.counters.tt_probes),
+        pc_rate: format_rate(
+            result.counters.probcut_cuts,
+            result.counters.probcut_attempts,
+        ),
+        etc_rate: format_rate(result.counters.etc_cuts, result.counters.etc_attempts),
+        stab: result
             .counters
             .stability_cuts
             .to_formatted_string(&Locale::en),
@@ -940,14 +941,11 @@ fn print_verbose_test_case(
         format_board_with_coords(&board, test_case.side_to_move())
     );
 
-    print_verbose_iterations(iterations);
+    print_verbose_iterations(iterations, result);
 
     let (rounded_secs, nps, pv_colored, score_colored) = compute_result_metrics(test_case, result);
 
-    let tt_fill = iterations
-        .last()
-        .map(|i| format!("{:.1}%", i.tt_fill * 100.0))
-        .unwrap_or_else(|| "-".to_string());
+    let tt_fill = format!("{:.1}%", result.tt_fill * 100.0);
 
     let expect_moves = test_case.expected_moves_str();
 
@@ -980,6 +978,14 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
             test_case.expected_score()
         );
         println!();
+        return;
+    }
+    if result.pv_moves.is_empty() {
+        println!(
+            "### #{} (Multi-PV incomplete, expected: {:+})\n",
+            test_case.line_number,
+            test_case.expected_score()
+        );
         return;
     }
 
@@ -1154,7 +1160,7 @@ fn execute_section(
     section_name: &str,
     test_cases: &[TestCase],
     search: &mut search::Search,
-    level: Level,
+    constraint: &SearchConstraint,
     args: &Args,
 ) -> SearchStats {
     let Args {
@@ -1182,10 +1188,11 @@ fn execute_section(
     };
 
     for test_case in test_cases {
-        let (result, iterations) = execute_test_case(test_case, search, level, verbose, multipv);
+        let (result, iterations) =
+            execute_test_case(test_case, search, constraint, verbose, multipv);
         stats.update(&result);
         if multipv {
-            stats.update_multipv(&result, test_case);
+            stats.update_multipv(&result.pv_moves, test_case);
             print_multipv_test_result(test_case, &result);
             continue;
         }
@@ -1219,13 +1226,23 @@ fn execute_section(
     stats
 }
 
-/// Command line arguments for the evaluation test runner
-#[derive(Parser)]
-#[command(author, version, about = "Evaluation Test Suite Runner for Reversi AI")]
+/// Command line arguments for the search test runner
+#[derive(Debug, Parser)]
+#[command(author, version, about = "Search Test Suite Runner for Reversi AI")]
 struct Args {
     /// Maximum search depth in plies
     #[arg(short, long, default_value = "60")]
     depth: Depth,
+
+    /// Search time limit per position in milliseconds
+    #[arg(
+        short,
+        long,
+        value_name = "MS",
+        value_parser = clap::value_parser!(u64).range(1..),
+        conflicts_with_all = ["depth", "selective_only"]
+    )]
+    time: Option<u64>,
 
     /// Transposition table size in MB
     #[arg(long, default_value = "1024", value_parser = clap::value_parser!(u16).range(1..))]
@@ -1272,6 +1289,20 @@ struct Args {
     selective_only: bool,
 }
 
+/// Builds the [`SearchConstraint`] selected by command-line arguments.
+fn build_constraint(args: &Args) -> SearchConstraint {
+    if let Some(time_per_move_ms) = args.time {
+        SearchConstraint::Time(TimeControlMode::Fixed { time_per_move_ms })
+    } else if args.selective_only {
+        // An end depth of 0 for the last step stops the ladder before it.
+        let mut end_depth = [args.depth; ENDGAME_STEPS];
+        end_depth[ENDGAME_STEPS - 1] = 0;
+        SearchConstraint::Level(Level::with_depths(args.depth, end_depth))
+    } else {
+        SearchConstraint::Level(Level::uniform(args.depth, args.depth))
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -1302,14 +1333,7 @@ fn main() {
 
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
     let mut search = search::Search::new(&search_options);
-    let level = if args.selective_only {
-        // An end depth of 0 for the last step stops the ladder before it.
-        let mut end_depth = [args.depth; ENDGAME_STEPS];
-        end_depth[ENDGAME_STEPS - 1] = 0;
-        Level::with_depths(args.depth, end_depth)
-    } else {
-        Level::uniform(args.depth, args.depth)
-    };
+    let constraint = build_constraint(&args);
 
     let mut overall_stats = SearchStats::default();
 
@@ -1318,7 +1342,7 @@ fn main() {
             &problem_set.name,
             &problem_set.cases,
             &mut search,
-            level,
+            &constraint,
             &args,
         );
         overall_stats.merge(&stats);
@@ -1327,5 +1351,196 @@ fn main() {
     if problem_sets.len() > 1 {
         println!("\n## Overall ({} cases)", overall_stats.total_count);
         overall_stats.print(args.verbose, args.multipv);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+    use std::time::Duration;
+
+    use reversi_core::obf::ObfPosition;
+
+    use super::*;
+
+    #[test]
+    fn endgame_iteration_costs_exclude_merged_midgame_work() {
+        let position = ObfPosition::parse(
+            "---X-X--X-XXXX--XXXXOXXXXXXOOOOOXXOXXXO-XOXXXXO-XOOXXX--XOOXXO-- O; E1:+8;",
+        )
+        .unwrap()
+        .unwrap();
+        let case = TestCase::new(1, position).unwrap();
+        let mut search = search::Search::new(&SearchOptions::new(1).with_threads(Some(4)));
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let callback_reports = reports.clone();
+        let options =
+            SearchRunOptions::with_time(TimeControlMode::Infinite).callback(move |progress| {
+                callback_reports
+                    .lock()
+                    .unwrap()
+                    .push((Instant::now(), progress));
+            });
+        let start = Instant::now();
+        let result = search.run(&case.board(), &options);
+        let mut reports = reports.lock().unwrap();
+        reports.pop().unwrap();
+        let mut log = IterationLog {
+            iterations: Vec::new(),
+            last_report: (start, SearchCounters::default()),
+        };
+        let mut handoff = None;
+        for (now, progress) in reports.drain(..) {
+            if let Some(baseline) = &progress.endgame_start {
+                assert!(handoff.is_none());
+                handoff = Some(baseline.clone());
+            }
+            log.record(progress, now);
+        }
+        let (endgame_start, mut counters) = handoff.expect("expected a midgame handoff");
+        assert!(counters.n_nodes > 0);
+        let mut elapsed = Duration::ZERO;
+        for iter in log.iterations.iter().filter(|iter| iter.is_endgame) {
+            counters.merge(&iter.counters);
+            elapsed += iter.elapsed;
+        }
+        assert_eq!(counters.n_nodes, result.n_nodes());
+        assert_eq!(counters.tt_probes, result.counters().tt_probes);
+        assert_eq!(elapsed, log.last_report.0.duration_since(endgame_start));
+    }
+
+    #[test]
+    fn multipv_coverage_counts_incomplete_cases_and_excludes_passes_across_sections() {
+        let position = "-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+        let case = |labels: &str| {
+            let obf = ObfPosition::parse(&format!("{position} {labels}"))
+                .unwrap()
+                .unwrap();
+            TestCase::new(1, obf).unwrap()
+        };
+        let playable = case("X; A1:+64;");
+        let pass = case("O; PS:-64;");
+        let moves = [PvMove {
+            sq: Square::A1,
+            score: Score::from_disc_diff(DiscScore::new(64)),
+            pv_line: vec![Square::A1],
+        }];
+
+        let mut overall = SearchStats::default();
+        overall.update_multipv(&[], &playable);
+        let mut section = SearchStats::default();
+        section.update_multipv(&moves, &playable);
+        section.update_multipv(&moves, &pass);
+        overall.merge(&section);
+
+        assert_eq!(overall.mpv_completed_cases, 1);
+        assert_eq!(overall.mpv_eligible_cases, 2);
+        assert_eq!(overall.mpv_score_differences, [0.0]);
+    }
+
+    #[test]
+    fn validates_time_cli_arguments_and_conflicts() {
+        for (cli_args, expected_ms) in [
+            (vec!["search-test", "--time", "1000"], 1_000),
+            (vec!["search-test", "-t", "500"], 500),
+            (vec!["search-test", "-t", "1"], 1),
+        ] {
+            let parsed = Args::try_parse_from(cli_args).unwrap();
+            assert_eq!(parsed.time, Some(expected_ms));
+            match build_constraint(&parsed) {
+                SearchConstraint::Time(TimeControlMode::Fixed { time_per_move_ms }) => {
+                    assert_eq!(time_per_move_ms, expected_ms);
+                }
+                _ => panic!("expected Fixed time constraint"),
+            }
+        }
+
+        let default_args = Args::try_parse_from(["search-test"]).unwrap();
+        assert_eq!(default_args.time, None);
+        match build_constraint(&default_args) {
+            SearchConstraint::Level(level) => {
+                assert_eq!(level.mid_depth, 60);
+                assert_eq!(level.end_depth, [60; ENDGAME_STEPS]);
+            }
+            SearchConstraint::Time(_) => panic!("expected default Level constraint"),
+        }
+
+        for invalid in ["0", "-1", "0.5", "abc"] {
+            assert!(
+                Args::try_parse_from(["search-test", "--time", invalid]).is_err(),
+                "expected invalid time {invalid:?} to fail"
+            );
+        }
+
+        for conflicting in [
+            vec!["search-test", "--time", "1000", "--depth", "15"],
+            vec!["search-test", "-t", "1000", "-d", "60"],
+            vec!["search-test", "--time", "1000", "--selective-only"],
+        ] {
+            assert!(
+                Args::try_parse_from(conflicting.clone()).is_err(),
+                "expected conflicting args {conflicting:?} to fail"
+            );
+        }
+    }
+
+    #[test]
+    fn timed_search_aborts_cleanly_and_counts_completed_endgame_levels_once() {
+        let mut search = search::Search::new(&SearchOptions::new(1).with_threads(Some(1)));
+
+        let midgame_pos = ObfPosition::parse(
+            "--OOOO----OOOO---XOXXXX-XOXXOXXXOOOOXOX---OOOOO----------------- X; A6:+8;",
+        )
+        .unwrap()
+        .unwrap();
+        let midgame_tc = TestCase::new(1, midgame_pos).unwrap();
+        let midgame_constraint = SearchConstraint::Time(TimeControlMode::Fixed {
+            time_per_move_ms: 50,
+        });
+        let (mid_res, mid_iters) =
+            execute_test_case(&midgame_tc, &mut search, &midgame_constraint, true, false);
+        assert!(
+            search.timed_out() || mid_res.depth < midgame_tc.board().empty_count(),
+            "expected timed search to stop before reaching full depth"
+        );
+        assert!(mid_res.nodes > 0);
+        assert!(mid_res.elapsed < Duration::from_secs(5));
+        let mut seen = HashSet::new();
+        for iter in &mid_iters {
+            assert!(
+                seen.insert((iter.depth, iter.probability, iter.is_endgame)),
+                "duplicate iteration recorded: {iter:?}"
+            );
+        }
+
+        // White (O) has no legal moves and passes; Black (X) plays A1 to wipe out White (+64).
+        let pass_obf =
+            "-OXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-X--XXXX O; PS:-64;";
+        let pass_pos = ObfPosition::parse(pass_obf).unwrap().unwrap();
+        let pass_tc = TestCase::new(2, pass_pos).unwrap();
+        assert!(pass_tc.is_pass());
+
+        let pass_constraint = SearchConstraint::Time(TimeControlMode::Fixed {
+            time_per_move_ms: 500,
+        });
+        let (pass_res, pass_iters) =
+            execute_test_case(&pass_tc, &mut search, &pass_constraint, false, false);
+        assert!(
+            pass_res.score_difference < 0.05,
+            "unexpected pass score difference: {} (score {})",
+            pass_res.score_difference,
+            pass_res.score
+        );
+
+        let mut stats = SearchStats::default();
+        stats.update_levels(&pass_iters, &pass_tc, &HashMap::new(), None);
+        assert!(!stats.levels.is_empty());
+        for (&probability, level) in &stats.levels {
+            assert_eq!(
+                level.cases, 1,
+                "probability {probability}% counted {} times",
+                level.cases
+            );
+        }
     }
 }

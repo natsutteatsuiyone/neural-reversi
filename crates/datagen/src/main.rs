@@ -86,7 +86,7 @@ enum SubCommands {
         #[arg(short, long)]
         output: PathBuf,
     },
-    /// Writes one endgame position per held-out game as OBF, for evaltest.
+    /// Writes one endgame position per held-out game as OBF, for search-test.
     EndgameHoldout {
         #[arg(short, long)]
         input: PathBuf,

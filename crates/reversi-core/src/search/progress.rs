@@ -30,6 +30,10 @@ pub struct SearchProgress {
     pub is_endgame: bool,
     /// Snapshot of search counters at this point.
     pub counters: SearchCounters,
+    /// Merged midgame counters and their timestamp, on the first endgame
+    /// iteration after a midgame handoff.
+    #[cfg(feature = "search-stats")]
+    pub endgame_start: Option<(std::time::Instant, SearchCounters)>,
 }
 
 /// Callback invoked to report [`SearchProgress`] during a search.
@@ -57,6 +61,8 @@ impl SearchProgress {
             pv_line: rm.pv.clone(),
             is_endgame,
             counters: ctx.counters(),
+            #[cfg(feature = "search-stats")]
+            endgame_start: None,
         }
     }
 
@@ -72,6 +78,8 @@ impl SearchProgress {
             pv_line: result.pv_line().to_vec(),
             is_endgame: result.is_endgame(),
             counters: result.counters(),
+            #[cfg(feature = "search-stats")]
+            endgame_start: None,
         }
     }
 }

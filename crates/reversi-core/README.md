@@ -570,6 +570,7 @@ distributes time across the move.
 | Mode           | Fields                                  |
 | -------------- | --------------------------------------- |
 | `Infinite`     | —                                       |
+| `Fixed`        | `time_per_move_ms`                      |
 | `Byoyomi`      | `time_per_move_ms`                      |
 | `Fischer`      | `main_time_ms` + `increment_ms`         |
 | `JapaneseByo`  | `main_time_ms` + `time_per_move_ms`     |
@@ -584,8 +585,8 @@ distributes time across the move.
   current hard limit, committing most of the remaining bank to the solve;
   in `Fischer` mode, `increment_ms` is added to that share (clamped to the
   hard limit); the rationale is documented on the constant.
-- Pure byoyomi allocations are scoped to a single move; unused time
-  cannot be banked, so iteration continues until the deadline aborts the
+- Pure byoyomi and fixed-time allocations are scoped to a single move; unused
+  time cannot be banked, so iteration continues until the deadline aborts the
   search.
 - In Japanese byoyomi main time, later moves are covered by byoyomi, so
   the hard limit is the whole bank plus one byoyomi period, and the budget
@@ -616,9 +617,11 @@ distributes time across the move.
 - A forced move (single legal root move) is answered after the first
   completed iteration when a finite deadline is set (`TimeControlMode::Infinite`
   continues deepening).
-- A safety buffer derived from `TIME_BUFFER_MS` is subtracted to avoid time
-  forfeit (`TIME_BUFFER_MS` for per-move allocations; `TIME_BUFFER_MS` plus
-  half of `TIME_BUFFER_MS` per estimated remaining move in Fischer).
+- A safety buffer derived from `TIME_BUFFER_MS` is subtracted in game clocks to
+  avoid time forfeit (`TIME_BUFFER_MS` for `Byoyomi` and `JapaneseByo`;
+  `TIME_BUFFER_MS` plus half of `TIME_BUFFER_MS` per estimated remaining move in
+  `Fischer`). `Fixed` uses `time_per_move_ms` as-is with no safety buffer or
+  scaling.
 
 ## Weight files
 

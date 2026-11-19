@@ -161,7 +161,7 @@ change, until the models are refitted.
   held-out games and, with `--validate`, on another trace. The Rust block
   goes to stdout.
 - `endgame-holdout`: writes one position per game as OBF, scored with the
-  game's move and result, for `evaltest`.
+  game's move and result, for `search-test`.
   - Options: `-i, --input <INPUT>`, `-o, --output <OUTPUT>`, `--count <N>`
     (default: 400), `--min-empties <N>` (default: 20), `--max-empties <N>`
     (default: 26), and `--fit-folds` (draw from the fitting folds instead of
@@ -169,7 +169,7 @@ change, until the models are refitted.
   - Games whose record stops before the end (a resignation, a time loss) have
     no result and are left out; their number is printed to stderr.
   - The score is exact only for endgame-corrected games; otherwise run
-    `evaltest` with `--solve-reference`.
+    `search-test` with `--solve-reference`.
 
 #### Calibrating the tail schedule
 
@@ -179,9 +179,9 @@ changes the scale of `sigma`, so recheck the schedule after each refit. To
 check a schedule:
 
 1. Export positions with `endgame-holdout`.
-2. Label them once with a full `evaltest --solve-reference` run. Its `Score`
+2. Label them once with a full `search-test --solve-reference` run. Its `Score`
    column is the exact score.
-3. Check each candidate schedule with `evaltest --selective-only`. It stops
+3. Check each candidate schedule with `search-test --selective-only`. It stops
    before the exact solve and judges the levels against the labels, so it is
    fast.
 

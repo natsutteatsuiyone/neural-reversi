@@ -176,6 +176,10 @@ pub enum TimeControlMode {
     #[default]
     Infinite,
 
+    /// Exact time limit per move, with no safety buffer or scaling.
+    /// `time_per_move_ms` is the search deadline in milliseconds.
+    Fixed { time_per_move_ms: u64 },
+
     /// Fixed time per move.
     /// `time_per_move_ms` is the time allowed for each move in milliseconds.
     Byoyomi { time_per_move_ms: u64 },
@@ -479,6 +483,12 @@ impl TimeManager {
                 hard_ms: u64::MAX,
             },
 
+            TimeControlMode::Fixed { time_per_move_ms } => Allocation {
+                base_ms: time_per_move_ms,
+                optimum_ms: time_per_move_ms,
+                hard_ms: time_per_move_ms,
+            },
+
             TimeControlMode::Byoyomi { time_per_move_ms }
             | TimeControlMode::JapaneseByo {
                 main_time_ms: 0,
@@ -632,13 +642,15 @@ impl TimeManager {
     /// Returns true when the continuous scaling model applies (bank modes and
     /// Japanese byoyomi main time).
     ///
-    /// Pure byoyomi is excluded: unused time cannot be banked, so stopping
-    /// early has no value.
+    /// Pure byoyomi and fixed-time modes are excluded: unused time cannot be
+    /// banked, so stopping early has no value.
     fn uses_continuous_scaling(&self) -> bool {
         match self.mode {
-            TimeControlMode::Infinite | TimeControlMode::Byoyomi { .. } => false,
+            TimeControlMode::Infinite
+            | TimeControlMode::Fixed { .. }
+            | TimeControlMode::Byoyomi { .. } => false,
             TimeControlMode::JapaneseByo { main_time_ms, .. } => main_time_ms > 0,
-            _ => true,
+            TimeControlMode::Fischer { .. } => true,
         }
     }
 
@@ -1060,6 +1072,25 @@ mod tests {
             "endgame allocation ({end_maxi}) should exceed midgame share ({mid_maxi})"
         );
         assert!(end_maxi <= hard);
+    }
+
+    #[test]
+    fn fixed_mode_uses_exact_budget_without_buffer_or_scaling() {
+        let tm = make_tm(
+            TimeControlMode::Fixed {
+                time_per_move_ms: 25,
+            },
+            40,
+        );
+        assert_eq!(tm.base_time_ms.load(Ordering::Relaxed), 25);
+        assert_eq!(tm.maxi_time_ms(), 25);
+        assert_eq!(tm.hard_time_limit_ms.load(Ordering::Relaxed), 25);
+        assert!(!tm.uses_continuous_scaling());
+        assert!(tm.has_deadline());
+
+        tm.set_endgame_mode(true);
+        assert_eq!(tm.maxi_time_ms(), 25);
+        assert_eq!(tm.hard_time_limit_ms.load(Ordering::Relaxed), 25);
     }
 
     #[test]

@@ -5,7 +5,7 @@
 //! into a neutral [`ObfPosition`].
 //!
 //! The parser is intentionally lenient so the same routine can serve both
-//! the evaluation test suite (full move:score data) and the endgame solver
+//! the `search-test` suite runner (full move:score data) and the endgame solver
 //! CLI (board + side only). Specifically it accepts:
 //!
 //! - both `<board> <side>` (whitespace-separated, standard OBF) and

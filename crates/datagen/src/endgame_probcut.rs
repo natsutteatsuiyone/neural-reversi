@@ -201,11 +201,11 @@ fn pick_roots(
 }
 
 /// Writes one position per game (see `pick_roots`) as an OBF line, scored
-/// with the game's move and result, for evaltest's per-level report.
+/// with the game's move and result, for search-test's per-level report.
 ///
 /// Games whose record stops before the end have no result and are left out.
 /// The score is exact only if the game is played perfectly from the position
-/// on. Otherwise, run evaltest with `--solve-reference`.
+/// on. Otherwise, run search-test with `--solve-reference`.
 pub(crate) fn export_holdout(
     input: &Path,
     output: &Path,

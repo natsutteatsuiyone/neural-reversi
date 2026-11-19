@@ -2,10 +2,10 @@
 members = [
     "crates/cli",
     "crates/datagen",
-    "crates/evaltest",
     "crates/gui",
     "crates/match-runner",
     "crates/reversi-core",
+    "crates/search-test",
     "crates/web",
 ]
 resolver = "2"
