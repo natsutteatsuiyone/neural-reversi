@@ -292,9 +292,8 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
         })
         .transpose()?;
     let mandatory_line_count = startup_lines.len() - startup_commands.len();
-    let mut search_options = config.search_options();
+    let search_options = config.search_options();
     let max_game_slots = max_games * 2;
-    search_options.tt_mb_size = partition_tt_size(search_options.tt_mb_size, max_games)?;
     let (mut conn, event_tx) = connection::Connection::connect(host, port)
         .map_err(|e| format!("failed to connect to {host}:{port}: {e}"))?;
     let search_pool = Arc::new(SearchPool::new(&search_options, user, max_game_slots));
@@ -557,16 +556,6 @@ fn unsupported_ask_clock(line: &str) -> Option<&str> {
     (!session::is_supported_ask_clock(clock)).then_some(clock)
 }
 
-fn partition_tt_size(total_tt_mb: usize, max_matches: usize) -> Result<usize, String> {
-    let max_game_slots = max_matches * 2;
-    if total_tt_mb < max_game_slots {
-        return Err(format!(
-            "--max-games {max_matches} requires at least {max_game_slots} MB of hash for synchro boards (got {total_tt_mb} MB)"
-        ));
-    }
-    Ok(total_tt_mb / max_game_slots)
-}
-
 fn apply_action(
     action: session::SessionAction,
     conn: &mut connection::Connection,
@@ -821,13 +810,6 @@ mod tests {
     use reversi_core::square::Square;
 
     use super::*;
-
-    #[test]
-    fn hash_budget_reserves_two_boards_per_match() {
-        assert_eq!(partition_tt_size(256, 1).unwrap(), 128);
-        assert_eq!(partition_tt_size(256, 2).unwrap(), 64);
-        assert!(partition_tt_size(1, 1).is_err());
-    }
 
     #[test]
     fn startup_logs_in_then_normalizes_modes() {

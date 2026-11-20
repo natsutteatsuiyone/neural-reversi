@@ -138,7 +138,7 @@ enum SubCommands {
             long,
             default_value = "1",
             value_parser = parse_usize_range::<1, 64>,
-            help = "Maximum simultaneous GGS matches (synchro counts as one); configured hash is split across up to two boards per match, which share one pool of search threads and search one at a time"
+            help = "Maximum simultaneous GGS matches (synchro counts as one); each match can allocate up to two transposition tables of the configured hash size (one per board once a synchro pair diverges); all boards share one pool of search threads and search one at a time"
         )]
         max_games: usize,
 

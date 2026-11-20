@@ -118,7 +118,7 @@ Options:
 - `--password <password>` - GGS password, sent verbatim at the password prompt.
 - `--host <host>` - GGS server hostname. Default: `localhost`.
 - `--port <port>` - GGS server port. Default: `5000`.
-- `--max-games <n>` - Maximum simultaneous matches, matching GGS `/os open`. Default: `1`; a synchro match counts as one match with two game boards. Configured TT memory is divided across up to two boards per match (at least two MB per match), and all boards share one pool of `--threads` search threads and search one at a time.
+- `--max-games <n>` - Maximum simultaneous matches, matching GGS `/os open`. Default: `1`; a synchro match counts as one match with two game boards. Each match can allocate up to two transposition tables of `--hash-size` (the two boards of a synchro match share one table until their move sequences diverge, then each has its own), and all boards share one pool of `--threads` search threads and search one at a time.
 - `--ponder` - While every game waits for the opponent, search the opponent-to-move board to warm each game's transposition table. Off by default.
 - `--plain` - Use the original line input and output. This mode is also selected automatically when stdin or stdout is redirected.
 - `--join-tournaments` - Send `tell /td join <id>` or `tell /os join <id>` when any user tells us to, for unattended tournament entry.
