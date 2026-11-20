@@ -532,7 +532,7 @@ pub fn evaluate(ctx: &SearchContext, board: &Board) -> Score {
 #[cfg(test)]
 mod schedule_tests {
     use super::*;
-    use std::sync::{Arc, OnceLock};
+    use std::sync::Arc;
 
     use crate::level::Level;
     use crate::player_color::PlayerColor;
@@ -556,13 +556,7 @@ mod schedule_tests {
     }
 
     fn shared_eval() -> Arc<Eval> {
-        static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
-        EVAL.get_or_init(|| {
-            Arc::new(
-                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
-            )
-        })
-        .clone()
+        Eval::shared_for_tests()
     }
 
     #[test]

@@ -339,6 +339,8 @@ impl SearchResult {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::constants::MAX_PLY;
     use crate::score::{DiscScore, Score};
@@ -348,17 +350,15 @@ mod tests {
     struct TestResources {
         root_moves: RootMoves,
         tt: TranspositionTable,
-        eval: Eval,
+        eval: Arc<Eval>,
     }
 
     impl TestResources {
         fn new(board: &Board) -> Self {
-            let eval =
-                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
             Self {
                 root_moves: RootMoves::new(board),
                 tt: TranspositionTable::new(0),
-                eval,
+                eval: Eval::shared_for_tests(),
             }
         }
 

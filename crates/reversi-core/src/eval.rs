@@ -212,6 +212,18 @@ impl Eval {
     pub fn clear_cache(&self) {
         self.cache.clear();
     }
+    #[cfg(test)]
+    pub(crate) fn shared_for_tests() -> std::sync::Arc<Self> {
+        use std::sync::{Arc, OnceLock};
+
+        static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+        EVAL.get_or_init(|| {
+            Arc::new(
+                Self::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+            )
+        })
+        .clone()
+    }
 }
 
 #[cfg(test)]
@@ -287,7 +299,7 @@ mod tests {
 
     #[test]
     fn evaluate_simple_returns_the_exact_terminal_score_with_no_empties() {
-        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        let eval = Eval::shared_for_tests();
         // A full board has zero empties, so the network is bypassed for the
         // exact final score.
         let board = Board::from_bitboards(u64::MAX, 0);
@@ -302,7 +314,7 @@ mod tests {
     fn evaluate_main_agrees_with_the_uncached_path() {
         use crate::eval::pattern_feature::PatternFeatures;
 
-        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        let eval = Eval::shared_for_tests();
         let board = Board::new();
         let ply = INITIAL_EMPTY_COUNT - board.empty_count() as usize;
         let feature = PatternFeatures::new(&board, ply);
@@ -328,7 +340,7 @@ mod tests {
         // The main network reuses a per-thread scratch buffer, so a
         // read-before-write would leak one position's leftover state into the
         // next. Interleaving two positions and re-checking each guards that.
-        let eval = Eval::with_weight_files(None, None).expect("embedded weights should load");
+        let eval = Eval::shared_for_tests();
 
         let board_a = Board::new();
         let board_b = board_a.make_move(Square::D3);

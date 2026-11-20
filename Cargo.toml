@@ -53,3 +53,9 @@ inherits = "release"
 debug = "line-tables-only"
 strip = false
 lto = "thin"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test]
+opt-level = 1

@@ -448,10 +448,6 @@ mod tests {
     use crate::search::time_control::TimeControlMode;
     use crate::square::Square;
 
-    fn one_thread_options() -> SearchOptions {
-        SearchOptions::new(0).with_threads(Some(1))
-    }
-
     #[test]
     fn fixed_level_uses_level1_midgame_selectivity() {
         let options = SearchRunOptions::with_level(Level::uniform(8, 8));
@@ -495,9 +491,19 @@ mod tests {
         assert!(!Arc::ptr_eq(first.tt(), second.tt()));
     }
 
+    fn search_for_tests() -> Search {
+        let shared = SearchSharedResources {
+            eval: Eval::shared_for_tests(),
+            tt_mb_size: 0,
+            n_threads: 1,
+            thread_pool: None,
+        };
+        Search::from_shared_resources(&shared)
+    }
+
     #[test]
     fn resize_tt_reuses_same_size_replaces_changed_size_and_init_resets_generation() {
-        let mut search = Search::new(&one_thread_options());
+        let mut search = search_for_tests();
         let original_tt = search.tt().clone();
 
         assert_eq!(search.tt().mb_size(), 0);
@@ -518,7 +524,7 @@ mod tests {
 
     #[test]
     fn midgame_iterations_are_skipped_only_after_a_level2_endgame_solve() {
-        let mut search = Search::new(&one_thread_options());
+        let mut search = search_for_tests();
         let endgame = |selectivity| SearchResult::BestMove {
             sq: Square::A1,
             score: Score::ZERO,

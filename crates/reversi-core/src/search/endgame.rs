@@ -697,8 +697,7 @@ mod tests {
         )
         .unwrap();
         let tt = TranspositionTable::new(0);
-        let eval =
-            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load");
+        let eval = Eval::shared_for_tests();
         let root_moves = RootMoves::new(&board);
         let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
         let mut caches = EndGameCaches::for_thread_count(1);
@@ -737,9 +736,7 @@ mod tests {
         )
         .unwrap();
         let tt = Arc::new(TranspositionTable::new(0));
-        let eval = Arc::new(
-            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
-        );
+        let eval = Eval::shared_for_tests();
         let root_moves = RootMoves::new(&board);
         let mut fallback_moves = root_moves.snapshot();
         fallback_moves[0].score = Score::from_disc_diff(DiscScore::new(4));

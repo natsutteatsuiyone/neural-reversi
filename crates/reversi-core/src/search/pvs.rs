@@ -867,7 +867,7 @@ mod tests {
             Square::D4.bitboard() | Square::C4.bitboard(),
         );
         let tt = TranspositionTable::new(0);
-        let eval = Eval::with_weight_files(None, None).unwrap();
+        let eval = Eval::shared_for_tests();
         let root_moves = RootMoves::new(&board);
         let stale_pv = [None; MAX_PLY];
         root_moves.update(Square::D3, Score::MAX, true, &stale_pv);

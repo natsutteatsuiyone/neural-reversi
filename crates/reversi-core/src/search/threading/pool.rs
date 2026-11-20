@@ -398,7 +398,7 @@ mod tests {
         descendants(ffo_41, plies, &mut positions);
         let table = pool.in_flight.as_deref().unwrap();
         let claims: Vec<_> = positions.iter().map(|p| table.claim(p.hash())).collect();
-        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
+        let eval = Eval::shared_for_tests();
         let task = task(&pool, &eval, ffo_41, Level::perfect(), Selectivity::None);
         let solved = pool
             .start_thinking(task, None)
@@ -413,7 +413,7 @@ mod tests {
     fn threads_alternate_between_helper_searches_and_split_points() {
         probcut::init();
         let pool = ThreadPool::new(8);
-        let eval = Arc::new(Eval::with_weight_files(None, None).unwrap());
+        let eval = Eval::shared_for_tests();
         let task = |board, level| task(&pool, &eval, board, level, Selectivity::Level1);
         let endgame = Board::from_string(
             "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",
