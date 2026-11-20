@@ -808,7 +808,14 @@ impl Model {
                 status_color,
             ),
             fact_line("Turn", turn_label(state), Color::Yellow),
-            fact_line("Discs", format!("● {black}  ○ {white}"), Color::White),
+            fact_line(
+                "Discs",
+                format!(
+                    "● {black}  ○ {white}  · {} empty",
+                    state.board.empty_count()
+                ),
+                Color::White,
+            ),
         ];
         lines.extend(clock_lines(state, game));
         let eval_color = match game.eval {
@@ -851,9 +858,10 @@ impl Model {
                 visible(&game_status(game))
             )),
             Line::from(format!(
-                "You: {}   Turn: {}   Discs: X {black} O {white}",
+                "You: {}   Turn: {}   Discs: X {black} O {white}   Empty: {}",
                 color_name(state.my_color),
-                turn_label(state)
+                turn_label(state),
+                state.board.empty_count()
             )),
             Line::from(clocks.join("   ")),
             Line::from(format!(
@@ -1596,7 +1604,7 @@ mod tests {
             "Game .5 · vs bob · 8b",
             "Status   Searching",
             "Turn     ● Black (you)",
-            "Discs    ● 2  ○ 2",
+            "Discs    ● 2  ○ 2  · 60 empty",
             "● alice  04:59 +5s/move  ◀",
             "○ bob    04:10",
             "Elapsed  00:01",
