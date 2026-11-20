@@ -256,9 +256,7 @@ fn apply_opening_moves(
 
     for square in moves {
         let color = game_state.side_to_move();
-        game_state
-            .make_move(square)
-            .map_err(MatchRunnerError::Game)?;
+        game_state.make_move(square)?;
 
         let mv = square.to_string();
         black_engine.play(color, &mv)?;
@@ -290,15 +288,13 @@ fn execute_move(
     mover: PlayerColor,
 ) -> Result<()> {
     let move_to_send = if mv.eq_ignore_ascii_case("pass") {
-        game_state.make_pass().map_err(MatchRunnerError::Game)?;
+        game_state.make_pass()?;
         "pass"
     } else {
         let square = mv
             .parse::<Square>()
             .map_err(|_| MatchRunnerError::Game(format!("Invalid move: {mv}")))?;
-        game_state
-            .make_move(square)
-            .map_err(MatchRunnerError::Game)?;
+        game_state.make_move(square)?;
         mv
     };
 

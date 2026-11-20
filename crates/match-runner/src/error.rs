@@ -7,6 +7,8 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
+use reversi_core::game_state::GameStateError;
+
 /// Comprehensive error type for match runner operations.
 ///
 /// This enum covers all possible error conditions that can occur during
@@ -52,6 +54,12 @@ impl Error for MatchRunnerError {
 impl From<io::Error> for MatchRunnerError {
     fn from(err: io::Error) -> Self {
         MatchRunnerError::Io(err)
+    }
+}
+
+impl From<GameStateError> for MatchRunnerError {
+    fn from(err: GameStateError) -> Self {
+        MatchRunnerError::Game(err.to_string())
     }
 }
 

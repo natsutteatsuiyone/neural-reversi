@@ -280,7 +280,7 @@ fn replay_game(
             return Err(format!("Line {game}: move {} ({sq}): {reason}", i + 1));
         }
         positions.push((*state.board(), state.side_to_move()));
-        state.make_move(sq)?;
+        state.make_move(sq).map_err(|e| e.to_string())?;
     }
 
     Ok((positions, state))

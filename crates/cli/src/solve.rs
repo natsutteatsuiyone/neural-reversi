@@ -31,8 +31,8 @@ pub fn solve(
     config: &EngineConfig,
     exact: bool,
     all_moves: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let file = File::open(file_path)?;
+) -> Result<(), String> {
+    let file = File::open(file_path).map_err(|e| e.to_string())?;
     let reader = BufReader::new(file);
 
     let search_options = config.search_options();
@@ -56,7 +56,7 @@ pub fn solve(
     let mut total_nodes: u64 = 0;
 
     for (line_num, line) in reader.lines().enumerate() {
-        let raw = line?;
+        let raw = line.map_err(|e| e.to_string())?;
         let pos = match ObfPosition::parse(&raw) {
             Ok(Some(pos)) => pos,
             Ok(None) => continue,

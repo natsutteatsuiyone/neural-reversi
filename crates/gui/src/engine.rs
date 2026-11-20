@@ -346,7 +346,7 @@ fn execute(
                 || !is_current(generation, id),
                 |progress| emit(events, generation, id, EventKind::Analysis(progress)),
             ) {
-                return Err(analysis_error.unwrap_or(EngineError::Other(error)));
+                return Err(analysis_error.unwrap_or(EngineError::Other(error.to_string())));
             }
             return Ok((
                 id,

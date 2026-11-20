@@ -189,7 +189,7 @@ pub(crate) fn replay(
         }
 
         visit(game.board(), game.side_to_move(), sq);
-        game.make_move(sq).map_err(anyhow::Error::msg)?;
+        game.make_move(sq)?;
     }
 
     Ok((*game.board(), game.side_to_move()))

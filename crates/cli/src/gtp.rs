@@ -466,7 +466,7 @@ impl GtpEngine {
             }
             return match self.game.make_pass() {
                 Ok(()) => GtpResponse::Success(String::new()),
-                Err(e) => GtpResponse::Error(e),
+                Err(e) => GtpResponse::Error(e.to_string()),
             };
         }
 
@@ -490,7 +490,7 @@ impl GtpEngine {
         if !self.game.board().has_legal_moves() {
             return match self.game.make_pass() {
                 Ok(()) => GtpResponse::Success("pass".to_string()),
-                Err(e) => GtpResponse::Error(e),
+                Err(e) => GtpResponse::Error(e.to_string()),
             };
         }
 

@@ -8,9 +8,41 @@
 //! and `Level`. Callers own the wiring — the GUI's `Request::AnalyzeGame`
 //! handler in `crates/gui/src/engine.rs` is the reference consumer.
 
+use std::fmt;
+
 use crate::board::Board;
 use crate::score::Score;
 use crate::square::Square;
+
+/// Error returned by [`analyze_game`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AnalysisError {
+    /// An illegal square appeared in the move list.
+    IllegalMove(Square),
+    /// A pass appeared after the game had already ended.
+    PassAfterGameOver,
+    /// A pass appeared while legal moves were still available.
+    PassWithLegalMoves,
+    /// The injected search callback returned an error.
+    Search(String),
+}
+
+impl fmt::Display for AnalysisError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AnalysisError::IllegalMove(square) => {
+                write!(f, "Illegal move '{square}' in move list")
+            }
+            AnalysisError::PassAfterGameOver => f.write_str("Cannot pass after the game is over"),
+            AnalysisError::PassWithLegalMoves => {
+                f.write_str("Cannot pass when legal moves are available")
+            }
+            AnalysisError::Search(message) => f.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for AnalysisError {}
 
 /// What the injected engine Search returns for one Position that has Legal
 /// Moves.
@@ -54,14 +86,14 @@ pub enum GameAnalysisMove {
 ///
 /// # Errors
 ///
-/// Returns `Err` if the move list is illegal, or if `search` fails.
+/// Returns [`AnalysisError`] if the move list is illegal, or if `search` fails.
 pub fn analyze_game(
     initial: Board,
     moves: &[GameAnalysisMove],
     mut search: impl FnMut(&Board) -> Result<Analysis, String>,
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(GameAnalysisProgress),
-) -> Result<(), String> {
+) -> Result<(), AnalysisError> {
     let Replay { steps, final_board } = replay(initial, moves)?;
 
     if is_cancelled() {
@@ -70,7 +102,7 @@ pub fn analyze_game(
 
     let mut score: Score = match classify_seed(&final_board) {
         SeedPosition::Searchable => {
-            let analysis = search(&final_board)?;
+            let analysis = search(&final_board).map_err(AnalysisError::Search)?;
             if is_cancelled() {
                 return Ok(());
             }
@@ -80,7 +112,7 @@ pub fn analyze_game(
             // Side to move has no Legal Moves but the opponent does — a forced
             // Pass the move list did not record. Score the post-pass Position
             // and flip perspective.
-            let analysis = search(&final_board.switch_players())?;
+            let analysis = search(&final_board.switch_players()).map_err(AnalysisError::Search)?;
             if is_cancelled() {
                 return Ok(());
             }
@@ -102,7 +134,7 @@ pub fn analyze_game(
             Step::Play { before } => before,
         };
 
-        let analysis = search(before)?;
+        let analysis = search(before).map_err(AnalysisError::Search)?;
         if is_cancelled() {
             return Ok(());
         }
@@ -141,7 +173,7 @@ struct Replay {
 }
 
 /// Replay `moves` from `initial`, validating pass and move legality.
-fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, String> {
+fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, AnalysisError> {
     let mut steps = Vec::with_capacity(moves.len());
     let mut current = initial;
 
@@ -149,10 +181,10 @@ fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, String> 
         match move_input {
             GameAnalysisMove::Pass => {
                 if current.is_game_over() {
-                    return Err("Cannot pass after the game is over".to_string());
+                    return Err(AnalysisError::PassAfterGameOver);
                 }
                 if current.has_legal_moves() {
-                    return Err("Cannot pass when legal moves are available".to_string());
+                    return Err(AnalysisError::PassWithLegalMoves);
                 }
                 steps.push(Step::Pass);
                 current = current.switch_players();
@@ -162,7 +194,7 @@ fn replay(initial: Board, moves: &[GameAnalysisMove]) -> Result<Replay, String> 
                 // illegal move in `moves` would silently corrupt
                 // the Board in release.
                 if !current.is_legal_move(square) {
-                    return Err(format!("Illegal move '{square}' in move list"));
+                    return Err(AnalysisError::IllegalMove(square));
                 }
                 steps.push(Step::Play { before: current });
                 current = current.make_move(square);
@@ -307,18 +339,35 @@ mod tests {
         // Black's own a1 brackets b1 against c1, though a1 is occupied.
         let occupied =
             Board::from_string(&format!("XOX{}", "-".repeat(61)), PlayerColor::Black).unwrap();
-        for (board, move_input, expected) in [
-            (Board::new(), play(Square::A1), "Illegal move"),
-            (occupied, play(Square::A1), "Illegal move"),
+        for (board, move_input, expected_err, expected_msg) in [
+            (
+                Board::new(),
+                play(Square::A1),
+                AnalysisError::IllegalMove(Square::A1),
+                "Illegal move",
+            ),
+            (
+                occupied,
+                play(Square::A1),
+                AnalysisError::IllegalMove(Square::A1),
+                "Illegal move",
+            ),
             (
                 Board::new(),
                 pass(),
+                AnalysisError::PassWithLegalMoves,
                 "Cannot pass when legal moves are available",
             ),
-            (full, pass(), "Cannot pass after the game is over"),
+            (
+                full,
+                pass(),
+                AnalysisError::PassAfterGameOver,
+                "Cannot pass after the game is over",
+            ),
         ] {
             let err = replay(board, &[move_input]).unwrap_err();
-            assert!(err.contains(expected), "got: {err}");
+            assert_eq!(err, expected_err);
+            assert!(err.to_string().contains(expected_msg), "got: {err}");
         }
     }
 

@@ -4,9 +4,46 @@
 //! game position and handles core game logic such as making moves, automatic
 //! passing when no legal moves are available, and game termination detection.
 
+use std::fmt;
+
 use crate::board::Board;
 use crate::player_color::PlayerColor;
 use crate::square::Square;
+
+/// Error returned by [`GameState`] move and pass operations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameStateError {
+    /// The requested square is not a legal move in the current position.
+    IllegalMove(Square),
+    /// An illegal move was encountered while replaying a move sequence.
+    IllegalMoveAt {
+        /// 1-based index of the offending move in the sequence.
+        position: usize,
+        /// The illegal square.
+        square: Square,
+    },
+    /// Attempted to pass after the game has already ended.
+    PassAfterGameOver,
+    /// Attempted to pass while legal moves are still available.
+    PassWithLegalMoves,
+}
+
+impl fmt::Display for GameStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GameStateError::IllegalMove(sq) => write!(f, "Illegal move: {sq}"),
+            GameStateError::IllegalMoveAt { position, square } => {
+                write!(f, "Illegal move at position {position}: {square}")
+            }
+            GameStateError::PassAfterGameOver => f.write_str("Cannot pass after the game is over"),
+            GameStateError::PassWithLegalMoves => {
+                f.write_str("Cannot pass when legal moves are available")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GameStateError {}
 
 /// An action recorded in a game's history.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,13 +126,17 @@ impl GameState {
     ///
     /// # Errors
     ///
-    /// Returns an error naming the first move that is illegal when reached.
-    pub fn from_moves(moves: &[Square]) -> Result<Self, String> {
+    /// Returns [`GameStateError::IllegalMoveAt`] naming the first move that is
+    /// illegal when reached.
+    pub fn from_moves(moves: &[Square]) -> Result<Self, GameStateError> {
         let mut state = Self::new();
         for (i, &sq) in moves.iter().enumerate() {
             state
                 .make_move(sq)
-                .map_err(|_| format!("Illegal move at position {}: {sq}", i + 1))?;
+                .map_err(|_| GameStateError::IllegalMoveAt {
+                    position: i + 1,
+                    square: sq,
+                })?;
         }
         Ok(state)
     }
@@ -116,10 +157,11 @@ impl GameState {
     ///
     /// # Errors
     ///
-    /// Returns an error if `sq` is not a legal move on the current board.
-    pub fn make_move(&mut self, sq: Square) -> Result<(), String> {
+    /// Returns [`GameStateError::IllegalMove`] if `sq` is not a legal move on
+    /// the current board.
+    pub fn make_move(&mut self, sq: Square) -> Result<(), GameStateError> {
         if !self.board.is_legal_move(sq) {
-            return Err(format!("Illegal move: {sq}"));
+            return Err(GameStateError::IllegalMove(sq));
         }
 
         self.apply_action(HistoryAction::Play(sq));
@@ -137,15 +179,16 @@ impl GameState {
     ///
     /// # Errors
     ///
-    /// Returns an error if the game is already over or if the current player
+    /// Returns [`GameStateError::PassAfterGameOver`] if the game is already
+    /// over, or [`GameStateError::PassWithLegalMoves`] if the current player
     /// has legal moves available.
-    pub fn make_pass(&mut self) -> Result<(), String> {
+    pub fn make_pass(&mut self) -> Result<(), GameStateError> {
         if self.board.is_game_over() {
-            return Err("Cannot pass after the game is over".to_string());
+            return Err(GameStateError::PassAfterGameOver);
         }
 
         if self.board.has_legal_moves() {
-            return Err("Cannot pass when legal moves are available".to_string());
+            return Err(GameStateError::PassWithLegalMoves);
         }
 
         self.apply_action(HistoryAction::ExplicitPass);
@@ -245,7 +288,17 @@ mod tests {
     #[test]
     fn test_from_moves_reports_offending_position() {
         let err = GameState::from_moves(&[Square::D3, Square::D3]).unwrap_err();
-        assert!(err.contains("position 2"), "unexpected error: {err}");
+        assert_eq!(
+            err,
+            GameStateError::IllegalMoveAt {
+                position: 2,
+                square: Square::D3,
+            }
+        );
+        assert!(
+            err.to_string().contains("position 2"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -297,7 +350,7 @@ mod tests {
 
         let result = game.make_pass();
 
-        assert!(result.is_err());
+        assert_eq!(result, Err(GameStateError::PassAfterGameOver));
         assert_eq!(game.move_history().len(), 0);
         assert_eq!(*game.board(), board);
         assert_eq!(game.side_to_move(), PlayerColor::Black);

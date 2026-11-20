@@ -717,7 +717,7 @@ impl App {
 
         let result: Result<GameState, String> = match self.board_edit_tab {
             BoardEditTab::Moves => parse::parse_move_string(&self.board_edit_input)
-                .and_then(|moves| GameState::from_moves(&moves)),
+                .and_then(|moves| GameState::from_moves(&moves).map_err(|e| e.to_string())),
             BoardEditTab::BoardString => {
                 Board::from_string(&self.board_edit_input, self.board_edit_side)
                     .map(|board| GameState::from_board(board, self.board_edit_side))
