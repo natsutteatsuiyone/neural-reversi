@@ -60,12 +60,20 @@ pub struct Event {
     pub kind: EventKind,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EngineError {
+    WorkerStart(String),
+    WorkerUnavailable,
+    AnalysisNoMove,
+    Other(String),
+}
+
 pub enum EventKind {
     Ready,
     Progress(Progress),
     Analysis(GameAnalysisProgress),
     Finished(Outcome),
-    Error(String),
+    Error(EngineError),
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +125,7 @@ impl Engine {
         {
             let _ = errors.send(Event {
                 id: 0,
-                kind: EventKind::Error(format!("Cannot start the engine worker: {error}")),
+                kind: EventKind::Error(EngineError::WorkerStart(error.to_string())),
             });
         }
         Self {
@@ -142,7 +150,7 @@ impl Engine {
         if self.requests.send(Job { id, request, stop }).is_err() {
             let _ = self.errors.send(Event {
                 id,
-                kind: EventKind::Error("The engine worker is no longer available".into()),
+                kind: EventKind::Error(EngineError::WorkerUnavailable),
             });
         }
         id
@@ -201,12 +209,33 @@ fn emit(events: &Sender<Event>, generation: &AtomicU64, id: u64, kind: EventKind
     }
 }
 
+struct PanicGuard {
+    events: Sender<Event>,
+    generation: Arc<AtomicU64>,
+}
+
+impl Drop for PanicGuard {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            let id = self.generation.load(Ordering::Acquire);
+            let _ = self.events.send(Event {
+                id,
+                kind: EventKind::Error(EngineError::WorkerUnavailable),
+            });
+        }
+    }
+}
+
 fn worker(
     jobs: Receiver<Job>,
     events: Sender<Event>,
     generation: Arc<AtomicU64>,
     hash_size: usize,
 ) {
+    let _panic_guard = PanicGuard {
+        events: events.clone(),
+        generation: generation.clone(),
+    };
     let mut search = None;
     let mut job = Job {
         id: 0,
@@ -244,7 +273,7 @@ fn execute(
     search: &mut Option<Search>,
     events: &Sender<Event>,
     generation: &Arc<AtomicU64>,
-) -> Result<(u64, EventKind), String> {
+) -> Result<(u64, EventKind), EngineError> {
     let Job { id, request, stop } = job;
     if let Request::Initialize { hash_size } = request {
         if let Some(search) = search {
@@ -293,12 +322,13 @@ fn execute(
             level,
         } => {
             let options = SearchRunOptions::with_level(get_level(level)).stop_token(stop);
-            analysis::analyze_game(
+            let mut analysis_error = None;
+            if let Err(error) = analysis::analyze_game(
                 board,
                 &moves,
                 |board| {
                     if !is_current(generation, id) {
-                        return Err("Game analysis cancelled".into());
+                        return Err(String::new());
                     }
                     let result = search.run(board, &options);
                     match (result.best_move(), result.score()) {
@@ -307,12 +337,17 @@ fn execute(
                             best_move,
                             score,
                         }),
-                        _ => Err("Search returned no legal move for game analysis position".into()),
+                        _ => {
+                            analysis_error = Some(EngineError::AnalysisNoMove);
+                            Err(String::new())
+                        }
                     }
                 },
                 || !is_current(generation, id),
                 |progress| emit(events, generation, id, EventKind::Analysis(progress)),
-            )?;
+            ) {
+                return Err(analysis_error.unwrap_or(EngineError::Other(error)));
+            }
             return Ok((
                 id,
                 EventKind::Finished(Outcome {
@@ -432,12 +467,33 @@ mod tests {
                 Some(Event {
                     kind: EventKind::Error(error),
                     ..
-                }) => panic!("{error}"),
+                }) => panic!("{error:?}"),
                 _ => {}
             }
             assert!(Instant::now() < deadline, "the stop was lost");
             thread::sleep(Duration::from_millis(5));
         };
         assert!(board.is_legal_move(outcome.best_move.unwrap()));
+    }
+
+    #[test]
+    fn worker_panic_emits_worker_unavailable_error() {
+        let (tx, rx) = mpsc::channel();
+        let generation = Arc::new(AtomicU64::new(7));
+        let guard_generation = generation.clone();
+        let handle = thread::spawn(move || {
+            let _guard = PanicGuard {
+                events: tx,
+                generation: guard_generation,
+            };
+            panic!("simulated worker panic");
+        });
+        assert!(handle.join().is_err());
+        let event = rx.try_recv().expect("panic guard emits error");
+        assert_eq!(event.id, 7);
+        assert!(matches!(
+            event.kind,
+            EventKind::Error(EngineError::WorkerUnavailable)
+        ));
     }
 }

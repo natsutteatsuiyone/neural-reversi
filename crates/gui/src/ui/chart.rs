@@ -396,7 +396,11 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                                                 else {
                                                     return String::new();
                                                 };
-                                                let record = &app.session.game().history[index];
+                                                let Some(record) =
+                                                    app.session.game().history.get(index)
+                                                else {
+                                                    return String::new();
+                                                };
                                                 if Some(analysis.best_move) == record.square {
                                                     return String::new();
                                                 }
@@ -409,7 +413,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                                                     "{} {} ({})",
                                                     tr!("best"),
                                                     analysis.best_move,
-                                                    display_score(score, ScorePrecision::Raw)
+                                                    display_score(score, ScorePrecision::Tenth)
                                                 )
                                             })
                                         }))
@@ -475,17 +479,12 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
             },
         ))
 }
-/// The x axis spans moves 1 to 60.
-const MOVE_SPAN: f32 = 59.;
+const MOVE_SPAN: f32 = (60 - 1) as f32;
 
-/// Horizontal position of a move number as a fraction of the plot width.
 fn move_x(number: usize) -> f32 {
     (number - 1) as f32 / MOVE_SPAN
 }
 
-/// Y-axis range in multiples of 4: padded around the scores, always including
-/// zero, giving the losing side at least 30% of the dominant side's height,
-/// and clamped to ±64. Small or missing scores use ±8.
 fn y_domain(scores: impl Iterator<Item = f32>) -> (f32, f32) {
     let (low, high) = scores.fold((f32::INFINITY, f32::NEG_INFINITY), |(low, high), score| {
         (low.min(score), high.max(score))
@@ -505,7 +504,6 @@ fn y_domain(scores: impl Iterator<Item = f32>) -> (f32, f32) {
     (low.max(-64.), high.min(64.))
 }
 
-/// Marker color for a move that lost more than 2 (yellow) or 6 (red) discs.
 fn loss_color(loss: f32) -> Option<u32> {
     if loss > 6. {
         Some(0xef4444)
@@ -516,8 +514,6 @@ fn loss_color(loss: f32) -> Option<u32> {
     }
 }
 
-/// Y-axis ticks: multiples of the smallest step in 4, 8, 16, 32 that splits the
-/// range into at most six parts, so labels never overlap in the 140 px plot.
 fn y_ticks(low: f32, high: f32) -> Vec<f32> {
     let step = [4., 8., 16., 32.]
         .into_iter()
@@ -532,7 +528,6 @@ fn y_ticks(low: f32, high: f32) -> Vec<f32> {
     ticks
 }
 
-// Recharts' monotone line uses d3-shape's Steffen tangents, including one-sided endpoints.
 fn monotone_slope(points: &[(f32, f32)], index: usize) -> f32 {
     if points.len() == 2 {
         return (points[1].1 - points[0].1) / (points[1].0 - points[0].0);

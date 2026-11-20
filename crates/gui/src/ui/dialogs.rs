@@ -70,7 +70,7 @@ fn modal_card(ui: Ui, modal: Modal) -> impl IntoElement {
             ui.read(|a| {
                 let width = a.viewport.width.0;
                 px(if width < 640. {
-                    width - 32.
+                    (width - 32.).max(0.)
                 } else {
                     preferred.min(width)
                 })
@@ -214,7 +214,16 @@ pub(super) fn dialog_tab(
     let label = computed(label);
     let selected = computed(selected);
     let press = action.clone();
-    let reference = focusable(ui, id, || true, move || ui.action(press.clone()));
+    let reference = focusable(
+        ui,
+        id,
+        || true,
+        move || {
+            if !selected.get_untracked() {
+                ui.action(press.clone());
+            }
+        },
+    );
     tab()
         .element_ref(&reference)
         .accessibility_label(move || Some(label.get()))
@@ -222,7 +231,9 @@ pub(super) fn dialog_tab(
         .group()
         .on_press(move || {
             ui.focus(id);
-            ui.action(action.clone());
+            if !selected.get_untracked() {
+                ui.action(action.clone());
+            }
         })
         .flex_1()
         .min_w_0()

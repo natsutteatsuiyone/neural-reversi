@@ -1,6 +1,7 @@
 fn main() {
     // rust-i18n reads locales/ from its macro without telling Cargo.
     println!("cargo:rerun-if-changed=locales");
+    println!("cargo:rerun-if-changed=locales/app.yml");
     #[cfg(windows)]
     {
         println!("cargo:rerun-if-changed=assets/icon.ico");

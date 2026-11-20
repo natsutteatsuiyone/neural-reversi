@@ -456,15 +456,19 @@ pub(super) fn focused_key(ui: Ui, key: &str) -> bool {
     if !ui.read(|app| app.modal == Some(Modal::Settings)) {
         return false;
     }
+    const SECTIONS: [&str; 3] = ["menu-hint", "menu-hash", "menu-language"];
     match key {
         "up" => ui.focus_step(true),
         "down" => ui.focus_step(false),
-        "left" => ui.action(Action::MenuSection(None)),
+        "left" => {
+            let section = ui.read(|app| app.menu_section);
+            ui.action(Action::MenuSection(None));
+            if let Some(id) = section.and_then(|index| SECTIONS.get(index)) {
+                ui.focus(id);
+            }
+        }
         "right" => {
-            for (index, id) in ["menu-hint", "menu-hash", "menu-language"]
-                .into_iter()
-                .enumerate()
-            {
+            for (index, id) in SECTIONS.into_iter().enumerate() {
                 if ui.is_focused(id) {
                     ui.action(Action::MenuSection(Some(index)));
                     break;

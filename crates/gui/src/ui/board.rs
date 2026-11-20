@@ -11,7 +11,7 @@ use reversi_core::square::Square;
 use super::assets;
 use super::format::{ScorePrecision, display_score, whole_score};
 use super::widgets::{focusable, move_board_cursor};
-use super::{AI_COLOR, Action, BLUE, GOLD, ReversiApp, Ui, color};
+use super::{ACCENT, AI_COLOR, Action, BLUE, GOLD, ReversiApp, Ui, color};
 use crate::engine::Progress;
 use crate::game::Position;
 use crate::session::Activity;
@@ -46,6 +46,7 @@ struct BoardPresentation {
     show_legal: bool,
     show_waiting: bool,
     complete: bool,
+    last_key: Option<(Position, usize)>,
     motion: Option<(Position, usize, Position)>,
 }
 
@@ -111,6 +112,7 @@ fn presentation(app: &ReversiApp) -> BoardPresentation {
         })
         .flatten();
     let animate = !solver && !app.session.is_paused() && game.cursor == game.history.len();
+    let last_key = last_move.map(|_| (position, game.cursor));
     let motion = last_move.filter(|_| animate).map(|(index, _)| {
         let before = index
             .checked_sub(1)
@@ -137,9 +139,14 @@ fn presentation(app: &ReversiApp) -> BoardPresentation {
         ai_waiting: app.modal.is_none() && app.ai_resume_label().is_some(),
         show_legal: solver || human_turn,
         show_waiting: show_candidates
+            && matches!(
+                app.session.activity(),
+                Some(Activity::Hint | Activity::Solver)
+            )
             && !app.session.candidates().is_empty()
             && (!solver || app.settings.solver_multi_pv),
         complete: app.session.candidates_complete(),
+        last_key,
         motion,
     }
 }
@@ -157,17 +164,19 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
     let started = stored(None::<Instant>);
     let identity = stored(None::<(Position, usize)>);
     effect(move || {
-        let motion = state.with(|state| state.motion);
-        let key = motion.map(|(position, cursor, _)| (position, cursor));
+        let (key, animate) = state.with(|state| (state.last_key, state.motion.is_some()));
         if identity.get() != key {
             identity.replace(key);
-            if key.is_some() && !reduce_motion() {
+            if animate && key.is_some() && !reduce_motion() {
                 started.replace(Some(Instant::now()));
                 progress.set(0.);
             } else {
                 started.replace(None);
                 progress.set(1.);
             }
+        } else if !animate {
+            started.replace(None);
+            progress.set(1.);
         }
     });
     // Shadow blur and spread are not channels of NSH's native animation graph.
@@ -271,12 +280,16 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
                     Ok(player) => ui.read(|app| app.color(player)),
                     Err(_) => tr!("empty"),
                 };
-                format!(
-                    "{} {} {}",
-                    square.to_string().to_uppercase(),
-                    label,
-                    if legal { tr!("legal_move") } else { "".into() }
-                )
+                if legal {
+                    format!(
+                        "{} {} {}",
+                        square.to_string().to_uppercase(),
+                        label,
+                        tr!("legal_move")
+                    )
+                } else {
+                    format!("{} {}", square.to_string().to_uppercase(), label)
+                }
             })
             .accessibility_state(move || AccessibilityState {
                 selected: ui.is_focused("board-grid") && ui.read(|app| app.board_cursor == index),
@@ -290,6 +303,12 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
             .justify_center()
             .focusable(false)
             .style_when(clickable, |style| style.cursor_pointer())
+            .style_when(
+                move || {
+                    ui.is_focus_visible("board-grid") && ui.read(|app| app.board_cursor == index)
+                },
+                |style| style.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+            )
             .on_press(move || {
                 if clickable() {
                     ui.update(|app| app.board_cursor = index);
@@ -382,8 +401,8 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
                                     .unwrap_or_default()
                             })
                         })
-                        .text_size(px(18.))
-                        .line_height(px(25.2))
+                        .text_size(move || px((cell_side.get() * 0.34).clamp(11., 18.)))
+                        .line_height(nsh_core::LineHeight::Multiple(1.4))
                         .font_weight(FontWeight::BOLD)
                         .text_color(move || {
                             color(
@@ -430,6 +449,7 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
                         move || {
                             !state.with(|state| {
                                 state.show_legal
+                                    && !state.show_waiting
                                     && state.cells[index].legal
                                     && state.cells[index].disc == Disc::Empty
                                     && state.cells[index].candidate.is_none()

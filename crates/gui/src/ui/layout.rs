@@ -325,6 +325,7 @@ fn splitter(ui: Ui, axis: PanelDrag) -> View {
             move || {
                 view()
                     .absolute()
+                    .pointer_events(PointerEvents::None)
                     .left(relative(0.5))
                     .top(relative(0.5))
                     .w(px(if horizontal { 20. } else { 12. }))

@@ -111,6 +111,8 @@ impl ReversiApp {
             match update {
                 Update::Played => {
                     self.notification.clear();
+                    self.analysis_view.hover = None;
+                    self.analysis_view.pointer = None;
                     effects.push(ScrollUpdate::HistoryEnd);
                 }
                 Update::GameOver { black, white } => {
@@ -138,7 +140,10 @@ impl ReversiApp {
                 Update::NoMove => self
                     .notification
                     .show_error(tr!("engine_no_move").to_string(), String::new()),
-                Update::Error(error) => self.notification.show_error(error, String::new()),
+                Update::Error(error) => {
+                    let (message, description) = self.format_error(&error);
+                    self.notification.show_error(message, description);
+                }
             }
         }
         effects
@@ -169,6 +174,7 @@ impl ReversiApp {
         match action {
             Action::NewGame | Action::Solver => {
                 let solver = matches!(action, Action::Solver);
+                self.analysis_view.level_menu = false;
                 self.draft = self.settings.clone();
                 self.setup.reset();
                 if solver {
@@ -220,11 +226,13 @@ impl ReversiApp {
                 self.notification.clear();
             }
             Action::Settings => {
+                self.analysis_view.level_menu = false;
                 self.menu_section = None;
                 self.modal = Some(Modal::Settings);
             }
             Action::MenuSection(section) => self.menu_section = section,
             Action::About => {
+                self.analysis_view.level_menu = false;
                 self.modal = Some(Modal::About);
                 self.menu_section = None;
                 self.license.load(false);
@@ -238,7 +246,10 @@ impl ReversiApp {
                 self.session.hints_toggled(&self.settings);
             }
             Action::AnalyzeAndChart => {
-                self.analysis_view.chart = true;
+                self.analysis_view.level_menu = false;
+                if self.session.activity() != Some(crate::session::Activity::Analysis) {
+                    self.analysis_view.chart = true;
+                }
                 self.session.toggle_analysis(&self.settings);
             }
             Action::AnalysisPanel => {
@@ -252,11 +263,19 @@ impl ReversiApp {
                     self.analysis_view.close();
                 }
             }
-            Action::Chart(chart) => self.analysis_view.chart = chart,
+            Action::Chart(chart) => {
+                self.analysis_view.chart = chart;
+                if !chart {
+                    self.analysis_view.hover = None;
+                    self.analysis_view.pointer = None;
+                }
+            }
             Action::Hash(hash_size) => {
-                self.settings.hash_size = hash_size;
-                self.save();
-                self.session.reinitialize(&self.settings);
+                if hash_size != self.settings.hash_size {
+                    self.settings.hash_size = hash_size;
+                    self.save();
+                    self.session.reinitialize(&self.settings);
+                }
             }
             Action::Language(language) => {
                 self.settings.language = language;
@@ -336,9 +355,19 @@ impl ReversiApp {
         if self.modal == Some(Modal::SolverSetup) {
             apply(&mut self.draft);
         } else {
+            let previous = (
+                self.settings.solver_selectivity,
+                self.settings.solver_multi_pv,
+            );
             apply(&mut self.settings);
-            self.save();
-            self.session.solver_options_changed(&self.settings);
+            if (
+                self.settings.solver_selectivity,
+                self.settings.solver_multi_pv,
+            ) != previous
+            {
+                self.save();
+                self.session.solver_options_changed(&self.settings);
+            }
         }
     }
 }

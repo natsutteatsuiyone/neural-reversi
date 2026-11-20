@@ -36,6 +36,7 @@ impl LicenseViewer {
             .collect();
         self.scroll_drag = None;
         self.metrics.offset = point(px(0.), px(0.));
+        self.metrics.content_size.height = px(self.lines.len() as f32 * 18.);
         self.scroll.scroll_to_offset(px(0.), false);
     }
 
@@ -43,12 +44,20 @@ impl LicenseViewer {
         self.scroll_drag = None;
     }
 
-    fn maximum(&self) -> f32 {
-        (self.metrics.content_size.height.0 - self.metrics.size.height.0).max(0.)
+    fn viewport(&self, height: f32) -> f32 {
+        if self.metrics.size.height.0 > 0. {
+            self.metrics.size.height.0
+        } else {
+            (height - 24.).max(0.)
+        }
+    }
+
+    fn maximum(&self, height: f32) -> f32 {
+        (self.metrics.content_size.height.0 - self.viewport(height)).max(0.)
     }
 
     fn thumb(&self, height: f32) -> (f32, f32) {
-        let maximum = self.maximum();
+        let maximum = self.maximum(height);
         let track = (height - 36.).max(0.);
         let length = (track * (height / (height + maximum).max(1.)))
             .max(18.)
@@ -68,16 +77,17 @@ impl LicenseViewer {
             self.scroll_drag = Some((page_y, offset));
             None
         } else {
+            let page = self.viewport(height);
             let delta = if local_y < 15. {
                 -40.
             } else if local_y > height - 15. {
                 40.
             } else if local_y < top {
-                -self.metrics.size.height.0
+                -page
             } else {
-                self.metrics.size.height.0
+                page
             };
-            Some((offset + delta).clamp(0., self.maximum()))
+            Some((offset + delta).clamp(0., self.maximum(height)))
         }
     }
 
@@ -88,7 +98,8 @@ impl LicenseViewer {
         if travel <= 0. {
             return None;
         }
-        Some((offset + (page_y - start) / travel * self.maximum()).clamp(0., self.maximum()))
+        let maximum = self.maximum(height);
+        Some((offset + (page_y - start) / travel * maximum).clamp(0., maximum))
     }
 }
 

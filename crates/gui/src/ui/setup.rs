@@ -63,9 +63,7 @@ impl SetupEditor {
 
     fn resolve(&self) -> Result<Position, SetupError> {
         match self.tab {
-            SetupTab::Transcript if !self.transcript.trim().is_empty() => {
-                Position::from_transcript(&self.transcript)
-            }
+            SetupTab::Transcript => Position::from_transcript(&self.transcript),
             SetupTab::Board if !self.board.trim().is_empty() => {
                 Position::from_board_string(&self.board, self.turn)
             }
@@ -556,9 +554,6 @@ pub(super) fn focused_key(ui: Ui, key: &str) -> bool {
     }
     if let Some(index) = move_board_cursor(ui.read(|a| a.setup_cursor), key) {
         ui.update(|a| a.setup_cursor = index);
-        true
-    } else if matches!(key, "enter" | "space") {
-        ui.action(Action::Cell(ui.read(|a| a.setup_cursor)));
         true
     } else {
         false

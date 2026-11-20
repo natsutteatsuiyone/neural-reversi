@@ -5,6 +5,12 @@ use reversi_core::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayError {
+    GameOver,
+    IllegalMove(Square),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupError {
     TranscriptLength,
     InvalidNotation,
@@ -207,15 +213,15 @@ impl Game {
         square: Square,
         score: Option<Score>,
         remaining_ms: Option<u64>,
-    ) -> Result<(), String> {
+    ) -> Result<(), PlayError> {
         let current = self.position();
         let must_pass = current.must_pass();
         let position = if must_pass { current.passed() } else { current };
         if !position.board.is_legal_move(square) {
             return Err(if position.game_over() {
-                "The game is over".into()
+                PlayError::GameOver
             } else {
-                format!("Illegal move: {square}")
+                PlayError::IllegalMove(square)
             });
         }
         // An invalid click or history navigation must never discard a variation.

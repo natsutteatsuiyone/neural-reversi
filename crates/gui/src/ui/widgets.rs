@@ -89,7 +89,8 @@ pub(super) fn control(
     let id = id.to_owned();
     let press_id = id.clone();
     let primary = matches!(action, Action::NewGame | Action::Start);
-    let pause = matches!(action, Action::Pause);
+    let stop = matches!(action, Action::Pause) && name == "stop-circle.svg";
+    let resume = matches!(action, Action::Pause) && name == "play.svg";
     button()
         .element_ref(&element)
         .accessibility_label(move || Some(title.get()))
@@ -131,12 +132,20 @@ pub(super) fn control(
         .hover(move |s| {
             s.bg(if primary {
                 color(0x52b885)
-            } else if pause {
+            } else if stop {
                 rgba(0xc45c5c1a)
+            } else if resume {
+                rgba(0x43a5753d)
             } else {
                 rgba(0xffffff1a)
             })
-            .text_color(if pause { color(RED) } else { rgba(0xffffffeb) })
+            .text_color(if stop {
+                color(RED)
+            } else if resume {
+                color(ACCENT)
+            } else {
+                rgba(0xffffffeb)
+            })
         })
         .disabled_style(|s| s.opacity(0.5))
         .style_when(
@@ -150,7 +159,7 @@ pub(super) fn control(
         .child(
             icon(name, 14., SECONDARY)
                 .size(move || {
-                    px(if pause && !ui.read(|app| app.session.is_solving()) {
+                    px(if stop && !ui.read(|app| app.session.is_solving()) {
                         14.
                     } else if label.get().is_empty() && !primary && !solver_action {
                         16.
@@ -161,6 +170,10 @@ pub(super) fn control(
                 .text_color(move || {
                     if primary {
                         color(0xffffff)
+                    } else if stop {
+                        color(RED)
+                    } else if resume {
+                        color(ACCENT)
                     } else {
                         rgba(0xffffff99)
                     }

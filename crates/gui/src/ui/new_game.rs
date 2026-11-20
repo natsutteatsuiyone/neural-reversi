@@ -107,7 +107,9 @@ pub(super) fn render_new_game_dialog(ui: Ui) -> View {
                                                 ui.read(|a| {
                                                     if a.draft.timed {
                                                         let time = a.draft.game_time_limit;
-                                                        if time.is_multiple_of(60) {
+                                                        if time < 60 {
+                                                            format!("{time}s")
+                                                        } else if time.is_multiple_of(60) {
                                                             format!("{}m", time / 60)
                                                         } else {
                                                             format!("{}m {}s", time / 60, time % 60)

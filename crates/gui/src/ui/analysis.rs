@@ -362,9 +362,7 @@ pub(super) fn render_analysis(ui: Ui, height: Memo<f32>) -> impl IntoElement {
                                     );
                                     popover()
                                         .open(move || {
-                                            Some(ui.read(|app| {
-                                                app.analysis_view.level_menu && app.modal.is_none()
-                                            }))
+                                            Some(ui.read(ReversiApp::analysis_level_menu_open))
                                         })
                                         .on_open_change(move |event: &PopoverEvent| {
                                             if let PopoverEvent::OpenChange(open, _) = event {
@@ -424,14 +422,7 @@ pub(super) fn render_analysis(ui: Ui, height: Memo<f32>) -> impl IntoElement {
                                                 .child(icon("chevron-down.svg", 16., SECONDARY)),
                                         )
                                         .child(when(
-                                            move || {
-                                                ui.read(|app| {
-                                                    app.analysis_view.level_menu
-                                                        && app.modal.is_none()
-                                                        && app.session.activity()
-                                                            != Some(Activity::Analysis)
-                                                })
-                                            },
+                                            move || ui.read(ReversiApp::analysis_level_menu_open),
                                             move || {
                                                 render_level_slider(ui, SliderKind::AnalysisLevel)
                                             },
@@ -739,7 +730,15 @@ fn analysis_button(
                 color(BLUE)
             }
         })
-        .hover(|s| s.bg(rgba(0x7ba0c84d)))
+        .hover(move |s| {
+            s.bg(move || {
+                if analyzing.get() {
+                    rgba(0xc45c5c4d)
+                } else {
+                    rgba(0x7ba0c84d)
+                }
+            })
+        })
         .disabled_style(|s| s.opacity(0.5_f32))
         .style_when(
             move || ui.is_focus_visible("analyze"),

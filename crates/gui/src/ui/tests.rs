@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use nsh_core::Checked;
 use nsh_core::prelude::*;
 use nsh_engine::{EngineConfig, Environment, Idiom, Os, Root};
 use nsh_testing::Headless;
@@ -148,5 +149,38 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
     app.wait_for("role:button[Start Game]")?;
     app.press("role:button[Cancel]")?;
     app.wait_for("label:/^C4 Black/")?;
+    Ok(())
+}
+
+#[test]
+fn headless_new_game_vs_ai_tab_preserves_white_selection() -> Result<(), String> {
+    let config = EngineConfig {
+        viewport: size(px(1100.), px(920.)),
+        environment: Environment {
+            os: Os::Windows,
+            idiom: Idiom::Desktop,
+            reduce_motion: true,
+            ..Environment::default()
+        },
+        ..EngineConfig::new(Root::of::<TestApp>())
+    };
+    let mut app = Headless::start(config).map_err(|error| error.to_string())?;
+    app.wait_for_within("role:button[New Game]", Duration::from_secs(60))?;
+    app.press("role:button[New Game]")?;
+    app.press("role:tab[vs AI]")?;
+    app.press("role:radio[White]")?;
+    assert_eq!(
+        app.screen()
+            .accessibility_state("role:radio[White]")?
+            .checked,
+        Some(Checked::True)
+    );
+    app.press("role:tab[vs AI]")?;
+    assert_eq!(
+        app.screen()
+            .accessibility_state("role:radio[White]")?
+            .checked,
+        Some(Checked::True)
+    );
     Ok(())
 }

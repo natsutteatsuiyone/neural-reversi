@@ -1,10 +1,3 @@
-//! Game flow independent of the window: AI moves, hints, the solver, and game
-//! analysis over one background [`Engine`].
-//!
-//! Callers poll [`Session::tick`] and pass the current [`Settings`] to every
-//! command. Changes the presenter must surface beyond redrawing are queued as
-//! [`Update`]s and collected with [`Session::take_updates`].
-
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -12,9 +5,15 @@ use reversi_core::{
     analysis::GameAnalysisProgress, player_color::PlayerColor, score::Score, square::Square,
 };
 
-use crate::engine::{Engine, EventKind, Progress, Request};
-use crate::game::{Game, Position};
+use crate::engine::{Engine, EngineError, EventKind, Progress, Request};
+use crate::game::{Game, MoveRecord, PlayError, Position};
 use crate::settings::Settings;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionError {
+    Engine(EngineError),
+    Play(PlayError),
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Activity {
@@ -27,21 +26,42 @@ pub enum Activity {
 
 #[derive(Debug, PartialEq)]
 pub enum Update {
-    /// A move was appended to the history; earlier notices are obsolete.
     Played,
-    GameOver {
-        black: u32,
-        white: u32,
-    },
-    /// `PlayerColor` had to pass.
+    GameOver { black: u32, white: u32 },
     Passed(PlayerColor),
-    /// The history cursor moved; earlier notices are obsolete.
     Navigated,
-    /// A search iteration was appended to [`Session::log`].
     Logged,
-    /// The engine finished an AI move without choosing one.
     NoMove,
-    Error(String),
+    Error(SessionError),
+}
+
+#[derive(Default)]
+struct Candidates {
+    items: Vec<Progress>,
+    complete: bool,
+}
+
+impl Candidates {
+    fn clear(&mut self) {
+        self.items.clear();
+        self.complete = false;
+    }
+
+    fn record(&mut self, progress: Progress, best_only: bool) {
+        if best_only {
+            self.items = vec![progress];
+        } else if let Some(candidate) = self
+            .items
+            .iter_mut()
+            .find(|candidate| candidate.square == progress.square)
+        {
+            *candidate = progress;
+        } else {
+            self.items.push(progress);
+        }
+        self.items
+            .sort_by_key(|candidate| std::cmp::Reverse(candidate.score));
+    }
 }
 
 struct SavedGame {
@@ -52,15 +72,29 @@ struct SavedGame {
 
 enum Mode {
     Live {
-        /// Whether AI moves wait for the user to resume play.
         paused: bool,
+        candidates: Candidates,
     },
-    /// Solving positions with the live game set aside.
     Solver {
         live: SavedGame,
         stopped: bool,
         cache: HashMap<Position, Vec<Progress>>,
+        candidates: Candidates,
     },
+}
+
+impl Mode {
+    fn candidates(&self) -> &Candidates {
+        match self {
+            Self::Live { candidates, .. } | Self::Solver { candidates, .. } => candidates,
+        }
+    }
+
+    fn candidates_mut(&mut self) -> &mut Candidates {
+        match self {
+            Self::Live { candidates, .. } | Self::Solver { candidates, .. } => candidates,
+        }
+    }
 }
 
 pub struct Session {
@@ -73,25 +107,23 @@ pub struct Session {
     run_id: u64,
     remaining_ms: u64,
     started: Option<Instant>,
-    /// The running clock's second as of the last [`Self::tick`].
     displayed_second: Option<u64>,
     automatic_after: Option<Instant>,
-    candidates: Vec<Progress>,
-    /// Whether the search behind `candidates` ran to completion.
-    candidates_complete: bool,
     log: Vec<Progress>,
     analyses: HashMap<usize, GameAnalysisProgress>,
-    search_error: Option<String>,
+    search_error: Option<SessionError>,
     updates: Vec<Update>,
 }
 
 impl Session {
-    /// Starts initializing the engine.
     pub fn new(settings: &Settings) -> Self {
         Self {
             engine: Engine::new(settings.hash_size),
             game: Game::new(Position::initial()),
-            mode: Mode::Live { paused: false },
+            mode: Mode::Live {
+                paused: false,
+                candidates: Candidates::default(),
+            },
             ready: false,
             initialization_failed: false,
             activity: Some(Activity::Initializing),
@@ -100,8 +132,6 @@ impl Session {
             started: None,
             displayed_second: None,
             automatic_after: None,
-            candidates: Vec::new(),
-            candidates_complete: false,
             log: Vec::new(),
             analyses: HashMap::new(),
             search_error: None,
@@ -109,7 +139,6 @@ impl Session {
         }
     }
 
-    /// The solver's game while solving, otherwise the live game.
     pub fn game(&self) -> &Game {
         &self.game
     }
@@ -130,7 +159,6 @@ impl Session {
         matches!(self.mode, Mode::Solver { .. })
     }
 
-    /// The live game's position, even while solving.
     pub fn live_position(&self) -> Position {
         match &self.mode {
             Mode::Live { .. } => self.game.position(),
@@ -138,20 +166,18 @@ impl Session {
         }
     }
 
-    /// Whether AI moves in the live game wait for the user to resume play.
     pub fn is_paused(&self) -> bool {
-        matches!(self.mode, Mode::Live { paused: true })
+        matches!(self.mode, Mode::Live { paused: true, .. })
     }
 
     pub fn is_solver_stopped(&self) -> bool {
         matches!(self.mode, Mode::Solver { stopped: true, .. })
     }
 
-    pub fn search_error(&self) -> Option<&str> {
-        self.search_error.as_deref()
+    pub fn search_error(&self) -> Option<&SessionError> {
+        self.search_error.as_ref()
     }
 
-    /// The AI's remaining clock, net of the move it is thinking about.
     pub fn clock_ms(&self) -> u64 {
         let elapsed = if self.activity == Some(Activity::Move) {
             self.started
@@ -162,40 +188,29 @@ impl Session {
         self.remaining_ms.saturating_sub(elapsed)
     }
 
-    /// How long the current search has been running.
     pub fn search_elapsed(&self) -> Option<Duration> {
         self.started.map(|time| time.elapsed())
     }
 
-    /// Latest result per move of the current search, best first.
     pub fn candidates(&self) -> &[Progress] {
-        &self.candidates
+        &self.mode.candidates().items
     }
 
-    /// Whether the candidates are final rather than a running or stopped search.
     pub fn candidates_complete(&self) -> bool {
-        self.candidates_complete
+        self.mode.candidates().complete
     }
 
-    /// Iterations of the current or last AI move search.
     pub fn log(&self) -> &[Progress] {
         &self.log
     }
 
-    /// Game analysis results keyed by history index.
     pub fn analyses(&self) -> &HashMap<usize, GameAnalysisProgress> {
         &self.analyses
     }
 
-    /// Returns the cursor one move back, stepping over an automatic pass.
     pub fn previous_cursor(&self) -> usize {
         let mut cursor = self.game.cursor.saturating_sub(1);
-        if self
-            .game
-            .history
-            .get(cursor)
-            .is_some_and(|m| m.square.is_none())
-        {
+        if self.game.history.get(cursor).is_some_and(is_pass) {
             cursor = cursor.saturating_sub(1);
         }
         cursor
@@ -205,8 +220,6 @@ impl Session {
         std::mem::take(&mut self.updates)
     }
 
-    /// Handles engine events and automation due at `now`; returns whether
-    /// anything visible may have changed.
     pub fn tick(&mut self, settings: &Settings, now: Instant) -> bool {
         let elapsed = self.started.map_or(Duration::ZERO, |started| {
             now.saturating_duration_since(started)
@@ -239,46 +252,25 @@ impl Session {
                     self.automate(settings);
                 }
                 EventKind::Error(error) => {
+                    let error = SessionError::Engine(error);
                     self.search_error = Some(error.clone());
                     self.initialization_failed = !self.ready;
                     self.updates.push(Update::Error(error));
                     self.activity = None;
                     self.started = None;
                     match &mut self.mode {
-                        Mode::Live { paused } => *paused = true,
+                        Mode::Live { paused, .. } => *paused = true,
                         Mode::Solver { stopped, .. } => *stopped = true,
                     }
                 }
                 EventKind::Progress(progress) => {
-                    // A best-only solve reports one move; a new best replaces the old.
-                    if self.activity == Some(Activity::Solver) && !settings.solver_multi_pv {
-                        self.candidates = vec![progress.clone()];
-                    } else if let Some(candidate) = self
-                        .candidates
-                        .iter_mut()
-                        .find(|p| p.square == progress.square)
-                    {
-                        *candidate = progress.clone();
-                    } else {
-                        self.candidates.push(progress.clone());
-                    }
-                    self.candidates
-                        .sort_by_key(|candidate| std::cmp::Reverse(candidate.score));
-                    let duplicate = self.log.last().is_some_and(|last| {
-                        last.depth == progress.depth
-                            && last.probability == progress.probability
-                            && last.score == progress.score
-                            && last.pv == progress.pv
-                    });
+                    let best_only =
+                        self.activity == Some(Activity::Solver) && !settings.solver_multi_pv;
+                    self.mode
+                        .candidates_mut()
+                        .record(progress.clone(), best_only);
                     if self.activity == Some(Activity::Move) {
-                        // A repeated iteration (e.g. the report on stop) still
-                        // carries newer node counts, so it replaces the row.
-                        if duplicate {
-                            self.log.pop();
-                        } else if self.log.len() == 256 {
-                            self.log.remove(0);
-                        }
-                        self.log.push(progress);
+                        self.record_log_iteration(progress);
                         self.updates.push(Update::Logged);
                     }
                 }
@@ -307,14 +299,20 @@ impl Session {
                             self.automate(settings);
                         }
                         Some(Activity::Solver) => {
-                            self.candidates_complete = true;
-                            if let Mode::Solver { cache, .. } = &mut self.mode {
-                                cache.insert(self.game.position(), self.candidates.clone());
+                            if let Mode::Solver {
+                                cache, candidates, ..
+                            } = &mut self.mode
+                            {
+                                candidates.complete = true;
+                                cache.insert(self.game.position(), candidates.items.clone());
                             }
                         }
-                        Some(Activity::Hint) => self.candidates_complete = true,
+                        Some(Activity::Hint) => self.mode.candidates_mut().complete = true,
                         Some(Activity::Analysis)
-                            if !self.candidates_complete && !self.is_solving() =>
+                            if matches!(
+                                &self.mode,
+                                Mode::Live { candidates, .. } if !candidates.complete
+                            ) =>
                         {
                             self.automate(settings);
                         }
@@ -326,7 +324,6 @@ impl Session {
         changed
     }
 
-    /// Starts the search the current position calls for, if idle.
     fn automate(&mut self, settings: &Settings) {
         if !self.ready
             || self.activity.is_some()
@@ -341,7 +338,7 @@ impl Session {
         match self.mode {
             Mode::Solver { stopped: false, .. } => self.solve(settings),
             Mode::Solver { .. } => {}
-            Mode::Live { paused } => {
+            Mode::Live { paused, .. } => {
                 if !paused && settings.ai_color() == Some(position.turn) {
                     self.submit(
                         settings,
@@ -366,19 +363,19 @@ impl Session {
         }
     }
 
-    /// Replaces the live game and reinitializes the engine.
     pub fn new_game(&mut self, position: Position, settings: &Settings) {
         self.cancel(settings);
         self.game = Game::new(position);
-        self.mode = Mode::Live { paused: false };
+        self.mode = Mode::Live {
+            paused: false,
+            candidates: Candidates::default(),
+        };
         self.analyses.clear();
-        self.candidates.clear();
         self.log.clear();
         self.remaining_ms = settings.game_time_limit * 1000;
         self.reinitialize(settings);
     }
 
-    /// Reinitializes the engine, e.g. for a new hash size.
     pub fn reinitialize(&mut self, settings: &Settings) {
         self.submit(
             settings,
@@ -389,11 +386,16 @@ impl Session {
         );
     }
 
-    /// Solves `position`, setting the live game aside unless already solving.
     pub fn enter_solver(&mut self, position: Position, settings: &Settings) {
         self.cancel(settings);
         let game = Game::new(position);
-        let live = match std::mem::replace(&mut self.mode, Mode::Live { paused: false }) {
+        let live = match std::mem::replace(
+            &mut self.mode,
+            Mode::Live {
+                paused: false,
+                candidates: Candidates::default(),
+            },
+        ) {
             Mode::Live { .. } => SavedGame {
                 game: std::mem::replace(&mut self.game, game),
                 log: std::mem::take(&mut self.log),
@@ -408,26 +410,27 @@ impl Session {
             live,
             stopped: false,
             cache: HashMap::new(),
+            candidates: Candidates::default(),
         };
-        self.candidates.clear();
         self.automate(settings);
     }
 
-    /// Restores the live game, paused.
     pub fn exit_solver(&mut self, settings: &Settings) {
         self.cancel(settings);
-        if let Mode::Solver { live, .. } =
-            std::mem::replace(&mut self.mode, Mode::Live { paused: true })
-        {
+        if let Mode::Solver { live, .. } = std::mem::replace(
+            &mut self.mode,
+            Mode::Live {
+                paused: true,
+                candidates: Candidates::default(),
+            },
+        ) {
             self.game = live.game;
             self.log = live.log;
             self.analyses = live.analyses;
         }
-        self.candidates.clear();
         self.automate(settings);
     }
 
-    /// Discards solver results computed with other solver options.
     pub fn solver_options_changed(&mut self, settings: &Settings) {
         self.cancel(settings);
         if let Mode::Solver { stopped, cache, .. } = &mut self.mode {
@@ -438,37 +441,38 @@ impl Session {
     }
 
     pub fn hints_toggled(&mut self, settings: &Settings) {
-        // The solver owns the candidates; hints apply again after exiting it.
-        if self.is_solving() {
+        let Mode::Live { candidates, .. } = &mut self.mode else {
             return;
-        }
+        };
         if !settings.hints {
-            self.candidates.clear();
-            self.candidates_complete = false;
+            candidates.clear();
         }
         if self.activity == Some(Activity::Hint) {
             self.cancel(settings);
-            self.candidates.clear();
+            self.mode.candidates_mut().clear();
         }
         self.automate(settings);
     }
 
     pub fn hint_level_changed(&mut self, settings: &Settings) {
+        let Mode::Live { candidates, .. } = &mut self.mode else {
+            return;
+        };
+        candidates.complete = false;
         if self.activity == Some(Activity::Hint) {
             self.cancel(settings);
         }
         self.automate(settings);
     }
 
-    /// Analyzes the whole game, pausing play, or aborts a running analysis.
     pub fn toggle_analysis(&mut self, settings: &Settings) {
         if self.activity == Some(Activity::Analysis) {
             self.cancel(settings);
-            if !self.candidates_complete && !self.is_solving() {
+            if matches!(&self.mode, Mode::Live { candidates, .. } if !candidates.complete) {
                 self.automate(settings);
             }
         } else if self.ready
-            && self.activity != Some(Activity::Move)
+            && !matches!(self.activity, Some(Activity::Initializing | Activity::Move))
             && !self.game.history.is_empty()
         {
             self.set_paused(true);
@@ -485,8 +489,6 @@ impl Session {
         }
     }
 
-    /// Stop or resume. Stopping an AI move commits its best move so far;
-    /// stopping anything else pauses play (or the solver) until resumed.
     pub fn toggle_pause(&mut self, settings: &Settings) {
         if let Mode::Solver { stopped, .. } = &mut self.mode {
             *stopped = self.activity == Some(Activity::Solver);
@@ -506,7 +508,6 @@ impl Session {
         }
     }
 
-    /// Plays the user's move; ignored unless legal and the user's turn.
     pub fn play_move(&mut self, square: Square, settings: &Settings) {
         let position = self.game.position();
         if !self.ready
@@ -521,35 +522,30 @@ impl Session {
         }
         self.cancel(settings);
         self.play(square, None, None);
-        self.set_paused(false);
+        match &mut self.mode {
+            Mode::Live { paused, .. } => *paused = false,
+            Mode::Solver { stopped, .. } => *stopped = false,
+        }
         self.automate(settings);
     }
 
-    /// Moves the history cursor, pausing a live game and restoring its clock.
-    /// Ignored while a live game's AI move or analysis is running.
     pub fn navigate(&mut self, cursor: usize, settings: &Settings) {
         let solving = self.is_solving();
         if !solving && matches!(self.activity, Some(Activity::Move | Activity::Analysis)) {
             return;
         }
         self.cancel(settings);
-        // An automatic pass belongs to the preceding move.
-        let cursor = if self
-            .game
-            .history
-            .get(cursor)
-            .is_some_and(|record| record.square.is_none())
-        {
+        let cursor = if self.game.history.get(cursor).is_some_and(is_pass) {
             cursor + 1
         } else {
             cursor
         };
         self.game.navigate(cursor);
-        self.candidates.clear();
+        self.mode.candidates_mut().clear();
         self.updates.push(Update::Navigated);
         match &mut self.mode {
             Mode::Solver { stopped, .. } => *stopped = false,
-            Mode::Live { paused } => {
+            Mode::Live { paused, .. } => {
                 *paused = true;
                 self.remaining_ms = self.game.history[..self.game.cursor]
                     .iter()
@@ -561,11 +557,26 @@ impl Session {
         self.automate(settings);
     }
 
-    /// Pauses or resumes the live game; the solver has its own stop state.
     fn set_paused(&mut self, value: bool) {
-        if let Mode::Live { paused } = &mut self.mode {
+        if let Mode::Live { paused, .. } = &mut self.mode {
             *paused = value;
         }
+    }
+
+    fn record_log_iteration(&mut self, progress: Progress) {
+        if let Some(last) = self.log.last_mut().filter(|last| {
+            last.depth == progress.depth
+                && last.probability == progress.probability
+                && last.score == progress.score
+                && last.pv == progress.pv
+        }) {
+            *last = progress;
+            return;
+        }
+        if self.log.len() == 256 {
+            self.log.remove(0);
+        }
+        self.log.push(progress);
     }
 
     fn cancel(&mut self, settings: &Settings) {
@@ -590,8 +601,7 @@ impl Session {
         self.activity = Some(activity);
         self.started = Some(Instant::now());
         if activity != Activity::Analysis {
-            self.candidates.clear();
-            self.candidates_complete = false;
+            self.mode.candidates_mut().clear();
         }
         if activity == Activity::Move {
             self.log.clear();
@@ -600,11 +610,13 @@ impl Session {
 
     fn solve(&mut self, settings: &Settings) {
         let position = self.game.position();
-        if let Mode::Solver { cache, .. } = &self.mode
+        if let Mode::Solver {
+            cache, candidates, ..
+        } = &mut self.mode
             && let Some(cached) = cache.get(&position)
         {
-            self.candidates = cached.clone();
-            self.candidates_complete = true;
+            candidates.items = cached.clone();
+            candidates.complete = true;
             return;
         }
         self.submit(
@@ -619,8 +631,7 @@ impl Session {
     }
 
     fn play(&mut self, square: Square, score: Option<Score>, remaining: Option<u64>) {
-        self.candidates.clear();
-        self.candidates_complete = false;
+        self.mode.candidates_mut().clear();
         match self.game.play(square, score, remaining) {
             Ok(()) => {
                 self.analyses.clear();
@@ -638,7 +649,7 @@ impl Session {
                         .game
                         .history
                         .last()
-                        .filter(|record| record.square.is_none())
+                        .filter(|record| is_pass(record))
                         .map(|record| record.player);
                     let delay = if let Some(player) = passed {
                         self.updates.push(Update::Passed(player));
@@ -650,11 +661,15 @@ impl Session {
                 }
             }
             Err(error) => {
-                self.updates.push(Update::Error(error));
+                self.updates.push(Update::Error(SessionError::Play(error)));
                 self.set_paused(true);
             }
         }
     }
+}
+
+fn is_pass(record: &MoveRecord) -> bool {
+    record.square.is_none()
 }
 
 #[cfg(test)]
@@ -666,7 +681,6 @@ mod tests {
 
     use crate::settings::GameMode;
 
-    /// Ticks until `done`, firing pending automation without waiting out its delay.
     fn run_until(session: &mut Session, settings: &Settings, done: impl Fn(&Session) -> bool) {
         let deadline = Instant::now() + Duration::from_secs(60);
         while !done(session) {
@@ -759,7 +773,6 @@ mod tests {
         run_until(&mut session, &settings, Session::is_ready);
         session.play_move(Square::D3, &settings);
 
-        // 54 moves of a complete game leave six empties for an instant exact solve.
         let game = "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8b6e8b5g2d8b7a6h2e7d7c8a8a7b8c7h1b2b1";
         let position = Position::from_transcript(&game[..108]).unwrap();
         session.enter_solver(position, &settings);
@@ -789,8 +802,6 @@ mod tests {
         let mut session = Session::new(&settings);
         run_until(&mut session, &settings, Session::is_ready);
 
-        // Inject successive engine reports through the same queue tick consumes.
-        // The best move changes explicitly, independent of weights or search timing.
         session.activity = Some(Activity::Solver);
         for (square, discs, probability) in [(Square::D3, 2, 73), (Square::C4, 4, 100)] {
             let progress = Progress {
@@ -1068,5 +1079,65 @@ mod tests {
         assert!(!session.tick(&settings, at(1_900)));
         assert!(session.tick(&settings, at(2_000)));
         assert!(!session.tick(&settings, at(2_200)));
+    }
+
+    #[test]
+    fn hint_level_change_during_analysis_and_navigation_clear_candidates_complete() {
+        let mut settings = Settings {
+            game_mode: GameMode::Human,
+            hints: true,
+            hint_level: 1,
+            analysis_level: 1,
+            hash_size: 16,
+            ..Settings::default()
+        };
+        let mut session = Session::new(&settings);
+        run_until(&mut session, &settings, Session::is_ready);
+        session.play_move(Square::D3, &settings);
+        run_until(&mut session, &settings, Session::candidates_complete);
+
+        session.toggle_analysis(&settings);
+        assert_eq!(session.activity(), Some(Activity::Analysis));
+        settings.hint_level = 2;
+        session.hint_level_changed(&settings);
+        assert!(!session.candidates_complete());
+        session.toggle_analysis(&settings);
+        assert_eq!(session.activity(), Some(Activity::Hint));
+        run_until(&mut session, &settings, Session::candidates_complete);
+
+        settings.hints = false;
+        session.navigate(0, &settings);
+        assert!(!session.candidates_complete());
+        assert!(session.candidates().is_empty());
+    }
+
+    #[test]
+    fn playing_a_move_while_solver_is_stopped_resumes_solving() {
+        let settings = Settings {
+            game_mode: GameMode::Human,
+            hash_size: 16,
+            ..Settings::default()
+        };
+        let mut session = Session::new(&settings);
+        run_until(&mut session, &settings, Session::is_ready);
+
+        let game = "e6f4c3c4d3d6e3d2f3f5c1c2b4b3a3e2c5c6f6g5g4a2a1a4f2h5g3f7h6h3f8f1e1d1h4h7a5g7h8g6g1g8b6e8b5g2d8b7a6h2e7d7c8a8a7b8c7h1b2b1";
+        session.enter_solver(Position::from_transcript(&game[..108]).unwrap(), &settings);
+        session.toggle_pause(&settings);
+        assert!(session.is_solver_stopped());
+
+        let legal = session
+            .game()
+            .position()
+            .board
+            .legal_moves()
+            .iter()
+            .next()
+            .unwrap();
+        session.play_move(legal, &settings);
+        assert!(!session.is_solver_stopped());
+        run_until(&mut session, &settings, |s| s.activity().is_none());
+        assert!(session.candidates_complete());
+        assert!(!session.candidates().is_empty());
     }
 }

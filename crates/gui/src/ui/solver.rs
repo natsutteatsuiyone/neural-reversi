@@ -45,7 +45,7 @@ pub(super) fn render_solver(ui: Ui) -> impl IntoElement {
                         else if app.session.activity()==Some(Activity::Solver){tr!("solving")}
                         else if app.session.is_solver_stopped(){tr!("solver_no_results")}
                         else{tr!("solver_pending")}
-                    },|error|error.to_owned().into())))
+                    },|error|app.format_error(error).0.into())))
                         .px_4().py_6().text_center().text_color(color(SECONDARY))))
                 .child(view().flex_col().gap_1().px_2().pb_3()
                     .child(each(move||ui.read(|app|app.session.candidates().iter().filter_map(|p|p.square.map(|s|s.index())).collect::<Vec<_>>()),|square|*square,move|square,_|candidate_row(ui,square.get_untracked()))))))
@@ -240,9 +240,11 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                                     move || ui.is_focus_visible(&focus_id),
                                     |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
                                 )
-                                .on_change(move |_: &bool| {
-                                    ui.focus(&id);
-                                    ui.action(Action::Selectivity(index));
+                                .on_change(move |checked: &bool| {
+                                    if *checked {
+                                        ui.focus(&id);
+                                        ui.action(Action::Selectivity(index));
+                                    }
                                 })
                                 .flex_row()
                                 .items_center()
@@ -281,9 +283,11 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                                 move || ui.is_focus_visible(&focus_id),
                                 |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
                             )
-                            .on_change(move |_: &bool| {
-                                ui.focus(&id);
-                                ui.action(Action::MultiPv(multi));
+                            .on_change(move |checked: &bool| {
+                                if *checked {
+                                    ui.focus(&id);
+                                    ui.action(Action::MultiPv(multi));
+                                }
                             })
                             .flex_row()
                             .items_center()
@@ -376,7 +380,15 @@ fn pause_button(ui: Ui, searching: Memo<bool>) -> impl IntoElement {
             move || ui.is_focus_visible("solver-pause"),
             |s| s.border_color(color(ACCENT)),
         )
-        .hover(|s| s.bg(rgba(0xc45c5c4d)))
+        .hover(move |s| {
+            s.bg(move || {
+                if searching.get() {
+                    rgba(0xc45c5c4d)
+                } else {
+                    rgba(0xffffff1a)
+                }
+            })
+        })
         .on_press(move || {
             ui.focus("solver-pause");
             ui.action(Action::Pause);
@@ -408,16 +420,20 @@ pub(super) fn focused_key(ui: Ui, key: &str) -> bool {
                 } else {
                     index.saturating_sub(1)
                 };
-                ui.action(Action::Selectivity(next));
-                ui.focus(&format!("{prefix}-selectivity-{next}"));
+                if next != index {
+                    ui.action(Action::Selectivity(next));
+                    ui.focus(&format!("{prefix}-selectivity-{next}"));
+                }
                 return true;
             }
         }
         for multi in [false, true] {
             if ui.is_focused(&format!("{prefix}-multi-{multi}")) {
                 let next = forward;
-                ui.action(Action::MultiPv(next));
-                ui.focus(&format!("{prefix}-multi-{next}"));
+                if next != multi {
+                    ui.action(Action::MultiPv(next));
+                    ui.focus(&format!("{prefix}-multi-{next}"));
+                }
                 return true;
             }
         }

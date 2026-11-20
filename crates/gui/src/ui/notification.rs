@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
+use nsh_base::button;
 use nsh_core::prelude::*;
 
 use super::assets::icon;
-use super::{BLUE, GOLD, Ui, color, rgba};
+use super::{BLUE, GOLD, SECONDARY, Ui, color, rgba};
 
 pub(super) struct Notification {
     message: String,
@@ -36,6 +37,13 @@ impl Notification {
         !self.message.is_empty()
     }
 
+    pub(super) fn is_dismissible(&self) -> bool {
+        self.is_visible()
+            && self.until.is_none()
+            && self.hover_remaining.is_none()
+            && self.remove_at.is_none()
+    }
+
     pub(super) fn clear(&mut self) {
         let generation = self.generation;
         *self = Self {
@@ -45,9 +53,15 @@ impl Notification {
     }
 
     pub(super) fn show_error(&mut self, message: String, description: String) {
+        let height = if self.is_visible() {
+            self.height
+        } else {
+            px(0.)
+        };
         *self = Self {
             message,
             description,
+            height,
             generation: self.generation.wrapping_add(1),
             ..Self::default()
         };
@@ -60,11 +74,17 @@ impl Notification {
         icon: &'static str,
         until: Instant,
     ) {
+        let height = if self.is_visible() {
+            self.height
+        } else {
+            px(0.)
+        };
         *self = Self {
             message,
             description,
             icon,
             until: Some(until),
+            height,
             generation: self.generation.wrapping_add(1),
             ..Self::default()
         };
@@ -90,10 +110,9 @@ impl Notification {
             return;
         }
         if hovered {
-            self.hover_remaining = self
-                .until
-                .take()
-                .map(|until| until.saturating_duration_since(Instant::now()));
+            if let Some(until) = self.until.take() {
+                self.hover_remaining = Some(until.saturating_duration_since(Instant::now()));
+            }
         } else if let Some(remaining) = self.hover_remaining.take() {
             self.until = Some(Instant::now() + remaining);
         }
@@ -142,8 +161,9 @@ pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
                     visible.set(to);
                     offset.set(0.);
                 } else {
-                    drop(visible.timing(to, 400., Easing::EASE));
-                    drop(offset.timing(if exiting { -height } else { 0. }, 400., Easing::EASE));
+                    let duration = if exiting { 200. } else { 400. };
+                    drop(visible.timing(to, duration, Easing::EASE));
+                    drop(offset.timing(if exiting { -height } else { 0. }, duration, Easing::EASE));
                 }
             });
             view()
@@ -207,7 +227,15 @@ pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
                                         },
                                         || icon("trophy.svg", 16., GOLD),
                                     )
-                                    .otherwise(|| icon("info.svg", 16., BLUE)),
+                                    .otherwise(move || {
+                                        when(
+                                            move || {
+                                                ui.read(|app| app.notification.icon == "bot.svg")
+                                            },
+                                            || icon("bot.svg", 16., BLUE),
+                                        )
+                                        .otherwise(|| icon("info.svg", 16., BLUE))
+                                    }),
                                 ),
                         )
                         .child(
@@ -233,7 +261,23 @@ pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
                                         )
                                     },
                                 )),
-                        ),
+                        )
+                        .child(when(
+                            move || ui.read(|app| app.notification.is_dismissible()),
+                            move || {
+                                button()
+                                    .accessibility_label(move || Some(tr!("close")))
+                                    .size_6()
+                                    .flex_shrink_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(6.))
+                                    .bg(rgba(0))
+                                    .hover(|s| s.bg(rgba(0xffffff1a)))
+                                    .on_press(move || ui.update(|app| app.notification.clear()))
+                                    .child(icon("x.svg", 14., SECONDARY))
+                            },
+                        )),
                 )
         },
     )

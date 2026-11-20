@@ -5,7 +5,9 @@ use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use reversi_core::player_color::PlayerColor;
 
-use crate::session::Session;
+use crate::engine::EngineError;
+use crate::game::PlayError;
+use crate::session::{Activity, Session, SessionError};
 use crate::settings::{GameMode, Language, Settings};
 
 macro_rules! tr {
@@ -170,10 +172,7 @@ impl Ui {
         let locale_revision = signal(0);
         provide_context(LocaleRevision(locale_revision));
         let settings_writable = load_error.is_none();
-        // The user always plays Black at startup.
-        if settings.game_mode == GameMode::AiBlack {
-            settings.game_mode = GameMode::AiWhite;
-        }
+        settings.game_mode = startup_game_mode(settings.game_mode);
         rust_i18n::set_locale(settings.locale());
         let mut notification = Notification::default();
         if let Some(error) = load_error {
@@ -314,7 +313,7 @@ impl Ui {
                 },
                 move |_| {
                     self.keyboard_focus.set(true);
-                    if self.read(|app| app.analysis_view.level_menu) {
+                    if self.read(ReversiApp::analysis_level_menu_open) {
                         self.action(Action::AnalysisLevelMenu(false));
                     } else {
                         self.focus_step(backwards);
@@ -331,7 +330,7 @@ impl Ui {
                 },
                 move |_| {
                     self.keyboard_focus.set(true);
-                    if self.read(|app| app.analysis_view.level_menu) {
+                    if self.read(ReversiApp::analysis_level_menu_open) {
                         self.action(Action::AnalysisLevelMenu(false));
                     } else {
                         self.activate_focused();
@@ -347,7 +346,7 @@ impl Ui {
             },
             move |_| {
                 self.keyboard_focus.set(true);
-                if self.read(|app| app.analysis_view.level_menu) {
+                if self.read(ReversiApp::analysis_level_menu_open) {
                     self.action(Action::AnalysisLevelMenu(false));
                 } else if self.read(|app| app.modal.is_some()) {
                     self.action(Action::Close);
@@ -380,7 +379,7 @@ impl Ui {
                     let (shift, key) = key
                         .strip_prefix("shift+")
                         .map_or((false, key), |key| (true, key));
-                    if self.read(|app| app.analysis_view.level_menu && app.modal.is_none()) {
+                    if self.read(ReversiApp::analysis_level_menu_open) {
                         self.update(|app| SliderKind::AnalysisLevel.key(app, key, shift));
                         return;
                     }
@@ -433,10 +432,14 @@ impl Ui {
         effect(move || {
             let viewport = window();
             ui.update(|app| {
+                let was_open = app.analysis_open();
                 app.viewport = viewport;
                 app.compact_layout = viewport.width.0 < 1024.;
                 if !app.compact_layout {
                     app.compact_analysis_open = false;
+                }
+                if was_open && !app.analysis_open() {
+                    app.analysis_view.close();
                 }
             });
         });
@@ -471,11 +474,53 @@ pub fn run() -> impl std::process::Termination {
     )
 }
 
+fn startup_game_mode(mode: GameMode) -> GameMode {
+    match mode {
+        GameMode::AiBlack => GameMode::AiWhite,
+        other => other,
+    }
+}
+
 impl ReversiApp {
+    fn analysis_level_menu_open(&self) -> bool {
+        self.analysis_view.level_menu
+            && self.modal.is_none()
+            && self.analysis_open()
+            && self.session.activity() != Some(Activity::Analysis)
+    }
+
     fn color(&self, player: PlayerColor) -> SharedString {
         match player {
             PlayerColor::Black => tr!("black"),
             PlayerColor::White => tr!("white"),
+        }
+    }
+
+    fn format_error(&self, error: &SessionError) -> (String, String) {
+        match error {
+            SessionError::Engine(EngineError::WorkerStart(detail)) => {
+                (tr!("engine_start_failed").to_string(), detail.clone())
+            }
+            SessionError::Engine(EngineError::WorkerUnavailable) => {
+                (tr!("engine_unavailable").to_string(), String::new())
+            }
+            SessionError::Engine(EngineError::AnalysisNoMove) => {
+                (tr!("analysis_no_move").to_string(), String::new())
+            }
+            SessionError::Engine(EngineError::Other(detail)) => {
+                (tr!("engine_error").to_string(), detail.clone())
+            }
+            SessionError::Play(PlayError::GameOver) => {
+                (tr!("error_game_over").to_string(), String::new())
+            }
+            SessionError::Play(PlayError::IllegalMove(square)) => (
+                tr!(
+                    "error_illegal_move",
+                    square = square.to_string().to_uppercase()
+                )
+                .to_string(),
+                String::new(),
+            ),
         }
     }
 

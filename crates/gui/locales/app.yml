@@ -74,7 +74,7 @@ game_win:
   ja: "%{winner}の勝ちです！"
 player_passed:
   en: "%{player}: Pass"
-  ja: "%{player}：パス"
+  ja: "%{player}: パス"
 engine_no_move:
   en: "Engine returned no move"
   ja: "エンジンが着手を返しませんでした"
@@ -335,3 +335,16 @@ legal_move:
 close:
   en: "Close"
   ja: "閉じる"
+
+engine_start_failed:
+  en: "Cannot start the engine"
+  ja: "エンジンを起動できません"
+engine_unavailable:
+  en: "The engine is no longer available"
+  ja: "エンジンが利用できなくなりました"
+analysis_no_move:
+  en: "No legal move found during game analysis"
+  ja: "対局解析中に合法手が見つかりませんでした"
+engine_error:
+  en: "Engine error"
+  ja: "エンジンエラー"
