@@ -175,6 +175,32 @@ mod tt_entry_data {
         assert_eq!(unpacked.generation(), 127);
         assert!(unpacked.is_endgame());
         assert!(unpacked.is_pv());
+
+        let non_pv = TTEntryData::new(
+            raw_score(0),
+            None,
+            Bound::Lower,
+            1,
+            Selectivity::Level1,
+            0,
+            false,
+            false,
+        );
+        assert!(!non_pv.is_endgame());
+        assert!(!non_pv.is_pv());
+
+        let endgame_only = TTEntryData::new(
+            raw_score(0),
+            None,
+            Bound::Lower,
+            1,
+            Selectivity::Level1,
+            0,
+            true,
+            false,
+        );
+        assert!(endgame_only.is_endgame());
+        assert!(!endgame_only.is_pv());
     }
 
     #[test]
@@ -506,6 +532,21 @@ mod transposition_table {
         assert_eq!(tt.cluster_count, expected_clusters as u64);
         assert_eq!(tt.entries.len(), expected_clusters * CLUSTER_SIZE);
         assert_eq!(tt.mb_size(), 1);
+        assert_eq!(TranspositionTable::new(0).mb_size(), 0);
+        assert_eq!(TranspositionTable::new(2).mb_size(), 2);
+    }
+
+    #[test]
+    fn get_cluster_idx_maps_keys_across_aligned_clusters() {
+        let tt = TranspositionTable::new(1);
+        let clusters = tt.cluster_count as usize;
+
+        assert_eq!(tt.get_cluster_idx(0), 0);
+        assert_eq!(
+            tt.get_cluster_idx(1u64 << 63),
+            (clusters / 2) * CLUSTER_SIZE
+        );
+        assert_eq!(tt.get_cluster_idx(u64::MAX), (clusters - 1) * CLUSTER_SIZE);
     }
 
     #[test]
@@ -587,6 +628,24 @@ mod transposition_table {
             tt.lookup(&fixture.colliding, fixture.colliding.hash())
                 .is_none()
         );
+
+        tt.store(
+            TTSlot(fixture.cluster_idx + 1),
+            &fixture.colliding,
+            raw_score(50),
+            Bound::Lower,
+            12,
+            sq(11),
+            Selectivity::Level2,
+            false,
+            false,
+        );
+
+        let slot1 = tt
+            .lookup(&fixture.colliding, fixture.colliding.hash())
+            .expect("lookup should also hit the second slot in the cluster");
+        assert_eq!(slot1.score().value(), 50);
+        assert_eq!(slot1.depth(), 12);
     }
 
     #[test]
@@ -622,6 +681,49 @@ mod transposition_table {
 
         let probe = tt.probe(&fixture.miss, fixture.miss.hash());
 
+        assert!(!is_hit(&probe));
+        assert_eq!(probe.slot().0, fixture.cluster_idx);
+
+        // When slot 1 has a strictly lower replacement score, slot 1 is chosen.
+        tt.store(
+            TTSlot(fixture.cluster_idx),
+            &fixture.stored,
+            raw_score(10),
+            Bound::Exact,
+            20,
+            sq(1),
+            Selectivity::Level1,
+            false,
+            false,
+        );
+        tt.store(
+            TTSlot(fixture.cluster_idx + 1),
+            &fixture.colliding,
+            raw_score(20),
+            Bound::Exact,
+            4,
+            sq(2),
+            Selectivity::Level1,
+            false,
+            false,
+        );
+        let probe = tt.probe(&fixture.miss, fixture.miss.hash());
+        assert!(!is_hit(&probe));
+        assert_eq!(probe.slot().0, fixture.cluster_idx + 1);
+
+        // When both slots tie on replacement score, slot 0 is chosen.
+        tt.store(
+            TTSlot(fixture.cluster_idx + 1),
+            &fixture.colliding,
+            raw_score(20),
+            Bound::Exact,
+            20,
+            sq(2),
+            Selectivity::Level1,
+            false,
+            false,
+        );
+        let probe = tt.probe(&fixture.miss, fixture.miss.hash());
         assert!(!is_hit(&probe));
         assert_eq!(probe.slot().0, fixture.cluster_idx);
     }
@@ -789,6 +891,51 @@ mod transposition_table {
         );
 
         assert_eq!(tt.usage_rate(), 1.0 / (16.0 * CLUSTER_SIZE as f64));
+
+        // For tables larger than 1024 clusters (step > 1), verify non-zero sample stride.
+        let large_tt = TranspositionTable::new(1);
+        let step = large_tt.cluster_count as usize / 1024;
+        assert!(step > 1);
+        let sampled_slot = TTSlot(step * CLUSTER_SIZE);
+        large_tt.store(
+            sampled_slot,
+            &board,
+            raw_score(100),
+            Bound::Exact,
+            20,
+            sq(10),
+            Selectivity::Level1,
+            false,
+            false,
+        );
+        assert_eq!(large_tt.usage_rate(), 1.0 / (1024.0 * CLUSTER_SIZE as f64));
+    }
+
+    #[test]
+    fn penalize_lowers_depth_through_table_slot() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(START_PLAYER, START_OPPONENT);
+        let key = board.hash();
+        let slot = tt.probe(&board, key).slot();
+
+        tt.store(
+            slot,
+            &board,
+            raw_score(40),
+            Bound::Lower,
+            10,
+            sq(3),
+            Selectivity::Level2,
+            false,
+            false,
+        );
+        let stored = tt.lookup(&board, key).expect("stored entry should exist");
+        tt.penalize(slot, &board, stored);
+
+        let penalized = tt
+            .lookup(&board, key)
+            .expect("penalized entry should exist");
+        assert_eq!(penalized.depth(), 9);
     }
 
     #[test]
