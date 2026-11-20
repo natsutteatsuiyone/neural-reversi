@@ -172,6 +172,24 @@ Notes:
 - Clocks use the live main budget plus additive every-move increments. GGS extension, Bronstein, and periodic-increment fields are not misreported as per-move time; unparseable clocks use `--level`.
 - Reconnecting into an active match recovers from the server's join state, including a one-shot verbose-state request when the persisted client mode initially produced compact GGF.
 
+### FlipSight Mode
+
+Play as a [FlipSight](https://othelloclub.com/ja/flipsight/lab/api) bot through the site's bot connector (`bot_match_client.py`). The connector starts one `cli flipsight` process per game and exchanges one JSON line per move over stdin and stdout.
+
+```powershell
+py bot_match_client.py --engine-threads 4 --max-think-seconds 0 --engine 'C:\path\to\cli.exe flipsight --hash-size 512'
+```
+
+Options are the engine options of the other modes. `--threads` defaults to the request's `engine_threads`, so `--engine-threads` sets both the engine and the value the connector reports. Each game uses at most 4 threads, the FlipSight limit; larger values are lowered to 4 and the actual count is reported. Both games of a bot match search at the same time in separate processes, so keep the threads × (concurrent matches + 1) within the CPU's threads; `--hash-size` is allocated by every process.
+
+Notes:
+
+- Only standard 8x8 Othello is played. Any other game mode makes the process exit with an error, so leave variants unchecked in the bot's supported games.
+- The engine keeps its transposition table for the whole game. It answers a pass or a single legal move at once, and otherwise searches with the game clock as a sudden-death bank (`remaining_ms` less a reserve of 1 s plus 100 ms for each move it has yet to play, since the server charges network time to the clock; the first move is also charged for process startup). With less than 1 s above the reserve, each move gets a fixed 150 ms search instead.
+- The search is always stopped 300 ms before the connector's `budget_ms`. Use `--max-think-seconds 0` so this cap is the remaining clock rather than the connector's default 10 s per move.
+- `--ponder` searches, while the opponent thinks, the position after our move (or our next position when the opponent must pass) to warm the transposition table, and stops when the next request arrives. Off by default. It keeps the game's threads busy on the opponent's turn too, so both games of a bot match then keep all their threads busy all the time instead of only when both are ours to move.
+- Each reply carries `used_ms` and `hard_ms` (the stop cap), which the connector prints locally, and the thread count, hash size and `--ponder` setting, which it reports to FlipSight. `--level` is not used.
+
 ### Solve Mode
 
 Run the CLI in solve mode to analyze positions from a file:

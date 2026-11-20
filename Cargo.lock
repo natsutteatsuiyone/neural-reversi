@@ -525,6 +525,8 @@ dependencies = [
  "num-format",
  "ratatui",
  "reversi-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

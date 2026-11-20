@@ -1,4 +1,5 @@
 mod config;
+mod flipsight;
 mod ggs;
 mod gtp;
 mod solve;
@@ -177,6 +178,19 @@ enum SubCommands {
         #[command(flatten)]
         engine_params: EngineParams,
     },
+    #[command(
+        about = "Answer FlipSight bot connector requests (its --engine JSON-lines protocol); --threads defaults to the request's engine_threads and is capped at 4, and --hash-size applies to each game's process"
+    )]
+    Flipsight {
+        #[arg(
+            long,
+            help = "While the opponent thinks, search the position after our move to warm the transposition table; reported to FlipSight"
+        )]
+        ponder: bool,
+
+        #[command(flatten)]
+        engine_params: EngineParams,
+    },
     #[command(about = "Display version information")]
     Version,
     #[command(about = "Print the GPL-3.0 license covering Neural Reversi itself")]
@@ -186,8 +200,19 @@ enum SubCommands {
 }
 
 fn main() {
+    let process_start = std::time::Instant::now();
     let args = Cli::parse();
     match args.command {
+        Some(SubCommands::Flipsight {
+            ponder,
+            engine_params,
+        }) => {
+            if let Err(e) = flipsight::run(EngineConfig::from(engine_params), ponder, process_start)
+            {
+                eprintln!("FlipSight engine error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some(SubCommands::Gtp { engine_params }) => {
             let config = EngineConfig::from(engine_params);
             let mut gtp_engine = gtp::GtpEngine::new(&config);
