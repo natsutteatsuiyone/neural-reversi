@@ -1,10 +1,13 @@
 [package]
 name = "gui"
-version.workspace = true
 description = "Neural Reversi native NSH desktop application"
-authors = ["natsutteatsuiyone"]
+version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
 
 [dependencies]
 nsh-core = { version = "=0.5.1", features = ["svg"] }
