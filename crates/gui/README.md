@@ -1,6 +1,6 @@
 # Reversi GUI
 
-A native Rust desktop application for playing and analyzing Reversi (Othello), built with Native Shell (NSH) 0.5.1. The `gui` package and binary live in `crates/gui/Cargo.toml`.
+A native Rust desktop application for playing and analyzing Reversi (Othello), built with Native Shell (NSH) 0.6.1. The `gui` package and binary live in `crates/gui/Cargo.toml`.
 
 ## Architecture and functionality
 
