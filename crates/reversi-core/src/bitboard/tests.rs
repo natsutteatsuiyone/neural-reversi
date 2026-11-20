@@ -240,3 +240,68 @@ fn geometric_transforms_match_coordinate_reference() {
         |file, rank| (rank, 7 - file),
     );
 }
+
+#[test]
+fn set_is_idempotent_for_already_set_square() {
+    let bb = Bitboard::new(0).set(Square::D4);
+    assert_eq!(bb, Square::D4.bitboard());
+    assert_eq!(bb.set(Square::D4), bb);
+}
+
+#[test]
+fn has_single_bit_nonzero_distinguishes_single_and_multiple_bits() {
+    for sq in Square::iter() {
+        assert!(
+            sq.bitboard().has_single_bit_nonzero(),
+            "expected single bit for {sq:?}"
+        );
+    }
+
+    assert!(!bitboard_from_squares(&[Square::A1, Square::B1]).has_single_bit_nonzero());
+    assert!(!bitboard_from_squares(&[Square::D4, Square::E5]).has_single_bit_nonzero());
+    assert!(!Bitboard::new(u64::MAX).has_single_bit_nonzero());
+}
+
+#[test]
+fn corner_weighted_count_doubles_corner_squares() {
+    assert_eq!(Bitboard::new(0).corner_weighted_count(), 0);
+    assert_eq!(Square::D4.bitboard().corner_weighted_count(), 1);
+    assert_eq!(Square::A1.bitboard().corner_weighted_count(), 2);
+    assert_eq!(
+        bitboard_from_squares(&[Square::A1, Square::H8, Square::D4]).corner_weighted_count(),
+        5
+    );
+    assert_eq!(Bitboard::new(CORNER_MASK).corner_weighted_count(), 8);
+}
+
+#[test]
+fn shift_and_assign_operators_and_conversions() {
+    assert_eq!(Bitboard::new(0x0100) << 4, Bitboard::new(0x1000));
+    assert_eq!(Bitboard::new(0x1000) >> 4, Bitboard::new(0x0100));
+
+    let mut bb = Bitboard::new(0b1100);
+    bb &= Bitboard::new(0b1010);
+    assert_eq!(bb, Bitboard::new(0b1000));
+
+    let mut bb = Bitboard::new(0b1100);
+    bb |= Bitboard::new(0b1010);
+    assert_eq!(bb, Bitboard::new(0b1110));
+
+    let mut bb = Bitboard::new(0b1100);
+    bb ^= Bitboard::new(0b1010);
+    assert_eq!(bb, Bitboard::new(0b0110));
+
+    let mut bb = Bitboard::new(0x0100);
+    bb <<= 4;
+    assert_eq!(bb, Bitboard::new(0x1000));
+
+    let mut bb = Bitboard::new(0x1000);
+    bb >>= 4;
+    assert_eq!(bb, Bitboard::new(0x0100));
+
+    assert_eq!(
+        u64::from(Bitboard::new(0x1234_5678_9ABC_DEF0)),
+        0x1234_5678_9ABC_DEF0
+    );
+    assert_eq!(Bitboard::from(Square::D4), Square::D4.bitboard());
+}

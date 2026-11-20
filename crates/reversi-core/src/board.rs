@@ -866,4 +866,52 @@ mod tests {
             .unwrap();
         assert_eq!(unique, expected);
     }
+
+    #[test]
+    fn test_legal_moves_and_potential() {
+        let board = Board::new();
+        let (legal, potential) = board.legal_moves_and_potential();
+
+        assert_eq!(legal.bits(), board.legal_moves().bits());
+        assert_eq!(legal.count(), 4);
+        assert_eq!(
+            potential,
+            board.player.legal_moves_and_potential(board.opponent).1
+        );
+        assert!(!potential.is_empty());
+    }
+
+    #[test]
+    fn test_board_error_display() {
+        assert_eq!(
+            format!(
+                "{}",
+                BoardError::TooShort {
+                    expected: 64,
+                    actual: 8
+                }
+            ),
+            "Board string too short: expected 64 characters, got 8"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                BoardError::TooLong {
+                    expected: 64,
+                    actual: 65
+                }
+            ),
+            "Board string too long: expected 64 characters, got 65"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                BoardError::InvalidChar {
+                    char: 'Z',
+                    position: 10
+                }
+            ),
+            "Invalid character 'Z' at position 10: must be 'X', 'O', or '-'"
+        );
+    }
 }
