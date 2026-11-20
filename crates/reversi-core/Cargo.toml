@@ -13,7 +13,7 @@ probcut-trace = []
 [dependencies]
 byteorder.workspace = true
 rapidhash = { version = "4.4", features = ["unsafe"] }
-zstd = "0.14"
+zstd.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
@@ -61,3 +61,6 @@ harness = false
 [[bench]]
 name = "move_list"
 harness = false
+
+[lints]
+workspace = true

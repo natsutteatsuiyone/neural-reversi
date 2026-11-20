@@ -10,3 +10,6 @@ crossterm = "0.29"
 num-format.workspace = true
 ratatui = "0.30"
 reversi-core.workspace = true
+
+[lints]
+workspace = true

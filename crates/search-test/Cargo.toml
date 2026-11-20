@@ -10,3 +10,6 @@ colored.workspace = true
 num-format.workspace = true
 
 reversi-core = { workspace = true, features = ["search-stats"] }
+
+[lints]
+workspace = true

@@ -26,9 +26,12 @@ nsh-platform-macos = { version = "=0.5.1", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.5.1", default-features = false }
 
-[target.'cfg(windows)'.build-dependencies]
+[build-dependencies]
 winresource = "0.1"
 
 [dev-dependencies]
 nsh-engine = { version = "=0.5.1", default-features = false }
 nsh-testing = { version = "=0.5.1", default-features = false }
+
+[lints]
+workspace = true

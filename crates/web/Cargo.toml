@@ -15,7 +15,7 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 reversi-core.workspace = true
 rand.workspace = true
 js-sys = "0.3.95"
-zstd = "0.14.3"
+zstd.workspace = true
 console_error_panic_hook = "0.1.7"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
@@ -32,3 +32,6 @@ wasm-opt = [
     "--enable-relaxed-simd",
     "--enable-nontrapping-float-to-int",
 ]
+
+[lints]
+workspace = true

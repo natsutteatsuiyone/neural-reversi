@@ -24,6 +24,19 @@ num-format = "0.4"
 rand = "0.10.1"
 reversi-core = { path = "crates/reversi-core" }
 windows-sys = "0.61.0"
+zstd = "0.14.3"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_extern_crates = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+macro_use_imports = "warn"
+missing_safety_doc = "warn"
+todo = "warn"
+unimplemented = "warn"
 
 [profile.release]
 lto = "fat"

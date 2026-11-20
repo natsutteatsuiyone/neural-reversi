@@ -173,7 +173,6 @@ fn stability_cutoff(board: &Board, n_empties: Depth, alpha: Score) -> Option<Sco
 }
 
 /// Attempts an Enhanced Transposition Cutoff (ETC).
-#[allow(clippy::too_many_arguments)]
 fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     ctx: &mut SearchContext,
     board: &Board,

@@ -65,9 +65,10 @@ fn write_u16_sum_table(path: &std::path::Path) {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/eval/pattern_table_data.rs");
-    println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
+    println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=src/eval/pattern_table_data.rs");
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_ARCH");
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
 
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
