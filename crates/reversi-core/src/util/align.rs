@@ -42,3 +42,13 @@ impl<T: fmt::Debug> fmt::Debug for Align64<T> {
         self.0.fmt(f)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debug_delegates_to_inner_value() {
+        assert_eq!(format!("{:?}", Align64(42)), "42");
+    }
+}

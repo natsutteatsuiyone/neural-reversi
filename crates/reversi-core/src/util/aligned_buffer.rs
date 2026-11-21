@@ -316,4 +316,67 @@ mod tests {
         assert_eq!(v.as_slice(), &[] as &[i64]);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);
     }
+
+    #[test]
+    fn debug_formats_as_slice() {
+        let v = AlignedBuffer::<i32>::from_elem(7, 2);
+        assert_eq!(format!("{v:?}"), "[7, 7]");
+    }
+
+    #[test]
+    fn from_iter_drops_initialized_elements_on_panic() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct CountedDrop(Arc<AtomicUsize>);
+        impl Drop for CountedDrop {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        struct PanickingIter {
+            yielded: usize,
+            total: usize,
+            panic_at: usize,
+            drops: Arc<AtomicUsize>,
+        }
+
+        impl Iterator for PanickingIter {
+            type Item = CountedDrop;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.yielded == self.panic_at {
+                    panic!("intentional panic mid-fill");
+                }
+                if self.yielded == self.total {
+                    return None;
+                }
+                self.yielded += 1;
+                Some(CountedDrop(self.drops.clone()))
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                let remaining = self.total - self.yielded;
+                (remaining, Some(remaining))
+            }
+        }
+
+        impl ExactSizeIterator for PanickingIter {}
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let iter = PanickingIter {
+            yielded: 0,
+            total: 8,
+            panic_at: 3,
+            drops: drops.clone(),
+        };
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = AlignedBuffer::from_iter(iter);
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(drops.load(Ordering::Relaxed), 3);
+    }
 }

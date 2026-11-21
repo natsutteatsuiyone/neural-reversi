@@ -167,4 +167,16 @@ mod tests {
             assert_eq!(color.to_string().parse::<PlayerColor>(), Ok(color));
         }
     }
+
+    #[test]
+    fn error_types_format_non_empty_messages() {
+        assert_eq!(
+            PlayerColorError.to_string(),
+            "invalid player color (expected 'b', 'w', 'black', or 'white')"
+        );
+        assert_eq!(
+            EmptyDiscError.to_string(),
+            "an empty square has no player color"
+        );
+    }
 }

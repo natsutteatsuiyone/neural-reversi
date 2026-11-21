@@ -396,4 +396,29 @@ mod tests {
             assert_eq!(Square::from_str(&s.to_uppercase()).unwrap(), square);
         }
     }
+
+    #[test]
+    fn error_display_and_source() {
+        use std::error::Error;
+
+        assert!(
+            SquareError::InvalidFormat
+                .to_string()
+                .contains("Invalid square format")
+        );
+        assert!(
+            SquareError::InvalidFile('z')
+                .to_string()
+                .contains("Invalid file 'z'")
+        );
+        assert!(
+            SquareError::InvalidRank('9')
+                .to_string()
+                .contains("Invalid rank '9'")
+        );
+
+        let seq_err = Square::parse_sequence("d3z9").unwrap_err();
+        assert!(seq_err.to_string().contains("position 2"));
+        assert!(seq_err.source().is_some());
+    }
 }

@@ -55,3 +55,37 @@ impl AtomicBitSet {
         self.data.store(0, Ordering::Relaxed);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_test_count_reset_and_clear() {
+        let bits = AtomicBitSet::new();
+        assert!(bits.none());
+        assert_eq!(bits.count(), 0);
+        assert!(!bits.test(0));
+        assert!(!bits.test(5));
+
+        bits.set(0);
+        bits.set(5);
+        bits.set(63);
+        assert!(!bits.none());
+        assert_eq!(bits.count(), 3);
+        assert!(bits.test(0));
+        assert!(bits.test(5));
+        assert!(bits.test(63));
+        assert!(!bits.test(1));
+
+        bits.reset(5);
+        assert_eq!(bits.count(), 2);
+        assert!(!bits.test(5));
+
+        bits.clear();
+        assert!(bits.none());
+        assert_eq!(bits.count(), 0);
+        assert!(!bits.test(0));
+        assert!(!bits.test(63));
+    }
+}

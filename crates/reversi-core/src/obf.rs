@@ -441,4 +441,46 @@ mod tests {
         let pass = parse(&format!("{INITIAL_BOARD} X; PS:-4"));
         assert_eq!(pass.best_moves().count(), 0);
     }
+
+    #[test]
+    fn parse_obf_error_display_and_source() {
+        use std::error::Error;
+
+        let non_ascii = ObfPosition::parse("あ").unwrap_err();
+        assert!(non_ascii.to_string().contains("non-ASCII"));
+        assert!(non_ascii.source().is_none());
+
+        let too_short = ObfPosition::parse("XO").unwrap_err();
+        assert!(too_short.to_string().contains("too short"));
+        assert!(too_short.source().is_none());
+
+        let invalid_side = ObfPosition::parse(&format!("{INITIAL_BOARD} Z")).unwrap_err();
+        assert!(invalid_side.to_string().contains("Invalid side to move"));
+        assert!(invalid_side.source().is_none());
+
+        let invalid_board = ObfPosition::parse(&format!("Z{} X", &INITIAL_BOARD[1..])).unwrap_err();
+        assert!(invalid_board.to_string().contains("Invalid board string"));
+        assert!(invalid_board.source().is_some());
+
+        let invalid_segment = ObfPosition::parse(&format!("{INITIAL_BOARD} X; e6")).unwrap_err();
+        assert!(
+            invalid_segment
+                .to_string()
+                .contains("Invalid move:score format")
+        );
+        assert!(invalid_segment.source().is_none());
+
+        let invalid_move = ObfPosition::parse(&format!("{INITIAL_BOARD} X; z9:+1")).unwrap_err();
+        assert!(invalid_move.to_string().contains("Invalid move 'z9'"));
+        assert!(invalid_move.source().is_some());
+
+        let invalid_score =
+            ObfPosition::parse(&format!("{INITIAL_BOARD} X; e6:notanumber")).unwrap_err();
+        assert!(
+            invalid_score
+                .to_string()
+                .contains("Invalid score 'notanumber'")
+        );
+        assert!(invalid_score.source().is_some());
+    }
 }

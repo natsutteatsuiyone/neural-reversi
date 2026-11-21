@@ -175,4 +175,12 @@ mod tests {
         // range guard, not from some unrelated panic source.
         let _ = get_level(LEVELS.len());
     }
+
+    #[test]
+    fn max_level_matches_last_table_entry() {
+        assert_eq!(MAX_LEVEL, LEVELS.len() - 1);
+        let max = get_level(MAX_LEVEL);
+        assert_eq!(max.mid_depth, LEVELS[MAX_LEVEL].mid_depth);
+        assert_eq!(max.end_depth, LEVELS[MAX_LEVEL].end_depth);
+    }
 }

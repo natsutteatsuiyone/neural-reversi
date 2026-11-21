@@ -441,14 +441,62 @@ mod tests {
     #[test]
     fn test_score_tracking() {
         let mut game = GameState::new();
+        assert!(!game.is_game_over());
         let (black, white) = game.score();
         assert_eq!(black, 2);
         assert_eq!(white, 2);
 
         game.make_move(Square::D3).unwrap();
+        assert!(!game.is_game_over());
         let (black, white) = game.score();
         assert_eq!(black, 4);
         assert_eq!(white, 1);
+    }
+
+    #[test]
+    fn test_confirm_automatic_pass() {
+        let mut fresh = GameState::new();
+        assert!(!fresh.confirm_automatic_pass(PlayerColor::Black));
+
+        fresh.make_move(Square::D3).unwrap();
+        assert!(!fresh.confirm_automatic_pass(PlayerColor::Black));
+        assert!(!fresh.confirm_automatic_pass(PlayerColor::White));
+
+        // Black c1 flips b1; White (b8 only) then automatically passes.
+        let board = Board::from_string(
+            "XO------\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             --------\
+             XO------",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        let mut game = GameState::from_board(board, PlayerColor::Black);
+        game.make_move(Square::C1).unwrap();
+
+        // Wrong side must not confirm the automatic pass.
+        assert!(!game.confirm_automatic_pass(PlayerColor::Black));
+        assert_eq!(
+            game.move_history().last().unwrap().action,
+            HistoryAction::AutomaticPass
+        );
+
+        // Matching side converts AutomaticPass to ExplicitPass.
+        assert!(game.confirm_automatic_pass(PlayerColor::White));
+        assert_eq!(
+            game.move_history().last().unwrap().action,
+            HistoryAction::ExplicitPass
+        );
+        assert!(!game.confirm_automatic_pass(PlayerColor::White));
+
+        // Undo now reverts only the confirmed explicit pass.
+        assert!(game.undo());
+        assert_eq!(game.move_history().len(), 1);
+        assert_eq!(game.side_to_move(), PlayerColor::White);
     }
 
     #[test]

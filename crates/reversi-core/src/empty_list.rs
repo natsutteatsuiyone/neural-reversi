@@ -237,13 +237,17 @@ mod tests {
         let board = Board::new();
         let mut empty_list = EmptyList::new(&board);
 
+        assert_eq!(empty_list.ply(), 0);
+
         empty_list.remove(Square::A1);
         assert_eq!(empty_list.count(), 59);
+        assert_eq!(empty_list.ply(), 1);
         assert_eq!(empty_list.first(), Square::H1);
         assert_eq!(empty_list.next(Square::H1), Square::A8);
 
         empty_list.restore(Square::A1);
         assert_eq!(empty_list.count(), 60);
+        assert_eq!(empty_list.ply(), 0);
         assert_eq!(empty_list.first(), Square::A1);
         assert_eq!(empty_list.next(Square::A1), Square::H1);
     }
@@ -279,6 +283,13 @@ mod tests {
         assert_eq!(empty_list.parity(), 15);
 
         empty_list.remove(Square::A1);
+        assert_eq!(empty_list.parity(), 14);
+
+        // Removing a second square in the same quadrant toggles parity back to 1,
+        // so restoring it must clear the bit (1 -> 0).
+        empty_list.remove(Square::B1);
+        assert_eq!(empty_list.parity(), 15);
+        empty_list.restore(Square::B1);
         assert_eq!(empty_list.parity(), 14);
 
         empty_list.restore(Square::A1);

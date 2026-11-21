@@ -294,4 +294,24 @@ mod score_tests {
     fn from_raw_rejects_values_beyond_score_sentinel_in_debug_builds() {
         let _ = Score::from_raw(Score::INF.value() + 1);
     }
+
+    #[test]
+    fn disc_score_sub_and_display() {
+        assert_eq!(DiscScore::new(10) - 3, DiscScore::new(7));
+        assert_eq!(format!("{}", DiscScore::new(-5)), "-5");
+    }
+
+    #[test]
+    fn score_min_assign_ops_and_display() {
+        assert_eq!(Score::MIN, Score::from_disc_diff(DISC_SCORE_MIN));
+        assert_eq!(Score::MIN.value(), -64 * Score::SCALE);
+
+        let mut score = Score::from_raw(300);
+        score += Score::from_raw(84);
+        assert_eq!(score, Score::from_raw(384));
+        assert_eq!(format!("{score}"), "1.50");
+
+        score -= Score::from_raw(128);
+        assert_eq!(score, Score::from_raw(256));
+    }
 }

@@ -230,3 +230,82 @@ fn assert_moves_match_reference(board: &Board) -> usize {
 
     move_list.count()
 }
+
+#[test]
+fn wipeout_move_and_retain_refresh_wipeout_cache() {
+    let board = Board::from_bitboards(Square::A1.bitboard(), Square::B1.bitboard());
+    let mut move_list = MoveList::new(&board);
+    assert_eq!(move_list.wipeout_move(), Some(Square::C1));
+
+    move_list.retain(&board, |mv| mv.sq == Square::C1);
+    assert_eq!(move_list.wipeout_move(), Some(Square::C1));
+
+    move_list.retain(&board, |_| false);
+    assert_eq!(move_list.count(), 0);
+    assert_eq!(move_list.wipeout_move(), None);
+}
+
+#[test]
+fn swap_moves_and_postpone_move_reorder_list() {
+    let board = Board::new();
+    let mut move_list = MoveList::new(&board);
+    let original: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+    assert_eq!(original.len(), 4);
+
+    move_list.swap_moves(0, 2);
+    let after_swap: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+    assert_eq!(
+        after_swap,
+        vec![original[2], original[1], original[0], original[3]]
+    );
+
+    move_list.postpone_move(1);
+    let after_postpone: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+    assert_eq!(
+        after_postpone,
+        vec![original[2], original[0], original[3], original[1]]
+    );
+}
+
+#[test]
+fn best_first_iter_size_hint_and_tie_breaking() {
+    let board = Board::new();
+    let mut move_list = MoveList::new(&board);
+    let squares: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+    for (i, mv) in move_list.iter_mut().enumerate() {
+        mv.value = if i < 2 { 10 } else { 1 };
+    }
+
+    let mut iter = move_list.best_first_iter();
+    assert_eq!(iter.size_hint(), (4, Some(4)));
+
+    // Tie-breaking must prefer the earlier move (index 0 over index 1).
+    let first = iter.next().unwrap();
+    assert_eq!(first.sq, squares[0]);
+    assert_eq!(iter.size_hint(), (3, Some(3)));
+
+    let second = iter.next().unwrap();
+    assert_eq!(second.sq, squares[1]);
+    assert_eq!(iter.size_hint(), (2, Some(2)));
+
+    assert!(iter.next().is_some());
+    assert_eq!(iter.size_hint(), (1, Some(1)));
+
+    assert!(iter.next().is_some());
+    assert_eq!(iter.size_hint(), (0, Some(0)));
+    assert!(iter.next().is_none());
+}
+
+#[test]
+fn move_array_clone_and_debug() {
+    let board = Board::new();
+    let move_list = MoveList::new(&board);
+    let cloned = move_list.clone();
+
+    let orig_sq: Vec<Square> = move_list.iter().map(|m| m.sq).collect();
+    let cloned_sq: Vec<Square> = cloned.iter().map(|m| m.sq).collect();
+    assert_eq!(cloned_sq, orig_sq);
+
+    let debug_str = format!("{:?}", move_list.moves);
+    assert!(debug_str.contains("D3") || debug_str.contains("C4"));
+}

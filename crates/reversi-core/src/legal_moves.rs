@@ -112,3 +112,31 @@ impl BitAnd<Bitboard> for LegalMoves {
         LegalMoves(self.0 & rhs)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_move_returns_some_iff_exactly_one_move() {
+        assert_eq!(LegalMoves::EMPTY.only_move(), None);
+
+        let initial = LegalMoves::new(&Board::new());
+        assert_eq!(initial.only_move(), None);
+
+        let single_board = Board::from_bitboards(Square::A1.bitboard(), Square::B1.bitboard());
+        let single = LegalMoves::new(&single_board);
+        assert_eq!(single.only_move(), Some(Square::C1));
+    }
+
+    #[test]
+    fn corner_weighted_count_matches_underlying_bitboard() {
+        let initial = LegalMoves::new(&Board::new());
+        assert_eq!(initial.corner_weighted_count(), 4);
+
+        let corner_board = Board::from_bitboards(Square::C1.bitboard(), Square::B1.bitboard());
+        let corner_moves = LegalMoves::new(&corner_board);
+        assert_eq!(corner_moves.only_move(), Some(Square::A1));
+        assert_eq!(corner_moves.corner_weighted_count(), 2);
+    }
+}
