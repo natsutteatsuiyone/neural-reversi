@@ -144,6 +144,30 @@ pub fn mm512_dpbusd_epi32<const USE_VNNI: bool>(src: __m512i, a: __m512i, b: __m
 
 /// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
 ///
+/// Matches `VPDPBUSD` only while no adjacent pair of products overflows `i16`:
+/// `VPMADDUBSW` saturates the pair sum.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+#[target_feature(enable = "avx512bw")]
+#[inline]
+pub fn mm512_dpbusd_epi32_unsaturated(src: __m512i, a: __m512i, b: __m512i) -> __m512i {
+    let ones16 = _mm512_set1_epi16(1);
+    _mm512_add_epi32(src, _mm512_madd_epi16(_mm512_maddubs_epi16(a, b), ones16))
+}
+
+/// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
+/// Matches `VPDPBUSD` only while no adjacent pair of products overflows `i16`:
+/// `VPMADDUBSW` saturates the pair sum.
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[target_feature(enable = "avx2")]
+#[inline]
+pub fn mm256_dpbusd_epi32_unsaturated(src: __m256i, a: __m256i, b: __m256i) -> __m256i {
+    let ones16 = _mm256_set1_epi16(1);
+    _mm256_add_epi32(src, _mm256_madd_epi16(_mm256_maddubs_epi16(a, b), ones16))
+}
+
+/// Multiplies unsigned 8-bit lanes by signed 8-bit lanes and accumulates into 32-bit results.
+///
 /// Emulates `VPDPBUSD`, expanding to a VNNI-free sequence when the instruction is missing.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]

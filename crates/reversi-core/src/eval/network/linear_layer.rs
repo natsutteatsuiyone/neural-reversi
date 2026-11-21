@@ -62,7 +62,7 @@ impl<
         }
 
         // Select the optimal forward implementation at load time
-        let forward_fn = Self::select_forward_fn();
+        let forward_fn = Self::select_forward_fn(weights.as_slice());
 
         Ok(LinearLayer {
             biases,
@@ -71,9 +71,13 @@ impl<
         })
     }
 
-    /// Selects the optimal forward implementation based on CPU features.
-    fn select_forward_fn()
-    -> ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS> {
+    #[cfg_attr(
+        not(all(target_arch = "x86_64", target_feature = "avx2")),
+        allow(unused_variables)
+    )]
+    fn select_forward_fn(
+        weights: &[i8],
+    ) -> ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS> {
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 use crate::eval::util::ceil_to_multiple;
@@ -91,6 +95,8 @@ impl<
                 {
                     if is_x86_feature_detected!("avx512vnni") {
                         Self::forward_avx512_vnni
+                    } else if Self::pair_sums_fit_i16(weights) {
+                        Self::forward_avx512_no_vnni_unsaturated
                     } else {
                         Self::forward_avx512_no_vnni
                     }
@@ -100,6 +106,8 @@ impl<
                 {
                     if is_x86_feature_detected!("avxvnni") {
                         Self::forward_avx2_vnni
+                    } else if Self::pair_sums_fit_i16(weights) {
+                        Self::forward_avx2_no_vnni_unsaturated
                     } else {
                         Self::forward_avx2_no_vnni
                     }
@@ -121,6 +129,8 @@ impl<
                 if can_use_avx2 {
                     if is_x86_feature_detected!("avxvnni") {
                         Self::forward_avx2_vnni
+                    } else if Self::pair_sums_fit_i16(weights) {
+                        Self::forward_avx2_no_vnni_unsaturated
                     } else {
                         Self::forward_avx2_no_vnni
                     }
@@ -149,6 +159,19 @@ impl<
             }
             _ => Self::forward_scalar_wrapper,
         }
+    }
+
+    /// Returns whether `VPMADDUBSW` sums every adjacent pair of packed `weights`
+    /// exactly for any `u8` inputs.
+    ///
+    /// A pair is safe when its positive parts and its negative parts each sum to
+    /// at most 128 in magnitude, since 255 * 128 < 2^15.
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn pair_sums_fit_i16(weights: &[i8]) -> bool {
+        weights.as_chunks::<2>().0.iter().all(|&[w0, w1]| {
+            let (w0, w1) = (i32::from(w0), i32::from(w1));
+            w0.max(0) + w1.max(0) <= 128 && w0.min(0) + w1.min(0) >= -128
+        })
     }
 
     /// Converts matrix index to packed format for SIMD efficiency.
@@ -199,7 +222,7 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        self.forward_avx512::<true>(input, output)
+        self.forward_avx512::<true, false>(input, output)
     }
 
     /// Runs the AVX-512 accelerated forward pass without VNNI.
@@ -210,7 +233,17 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        self.forward_avx512::<false>(input, output)
+        self.forward_avx512::<false, false>(input, output)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+    #[target_feature(enable = "avx512bw")]
+    fn forward_avx512_no_vnni_unsaturated(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx512::<false, true>(input, output)
     }
 
     /// Runs the AVX2 accelerated forward pass with VNNI.
@@ -221,7 +254,7 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        self.forward_avx2::<true>(input, output)
+        self.forward_avx2::<true, false>(input, output)
     }
 
     /// Runs the AVX2 accelerated forward pass without VNNI.
@@ -232,7 +265,17 @@ impl<
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
-        self.forward_avx2::<false>(input, output)
+        self.forward_avx2::<false, false>(input, output)
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    #[target_feature(enable = "avx2")]
+    fn forward_avx2_no_vnni_unsaturated(
+        &self,
+        input: &Align64<[u8; PADDED_INPUT_DIMS]>,
+        output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
+    ) {
+        self.forward_avx2::<false, true>(input, output)
     }
 
     /// Runs the ARM NEON forward pass (thin wrapper with the right `target_feature`).
@@ -294,14 +337,14 @@ impl<
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
-    fn forward_avx512<const USE_VNNI: bool>(
+    fn forward_avx512<const USE_VNNI: bool, const UNSATURATED: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         use crate::eval::util::ceil_to_multiple;
         use crate::eval::util::clone_biases;
-        use crate::eval::util::mm512_dpbusd_epi32;
+        use crate::eval::util::{mm512_dpbusd_epi32, mm512_dpbusd_epi32_unsaturated};
         use std::arch::x86_64::*;
         use std::mem::size_of;
         use std::ptr::copy_nonoverlapping;
@@ -309,6 +352,13 @@ impl<
         const OUTPUT_SIMD_WIDTH: usize = size_of::<__m512i>() / size_of::<i32>();
 
         unsafe {
+            let dot = |src: __m512i, a: __m512i, b: __m512i| {
+                if UNSATURATED {
+                    mm512_dpbusd_epi32_unsaturated(src, a, b)
+                } else {
+                    mm512_dpbusd_epi32::<USE_VNNI>(src, a, b)
+                }
+            };
             let input32 = input.as_ptr() as *const i32;
             let weights = self.weights.as_ptr();
             let bias = self.biases.as_ptr() as *const __m512i;
@@ -333,17 +383,17 @@ impl<
                     let col2 = weights.add((i + 2) * OUTPUT_DIMS * 4) as *const __m512i;
                     let col3 = weights.add((i + 3) * OUTPUT_DIMS * 4) as *const __m512i;
 
-                    p0 = mm512_dpbusd_epi32::<USE_VNNI>(p0, in0, *col0);
-                    p1 = mm512_dpbusd_epi32::<USE_VNNI>(p1, in1, *col1);
-                    p2 = mm512_dpbusd_epi32::<USE_VNNI>(p2, in2, *col2);
-                    p3 = mm512_dpbusd_epi32::<USE_VNNI>(p3, in3, *col3);
+                    p0 = dot(p0, in0, *col0);
+                    p1 = dot(p1, in1, *col1);
+                    p2 = dot(p2, in2, *col2);
+                    p3 = dot(p3, in3, *col3);
                     i += 4;
                 }
 
                 while i < num_chunks {
                     let in0 = _mm512_set1_epi32(*input32.add(i));
                     let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m512i;
-                    p0 = mm512_dpbusd_epi32::<USE_VNNI>(p0, in0, *col0);
+                    p0 = dot(p0, in0, *col0);
                     i += 1;
                 }
 
@@ -374,10 +424,10 @@ impl<
                     ($idx:expr, $p0:ident, $p1:ident, $p2:ident, $p3:ident) => {{
                         let input = _mm512_set1_epi32(*input32.add($idx));
                         let col = weights.add($idx * OUTPUT_DIMS * 4) as *const __m512i;
-                        $p0 = mm512_dpbusd_epi32::<USE_VNNI>($p0, input, *col);
-                        $p1 = mm512_dpbusd_epi32::<USE_VNNI>($p1, input, *col.add(1));
-                        $p2 = mm512_dpbusd_epi32::<USE_VNNI>($p2, input, *col.add(2));
-                        $p3 = mm512_dpbusd_epi32::<USE_VNNI>($p3, input, *col.add(3));
+                        $p0 = dot($p0, input, *col);
+                        $p1 = dot($p1, input, *col.add(1));
+                        $p2 = dot($p2, input, *col.add(2));
+                        $p3 = dot($p3, input, *col.add(3));
                     }};
                 }
 
@@ -435,8 +485,7 @@ impl<
                     let in0 = _mm512_set1_epi32(*input32.add(i + u));
                     let col0 = weights.add((i + u) * OUTPUT_DIMS * 4) as *const __m512i;
                     for j in 0..num_regs {
-                        *lane.add(j) =
-                            mm512_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                        *lane.add(j) = dot(*lane.add(j), in0, *col0.add(j));
                     }
                 }
                 i += unroll;
@@ -446,7 +495,7 @@ impl<
                 let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m512i;
                 let lane = lanes[0];
                 for j in 0..num_regs {
-                    *lane.add(j) = mm512_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                    *lane.add(j) = dot(*lane.add(j), in0, *col0.add(j));
                 }
                 i += 1;
             }
@@ -469,14 +518,14 @@ impl<
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
-    fn forward_avx2<const USE_VNNI: bool>(
+    fn forward_avx2<const USE_VNNI: bool, const UNSATURATED: bool>(
         &self,
         input: &Align64<[u8; PADDED_INPUT_DIMS]>,
         output: &mut Align64<[i32; PADDED_OUTPUT_DIMS]>,
     ) {
         use crate::eval::util::ceil_to_multiple;
         use crate::eval::util::clone_biases;
-        use crate::eval::util::mm256_dpbusd_epi32;
+        use crate::eval::util::{mm256_dpbusd_epi32, mm256_dpbusd_epi32_unsaturated};
         use std::arch::x86_64::*;
         use std::mem::size_of;
         use std::ptr::copy_nonoverlapping;
@@ -485,6 +534,13 @@ impl<
         const MAX_LANES: usize = 4;
 
         unsafe {
+            let dot = |src: __m256i, a: __m256i, b: __m256i| {
+                if UNSATURATED {
+                    mm256_dpbusd_epi32_unsaturated(src, a, b)
+                } else {
+                    mm256_dpbusd_epi32::<USE_VNNI>(src, a, b)
+                }
+            };
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = (OUTPUT_DIMS / OUTPUT_SIMD_WIDTH).max(1);
             // Split partial sums break the `dpbusd` dependency chain across the
@@ -512,8 +568,7 @@ impl<
                     let in0 = _mm256_set1_epi32(*input32.add(i + u));
                     let col0 = weights.add((i + u) * OUTPUT_DIMS * 4) as *const __m256i;
                     for j in 0..num_regs {
-                        *lane.add(j) =
-                            mm256_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                        *lane.add(j) = dot(*lane.add(j), in0, *col0.add(j));
                     }
                 }
                 i += unroll;
@@ -523,7 +578,7 @@ impl<
                 let col0 = weights.add(i * OUTPUT_DIMS * 4) as *const __m256i;
                 let lane = lanes[0];
                 for j in 0..num_regs {
-                    *lane.add(j) = mm256_dpbusd_epi32::<USE_VNNI>(*lane.add(j), in0, *col0.add(j));
+                    *lane.add(j) = dot(*lane.add(j), in0, *col0.add(j));
                 }
                 i += 1;
             }
@@ -823,10 +878,11 @@ mod tests {
     fn build_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>(
         seed: i32,
     ) -> LinearLayer<I, O, PI, PO> {
+        let weights = AlignedBuffer::from_elem(0, PI * PO);
         let mut layer = LinearLayer {
             biases: AlignedBuffer::from_elem(0, PO),
-            weights: AlignedBuffer::from_elem(0, PI * PO),
-            forward_fn: LinearLayer::<I, O, PI, PO>::select_forward_fn(),
+            forward_fn: LinearLayer::<I, O, PI, PO>::select_forward_fn(weights.as_slice()),
+            weights,
         };
 
         for output_idx in 0..O {
@@ -838,7 +894,26 @@ mod tests {
                         as i8;
             }
         }
+        layer.forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn(layer.weights.as_slice());
 
+        layer
+    }
+
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn saturation_bound_layer<const I: usize, const O: usize, const PI: usize, const PO: usize>()
+    -> LinearLayer<I, O, PI, PO> {
+        const PAIRS: [[i8; 2]; 4] = [[127, 1], [-128, 0], [64, 64], [-64, -64]];
+        let mut layer = build_layer::<I, O, PI, PO>(0);
+        for output_idx in 0..O {
+            for input_idx in 0..I {
+                let weight_idx = layer.get_packed_weight_index(input_idx, output_idx);
+                layer.weights[weight_idx] = PAIRS[(input_idx / 2 + output_idx) % 4][input_idx % 2];
+            }
+        }
+        assert!(LinearLayer::<I, O, PI, PO>::pair_sums_fit_i16(
+            layer.weights.as_slice()
+        ));
+        layer.forward_fn = LinearLayer::<I, O, PI, PO>::select_forward_fn(layer.weights.as_slice());
         layer
     }
 
@@ -1043,10 +1118,52 @@ mod tests {
             }
         }
 
+        fn run_unsaturated<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+            let layer = saturation_bound_layer::<I, O, PI, PO>();
+            let input = Align64([255; PI]);
+            let expected = reference_forward(&layer, &input);
+            let mut actual = Align64([0; PO]);
+
+            unsafe { layer.forward_avx2_no_vnni_unsaturated(&input, &mut actual) };
+            assert_eq!(&actual.as_ref()[..O], &expected, "avx2 unsaturated");
+
+            let mut dispatched = Align64([0; PO]);
+            layer.forward(&input, &mut dispatched);
+            assert_eq!(&dispatched.as_ref()[..O], &expected, "avx2 dispatch");
+        }
+
         run::<18, 8, 24, 8>(23, 5);
         run::<64, 8, 64, 8>(71, 13);
         run::<64, 16, 64, 16>(71, 13);
         run::<32, 64, 32, 64>(51, 7);
+        run_unsaturated::<18, 8, 24, 8>();
+        run_unsaturated::<257, 16, 288, 32>();
+        run_unsaturated::<32, 64, 32, 64>();
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn pair_sums_fit_i16_accepts_only_pairs_within_the_saturation_bound() {
+        type Layer = LinearLayer<4, 8, 8, 8>;
+
+        for (pair, fits) in [
+            ([127, 1], true),
+            ([127, 2], false),
+            ([-128, 0], true),
+            ([-128, -1], false),
+            ([127, -128], true),
+        ] {
+            assert_eq!(Layer::pair_sums_fit_i16(&pair), fits, "{pair:?}");
+        }
+    }
+
+    #[test]
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    fn pair_sums_fit_i16_pairs_bytes_from_even_offsets() {
+        type Layer = LinearLayer<4, 8, 8, 8>;
+
+        assert!(Layer::pair_sums_fit_i16(&[1, 127, 127, 1]));
+        assert!(!Layer::pair_sums_fit_i16(&[0, 0, 127, 127]));
     }
 
     #[test]
@@ -1071,9 +1188,26 @@ mod tests {
             }
         }
 
+        fn run_unsaturated<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+            let layer = saturation_bound_layer::<I, O, PI, PO>();
+            let input = Align64([255; PI]);
+            let expected = reference_forward(&layer, &input);
+            let mut actual = Align64([0; PO]);
+
+            unsafe { layer.forward_avx512_no_vnni_unsaturated(&input, &mut actual) };
+            assert_eq!(&actual.as_ref()[..O], &expected, "avx512 unsaturated");
+
+            let mut dispatched = Align64([0; PO]);
+            layer.forward(&input, &mut dispatched);
+            assert_eq!(&dispatched.as_ref()[..O], &expected, "avx512 dispatch");
+        }
+
         run::<18, 16, 24, 16>(23, 5);
         run::<64, 16, 64, 16>(71, 13);
         run::<32, 64, 32, 64>(51, 7);
         run::<18, 64, 24, 64>(89, 3);
+        run_unsaturated::<257, 16, 288, 32>();
+        run_unsaturated::<32, 64, 32, 64>();
+        run_unsaturated::<18, 64, 24, 64>();
     }
 }
