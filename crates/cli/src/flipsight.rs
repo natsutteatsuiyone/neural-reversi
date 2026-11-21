@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
+use reversi_core::score::Score;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources, StopToken};
 use reversi_core::square::Square;
@@ -214,6 +215,7 @@ impl Engine {
     fn play(&mut self, request: &Request, board: &Board, started: Instant) -> serde_json::Value {
         let spent_ms = elapsed_ms(started);
         let cap_ms = request.budget_ms.saturating_sub(spent_ms + STOP_MARGIN_MS);
+        let mut eval = None;
         let mv = match request.legal_moves.as_slice() {
             [] => -1,
             &[only] => only,
@@ -225,12 +227,18 @@ impl Engine {
                 let stop = StopToken::new();
                 let options =
                     SearchRunOptions::with_time(clock_mode(bank_ms)).stop_token(stop.clone());
-                let best = stop_after(Duration::from_millis(cap_ms), &stop, || {
-                    self.search.run(board, &options).best_move()
+                let result = stop_after(Duration::from_millis(cap_ms), &stop, || {
+                    self.search.run(board, &options)
                 });
-                best.map(|sq| sq.index() as i32)
-                    .filter(|mv| legal.contains(mv))
-                    .unwrap_or(legal[0])
+                let best = result
+                    .best_move()
+                    .map(|sq| sq.index() as i32)
+                    .filter(|mv| legal.contains(mv));
+                // A result of depth 0 is a move picked without a search.
+                if best.is_some() && result.depth() > 0 {
+                    eval = result.score().map(reply_eval);
+                }
+                best.unwrap_or(legal[0])
             }
         };
         self.ponder_on = if self.ponder {
@@ -238,7 +246,7 @@ impl Engine {
         } else {
             None
         };
-        json!({
+        let mut reply = json!({
             "move": mv,
             "used_ms": elapsed_ms(started),
             "hard_ms": cap_ms,
@@ -247,8 +255,19 @@ impl Engine {
                 "hash_mb": self.hash_mb,
                 "ponder": self.ponder,
             },
-        })
+        });
+        if let Some(eval) = eval {
+            reply["eval"] = json!(eval);
+        }
+        reply
     }
+}
+
+/// Returns `score` as the reply's `eval`: discs from the mover's side, to
+/// two decimals, within the ±64 outside which the connector drops the value.
+fn reply_eval(score: Score) -> f64 {
+    let discs = f64::from(score.to_disc_diff_f32()).clamp(-64.0, 64.0);
+    (discs * 100.0).round() / 100.0
 }
 
 /// Returns the time control for a move with `bank_ms` of clock above the
@@ -370,13 +389,34 @@ mod tests {
         let board = position(&request(SAMPLE)).unwrap();
         // A zero budget would leave no time for a search.
         let pass = request(&SAMPLE.replace("[19,26,37,44]", "[]").replace("10000", "0"));
-        assert_eq!(engine.play(&pass, &board, Instant::now())["move"], -1);
+        let reply = engine.play(&pass, &board, Instant::now());
+        assert_eq!(reply["move"], -1);
+        assert!(reply.get("eval").is_none());
         let forced = request(
             &SAMPLE
                 .replace("[19,26,37,44]", "[26]")
                 .replace("10000", "0"),
         );
-        assert_eq!(engine.play(&forced, &board, Instant::now())["move"], 26);
+        let reply = engine.play(&forced, &board, Instant::now());
+        assert_eq!(reply["move"], 26);
+        assert!(reply.get("eval").is_none());
+    }
+
+    #[test]
+    fn searched_move_carries_an_eval_the_connector_accepts() {
+        let mut engine = engine();
+        let board = position(&request(SAMPLE))
+            .unwrap()
+            .make_move(Square::from_u8(19).unwrap());
+        let legal = legal_indices(&board);
+        let req = request(&SAMPLE.replace("[19,26,37,44]", &format!("{legal:?}")));
+        let reply = engine.play(&req, &board, Instant::now());
+        let eval = reply["eval"].as_f64().unwrap();
+        assert!(eval.abs() <= 64.0);
+        assert_eq!(eval, (eval * 100.0).round() / 100.0);
+
+        assert_eq!(reply_eval(Score::INF), 64.0);
+        assert_eq!(reply_eval(-Score::INF), -64.0);
     }
 
     #[test]

@@ -189,6 +189,7 @@ Notes:
 - The search is always stopped 300 ms before the connector's `budget_ms`. Use `--max-think-seconds 0` so this cap is the remaining clock rather than the connector's default 10 s per move.
 - `--ponder` searches, while the opponent thinks, the position after our move (or our next position when the opponent must pass) to warm the transposition table, and stops when the next request arrives. Off by default. It keeps the game's threads busy on the opponent's turn too, so both games of a bot match then keep all their threads busy all the time instead of only when both are ours to move.
 - Each reply carries `used_ms` and `hard_ms` (the stop cap), which the connector prints locally, and the thread count, hash size and `--ponder` setting, which it reports to FlipSight. `--level` is not used.
+- A searched move also carries `eval`, the search score in discs from the mover's side, which connector 1.5.3 or later sends with the move in bot matches. A pass or a single legal move is answered without a search and has no `eval`.
 
 ### Solve Mode
 
