@@ -4,6 +4,8 @@
 //! - [Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/clipped_relu.h)
 //! - [Squared Clipped ReLU](https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/layers/sqr_clipped_relu.h)
 
+use crate::util::align::Align64;
+
 cfg_select! {
     all(target_arch = "x86_64", target_feature = "avx2") => {
         use std::arch::x86_64::*;
@@ -53,15 +55,12 @@ fn sqr_clipped_relu_scalar(input: &[i32], output: &mut [u8]) {
 ///
 /// The first 16 bytes receive the square-clipped output, and the next 16 bytes
 /// receive the clipped-ReLU output.
-///
-/// On x86-64 with AVX-512 (`avx512bw` + `avx512vl`), `input` must be 64-byte
-/// aligned and `output` 16-byte aligned. With AVX2 (including `avx512bw`
-/// without `avx512vl`), both must be 32-byte aligned. Misaligned buffers cause
-/// undefined behavior in the SIMD loads/stores.
 #[inline(always)]
-pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
-    debug_assert!(input.len() >= 16);
-    debug_assert!(output.len() >= 32);
+pub fn sqr_clipped_and_clipped_relu_16<const IN: usize, const OUT: usize>(
+    input: &Align64<[i32; IN]>,
+    output: &mut Align64<[u8; OUT]>,
+) {
+    const { assert!(IN >= 16 && OUT >= 32) };
 
     cfg_select! {
         all(
@@ -85,15 +84,15 @@ pub fn sqr_clipped_and_clipped_relu_16(input: &[i32], output: &mut [u8]) {
     }
 }
 
-/// # Safety
-///
-/// `input` must contain at least 16 `i32` values and be 32-byte aligned.
-/// `output` must contain at least 32 bytes and be 32-byte aligned.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
 #[allow(dead_code)]
-unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8]) {
+fn sqr_clipped_and_clipped_relu_16_avx2<const IN: usize, const OUT: usize>(
+    input: &Align64<[i32; IN]>,
+    output: &mut Align64<[u8; OUT]>,
+) {
+    const { assert!(IN >= 16 && OUT >= 32) };
     unsafe {
         let input_ptr = input.as_ptr() as *const __m256i;
 
@@ -116,10 +115,6 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
     }
 }
 
-/// # Safety
-///
-/// `input` must contain at least 16 `i32` values and be 64-byte aligned.
-/// `output` must contain at least 32 bytes and be 16-byte aligned.
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512bw",
@@ -127,7 +122,11 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx2(input: &[i32], output: &mut [u8])
 ))]
 #[target_feature(enable = "avx512bw,avx512vl")]
 #[inline]
-unsafe fn sqr_clipped_and_clipped_relu_16_avx512(input: &[i32], output: &mut [u8]) {
+fn sqr_clipped_and_clipped_relu_16_avx512<const IN: usize, const OUT: usize>(
+    input: &Align64<[i32; IN]>,
+    output: &mut Align64<[u8; OUT]>,
+) {
+    const { assert!(IN >= 16 && OUT >= 32) };
     unsafe {
         // Both halves share the i16-saturated words, as in the AVX2 kernel. `vpmovuswb`
         // reads its source as unsigned, so the shifted words need an explicit 0 floor.
@@ -150,12 +149,17 @@ unsafe fn sqr_clipped_and_clipped_relu_16_avx512(input: &[i32], output: &mut [u8
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
-fn sqr_clipped_and_clipped_relu_16_neon(input: &[i32], output: &mut [u8]) {
+fn sqr_clipped_and_clipped_relu_16_neon<const IN: usize, const OUT: usize>(
+    input: &Align64<[i32; IN]>,
+    output: &mut Align64<[u8; OUT]>,
+) {
     use std::arch::aarch64::*;
+
+    const { assert!(IN >= 16 && OUT >= 32) };
 
     unsafe {
         let input_ptr = input.as_ptr();
-        let output_ptr = output.as_mut_ptr();
+        let output_ptr = output.0.as_mut_ptr();
 
         let v0 = vld1q_s32(input_ptr);
         let v1 = vld1q_s32(input_ptr.add(4));
@@ -189,25 +193,20 @@ fn sqr_clipped_and_clipped_relu_16_neon(input: &[i32], output: &mut [u8]) {
 /// `input[screlu_store_order::<SIZE>()[i]]`, because the vector kernels keep the
 /// lane interleaving their `packus` chain produces. Consumers must reorder their
 /// own per-element data by [`screlu_store_order`].
-///
-/// On x86-64 with AVX-512, both `input` and `output` must be 64-byte aligned
-/// when `SIZE` is a multiple of 64. With AVX2 (or smaller `SIZE`), both must be
-/// 32-byte aligned (or 16-byte aligned when `SIZE` is not a multiple of 32).
-/// Misaligned buffers cause undefined behavior in the SIMD loads.
 #[inline(always)]
-pub fn screlu<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+pub fn screlu<const SIZE: usize>(input: &Align64<[i32; SIZE]>, output: &mut Align64<[u8; SIZE]>) {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "avx512bw") => {
-            unsafe { screlu_avx512::<SIZE>(input, output) };
+            unsafe { screlu_avx512(input, output) };
         }
         all(target_arch = "x86_64", target_feature = "avx2") => {
-            unsafe { screlu_avx2::<SIZE>(input, output) };
+            unsafe { screlu_avx2(input, output) };
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
-            unsafe { screlu_neon::<SIZE>(input, output) };
+            unsafe { screlu_neon(input, output) };
         }
         _ => {
-            screlu_scalar(input, output, 0);
+            screlu_scalar(&input[..], &mut output[..], 0);
         }
     }
 }
@@ -269,15 +268,10 @@ fn screlu_scalar(input: &[i32], output: &mut [u8], start_idx: usize) {
 }
 
 /// Computes Squared Clipped ReLU using AVX2 SIMD.
-///
-/// # Safety
-///
-/// Both `input` and `output` must be 32-byte aligned for AVX2 loads/stores
-/// (or 16-byte aligned when `SIZE` is not a multiple of 32).
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[target_feature(enable = "avx2")]
 #[inline]
-unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+fn screlu_avx2<const SIZE: usize>(input: &Align64<[i32; SIZE]>, output: &mut Align64<[u8; SIZE]>) {
     unsafe {
         if SIZE.is_multiple_of(AVX2_SIMD_WIDTH) {
             let num_chunks = SIZE / AVX2_SIMD_WIDTH;
@@ -332,24 +326,22 @@ unsafe fn screlu_avx2<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
     }
 
     let start_idx = SIZE / SSE2_SIMD_WIDTH * SSE2_SIMD_WIDTH;
-    screlu_scalar(input, output, start_idx);
+    screlu_scalar(&input[..], &mut output[..], start_idx);
 }
 
 /// Computes Squared Clipped ReLU using AVX-512 SIMD.
 ///
 /// Processes 64 `i32` elements per iteration when `SIZE` is a multiple of 64;
 /// other sizes are delegated to [`screlu_avx2`].
-///
-/// # Safety
-///
-/// Both `input` and `output` must be 64-byte aligned when `SIZE` is a multiple
-/// of 64; otherwise the [`screlu_avx2`] alignment rules apply.
 #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
 #[target_feature(enable = "avx512bw")]
 #[inline]
-unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+fn screlu_avx512<const SIZE: usize>(
+    input: &Align64<[i32; SIZE]>,
+    output: &mut Align64<[u8; SIZE]>,
+) {
     if !SIZE.is_multiple_of(AVX512_SIMD_WIDTH) {
-        unsafe { screlu_avx2::<SIZE>(input, output) };
+        screlu_avx2(input, output);
         return;
     }
 
@@ -388,12 +380,12 @@ unsafe fn screlu_avx512<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 #[target_feature(enable = "neon")]
 #[inline]
-fn screlu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
+fn screlu_neon<const SIZE: usize>(input: &Align64<[i32; SIZE]>, output: &mut Align64<[u8; SIZE]>) {
     use std::arch::aarch64::*;
     let num_chunks = SIZE / NEON_SIMD_WIDTH;
     unsafe {
         let input_ptr = input.as_ptr();
-        let output_ptr = output.as_mut_ptr();
+        let output_ptr = output.0.as_mut_ptr();
         let max_val = vdupq_n_u16((255 << HIDDEN_WEIGHT_SCALE_BITS) as u16);
         for i in 0..num_chunks {
             let base = i * NEON_SIMD_WIDTH;
@@ -416,13 +408,12 @@ fn screlu_neon<const SIZE: usize>(input: &[i32], output: &mut [u8]) {
         }
     }
     let start_idx = num_chunks * NEON_SIMD_WIDTH;
-    screlu_scalar(input, output, start_idx);
+    screlu_scalar(&input[..], &mut output[..], start_idx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::align::Align64;
 
     const ACTIVATION_CEILING: i32 = 255 << HIDDEN_WEIGHT_SCALE_BITS;
     const SQR_SHIFT: u32 = (HIDDEN_WEIGHT_SCALE_BITS * 2 + 8) as u32;
@@ -454,7 +445,7 @@ mod tests {
         let mut actual = Align64([0xA5; SIZE]);
         let mut expected = [0; SIZE];
 
-        screlu::<SIZE>(input.as_slice(), actual.as_mut_slice());
+        screlu(&input, &mut actual);
         for (out, &src) in expected.iter_mut().zip(screlu_store_order::<SIZE>().iter()) {
             *out = reference_screlu(input[src]);
         }
@@ -539,7 +530,7 @@ mod tests {
         let input = Align64(FUSED_L1_INPUT);
         let mut output = Align64([0xCC; 40]);
 
-        sqr_clipped_and_clipped_relu_16(input.as_slice(), output.as_mut_slice());
+        sqr_clipped_and_clipped_relu_16(&input, &mut output);
 
         assert_eq!(
             &output.as_ref()[..32],
@@ -554,7 +545,7 @@ mod tests {
         let input = Align64(FUSED_L1_INPUT);
         let mut output = Align64([0; 32]);
 
-        unsafe { sqr_clipped_and_clipped_relu_16_avx2(input.as_slice(), output.as_mut_slice()) };
+        unsafe { sqr_clipped_and_clipped_relu_16_avx2(&input, &mut output) };
 
         assert_eq!(output.as_ref(), &expected_fused_l1_output(&FUSED_L1_INPUT));
     }
@@ -608,8 +599,8 @@ mod tests {
             }
 
             unsafe {
-                screlu_neon::<CHUNK_SIZE>(input.as_slice(), screlu_out.as_mut_slice());
-                sqr_clipped_and_clipped_relu_16_neon(input.as_slice(), fused.as_mut_slice());
+                screlu_neon(&input, &mut screlu_out);
+                sqr_clipped_and_clipped_relu_16_neon(&input, &mut fused);
             }
 
             for (idx, &value) in input.iter().enumerate() {

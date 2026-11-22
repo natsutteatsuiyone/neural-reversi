@@ -25,17 +25,19 @@ impl SearchStack {
         }
     }
 
-    /// Updates the principal variation at the given ply.
+    /// Prepends a square to its child's principal variation, reserving the terminator.
     #[inline]
     pub fn update_pv(&mut self, sq: Square, ply: usize) {
-        debug_assert!(ply + 1 < MAX_PLY, "ply out of range: {ply}");
-        self.stack[ply].pv[0] = Some(sq);
+        let [parent, child, ..] = &mut self.stack[ply..] else {
+            panic!("ply out of range: {ply}");
+        };
+        parent.pv[0] = Some(sq);
         let mut idx = 0;
-        while idx < self.stack[ply + 1].pv.len() && self.stack[ply + 1].pv[idx].is_some() {
-            self.stack[ply].pv[idx + 1] = self.stack[ply + 1].pv[idx];
+        while idx < MAX_PLY - 2 && child.pv[idx].is_some() {
+            parent.pv[idx + 1] = child.pv[idx];
             idx += 1;
         }
-        self.stack[ply].pv[idx + 1] = None;
+        parent.pv[idx + 1] = None;
     }
 
     /// Clears the principal variation at the given ply.
@@ -129,5 +131,19 @@ mod tests {
         for (ply, record) in before.iter().enumerate().skip(1) {
             assert_eq!(*stack.pv(ply), record.pv, "ply={ply}");
         }
+    }
+
+    #[test]
+    fn update_pv_reserves_a_terminator_for_a_full_imported_child() {
+        let mut stack = SearchStack::new();
+        stack.set_pv(1, &[Some(Square::C3); MAX_PLY]);
+
+        stack.update_pv(Square::D3, 0);
+
+        let parent = stack.pv(0);
+        assert_eq!(parent[0], Some(Square::D3));
+        assert_eq!(parent[1..MAX_PLY - 1], [Some(Square::C3); MAX_PLY - 2]);
+        assert_eq!(parent[MAX_PLY - 1], None);
+        assert_eq!(*stack.pv(1), [Some(Square::C3); MAX_PLY]);
     }
 }

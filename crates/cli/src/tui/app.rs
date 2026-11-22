@@ -227,12 +227,14 @@ pub struct App {
 impl App {
     /// Creates a new App instance.
     pub fn new(config: &EngineConfig) -> Self {
-        let search = Search::new(&config.search_options());
+        Self::from_search(Search::new(&config.search_options()), config.level)
+    }
 
+    fn from_search(search: Search, level: usize) -> Self {
         Self {
             game: GameState::new(),
             search: SearchWorker::new(search),
-            level: config.level,
+            level,
             mode: GameMode::HumanVsAi,
             ui_mode: UiMode::Normal,
             cursor: (3, 3), // Start at center
@@ -249,6 +251,14 @@ impl App {
             board_edit_focus: BitboardField::Player,
             board_edit_error: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_tests(level: usize) -> Self {
+        Self::from_search(
+            Search::from_shared_resources(&crate::config::test_shared_resources(0, 1)),
+            level,
+        )
     }
 
     /// Returns whether an AI move is waiting for completion.
@@ -835,13 +845,7 @@ mod tests {
 
     #[test]
     fn level_arrows_edit_the_draft_until_confirmed() {
-        let mut app = App::new(&EngineConfig {
-            hash_size: 1,
-            level: 21,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        });
+        let mut app = App::for_tests(21);
         app.level_input = "21".into();
         app.handle_level_select_event(Event::CursorUp);
         assert_eq!(app.level_input, "22");
@@ -880,13 +884,7 @@ mod tests {
             PlayerColor::Black,
         )
         .unwrap();
-        let mut app = App::new(&EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        });
+        let mut app = App::for_tests(1);
         app.game = GameState::from_board(start, PlayerColor::Black);
         app.game.make_move(Square::C5).unwrap();
         app.game.make_move(Square::C3).unwrap();

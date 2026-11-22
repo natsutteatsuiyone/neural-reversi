@@ -88,4 +88,32 @@ mod tests {
         assert!(!bits.test(0));
         assert!(!bits.test(63));
     }
+
+    #[test]
+    fn empty_mask_observes_payloads_from_both_releases() {
+        use std::time::{Duration, Instant};
+
+        let bits = AtomicBitSet::new();
+        let payloads = [AtomicU64::new(0), AtomicU64::new(0)];
+        bits.set(0);
+        bits.set(63);
+
+        std::thread::scope(|scope| {
+            for (bit, payload, expected) in [(0, &payloads[0], 31), (63, &payloads[1], 47)] {
+                let bits = &bits;
+                scope.spawn(move || {
+                    payload.store(expected, Ordering::Relaxed);
+                    bits.reset(bit);
+                });
+            }
+
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !bits.none() {
+                assert!(Instant::now() < deadline, "helper bits stayed set");
+                std::thread::yield_now();
+            }
+            assert_eq!(payloads[0].load(Ordering::Relaxed), 31);
+            assert_eq!(payloads[1].load(Ordering::Relaxed), 47);
+        });
+    }
 }

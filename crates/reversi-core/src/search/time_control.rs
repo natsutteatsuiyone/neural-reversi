@@ -6,10 +6,12 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
-use crate::probcut::Selectivity;
+use crate::level::{ENDGAME_STEPS, Level};
 use crate::search::threading::AbortState;
 use crate::square::Square;
 use crate::types::Depth;
+
+mod endgame_budget;
 
 /// Safety buffer in milliseconds to avoid time forfeit.
 const TIME_BUFFER_MS: u64 = 50;
@@ -64,45 +66,11 @@ const NO_PREV_MOVE: u8 = u8::MAX;
 /// Default next-iteration prediction factor for midgame iterative deepening.
 const DEFAULT_CONTINUE_FACTOR: f64 = 1.5;
 
-const ENDGAME_LEVEL1_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
-    scale: 0.254,
-    growth: 1.340,
-};
-const ENDGAME_LEVEL2_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
-    scale: 0.777,
-    growth: 1.296,
-};
-const ENDGAME_LEVEL3_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
-    scale: 2.333,
-    growth: 1.295,
-};
-const ENDGAME_LEVEL4_CONTINUE_CURVE: ContinueCurve = ContinueCurve {
-    scale: 11.70,
-    growth: 1.156,
-};
-const CONTINUE_CURVE_BASE_EMPTIES: i32 = 30;
-
 /// Midgame-speed nodes the endgame solve needs to finish Level2
 /// (`ENDGAME_TRACKING_MIN_SELECTIVITY`) at the base empty count.
 const ENDGAME_ENTER_WORK: f64 = 1.04e9;
 const ENDGAME_ENTER_WORK_GROWTH: f64 = 1.65;
 const ENDGAME_ENTER_WORK_BASE_EMPTIES: i32 = 38;
-
-#[derive(Clone, Copy)]
-struct ContinueCurve {
-    scale: f64,
-    growth: f64,
-}
-
-impl ContinueCurve {
-    fn at(self, n_empties: u32) -> f64 {
-        self.scale.mul_add(
-            self.growth
-                .powi(n_empties as i32 - CONTINUE_CURVE_BASE_EMPTIES),
-            1.0,
-        )
-    }
-}
 
 // Time allocation percentages (0-100)
 const MIN_PERCENT_NORMAL: u64 = 75;
@@ -155,18 +123,6 @@ fn calculate_remaining_factor_sum(n_empties: u32) -> f64 {
 /// Returns the budget for a single endgame solve attempt in bank modes.
 fn endgame_bank_budget(hard_limit: u64) -> u64 {
     (hard_limit * ENDGAME_BANK_PERCENT) / 100
-}
-
-fn endgame_continue_factor(current_selectivity: Selectivity, n_empties: u32) -> f64 {
-    let curve = match current_selectivity {
-        Selectivity::Level1 => ENDGAME_LEVEL1_CONTINUE_CURVE,
-        Selectivity::Level2 => ENDGAME_LEVEL2_CONTINUE_CURVE,
-        Selectivity::Level3 => ENDGAME_LEVEL3_CONTINUE_CURVE,
-        Selectivity::Level4 => ENDGAME_LEVEL4_CONTINUE_CURVE,
-        Selectivity::None => return f64::INFINITY,
-        Selectivity::Mid => unreachable!("Mid is midgame-only and never enters the endgame ladder"),
-    };
-    curve.at(n_empties)
 }
 
 /// Time control mode for a game.
@@ -775,24 +731,15 @@ impl TimeManager {
         should_enter
     }
 
-    /// Checks whether endgame search should continue to the next selectivity level.
-    fn should_continue_endgame_iteration(&self, current_selectivity: Selectivity) -> bool {
-        if !self.uses_continuous_scaling() {
-            return true;
+    pub(super) fn endgame_clock(&self) -> EndgameClock<'_> {
+        let prediction = self.uses_continuous_scaling().then(|| EndgamePrediction {
+            budget_ms: self.maxi_time_ms(),
+            factors: endgame_budget::factors(self.n_empties),
+        });
+        EndgameClock {
+            timer: self,
+            prediction,
         }
-
-        let elapsed = self.elapsed_ms();
-        let maxi = self.maxi_time_ms();
-        let factor = endgame_continue_factor(current_selectivity, self.n_empties);
-        let should_continue = (elapsed as f64 * factor) < maxi as f64;
-        if !should_continue && is_debug_enabled() {
-            eprintln!(
-                "[TimeManager] Stopping endgame selectivity: selectivity={current_selectivity:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
-                elapsed, maxi
-            );
-        }
-
-        should_continue
     }
 
     /// Checks whether time is up and signals abort if so.
@@ -907,14 +854,37 @@ pub(crate) fn should_stop_iteration(time_manager: Option<&TimeManager>) -> bool 
     time_manager.is_some_and(|tm| tm.check_time() || !tm.should_continue_iteration())
 }
 
-#[inline]
-pub(crate) fn should_stop_endgame_iteration(
-    time_manager: Option<&TimeManager>,
-    current_selectivity: Selectivity,
-) -> bool {
-    time_manager.is_some_and(|tm| {
-        tm.check_time() || !tm.should_continue_endgame_iteration(current_selectivity)
-    })
+struct EndgamePrediction {
+    budget_ms: u64,
+    factors: [f64; ENDGAME_STEPS],
+}
+
+pub(super) struct EndgameClock<'a> {
+    timer: &'a TimeManager,
+    prediction: Option<EndgamePrediction>,
+}
+
+impl EndgameClock<'_> {
+    pub(super) fn should_stop(&self, step: usize) -> bool {
+        if self.timer.check_time() {
+            return true;
+        }
+        let Some(prediction) = &self.prediction else {
+            return false;
+        };
+        let elapsed = self.timer.elapsed_ms();
+        let factor = prediction.factors[step];
+        let stop = !endgame_budget::permits(elapsed, prediction.budget_ms, factor);
+        if stop && is_debug_enabled() {
+            eprintln!(
+                "[TimeManager] Stopping endgame selectivity: selectivity={:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
+                Level::ENDGAME_SELECTIVITY[step],
+                elapsed,
+                prediction.budget_ms
+            );
+        }
+        stop
+    }
 }
 
 fn is_debug_enabled() -> bool {
@@ -1005,14 +975,27 @@ mod tests {
         let mut tm = make_fischer_tm(60_000, 0, 36);
         tm.set_endgame_mode(true);
 
-        let factor = endgame_continue_factor(Selectivity::Level1, 36);
+        let factor = endgame_budget::factors(36)[0];
         let elapsed = (tm.maxi_time_ms() as f64 / factor).ceil() as u64 + 1;
         assert!(elapsed < tm.mini_time_ms());
 
         tm.start_time = Instant::now() - Duration::from_millis(elapsed);
 
         assert!(tm.should_continue_iteration());
-        assert!(!tm.should_continue_endgame_iteration(Selectivity::Level1));
+        assert!(tm.endgame_clock().should_stop(0));
+    }
+
+    #[test]
+    fn endgame_clock_keeps_its_prediction_budget_after_capture() {
+        let mut tm = make_fischer_tm(60_000, 0, 36);
+        tm.set_endgame_mode(true);
+        tm.start_time = Instant::now() - Duration::from_millis(tm.maxi_time_ms());
+        let clock = tm.endgame_clock();
+
+        tm.optimum_time_ms.store(u64::MAX, Ordering::Relaxed);
+
+        assert!(clock.should_stop(0));
+        assert!(!tm.endgame_clock().should_stop(0));
     }
 
     #[test]

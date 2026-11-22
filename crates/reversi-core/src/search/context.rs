@@ -15,7 +15,7 @@ use crate::search::midgame::Helper;
 use crate::search::root_move::RootMoves;
 use crate::search::side_to_move::SideToMove;
 use crate::search::stack::SearchStack;
-use crate::search::threading::SplitPoint;
+use crate::search::threading::SplitPointTask;
 use crate::square::Square;
 use crate::transposition_table::TranspositionTable;
 
@@ -85,20 +85,20 @@ impl<'a> SearchContext<'a> {
         }
     }
 
-    /// Creates a new search context from a parallel search split point.
+    /// Creates a search context from a published split task.
+    ///
+    /// # Safety
+    ///
+    /// The task's table, evaluator, and root moves must remain valid for shared
+    /// access throughout the lifetime of the resulting context.
     #[inline]
-    pub fn from_split_point<'t>(sp: &'t SplitPoint) -> SearchContext<'t> {
-        let task = sp.task();
+    pub unsafe fn from_split_task(task: &'a SplitPointTask) -> Self {
         let empty_list = task.empty_list.clone();
         let ply = empty_list.ply();
         let pattern_features =
             PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
         let (tt, eval, root_moves) = task.shared_ptrs();
-        // SAFETY: `task` stores pointers taken from the owner's
-        // `SearchContext` inside `Thread::split`. Under `TaskAliveWhileUsed`,
-        // `task` remains initialized and its pointees remain alive until every
-        // searcher clears its `helpers_mask` bit before `'t` ends. All three
-        // target types are `Sync`, and only shared references are formed.
+        // SAFETY: The caller keeps the pointees valid for the resulting borrows.
         let (tt, eval, root_moves) = unsafe { (tt.as_ref(), eval.as_ref(), root_moves.as_ref()) };
         SearchContext {
             n_nodes: 0,
@@ -276,5 +276,46 @@ impl<'a> SearchContext<'a> {
     #[inline]
     pub fn set_pv(&mut self, pv: &[Option<Square>; MAX_PLY]) {
         self.stack.set_pv(self.ply(), pv);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
+
+    #[test]
+    fn pattern_selection_matches_rebuild_through_pass_move_and_undo() {
+        let root = Board::from_bitboards(
+            Square::D1.bitboard(),
+            Square::A1.bitboard() | Square::B1.bitboard() | Square::C1.bitboard(),
+        );
+        let after_pass = root.switch_players();
+        let sq = Square::E1;
+        assert!(!root.has_legal_moves());
+        assert!(after_pass.is_legal_move(sq));
+        let flipped = crate::flip::flip(sq, after_pass.player(), after_pass.opponent());
+        let after_move = after_pass.make_move_with_flipped(flipped, sq);
+        let roots = RootMoves::new(&root);
+        let tt = TranspositionTable::new(1);
+        let eval = Eval::shared_for_tests();
+        let mut ctx = SearchContext::new(&root, Selectivity::None, &roots, &tt, &eval);
+
+        let check = |ctx: &SearchContext<'_>, board: &Board, ply| {
+            assert_eq!(ctx.ply(), ply);
+            let rebuilt = PatternFeatures::new(board, ply);
+            for lane in 0..NUM_PATTERN_FEATURES {
+                assert_eq!(ctx.pattern_feature()[lane], rebuilt.p_feature(ply)[lane]);
+            }
+        };
+        check(&ctx, &root, 0);
+        ctx.update_pass();
+        check(&ctx, &after_pass, 0);
+        ctx.update(sq, flipped);
+        check(&ctx, &after_move, 1);
+        ctx.undo(sq);
+        check(&ctx, &after_pass, 0);
+        ctx.undo_pass();
+        check(&ctx, &root, 0);
     }
 }

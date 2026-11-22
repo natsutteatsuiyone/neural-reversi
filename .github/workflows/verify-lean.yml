@@ -1,0 +1,150 @@
+name: Verify Lean proofs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - verification/lean/**
+      - .github/workflows/verify-lean.yml
+      - crates/reversi-core/src/flip/flip_scalar.rs
+      - crates/reversi-core/src/flip/lrmask.rs
+      - crates/reversi-core/src/bitboard.rs
+      - crates/reversi-core/src/board.rs
+      - crates/reversi-core/src/score.rs
+      - crates/reversi-core/src/transposition_table.rs
+      - crates/reversi-core/src/eval/eval_cache.rs
+      - crates/reversi-core/src/eval/eval_cache/policy.rs
+      - crates/reversi-core/src/level.rs
+      - crates/reversi-core/src/probcut.rs
+      - crates/reversi-core/src/probcut/endgame.rs
+      - crates/reversi-core/src/probcut/midgame_params.rs
+      - crates/reversi-core/src/types.rs
+      - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/search/aspiration.rs
+      - crates/reversi-core/src/search/root_move.rs
+      - crates/reversi-core/src/search/stack.rs
+      - crates/reversi-core/src/search/midgame.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp/policy.rs
+      - crates/reversi-core/src/search/endgame.rs
+      - crates/reversi-core/src/search/endgame/cache.rs
+      - crates/reversi-core/src/search/time_control.rs
+      - crates/reversi-core/src/search/time_control/endgame_budget.rs
+      - crates/reversi-core/src/stability.rs
+      - crates/reversi-core/src/bitboard/moves.rs
+      - crates/reversi-core/src/legal_moves.rs
+      - crates/reversi-core/src/constants.rs
+      - crates/reversi-core/src/eval/network/activations.rs
+      - crates/reversi-core/src/eval/network/linear_layer.rs
+      - crates/reversi-core/src/eval/network/output_layer.rs
+      - crates/reversi-core/src/eval/network/layer_stack.rs
+      - crates/reversi-core/src/eval/network.rs
+      - crates/reversi-core/src/eval/network/input_layer.rs
+      - crates/reversi-core/src/eval/network/input_layer/**
+      - crates/reversi-core/src/eval/network_small.rs
+      - crates/reversi-core/src/eval/pattern_feature.rs
+      - crates/reversi-core/src/eval/pattern_table_data.rs
+      - crates/reversi-core/build.rs
+      - crates/reversi-core/src/search/context.rs
+      - crates/reversi-core/src/search/side_to_move.rs
+      - crates/reversi-core/src/eval/util.rs
+      - crates/reversi-core/src/util/align.rs
+      - crates/reversi-core/src/util/aligned_buffer.rs
+      - crates/reversi-core/src/util/large_pages.rs
+      - crates/reversi-core/src/square.rs
+      - rust-toolchain.toml
+  pull_request:
+    branches: [ main ]
+    paths:
+      - verification/lean/**
+      - .github/workflows/verify-lean.yml
+      - crates/reversi-core/src/flip/flip_scalar.rs
+      - crates/reversi-core/src/flip/lrmask.rs
+      - crates/reversi-core/src/bitboard.rs
+      - crates/reversi-core/src/board.rs
+      - crates/reversi-core/src/score.rs
+      - crates/reversi-core/src/transposition_table.rs
+      - crates/reversi-core/src/eval/eval_cache.rs
+      - crates/reversi-core/src/eval/eval_cache/policy.rs
+      - crates/reversi-core/src/level.rs
+      - crates/reversi-core/src/probcut.rs
+      - crates/reversi-core/src/probcut/endgame.rs
+      - crates/reversi-core/src/probcut/midgame_params.rs
+      - crates/reversi-core/src/types.rs
+      - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/search/aspiration.rs
+      - crates/reversi-core/src/search/root_move.rs
+      - crates/reversi-core/src/search/stack.rs
+      - crates/reversi-core/src/search/midgame.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp/policy.rs
+      - crates/reversi-core/src/search/endgame.rs
+      - crates/reversi-core/src/search/endgame/cache.rs
+      - crates/reversi-core/src/search/time_control.rs
+      - crates/reversi-core/src/search/time_control/endgame_budget.rs
+      - crates/reversi-core/src/stability.rs
+      - crates/reversi-core/src/bitboard/moves.rs
+      - crates/reversi-core/src/legal_moves.rs
+      - crates/reversi-core/src/constants.rs
+      - crates/reversi-core/src/eval/network/activations.rs
+      - crates/reversi-core/src/eval/network/linear_layer.rs
+      - crates/reversi-core/src/eval/network/output_layer.rs
+      - crates/reversi-core/src/eval/network/layer_stack.rs
+      - crates/reversi-core/src/eval/network.rs
+      - crates/reversi-core/src/eval/network/input_layer.rs
+      - crates/reversi-core/src/eval/network/input_layer/**
+      - crates/reversi-core/src/eval/network_small.rs
+      - crates/reversi-core/src/eval/pattern_feature.rs
+      - crates/reversi-core/src/eval/pattern_table_data.rs
+      - crates/reversi-core/build.rs
+      - crates/reversi-core/src/search/context.rs
+      - crates/reversi-core/src/search/side_to_move.rs
+      - crates/reversi-core/src/eval/util.rs
+      - crates/reversi-core/src/util/align.rs
+      - crates/reversi-core/src/util/aligned_buffer.rs
+      - crates/reversi-core/src/util/large_pages.rs
+      - crates/reversi-core/src/square.rs
+      - rust-toolchain.toml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify-lean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.13'
+
+    - name: Install elan
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/leanprover/elan/v4.2.4/elan-init.sh -o "$RUNNER_TEMP/elan-init.sh"
+        echo "a620ff1641616222c8d37c54845492004bb84d6877cdbc944dd65c1aa685bf53  $RUNNER_TEMP/elan-init.sh" | sha256sum -c -
+        sh "$RUNNER_TEMP/elan-init.sh" -y --no-modify-path --default-toolchain none
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+    - name: Cache Lean build artifacts
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: verification/lean/.lake
+        key: ${{ runner.os }}-lean-${{ hashFiles('verification/lean/lean-toolchain', 'verification/lean/lakefile.toml', 'verification/lean/lake-manifest.json') }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-lean-${{ hashFiles('verification/lean/lean-toolchain', 'verification/lean/lakefile.toml', 'verification/lean/lake-manifest.json') }}-
+
+    - name: Install Rust
+      run: rustup toolchain install --no-self-update
+
+    - name: Check the proofs, audits, and differential test
+      run: python3 verification/lean/check.py

@@ -1,8 +1,8 @@
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use nsh_core::Checked;
 use nsh_core::prelude::*;
-use nsh_engine::{EngineConfig, Environment, Idiom, Os, Root};
+use nsh_engine::{Clock, EngineConfig, Environment, Idiom, Os, Root};
 use nsh_testing::Headless;
 
 use super::Ui;
@@ -13,7 +13,7 @@ fn TestApp() -> impl IntoElement {
     let settings = Settings {
         game_mode: GameMode::Human,
         language: Language::English,
-        hash_size: 64,
+        hash_size: 16,
         ai_level: 4,
         timed: false,
         hint_level: 1,
@@ -22,13 +22,30 @@ fn TestApp() -> impl IntoElement {
         analysis_open: false,
         ..Settings::default()
     };
-    Ui::with_settings(settings, None, |_| Ok(())).render()
+    let ui = Ui::with_settings(settings, None, |_| Ok(()));
+    view()
+        .relative()
+        .size_full()
+        .flex_col()
+        .child(ui.render())
+        .child(when(
+            move || ui.read(|app| app.session.is_ready() && app.session.activity().is_none()),
+            || {
+                view()
+                    .absolute()
+                    .bottom_0()
+                    .right_0()
+                    .size(px(1.))
+                    .pointer_events(PointerEvents::None)
+                    .test_id("test-engine-idle")
+            },
+        ))
 }
 
-#[test]
-fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), String> {
-    let config = EngineConfig {
+fn headless_config() -> EngineConfig {
+    EngineConfig {
         viewport: size(px(1100.), px(920.)),
+        clock: Clock::manual(SystemTime::UNIX_EPOCH),
         environment: Environment {
             os: Os::Windows,
             idiom: Idiom::Desktop,
@@ -36,9 +53,27 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
             ..Environment::default()
         },
         ..EngineConfig::new(Root::of::<TestApp>())
-    };
-    let mut app = Headless::start(config).map_err(|error| error.to_string())?;
-    app.wait_for_within("role:button[New Game]", Duration::from_secs(60))?;
+    }
+}
+
+fn wait_for_engine(app: &mut Headless, selector: &str, timeout: Duration) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        app.run_for(Duration::from_millis(40))?;
+        if app.screen().matches(selector)? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return app.wait_for_within(selector, Duration::ZERO);
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
+fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), String> {
+    let mut app = Headless::start(headless_config()).map_err(|error| error.to_string())?;
+    wait_for_engine(&mut app, "role:button[New Game]", Duration::from_secs(60))?;
     app.hover("role:button[Settings]")?;
     app.wait_for("text:Settings")?;
     app.hover("role:button[New Game]")?;
@@ -55,6 +90,7 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
     assert!(app.screen().selected("role:tab[vs Human]")?);
     app.press("role:button[Start Game]")?;
     app.wait_for_gone("role:button[Start Game]", Duration::from_secs(2))?;
+    wait_for_engine(&mut app, "id:test-engine-idle", Duration::from_secs(5))?;
     app.press("id:board-cell-19")?;
     app.wait_for("label:/^D3 Black/")?;
     app.wait_for("label:/^D4 Black/")?;
@@ -95,6 +131,7 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
     app.type_text("label:Transcript", "D3C3")?;
     app.press("role:button[Start Game]")?;
     app.wait_for_gone("role:button[Start Game]", Duration::from_secs(2))?;
+    wait_for_engine(&mut app, "id:test-engine-idle", Duration::from_secs(5))?;
     app.wait_for("label:/^D3 Black/")?;
     app.wait_for("label:/^C3 White/")?;
     assert!(
@@ -114,7 +151,7 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
     app.press("role:radio[100%]")?;
     app.press("role:radio[Best move only]")?;
     app.press("role:button[Start Solver]")?;
-    app.wait_for_within("label:/^[aA]1 -58/", Duration::from_secs(10))?;
+    wait_for_engine(&mut app, "label:/^[aA]1 -58/", Duration::from_secs(10))?;
     app.press("id:board-cell-0")?;
     app.wait_for("label:/^A1 Black/")?;
     app.press("role:button[Undo]")?;
@@ -154,18 +191,8 @@ fn headless_play_setup_solver_and_history_preserve_user_flows() -> Result<(), St
 
 #[test]
 fn headless_new_game_vs_ai_tab_preserves_white_selection() -> Result<(), String> {
-    let config = EngineConfig {
-        viewport: size(px(1100.), px(920.)),
-        environment: Environment {
-            os: Os::Windows,
-            idiom: Idiom::Desktop,
-            reduce_motion: true,
-            ..Environment::default()
-        },
-        ..EngineConfig::new(Root::of::<TestApp>())
-    };
-    let mut app = Headless::start(config).map_err(|error| error.to_string())?;
-    app.wait_for_within("role:button[New Game]", Duration::from_secs(60))?;
+    let mut app = Headless::start(headless_config()).map_err(|error| error.to_string())?;
+    wait_for_engine(&mut app, "role:button[New Game]", Duration::from_secs(60))?;
     app.press("role:button[New Game]")?;
     app.press("role:tab[vs AI]")?;
     app.press("role:radio[White]")?;

@@ -199,12 +199,12 @@ impl SearchStrategy for EndGameStrategy {
 
         let score = Score::from_disc_diff(score_d);
 
-        if let Some(tt_index) = tt_slot
+        if let Some(slot) = tt_slot
             && ctx.n_nodes - nodes_before >= BOUNDARY_STORE_MIN_SUBTREE_NODES
             && !thread.should_stop()
         {
             ctx.tt.store(
-                tt_index,
+                slot,
                 board,
                 score,
                 Bound::classify::<NonPV>(score, alpha, beta),

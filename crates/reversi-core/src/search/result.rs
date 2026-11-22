@@ -93,6 +93,10 @@ impl CompletedState {
         }
     }
 
+    pub(super) fn begin_phase(&mut self) {
+        self.lines.fill(None);
+    }
+
     /// Records that the current PV line of `ctx` finished `depth` at the
     /// context's selectivity. Returns the best move if this completed the
     /// iteration.
@@ -461,6 +465,53 @@ mod tests {
             .map(|rm| rm.sq)
             .collect();
         assert_eq!(reported[..2], [order[1], order[0]]);
+    }
+
+    #[test]
+    fn interrupted_iteration_reports_saved_scores_pv_and_level_with_live_nodes() {
+        let board = Board::from_bitboards(0xde52_7100_7814_a8a2_u64, 0x21ad_0eff_87eb_175d_u64);
+        let resources = TestResources::new(&board);
+        let mut ctx = resources.context(&board);
+        ctx.selectivity = Selectivity::Level2;
+        let mut completed = CompletedState::new(2);
+        let score = |discs| Score::from_disc_diff(DiscScore::new(discs));
+
+        let scores = [(Square::G2, -16), (Square::H6, -4)];
+        for (idx, (square, discs)) in scores.into_iter().enumerate() {
+            let mut pv = [None; MAX_PLY];
+            pv[0] = Some(square);
+            ctx.root_moves.set_pv_idx(idx);
+            ctx.root_moves.update(square, score(discs), true, &pv);
+            completed.line_completed(&ctx, 2, true);
+        }
+
+        ctx.selectivity = Selectivity::Level3;
+        ctx.root_moves.set_pv_idx(0);
+        let empty_pv = [None; MAX_PLY];
+        ctx.root_moves.update(Square::G2, score(3), true, &empty_pv);
+        assert!(completed.line_completed(&ctx, 2, true).is_none());
+        ctx.root_moves.update(Square::H6, score(8), true, &empty_pv);
+        ctx.n_nodes = 37;
+
+        let result = completed.into_result(&ctx, &board);
+        assert_eq!(result.best_move(), Some(Square::H6));
+        assert_eq!(result.score(), Some(score(-4)));
+        assert_eq!(result.pv_line(), &[Square::H6]);
+        assert_eq!(result.depth(), 2);
+        assert_eq!(result.selectivity(), Selectivity::Level2);
+        assert_eq!(result.n_nodes(), 37);
+        let rows: Vec<_> = result
+            .pv_moves()
+            .iter()
+            .map(|row| (row.sq, row.score, row.pv_line.as_slice()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (Square::H6, score(-4), &[Square::H6][..]),
+                (Square::G2, score(-16), &[Square::G2][..]),
+            ]
+        );
     }
 
     #[test]

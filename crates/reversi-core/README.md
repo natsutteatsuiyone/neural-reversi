@@ -297,8 +297,8 @@ a cutoff.
   sigma = exp(a' + b'·shallow + c'·sqrt(deep))
   ```
 
-  The shallow depth is `probcut_depth(deep)`. `probcut::init` tabulates the
-  coefficients per `(ply, deep)` into a `OnceLock`, pre-multiplied by
+  The shallow depth is `probcut_depth(deep)`. `build.rs` tabulates the
+  coefficients per `(ply, deep)` into a static table, pre-multiplied by
   `Score::SCALE` so they live directly in `Score` units. The
   verification threshold is `ceil(beta + t·sigma − mean)`
   (`compute_probcut_beta`). A static-evaluation pre-screen
@@ -503,6 +503,9 @@ at or past `ENDGAME_START_PLY`).
   of endgame plies, drives one output layer per ply.
 - Hidden → output is a single squared clipped ReLU stage; the activation clamp
   (`ACTIVATION_CLAMP_MAX`) gives the stage 10-bit precision.
+- The input rows and hidden bias add with wrapping `i16` arithmetic. The
+  activation uses the signed result. The dot product and final bias add with
+  wrapping `i32` arithmetic before signed scaling and score clamping.
 - Bypasses the eval cache.
 
 ### Eval cache

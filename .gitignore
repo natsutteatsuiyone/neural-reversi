@@ -5,6 +5,11 @@ eval*.zst
 .profiles/
 .nsh/
 .audit/
+/verification/lean/.lake/
+/verification/lean/NeuralReversi/AuditImports.lean
+/verification/lean/NeuralReversi/AuditModules.lean
+**/__pycache__/
+*.pyc
 
 # Ignore AI/LLM instruction files
 /.claude/

@@ -24,7 +24,7 @@ use crate::search::result::{CompletedState, SearchResult};
 use crate::search::root_move::RootMoves;
 use crate::search::strategy::EndGameStrategy;
 use crate::search::threading::Thread;
-use crate::search::time_control::{record_abort, should_stop_endgame_iteration};
+use crate::search::time_control::{TimeManager, record_abort};
 use crate::search::{SearchProgress, SearchTask, midgame, search, widen_aspiration_window};
 use crate::square::Square;
 use crate::stability::stability_cutoff;
@@ -149,8 +149,10 @@ pub(super) fn solve_root(
         // the midgame allocation still active.
         tm.set_endgame_mode(true);
     }
+    let endgame_clock = time_manager.map(TimeManager::endgame_clock);
 
     let n_empties = ctx.empty_list.count();
+    completed.begin_phase();
 
     // Configure for endgame search
     ctx.selectivity = Selectivity::None;
@@ -170,7 +172,7 @@ pub(super) fn solve_root(
             initial_aspiration_window(pv_idx, base_score, previous_pv_score);
 
         // Iterative selectivity loop
-        for selectivity in Level::ENDGAME_SELECTIVITY {
+        for (step, selectivity) in Level::ENDGAME_SELECTIVITY.into_iter().enumerate() {
             // Check depth limit when not using time control
             if !use_time_control && task.level.end_depth_for(selectivity) < n_empties {
                 break;
@@ -218,7 +220,10 @@ pub(super) fn solve_root(
             }
 
             // Check time control
-            if should_stop_endgame_iteration(time_manager, selectivity) {
+            if endgame_clock
+                .as_ref()
+                .is_some_and(|clock| clock.should_stop(step))
+            {
                 break;
             }
         }
@@ -677,7 +682,9 @@ mod tests {
     use crate::eval::Eval;
     use crate::player_color::PlayerColor;
     use crate::search::result::Iteration;
+    use crate::search::strategy::SearchStrategy;
     use crate::search::threading::ThreadPool;
+    use crate::search::time_control::TimeControlMode;
     use crate::transposition_table::TranspositionTable;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -686,6 +693,62 @@ mod tests {
     impl SplitPointCutoff for CutoffOccurred {
         fn occurred(&self) -> bool {
             true
+        }
+    }
+
+    #[test]
+    fn aspiration_retries_both_window_boundaries_and_keeps_the_selected_root_moves() {
+        let board = Board::from_bitboards(0xde52_7100_7814_a8a2_u64, 0x21ad_0eff_87eb_175d_u64);
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let pool = ThreadPool::new(1);
+        let score_of = |discs| Score::from_disc_diff(DiscScore::new(discs));
+
+        let windows = [(0, 1, Square::H6, -4), (-30, -29, Square::G2, -16)];
+        for (idx, (low, high, square, exact)) in windows.into_iter().enumerate() {
+            root_moves.set_pv_idx(idx);
+            let original = (score_of(low), score_of(high));
+            let (mut alpha, mut beta) = original;
+            let score = aspiration_search(&mut ctx, &board, &mut alpha, &mut beta, pool.main());
+            assert_ne!((alpha, beta), original);
+            assert!(alpha < score && score < beta);
+            assert_eq!(score, score_of(exact));
+            root_moves.sort_from_pv_idx();
+            let chosen = root_moves
+                .current_pv()
+                .expect("expected a selected root move");
+            assert_eq!((chosen.sq, chosen.score), (square, score));
+        }
+
+        let first = root_moves.get(0).expect("expected the first PV line");
+        assert_eq!((first.sq, first.score), (Square::H6, score_of(-4)));
+    }
+
+    #[test]
+    fn shallow_search_preserves_a_negative_fractional_window_on_pass() {
+        let player = 0xffff_fffe_u64;
+        let board = Board::from_bitboards(player, !(player | 1));
+        let after_pass = board.switch_players().make_move(Square::A1);
+        let exact = after_pass.final_score();
+        assert_eq!(exact.to_disc_diff().value(), -14);
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let pool = ThreadPool::new(1);
+
+        let pass_score = Score::from_disc_diff(DiscScore::new(-2));
+        for alpha in [exact - 1, exact, pass_score - 1, pass_score] {
+            let beta = alpha + 1;
+            let result =
+                EndGameStrategy::shallow_search(&mut ctx, &board, 1, alpha, beta, pool.main());
+            if result >= beta {
+                assert!(result <= exact);
+            } else {
+                assert!(exact <= result && result <= alpha);
+            }
         }
     }
 
@@ -721,6 +784,78 @@ mod tests {
                 .probe(cache_idx, &board, DiscScore::new(49))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn split_point_cutoff_restores_played_squares_and_preserves_completed_child_bound() {
+        use std::cell::Cell;
+
+        struct CutoffAfter(Cell<usize>);
+
+        impl SplitPointCutoff for CutoffAfter {
+            fn occurred(&self) -> bool {
+                let remaining = self.0.get();
+                self.0.set(remaining.saturating_sub(1));
+                remaining == 0
+            }
+        }
+
+        let mut board = Board::new();
+        while board.empty_count() > 8 {
+            let moves = board.legal_moves();
+            if moves.is_empty() {
+                board = board.switch_players();
+            } else {
+                let index = (13 * board.empty_count() % moves.count()) as usize;
+                board = board.make_move(moves.iter().nth(index).unwrap());
+            }
+        }
+
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let mut caches = EndGameCaches::for_thread_count(1);
+        let original = ctx.empty_list.clone();
+        let moves = board.legal_moves();
+        assert!(moves.count() > 1);
+        let alpha = DiscScore::new(0);
+        let score = null_window_search(
+            &mut ctx,
+            &board,
+            alpha,
+            &mut caches,
+            &CutoffAfter(Cell::new(2)),
+            moves,
+        );
+        assert_eq!(ctx.empty_list.count(), original.count());
+        assert_eq!(ctx.empty_list.parity(), original.parity());
+        let mut square = original.first();
+        assert_eq!(ctx.empty_list.first(), square);
+        for _ in 1..original.count() {
+            let next = original.next(square);
+            assert_eq!(ctx.empty_list.next(square), next);
+            square = next;
+        }
+
+        let slot = caches.ec.slot(board.hash());
+        assert_eq!(caches.ec.probe(slot, &board, alpha), None);
+        assert_eq!(score, SPLIT_CUTOFF_SCORE);
+        let mut completed_shallow_children = 0;
+        for sq in moves.iter() {
+            let child = board.make_move(sq);
+            let slot = caches.ec.slot(child.hash());
+            assert_eq!(caches.ec.probe(slot, &child, -(alpha + 1)), None);
+
+            for reply in child.legal_moves().iter() {
+                let grandchild = child.make_move(reply);
+                let slot = caches.shallow.slot(grandchild.hash());
+                if caches.shallow.probe(slot, &grandchild, alpha).is_some() {
+                    completed_shallow_children += 1;
+                }
+            }
+        }
+        assert_eq!(completed_shallow_children, 1);
     }
 
     /// Builds a 9-empty solve task whose `CompletedState` fallback carries a
@@ -801,6 +936,42 @@ mod tests {
         );
 
         assert_is_fallback_result(&result);
+    }
+
+    #[test]
+    fn solve_root_records_timeout_only_when_discarding_a_level() {
+        for expire_before_level in [false, true] {
+            let pool = ThreadPool::new(1);
+            let abort_state = pool.abort_state();
+            let generation = abort_state.begin_search();
+            let (root_moves, mut task, completed) = solve_fallback_fixture(&pool, false, None);
+            let timer = Arc::new(TimeManager::new(
+                TimeControlMode::Fixed {
+                    time_per_move_ms: 0,
+                },
+                abort_state,
+                task.board.empty_count(),
+            ));
+            task.time_manager = Some(timer.clone());
+            if expire_before_level {
+                assert!(timer.check_time_for(generation));
+            }
+            let mut ctx = fallback_context(&task, &root_moves);
+
+            let result = solve_root(
+                &mut ctx,
+                &task.board,
+                &task,
+                pool.main(),
+                Score::ZERO,
+                completed,
+                Selectivity::Level2,
+            );
+
+            assert_is_fallback_result(&result);
+            assert!(pool.main().is_search_aborted());
+            assert_eq!(timer.timed_out(), expire_before_level);
+        }
     }
 
     #[test]
@@ -914,6 +1085,40 @@ mod tests {
         );
 
         assert_is_fallback_result(&result);
+    }
+
+    #[test]
+    fn endgame_handoff_does_not_count_midgame_lines_as_completed_endgame_lines() {
+        let pool = ThreadPool::new(1);
+        let abort_at = Arc::new(AtomicUsize::new(Level::ENDGAME_SELECTIVITY.len()));
+        let (root_moves, task, mut completed) =
+            solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
+        let mut ctx = fallback_context(&task, &root_moves);
+        let depth = ctx.empty_list.count();
+        let midgame_score = Score::from_disc_diff(DiscScore::new(4));
+        let pv = [None; crate::constants::MAX_PLY];
+        assert_eq!(ctx.selectivity, Selectivity::None);
+        assert!(root_moves.count() > 1);
+        for (idx, row) in root_moves.snapshot().iter().enumerate() {
+            root_moves.set_pv_idx(idx);
+            root_moves.update(row.sq, midgame_score, true, &pv);
+            completed.line_completed(&ctx, depth, false);
+        }
+
+        let result = solve_root(
+            &mut ctx,
+            &task.board,
+            &task,
+            pool.main(),
+            midgame_score,
+            completed,
+            Selectivity::Level2,
+        );
+
+        assert!(!result.is_endgame());
+        assert_eq!(result.depth(), depth);
+        assert_eq!(result.selectivity(), Selectivity::None);
+        assert_eq!(result.score(), Some(midgame_score));
     }
 
     #[test]

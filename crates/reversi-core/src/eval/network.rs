@@ -9,7 +9,7 @@ use crate::board::Board;
 use crate::eval::network::input_layer::{
     BASE_OUTPUT_DIMS, BaseInput, PA_OUTPUT_DIMS, PhaseAdaptiveInput,
 };
-use crate::eval::network::layer_stack::{LayerStack, load_layer_stacks};
+use crate::eval::network::layer_stack::{LayerStack, NUM_LAYER_STACKS, load_layer_stacks};
 use crate::eval::pattern_feature::PatternFeature;
 use crate::eval::util::{ceil_to_multiple, expect_end_of_weights};
 use crate::score::Score;
@@ -59,21 +59,19 @@ impl NetworkBuffers {
     };
 
     #[inline(always)]
-    fn base_input_mut(&mut self) -> &mut [u8] {
-        &mut self.l1_input[..BASE_OUTPUT_DIMS]
+    fn base_input_mut(&mut self) -> &mut Align64<[u8; BASE_OUTPUT_DIMS]> {
+        self.l1_input.sub_array_mut::<0, BASE_OUTPUT_DIMS>()
     }
 
     #[inline(always)]
-    fn pa_input_mut(&mut self) -> &mut [u8] {
-        &mut self.l1_input[PA_INPUT_START..PA_INPUT_END]
+    fn pa_input_mut(&mut self) -> &mut Align64<[u8; PA_OUTPUT_DIMS]> {
+        self.l1_input
+            .sub_array_mut::<PA_INPUT_START, PA_OUTPUT_DIMS>()
     }
 
     #[inline(always)]
-    fn output_segments(&self) -> [&[u8]; 2] {
-        [
-            &self.l2_out[..L2_OUTPUT_DIMS],
-            &self.l1_input[..PA_INPUT_END],
-        ]
+    fn output_segments(&self) -> (&Align64<[u8; L2_OUTPUT_DIMS]>, &Align64<[u8; PA_INPUT_END]>) {
+        (&self.l2_out, self.l1_input.sub_array::<0, PA_INPUT_END>())
     }
 }
 
@@ -148,7 +146,7 @@ fn with_network_buffers<R>(f: impl FnOnce(&mut NetworkBuffers) -> R) -> R {
 pub struct Network {
     base_input: BaseInput,
     pa_input: PhaseAdaptiveInput,
-    layer_stacks: Box<[LayerStack]>,
+    layer_stacks: Box<[LayerStack; NUM_LAYER_STACKS]>,
 }
 
 impl Network {
@@ -206,6 +204,95 @@ impl Network {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn compressed_main_weights_produce_the_expected_score_for_every_ply() {
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 1).unwrap();
+        encoder.include_checksum(true).unwrap();
+        let mut position = 0;
+        let mut write_at = |offset, bytes: &[u8]| {
+            static ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
+            let mut remaining = usize::try_from(offset - position).unwrap();
+            while remaining > 0 {
+                let chunk = remaining.min(ZEROS.len());
+                encoder.write_all(&ZEROS[..chunk]).unwrap();
+                remaining -= chunk;
+            }
+            encoder.write_all(bytes).unwrap();
+            position = offset + bytes.len() as u64;
+        };
+
+        let rows = 297_432;
+        let base_size = 512 * (rows + 1);
+        let phase_size = 256 * (rows + 1);
+        write_at(0, &256i16.to_le_bytes());
+        write_at(2 * 128, &256i16.to_le_bytes());
+        write_at(512 + 512, &256i16.to_le_bytes());
+        for phase in 0..6 {
+            let bias = 256 + 32 * phase as i16;
+            write_at(base_size + phase * phase_size, &bias.to_le_bytes());
+        }
+
+        let stacks_start = base_size + 6 * phase_size;
+        for ply in 0..60 {
+            let l1 = stacks_start + 7_620 * ply;
+            let l2 = l1 + 16 * (4 + 288);
+            let output = l2 + 64 * (4 + 32);
+            let l1_bias = -256 + 24 * ply as i32;
+            let l2_bias = 3_456 + 113 * ply as i32;
+            let output_bias = 64 * ply as i32 - 513;
+            write_at(l1, &l1_bias.to_le_bytes());
+            write_at(l1 + 16 * 4, &[3]);
+            write_at(l1 + 16 * 4 + 128, &[(-2i8) as u8]);
+            write_at(l1 + 16 * 4 + 256, &[36, 127]);
+            write_at(l2 + 37 * 4, &l2_bias.to_le_bytes());
+            write_at(l2 + 64 * 4 + 37 * 32, &[7]);
+            write_at(l2 + 64 * 4 + 37 * 32 + 16, &[23]);
+            write_at(output, &output_bias.to_le_bytes());
+            write_at(output + 4 + 2 * 37, &(-61i16).to_le_bytes());
+            write_at(output + 4 + 2 * 64, &32i16.to_le_bytes());
+            write_at(output + 4 + 2 * 192, &(-16i16).to_le_bytes());
+        }
+        write_at(609_599_984, &[]);
+
+        let bytes = encoder.finish().unwrap();
+        let network = Network::from_bytes(&bytes).unwrap();
+        let feature = PatternFeature::new();
+        let mut different_feature = feature;
+        different_feature.set(0, 1);
+        let initial = Board::new();
+        let single_move = Board::from_bitboards(1u64, 2u64);
+        for ply in 0..60 {
+            let phase_bias = 256 + 32 * i32::try_from(ply / 10).unwrap();
+            let phase = phase_bias.pow(2) / 1_024;
+            for (board, feature, mobility, base) in [
+                (&initial, &feature, 4, 64),
+                (&single_move, &different_feature, 1, 127),
+            ] {
+                let ply_i32 = i32::try_from(ply).unwrap();
+                let l1 = -256 + 24 * ply_i32 + 3 * base - 2 * phase + 36 * 7 * mobility;
+                let square = (l1.pow(2) / 1_048_576).min(255);
+                let relu = (l1 / 64).clamp(0, 255);
+                let l2 = 3_456 + 113 * ply_i32 + 7 * square + 23 * relu;
+                let activation = l2.clamp(0, 255 * 64).pow(2) / 1_048_576;
+                let raw = 64 * ply_i32 - 513 - 61 * activation + 32 * base - 16 * phase;
+                assert_eq!(
+                    network.evaluate(board, feature, ply).value(),
+                    raw.div_euclid(64),
+                    "ply {ply}, mobility {mobility}"
+                );
+            }
+        }
+        drop(network);
+        assert_eq!(
+            Network::from_bytes(&bytes[..bytes.len() - 1])
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
 
     /// macOS TLV storage only 16-byte-aligns the per-thread block, so freshly
     /// spawned worker threads land the raw scratch at 16/32/48 mod 64. Assert
@@ -214,12 +301,24 @@ mod tests {
     /// the debug `misaligned_pointer_dereference` check.
     #[test]
     fn scratch_is_64_aligned_on_worker_threads() {
+        assert_eq!(std::mem::size_of::<NetworkBuffers>(), 832);
+        assert_eq!(std::mem::align_of::<NetworkBuffers>(), 64);
         let handles: Vec<_> = (0..256)
             .map(|_| {
                 std::thread::spawn(|| {
                     with_network_buffers(|buffers| {
                         let addr = std::ptr::from_ref(buffers).addr();
                         assert_eq!(addr % 64, 0, "scratch not 64-aligned: {addr:#x}");
+                        for field in [
+                            buffers.l1_input.as_ptr().addr(),
+                            buffers.l1_li_out.as_ptr().addr(),
+                            buffers.l1_out.as_ptr().addr(),
+                            buffers.l2_li_out.as_ptr().addr(),
+                            buffers.l2_out.as_ptr().addr(),
+                        ] {
+                            assert!((addr..addr + 832).contains(&field));
+                            assert_eq!(field % 64, 0);
+                        }
                     })
                 })
             })

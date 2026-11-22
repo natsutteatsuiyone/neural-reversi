@@ -1,0 +1,55 @@
+name: Verify TLA+ models
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - verification/tla/**
+      - .github/workflows/verify-tla.yml
+      - crates/reversi-core/src/search/threading/thread.rs
+      - crates/reversi-core/src/search/threading/split_point.rs
+      - crates/reversi-core/src/search/threading/pool.rs
+      - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/util/bitset.rs
+      - crates/reversi-core/src/util/spinlock.rs
+      - crates/reversi-core/src/move_list/iterator.rs
+  pull_request:
+    branches: [ main ]
+    paths:
+      - verification/tla/**
+      - .github/workflows/verify-tla.yml
+      - crates/reversi-core/src/search/threading/thread.rs
+      - crates/reversi-core/src/search/threading/split_point.rs
+      - crates/reversi-core/src/search/threading/pool.rs
+      - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/util/bitset.rs
+      - crates/reversi-core/src/util/spinlock.rs
+      - crates/reversi-core/src/move_list/iterator.rs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  split-point:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Show tool versions
+      run: |
+        java -version
+        python3 --version
+
+    - name: Check the model
+      run: python3 verification/tla/split-point/check.py
+
+    - name: Check that every mutant is caught
+      run: python3 verification/tla/split-point/check.py --mutants

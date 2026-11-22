@@ -1,0 +1,64 @@
+use std::io::{self, Write};
+
+use crate::constants::MAX_PLY;
+use crate::search_stack::SearchStack;
+use crate::square::Square;
+
+fn encode(row: &[Option<Square>; MAX_PLY]) -> String {
+    row.iter()
+        .map(|entry| entry.map_or(64, |square| square.index()).to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
+    let old = std::array::from_fn(|i| Square::from_u8(((i * 29 + 47) % 64) as u8));
+    let empty = [None; MAX_PLY];
+    let selected = Square::D3;
+    let selected_index = selected.index();
+    for ply in [0, 1, MAX_PLY - 2] {
+        for first_none in 0..=MAX_PLY {
+            let child = std::array::from_fn(|i| {
+                (i != first_none)
+                    .then(|| Square::from_u8(((i * 13 + first_none + ply) % 64) as u8).unwrap())
+            });
+            let mut stack = SearchStack::new();
+            stack.set_pv(ply, &old);
+            stack.set_pv(ply + 1, &child);
+            stack.update_pv(selected, ply);
+            writeln!(
+                out,
+                "u {ply} {selected_index} {} {} {} {}",
+                encode(&old),
+                encode(&child),
+                encode(stack.pv(ply)),
+                encode(stack.pv(ply + 1)),
+            )?;
+        }
+    }
+    for ply in [0, 1, MAX_PLY - 2, MAX_PLY - 1] {
+        let mut stack = SearchStack::new();
+        stack.set_pv(ply, &old);
+        let child = if ply + 1 < MAX_PLY {
+            stack.set_pv(ply + 1, &old);
+            &old
+        } else {
+            &empty
+        };
+        stack.prepare_pv(ply);
+        let next = if ply + 1 < MAX_PLY {
+            stack.pv(ply + 1)
+        } else {
+            &empty
+        };
+        writeln!(
+            out,
+            "p {ply} {selected_index} {} {} {} {}",
+            encode(&old),
+            encode(child),
+            encode(stack.pv(ply)),
+            encode(next),
+        )?;
+    }
+    Ok(())
+}

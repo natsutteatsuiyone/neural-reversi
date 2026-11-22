@@ -32,18 +32,21 @@ impl ConcurrentMoveIterator {
     }
 
     /// Returns the next move and its 1-based index atomically.
+    /// An exhausted iterator stays exhausted.
     #[inline]
     pub fn next(&self) -> Option<(&Move, usize)> {
-        let current = self.current.fetch_add(1, Ordering::Relaxed);
-        if current < self.move_list.moves.len() {
-            // SAFETY: `current < len` checked above.
-            Some((
-                unsafe { self.move_list.moves.get_unchecked_ref(current) },
-                current + 1,
-            ))
-        } else {
-            None
-        }
+        let len = self.move_list.moves.len();
+        let current = self
+            .current
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |index| {
+                (index < len).then(|| index + 1)
+            })
+            .ok()?;
+        // SAFETY: The successful update requires `current < len`.
+        Some((
+            unsafe { self.move_list.moves.get_unchecked_ref(current) },
+            current + 1,
+        ))
     }
 }
 

@@ -3,12 +3,19 @@
 //! `const fn` exceeds rustc's `long_running_const_eval` budget; the data and
 //! the index helper live in `src/eval/pattern_table_data.rs` so both this
 //! script and the runtime module use the same definitions.
+//!
+//! Also emits the midgame ProbCut coefficient table to
+//! `$OUT_DIR/midgame_probcut_table.rs`, tabulated from
+//! the model in `src/probcut/midgame_params.rs`; `exp` and `sqrt` are not
+//! `const fn`.
 
 use std::env;
+use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 
 include!("src/eval/pattern_table_data.rs");
+include!("src/probcut/midgame_params.rs");
 
 fn build_eval_feature_rows() -> Vec<[u16; FEATURE_VECTOR_SIZE]> {
     let mut result = vec![[0u16; FEATURE_VECTOR_SIZE]; BOARD_SQUARES];
@@ -64,12 +71,92 @@ fn write_u16_sum_table(path: &std::path::Path) {
     fs::write(path, bytes).expect("failed to write eval_feature_u16_sum.bin");
 }
 
+fn probcut_depth(deep: u32) -> u32 {
+    2 * (deep / 6)
+}
+
+fn build_midgame_table() -> Vec<[[f64; 4]; NUM_DEPTH]> {
+    let scale = f64::from(SCORE_SCALE);
+    PROBCUT_PARAMS
+        .iter()
+        .map(|params| {
+            std::array::from_fn(|deep| {
+                let shallow = f64::from(probcut_depth(deep as u32));
+                let deep = deep as f64;
+                [
+                    params.mean(shallow, deep) * scale,
+                    params.sigma(shallow, deep) * scale,
+                    params.mean(0.0, deep) * scale,
+                    params.sigma(0.0, deep) * scale,
+                ]
+            })
+        })
+        .collect()
+}
+
+fn write_midgame_table(path: &std::path::Path) {
+    let mut source = String::new();
+    writeln!(source, "const MIDGAME_TABLE_PLY: usize = {NUM_PLY};").unwrap();
+    writeln!(source, "const MIDGAME_TABLE_DEPTH: usize = {NUM_DEPTH};").unwrap();
+    writeln!(source, "const _: () = {{").unwrap();
+    writeln!(source, "    assert!(Score::SCALE == {SCORE_SCALE});").unwrap();
+    write!(
+        source,
+        "    const EXPECTED_SHALLOW: [Depth; MIDGAME_TABLE_DEPTH] = ["
+    )
+    .unwrap();
+    for deep in 0..NUM_DEPTH {
+        if deep > 0 {
+            source.push_str(", ");
+        }
+        write!(source, "{}", probcut_depth(deep as u32)).unwrap();
+    }
+    writeln!(source, "];").unwrap();
+    writeln!(source, "    let mut deep = 0;").unwrap();
+    writeln!(source, "    while deep < MIDGAME_TABLE_DEPTH {{").unwrap();
+    writeln!(
+        source,
+        "        assert!(probcut_depth(deep as Depth) == EXPECTED_SHALLOW[deep]);"
+    )
+    .unwrap();
+    writeln!(source, "        deep += 1;").unwrap();
+    writeln!(source, "    }}").unwrap();
+    writeln!(source, "}};").unwrap();
+    writeln!(
+        source,
+        "static MIDGAME_TABLE: [[ProbcutCoefficients; MIDGAME_TABLE_DEPTH]; MIDGAME_TABLE_PLY] = ["
+    )
+    .unwrap();
+    for row in build_midgame_table() {
+        source.push('[');
+        for [mean, sigma, mean0, sigma0] in row {
+            write!(
+                source,
+                "ProbcutCoefficients{{mean:f64::from_bits({:#x}),sigma:f64::from_bits({:#x}),\
+                 mean0:f64::from_bits({:#x}),sigma0:f64::from_bits({:#x})}},",
+                mean.to_bits(),
+                sigma.to_bits(),
+                mean0.to_bits(),
+                sigma0.to_bits(),
+            )
+            .unwrap();
+        }
+        source.push_str("],\n");
+    }
+    source.push_str("];\n");
+    fs::write(path, source).expect("failed to write midgame_probcut_table.rs");
+}
+
 fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed=src/eval/pattern_table_data.rs");
+    println!("cargo::rerun-if-changed=src/probcut/midgame_params.rs");
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_ARCH");
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
+    generate_tables();
+}
 
+pub(crate) fn generate_tables() {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let features = env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
     let needs_table = match arch.as_str() {
@@ -79,6 +166,7 @@ fn main() {
     };
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    write_midgame_table(&out_dir.join("midgame_probcut_table.rs"));
     let path = out_dir.join("eval_feature_u16_sum.bin");
 
     if needs_table {

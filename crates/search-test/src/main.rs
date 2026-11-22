@@ -1357,11 +1357,27 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
+    use std::sync::OnceLock;
     use std::time::Duration;
 
+    use reversi_core::eval::Eval;
     use reversi_core::obf::ObfPosition;
 
     use super::*;
+
+    fn test_search(n_threads: usize) -> search::Search {
+        static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+        let eval = EVAL
+            .get_or_init(|| {
+                Arc::new(
+                    Eval::with_weight_files(None, None)
+                        .expect("embedded evaluation weights must load"),
+                )
+            })
+            .clone();
+        let shared = search::SearchSharedResources::from_eval(eval, 1, Some(n_threads));
+        search::Search::from_shared_resources(&shared)
+    }
 
     #[test]
     fn endgame_iteration_costs_exclude_merged_midgame_work() {
@@ -1371,7 +1387,7 @@ mod tests {
         .unwrap()
         .unwrap();
         let case = TestCase::new(1, position).unwrap();
-        let mut search = search::Search::new(&SearchOptions::new(1).with_threads(Some(4)));
+        let mut search = test_search(4);
         let reports = Arc::new(Mutex::new(Vec::new()));
         let callback_reports = reports.clone();
         let options =
@@ -1486,7 +1502,7 @@ mod tests {
 
     #[test]
     fn timed_search_aborts_cleanly_and_counts_completed_endgame_levels_once() {
-        let mut search = search::Search::new(&SearchOptions::new(1).with_threads(Some(1)));
+        let mut search = test_search(1);
 
         let midgame_pos = ObfPosition::parse(
             "--OOOO----OOOO---XOXXXX-XOXXOXXXOOOOXOX---OOOOO----------------- X; A6:+8;",

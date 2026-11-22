@@ -9,130 +9,85 @@ pub use phase_adaptive_input::PhaseAdaptiveInput;
 pub(in crate::eval::network) use base_input::OUTPUT_DIMS as BASE_OUTPUT_DIMS;
 pub(in crate::eval::network) use phase_adaptive_input::OUTPUT_DIMS as PA_OUTPUT_DIMS;
 
-use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
-use crate::eval::util::feature_offset;
+use crate::eval::util::accumulate_scalar;
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[cfg(any(test, all(target_arch = "x86_64", target_feature = "avx2")))]
 mod simd_layout {
-    use std::mem::size_of;
+    #[cfg(any(test, target_feature = "avx512bw"))]
+    const AVX512_ORDER: [usize; 8] = [0, 2, 4, 6, 1, 3, 5, 7];
+    #[cfg(any(test, not(target_feature = "avx512bw")))]
+    const AVX2_ORDER: [usize; 8] = [0, 1, 4, 5, 2, 3, 6, 7];
 
-    const PERMUTE_WIDTH: usize = 8;
-
-    /// Reorders the first `ORDER_LEN` elements of `tile` according to `order`.
-    ///
-    /// # Safety
-    ///
-    /// `tile` must contain at least `ORDER_LEN` elements, and every index in
-    /// `order` must be a valid index into `tile`.
-    unsafe fn permute_tile<T, const ORDER_LEN: usize>(tile: &mut [T], order: &[usize; ORDER_LEN])
-    where
-        T: Copy + Default,
-    {
-        let mut temp = [T::default(); ORDER_LEN];
-        for (dst, &src_idx) in temp.iter_mut().zip(order.iter()) {
-            *dst = tile[src_idx];
-        }
-        tile.copy_from_slice(&temp);
-    }
-
-    /// Permutes each row of `data` tile-by-tile, reinterpreting it as a slice
-    /// of `T` tiles.
-    ///
-    /// # Safety
-    ///
-    /// `data` must be properly aligned for `T`, and its byte length must be a
-    /// multiple of `size_of::<T>()`, so that reinterpreting it as
-    /// `data.len() * size_of::<i16>() / size_of::<T>()` values of `T` stays
-    /// within the allocation.
-    unsafe fn permute_rows_impl<T, const ORDER_LEN: usize>(
+    fn permute_rows_impl<const TILE_WORDS: usize>(
         data: &mut [i16],
         row_len: usize,
-        order: &[usize; ORDER_LEN],
-    ) where
-        T: Copy + Default,
-    {
+        order: [usize; 8],
+    ) {
         if row_len == 0 {
             return;
         }
-
-        let row_count = data.len() / row_len;
-
-        let tiles_per_row = (row_len * size_of::<i16>()) / size_of::<T>();
-        if tiles_per_row == 0 {
-            return;
-        }
-
-        let total_tiles = tiles_per_row * row_count;
-        let tile_ptr = data.as_mut_ptr() as *mut T;
-        let tile_slice = unsafe { std::slice::from_raw_parts_mut(tile_ptr, total_tiles) };
-
-        let mut rows = tile_slice.chunks_exact_mut(tiles_per_row);
-        for row in &mut rows {
-            let (tiles, _) = row.as_chunks_mut::<ORDER_LEN>();
-            for tile in tiles {
-                unsafe { permute_tile::<T, ORDER_LEN>(tile, order) };
+        for row in data.chunks_exact_mut(row_len) {
+            let (tiles, _) = row.as_chunks_mut::<TILE_WORDS>();
+            let (blocks, _) = tiles.as_chunks_mut::<8>();
+            for block in blocks {
+                let source = *block;
+                *block = order.map(|index| source[index]);
             }
         }
     }
 
-    cfg_select! {
-        target_feature = "avx512bw" => {
-            const AVX512_ORDER: [usize; PERMUTE_WIDTH] = [0, 2, 4, 6, 1, 3, 5, 7];
-            pub fn permute_rows(data: &mut [i16], row_len: usize) {
-                unsafe { permute_rows_impl::<u128, PERMUTE_WIDTH>(data, row_len, &AVX512_ORDER) };
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    pub fn permute_rows(data: &mut [i16], row_len: usize) {
+        cfg_select! {
+            target_feature = "avx512bw" => {
+                permute_rows_impl::<8>(data, row_len, AVX512_ORDER);
             }
-        }
-        target_feature = "avx2" => {
-            const AVX2_ORDER: [usize; PERMUTE_WIDTH] = [0, 1, 4, 5, 2, 3, 6, 7];
-            pub fn permute_rows(data: &mut [i16], row_len: usize) {
-                unsafe { permute_rows_impl::<u64, PERMUTE_WIDTH>(data, row_len, &AVX2_ORDER) };
+            _ => {
+                permute_rows_impl::<4>(data, row_len, AVX2_ORDER);
             }
         }
     }
-}
 
-/// Accumulates weights of active sparse features into the accumulator (scalar fallback).
-#[inline(always)]
-fn accumulate_scalar<const DIMS: usize>(
-    pattern_feature: &PatternFeature,
-    weights: &[i16],
-    acc: &mut [i16; DIMS],
-) {
-    let acc_ptr = acc.as_mut_ptr();
-    let weights_ptr = weights.as_ptr();
-    for idx in 0..NUM_PATTERN_FEATURES {
-        let offset = feature_offset(pattern_feature, idx);
-        let row_ptr = unsafe { weights_ptr.add(offset * DIMS) };
-        let mut j = 0;
-        unsafe {
-            while j + 4 <= DIMS {
-                let acc_j = acc_ptr.add(j);
-                let row_j = row_ptr.add(j);
-                *acc_j = (*acc_j).wrapping_add(*row_j);
-                *acc_j.add(1) = (*acc_j.add(1)).wrapping_add(*row_j.add(1));
-                *acc_j.add(2) = (*acc_j.add(2)).wrapping_add(*row_j.add(2));
-                *acc_j.add(3) = (*acc_j.add(3)).wrapping_add(*row_j.add(3));
-                j += 4;
-            }
-
-            while j < DIMS {
-                let acc_j = acc_ptr.add(j);
-                *acc_j = (*acc_j).wrapping_add(*row_ptr.add(j));
-                j += 1;
+    #[cfg(test)]
+    #[test]
+    fn x86_row_permutations_restore_natural_order_after_lane_packing() {
+        fn check<const TILE_WORDS: usize>(order: [usize; 8], width: usize) {
+            for row_len in [128, 256] {
+                let mut data = (0..2 * row_len as i16 + 2).collect::<Vec<_>>();
+                let end = data.len() - 1;
+                let guard = data[end];
+                permute_rows_impl::<TILE_WORDS>(&mut data[1..end], row_len, order);
+                for (row, values) in data[1..end].chunks_exact(row_len).enumerate() {
+                    for index in 0..row_len {
+                        let lane = index % width;
+                        let source = index - lane
+                            + (lane / 16) * 8
+                            + ((lane / 8) % 2) * (width / 2)
+                            + lane % 8;
+                        assert_eq!(values[source], (row * row_len + index + 1) as i16);
+                    }
+                }
+                assert_eq!(data[0], 0);
+                assert_eq!(data[end], guard);
             }
         }
+
+        check::<4>(AVX2_ORDER, 32);
+        check::<8>(AVX512_ORDER, 64);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, calc_pattern_size};
+    use crate::eval::pattern_feature::{
+        INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PatternFeature, calc_pattern_size,
+    };
 
     fn valid_pattern_feature() -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..NUM_PATTERN_FEATURES {
-            pattern_feature[idx] = ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16;
+            pattern_feature.set(idx, ((idx * 4099 + 17) % calc_pattern_size(idx)) as u16);
         }
         pattern_feature
     }
@@ -147,7 +102,7 @@ mod tests {
         let mut actual = expected;
 
         for feature_idx in 0..NUM_PATTERN_FEATURES {
-            let row = feature_offset(&pattern_feature, feature_idx);
+            let row = pattern_feature.row(feature_idx);
             let values = [
                 feature_idx as i16 - 17,
                 31 - feature_idx as i16,

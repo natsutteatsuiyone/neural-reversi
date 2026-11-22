@@ -149,6 +149,11 @@ impl Score {
         self.0
     }
 
+    #[inline(always)]
+    pub(crate) const fn is_finite(self) -> bool {
+        self.0.unsigned_abs() < Self::INF.0 as u32
+    }
+
     /// Converts to a disc difference score (truncated toward negative infinity).
     #[inline(always)]
     pub const fn to_disc_diff(self) -> DiscScore {

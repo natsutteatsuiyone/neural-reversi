@@ -4,6 +4,7 @@
 //! midgame and endgame drivers; the shared alpha-beta core lives in the
 //! `pvs` module.
 
+mod aspiration;
 pub mod context;
 pub(crate) mod correction_history;
 pub mod counters;
@@ -22,6 +23,7 @@ pub mod strategy;
 pub(crate) mod threading;
 pub mod time_control;
 
+pub(crate) use aspiration::widen_aspiration_window;
 #[doc(hidden)]
 pub use endgame::solve_last1;
 pub use options::{SearchConstraint, SearchRunOptions};
@@ -35,9 +37,7 @@ use crate::board::Board;
 use crate::constants::{INITIAL_EMPTY_COUNT, MAX_THREADS};
 use crate::eval::{Eval, EvalMode};
 use crate::level::Level;
-use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::score::Score;
 use crate::search::correction_history::CorrectionHistories;
 use crate::search::options::{SearchOptions, available_cpus};
 use crate::search::result::SearchResult;
@@ -137,25 +137,31 @@ impl SearchSharedResources {
     ///
     /// Panics if the evaluation weight files cannot be loaded.
     pub fn new(options: &SearchOptions) -> Self {
-        let n_threads = options
-            .n_threads
-            .min(available_cpus())
-            .clamp(1, MAX_THREADS);
         let eval = Eval::with_weight_files(
             options.eval_path.as_deref(),
             options.eval_sm_path.as_deref(),
         )
         .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
 
-        // Ensure ProbCut tables are initialized before any engine is spawned.
-        probcut::init();
+        Self::from_eval(Arc::new(eval), options.tt_mb_size, Some(options.n_threads))
+    }
+
+    pub fn from_eval(eval: Arc<Eval>, tt_mb_size: usize, n_threads: Option<usize>) -> Self {
+        let n_threads = n_threads
+            .unwrap_or_else(available_cpus)
+            .min(available_cpus())
+            .clamp(1, MAX_THREADS);
 
         Self {
-            eval: Arc::new(eval),
-            tt_mb_size: options.tt_mb_size,
+            eval,
+            tt_mb_size,
             n_threads,
             thread_pool: None,
         }
+    }
+
+    pub fn eval(&self) -> &Arc<Eval> {
+        &self.eval
     }
 
     /// Makes all engines created from this bundle after this call share one
@@ -402,28 +408,6 @@ impl Search {
     }
 }
 
-/// Widens the aspiration window around `score` after a fail-low or fail-high.
-///
-/// Returns `true` if the window was widened and the search must be repeated,
-/// or `false` when `score` lies inside the window and the result stands.
-pub(crate) fn widen_aspiration_window(
-    score: Score,
-    alpha: &mut Score,
-    beta: &mut Score,
-    delta: Score,
-) -> bool {
-    if score <= *alpha {
-        *beta = *alpha;
-        *alpha = (score - delta).max(-Score::INF);
-    } else if score >= *beta {
-        *alpha = (*beta - delta).max(*alpha);
-        *beta = (score + delta).min(Score::INF);
-    } else {
-        return false;
-    }
-    true
-}
-
 /// Dispatches to midgame or endgame search based on remaining empties.
 ///
 /// Compares the minimum endgame depth from the level configuration against the
@@ -444,6 +428,7 @@ fn is_endgame_root(level: &Level, n_empties: Depth) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score::Score;
     use crate::search::counters::SearchCounters;
     use crate::search::time_control::TimeControlMode;
     use crate::square::Square;
@@ -473,7 +458,7 @@ mod tests {
 
     #[test]
     fn shared_resources_reuse_eval_and_share_the_thread_pool_only_on_request() {
-        let mut shared = SearchSharedResources::new(&SearchOptions::new(1).with_threads(Some(1)));
+        let mut shared = SearchSharedResources::from_eval(Eval::shared_for_tests(), 1, Some(1));
 
         let first = Search::from_shared_resources(&shared);
         let second = Search::from_shared_resources(&shared);
@@ -492,12 +477,7 @@ mod tests {
     }
 
     fn search_for_tests() -> Search {
-        let shared = SearchSharedResources {
-            eval: Eval::shared_for_tests(),
-            tt_mb_size: 0,
-            n_threads: 1,
-            thread_pool: None,
-        };
+        let shared = SearchSharedResources::from_eval(Eval::shared_for_tests(), 0, Some(1));
         Search::from_shared_resources(&shared)
     }
 

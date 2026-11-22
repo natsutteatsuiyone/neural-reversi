@@ -1,11 +1,11 @@
 use std::io::{self, Write};
-use std::sync::{OnceLock, mpsc};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
+use reversi_core::eval::Eval;
 use reversi_core::level::Level;
 use reversi_core::player_color::PlayerColor;
-use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources, StopToken};
@@ -29,21 +29,22 @@ fn with_watchdog(name: &'static str, run: impl FnOnce()) {
     run();
 }
 
-fn search(n_threads: usize) -> Search {
-    static SINGLE: OnceLock<SearchSharedResources> = OnceLock::new();
-    static DOUBLE: OnceLock<SearchSharedResources> = OnceLock::new();
-    static QUAD: OnceLock<SearchSharedResources> = OnceLock::new();
-    let shared = match n_threads {
-        1 => &SINGLE,
-        2 => &DOUBLE,
-        4 => &QUAD,
-        _ => panic!("unsupported test thread count: {n_threads}"),
-    };
-    Search::from_shared_resources(shared.get_or_init(|| {
-        SearchSharedResources::new(
-            &SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(n_threads)),
+fn shared_eval() -> Arc<Eval> {
+    static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+    EVAL.get_or_init(|| {
+        Arc::new(
+            Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
         )
-    }))
+    })
+    .clone()
+}
+
+fn shared_resources(n_threads: usize) -> SearchSharedResources {
+    SearchSharedResources::from_eval(shared_eval(), TEST_TT_MB_SIZE, Some(n_threads))
+}
+
+fn search(n_threads: usize) -> Search {
+    Search::from_shared_resources(&shared_resources(n_threads))
 }
 
 fn score(result: &SearchResult) -> i32 {
@@ -90,7 +91,7 @@ fn timed_search_terminates_within_deadline_margin() {
         move || {
             let board = Board::new().make_move(Square::F5);
             let options = SearchRunOptions::with_time(TimeControlMode::Byoyomi {
-                time_per_move_ms: 500,
+                time_per_move_ms: 200,
             });
 
             let start = Instant::now();
@@ -162,6 +163,39 @@ fn infinite_search_keeps_deepening_a_forced_move() {
     assert!(result.depth() > 4, "stopped at depth {}", result.depth());
 }
 
+#[test]
+fn fixed_depth_search_reuses_pool_after_stopping_midgame_helpers() {
+    let mut shared = shared_resources(4);
+    shared.share_thread_pool();
+    let mut timed = Search::from_shared_resources(&shared);
+    let mut parallel = Search::from_shared_resources(&shared);
+    let mut single = search(1);
+    with_watchdog(
+        "fixed_depth_search_reuses_pool_after_stopping_midgame_helpers",
+        move || {
+            let board = Board::new().make_move(Square::F5);
+            let stop = StopToken::new();
+            let callback_stop = stop.clone();
+            let options = SearchRunOptions::with_time(TimeControlMode::Infinite)
+                .stop_token(stop)
+                .callback(move |progress| {
+                    if progress.depth >= 5 {
+                        callback_stop.stop();
+                    }
+                });
+            let stopped = timed.run(&board, &options);
+            let best_move = stopped.best_move().unwrap();
+            assert!(board.legal_moves().contains(best_move));
+
+            let next = board.make_move(best_move);
+            let fixed = SearchRunOptions::with_level(Level::uniform(5, 0)).disable_probcut();
+            let reused = parallel.run(&next, &fixed);
+            assert_eq!(reused.depth(), 5);
+            assert_eq!(reused.score(), single.run(&next, &fixed).score());
+        },
+    );
+}
+
 /// Two engines from one `SearchSharedResources` share only the evaluation
 /// network; concurrent solves must both stay exact.
 #[test]
@@ -188,8 +222,7 @@ fn concurrent_engines_from_shared_resources_solve_correctly() {
 /// transposition tables, so searches taking turns on the pool stay exact.
 #[test]
 fn engines_sharing_a_pool_search_in_turn() {
-    let mut shared =
-        SearchSharedResources::new(&SearchOptions::new(TEST_TT_MB_SIZE).with_threads(Some(2)));
+    let mut shared = shared_resources(2);
     shared.share_thread_pool();
     let mut first = Search::from_shared_resources(&shared);
     let mut second = Search::from_shared_resources(&shared);

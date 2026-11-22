@@ -15,7 +15,8 @@ use crate::flip;
 use crate::move_list::MoveList;
 use crate::probcut;
 use crate::probcut::Selectivity;
-use crate::score::{DiscScore, Score};
+use crate::score::Score;
+use crate::search::aspiration::{ASPIRATION_MIN_DEPTH, midgame_window, retry_midgame};
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::node_type::{NonPV, Root};
@@ -24,22 +25,13 @@ use crate::search::root_move::RootMoves;
 use crate::search::strategy::MidGameStrategy;
 use crate::search::threading::Thread;
 use crate::search::time_control::{record_abort, should_stop_iteration};
-use crate::search::{SearchProgress, SearchTask, search, widen_aspiration_window};
+use crate::search::{SearchProgress, SearchTask, search};
 use crate::square::Square;
 use crate::transposition_table::Bound;
 use crate::types::Depth;
 
 pub(in crate::search) use lazy_smp::Helper;
 use lazy_smp::{Helpers, vote_best};
-
-/// Base aspiration window delta.
-const ASPIRATION_DELTA: Score = Score::from_disc_diff(DiscScore::new(2));
-
-/// Divisor converting a root move's mean squared score into extra window width.
-const ASPIRATION_MSS_DIVISOR: i64 = 10193;
-
-/// Minimum depth to enable aspiration windows.
-const ASPIRATION_MIN_DEPTH: Depth = 5;
 
 /// Depth threshold for switching iteration step from +2 to +1.
 const DEPTH_STEP_THRESHOLD: Depth = 10;
@@ -226,20 +218,11 @@ fn iterate(
 /// Returns the aspiration window `(alpha, beta, delta)` for the current PV
 /// line, centered on its running average score once deep enough.
 fn aspiration_window(ctx: &SearchContext, depth: Depth) -> (Score, Score, Score) {
-    ctx.root_moves
+    let history = ctx
+        .root_moves
         .current_pv()
-        .filter(|_| depth >= ASPIRATION_MIN_DEPTH)
-        .map(|rm| {
-            let delta = ASPIRATION_DELTA
-                + ctx.helper.map_or(Score::ZERO, Helper::aspiration_widening)
-                + Score::from_raw((rm.mean_squared_score.abs() / ASPIRATION_MSS_DIVISOR) as i32);
-            (
-                (rm.average_score - delta).max(-Score::INF),
-                (rm.average_score + delta).min(Score::INF),
-                delta,
-            )
-        })
-        .unwrap_or((-Score::INF, Score::INF, ASPIRATION_DELTA))
+        .map(|rm| (rm.average_score, rm.mean_squared_score));
+    midgame_window(depth, history, ctx.helper.map_or(0, Helper::index))
 }
 
 /// Computes the starting depth for iterative deepening.
@@ -258,26 +241,13 @@ fn aspiration_search(
     depth: Depth,
     alpha: &mut Score,
     beta: &mut Score,
-    mut delta: Score,
+    delta: Score,
     thread: &Arc<Thread>,
 ) -> (Score, bool) {
-    let mut window_clean = true;
-
-    loop {
-        let score =
-            search::<Root, MidGameStrategy>(ctx, board, depth, *alpha, *beta, thread, false);
-
-        if thread.is_search_aborted() {
-            return (score, window_clean);
-        }
-
-        if !widen_aspiration_window(score, alpha, beta, delta) {
-            return (score, window_clean);
-        }
-
-        window_clean = false;
-        delta += delta / 2;
-    }
+    retry_midgame(alpha, beta, delta, |alpha, beta| {
+        let score = search::<Root, MidGameStrategy>(ctx, board, depth, alpha, beta, thread, false);
+        (score, thread.is_search_aborted())
+    })
 }
 
 /// Computes the next iteration depth.
@@ -308,14 +278,15 @@ pub fn try_probcut(
     eval_score: Score,
     thread: &Arc<Thread>,
 ) -> Option<Score> {
+    if !beta.is_finite() {
+        return None;
+    }
     let ply = ctx.ply();
     let pc_depth = probcut::probcut_depth(depth);
-    // SAFETY: `SearchSharedResources::new` calls `probcut::init()` before any
-    // search can run.
-    let pc = unsafe { probcut::midgame_coefficients(ply, depth) };
+    let pc = probcut::midgame_coefficients(ply, depth);
     let t = ctx.selectivity.t_value();
 
-    let pc_beta = probcut::compute_probcut_beta(beta, t, pc);
+    let pc_beta = probcut::compute_probcut_beta(beta, t, pc).max(-Score::INF + 1);
     if pc_beta >= Score::MAX {
         return None;
     }
@@ -536,6 +507,7 @@ mod schedule_tests {
 
     use crate::level::Level;
     use crate::player_color::PlayerColor;
+    use crate::score::DiscScore;
     use crate::search::threading::ThreadPool;
     use crate::search::time_control::{TimeControlMode, TimeManager};
     use crate::transposition_table::TranspositionTable;
@@ -553,6 +525,211 @@ mod schedule_tests {
             u64::MAX,
             "depth-1 move-order masks do not cover the board"
         );
+    }
+
+    #[test]
+    fn aspiration_window_accepts_history_near_the_score_sentinel() {
+        let board = Board::new();
+        let roots = RootMoves::new(&board);
+        let tt = TranspositionTable::new(0);
+        let eval = shared_eval();
+        let ctx = SearchContext::new(&board, Selectivity::Mid, &roots, &tt, &eval);
+        let first = roots.get(0).unwrap().sq;
+
+        roots.update(
+            first,
+            Score::INF - 1,
+            true,
+            &[None; crate::constants::MAX_PLY],
+        );
+
+        let (alpha, beta, delta) = aspiration_window(&ctx, 5);
+        assert_eq!((alpha, beta), (-Score::INF, Score::INF));
+        assert_eq!(delta.value(), 105_840);
+    }
+
+    #[test]
+    fn aspiration_search_retries_both_boundaries_on_a_real_root() {
+        let board = Board::new().make_move(Square::D3);
+        let eval = shared_eval();
+        let pool = ThreadPool::new(1);
+        let search_window = |mut alpha, mut beta| {
+            let roots = RootMoves::new(&board);
+            let tt = TranspositionTable::new(0);
+            let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+            let delta = Score::ZERO + 512;
+            let (score, clean) = aspiration_search(
+                &mut ctx,
+                &board,
+                5,
+                &mut alpha,
+                &mut beta,
+                delta,
+                pool.main(),
+            );
+            assert!(alpha < score && score < beta);
+            (score, clean)
+        };
+        let (expected, clean) = search_window(-Score::INF, Score::INF);
+        assert!(clean);
+        assert_eq!(search_window(-Score::INF, expected), (expected, false));
+        assert_eq!(search_window(expected, Score::INF), (expected, false));
+    }
+
+    #[test]
+    fn probcut_search_rejects_sentinel_scores_and_restores_selectivity() {
+        let board = Board::new().make_move(Square::D3);
+        let roots = RootMoves::new(&board);
+        let tt = TranspositionTable::new(0);
+        let eval = shared_eval();
+        let pool = ThreadPool::new(1);
+        let mut ctx = SearchContext::new(&board, Selectivity::Mid, &roots, &tt, &eval);
+        let static_eval = evaluate(&ctx, &board);
+
+        for depth in [4, 6] {
+            let before = ctx.n_nodes;
+            for sentinel in [-Score::INF, Score::INF] {
+                assert_eq!(
+                    try_probcut(
+                        &mut ctx,
+                        &board,
+                        depth,
+                        sentinel,
+                        true,
+                        static_eval,
+                        pool.main()
+                    ),
+                    None,
+                );
+            }
+            assert_eq!(ctx.n_nodes, before);
+            let beta = -Score::INF + 1;
+            assert_eq!(
+                try_probcut(
+                    &mut ctx,
+                    &board,
+                    depth,
+                    beta,
+                    true,
+                    static_eval,
+                    pool.main()
+                ),
+                Some(beta),
+            );
+            assert_eq!(ctx.n_nodes > before, depth >= 6);
+            assert_eq!(ctx.selectivity, Selectivity::Mid);
+            assert_eq!(ctx.empty_list.count(), board.empty_count());
+        }
+    }
+
+    #[test]
+    fn midgame_search_keeps_finite_scores_after_a_rejected_tt_write() {
+        let board = Board::new().make_move(Square::D3);
+        let roots = RootMoves::new(&board);
+        let tt = TranspositionTable::new(0);
+        let eval = shared_eval();
+        let pool = ThreadPool::new(1);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+        tt.store(
+            tt.probe(&board, board.hash()).slot(),
+            &board,
+            Score::INF,
+            Bound::Exact,
+            12,
+            None,
+            Selectivity::None,
+            false,
+            false,
+        );
+        for (alpha, beta) in [(-Score::INF, -Score::INF + 1), (Score::INF - 1, Score::INF)] {
+            let shallow = evaluate_shallow_with_tt(&mut ctx, &board, 3, alpha, beta);
+            assert!(shallow.is_finite());
+            let root = search::<Root, MidGameStrategy>(
+                &mut ctx,
+                &board,
+                5,
+                alpha,
+                beta,
+                pool.main(),
+                false,
+            );
+            assert!(root.is_finite());
+        }
+    }
+
+    #[test]
+    fn shallow_verification_matches_exhaustive_thresholds() {
+        fn exhaustive(ctx: &mut SearchContext<'_>, board: &Board, depth: Depth) -> Score {
+            if depth == 0 {
+                return evaluate(ctx, board);
+            }
+            let moves = board.legal_moves();
+            if moves.is_empty() {
+                let next = board.switch_players();
+                if !next.has_legal_moves() {
+                    return board.solve(ctx.empty_list.count());
+                }
+                ctx.update_pass();
+                let score = -exhaustive(ctx, &next, depth);
+                ctx.undo_pass();
+                return score;
+            }
+            moves
+                .iter()
+                .map(|square| {
+                    let flipped = flip::flip(square, board.player(), board.opponent());
+                    if flipped == board.opponent() {
+                        return Score::MAX;
+                    }
+                    let next = board.make_move_with_flipped(flipped, square);
+                    ctx.update(square, flipped);
+                    let score = -exhaustive(ctx, &next, depth - 1);
+                    ctx.undo(square);
+                    score
+                })
+                .max()
+                .unwrap()
+        }
+
+        let forced_pass = Board::from_bitboards(0xfffe, !0xffff);
+        let wipeout = Board::from_bitboards(
+            Square::E4.bitboard() | Square::D5.bitboard(),
+            Square::D4.bitboard() | Square::C4.bitboard(),
+        );
+        let terminal = wipeout.make_move(Square::B4);
+        assert!(!forced_pass.has_legal_moves() && forced_pass.switch_players().has_legal_moves());
+        assert!(MoveList::new(&wipeout).wipeout_move().is_some());
+        assert!(terminal.is_game_over());
+
+        let tt = TranspositionTable::new(0);
+        let eval = shared_eval();
+        for board in [
+            Board::new(),
+            Board::new().make_move(Square::D3),
+            forced_pass,
+            wipeout,
+            terminal,
+        ] {
+            let roots = RootMoves::new(&board);
+            let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+            let side = ctx.side_to_move;
+            for (depth, verify) in [
+                (
+                    1,
+                    evaluate_depth1 as fn(&mut SearchContext<'_>, &Board, Score, Score) -> Score,
+                ),
+                (2, evaluate_depth2),
+            ] {
+                let exact = exhaustive(&mut ctx, &board, depth);
+                assert_eq!(verify(&mut ctx, &board, -Score::INF, Score::INF), exact);
+                for beta in [exact, exact + 1] {
+                    let result = verify(&mut ctx, &board, beta - 1, beta);
+                    assert_eq!(result >= beta, exact >= beta);
+                }
+                assert_eq!(ctx.empty_list.count(), board.empty_count());
+                assert!(ctx.side_to_move == side);
+            }
+        }
     }
 
     fn shared_eval() -> Arc<Eval> {
@@ -616,7 +793,6 @@ mod schedule_tests {
 
     #[test]
     fn time_control_hands_off_to_endgame_solve_after_the_last_depth() {
-        probcut::init();
         let pool = ThreadPool::new(1);
         // FFO position #1: 14 empties, Black to move, exact score +18 (G8).
         let board = Board::from_string(

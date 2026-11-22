@@ -1,0 +1,12 @@
+name = "neuralReversi"
+version = "0.1.0"
+defaultTargets = ["NeuralReversi", "revmodel"]
+
+[[lean_lib]]
+name = "NeuralReversi"
+roots = ["NeuralReversi", "NeuralReversi.AuditImports", "Audit", "CSimpAuditRegression", "AuditOwnershipRegression", "DiffMain"]
+moreLeanArgs = ["-DwarningAsError=true", "-M4096"]
+
+[[lean_exe]]
+name = "revmodel"
+root = "DiffMain"

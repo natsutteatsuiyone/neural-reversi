@@ -9,6 +9,9 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+const I8MM_MAX_REGS: usize = 16;
+
 /// Linear transformation layer.
 pub struct LinearLayer<
     const INPUT_DIMS: usize,
@@ -16,7 +19,7 @@ pub struct LinearLayer<
     const PADDED_INPUT_DIMS: usize,
     const PADDED_OUTPUT_DIMS: usize,
 > {
-    biases: AlignedBuffer<i32>,
+    biases: Align64<[i32; PADDED_OUTPUT_DIMS]>,
     weights: AlignedBuffer<i8>,
     forward_fn: ForwardFn<INPUT_DIMS, OUTPUT_DIMS, PADDED_INPUT_DIMS, PADDED_OUTPUT_DIMS>,
 }
@@ -43,12 +46,11 @@ impl<
     /// Loads weights and biases from binary format.
     ///
     /// Format: `OUTPUT_DIMS` biases (little-endian `i32`) followed by row-major
-    /// signed weights (`i8`) for each output neuron. The raw weights are
-    /// repacked into the SIMD-friendly layout while loading.
+    /// signed weights (`i8`) for each output neuron.
     ///
     /// `PADDED_INPUT_DIMS` must be a multiple of 4 for correct weight repacking.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i32>::from_elem(0, PADDED_OUTPUT_DIMS);
+        let mut biases = Align64([0i32; PADDED_OUTPUT_DIMS]);
         let mut weights = AlignedBuffer::<i8>::from_elem(0, PADDED_INPUT_DIMS * PADDED_OUTPUT_DIMS);
 
         for i in 0..OUTPUT_DIMS {
@@ -57,8 +59,11 @@ impl<
 
         let num_weights_to_read = PADDED_INPUT_DIMS * OUTPUT_DIMS;
         for i in 0..num_weights_to_read {
-            let idx = Self::get_weight_index(i, PADDED_INPUT_DIMS, OUTPUT_DIMS);
-            weights[idx] = reader.read_i8()?;
+            let weight = reader.read_i8()?;
+            if i % PADDED_INPUT_DIMS < INPUT_DIMS {
+                let idx = Self::get_weight_index(i, PADDED_INPUT_DIMS, OUTPUT_DIMS);
+                weights[idx] = weight;
+            }
         }
 
         // Select the optimal forward implementation at load time
@@ -149,7 +154,7 @@ impl<
 
                 if !can_use_neon {
                     Self::forward_scalar_wrapper
-                } else if is_aarch64_feature_detected!("i8mm") {
+                } else if OUTPUT_DIMS / 4 <= I8MM_MAX_REGS && is_aarch64_feature_detected!("i8mm") {
                     Self::forward_neon_i8mm_wrapper
                 } else if is_aarch64_feature_detected!("dotprod") {
                     Self::forward_neon_dotprod_wrapper
@@ -685,7 +690,7 @@ impl<
             let high_bit = vdupq_n_u8(0x80);
 
             let weights_base = self.weights.as_ptr();
-            let input_ptr = input.as_ptr() as *const u8;
+            let input_ptr = input.as_ptr();
             let main_end = num_chunks & !3;
 
             let mut i = 0;
@@ -764,17 +769,13 @@ impl<
         use std::arch::aarch64::*;
 
         const OUTPUT_SIMD_WIDTH: usize = 4;
-        // Fits both shapes: Shape B uses `num_regs` (<= 16, L2's 64/4); Shape A
-        // uses `num_regs * 4` partials but only runs for `num_regs <= 4`.
-        const MAX_REGS: usize = 16;
-
         unsafe {
             let num_chunks: usize = ceil_to_multiple(INPUT_DIMS, 8) / 4;
             let num_regs = OUTPUT_DIMS / OUTPUT_SIMD_WIDTH;
-            debug_assert!(num_regs <= MAX_REGS);
+            debug_assert!(num_regs <= I8MM_MAX_REGS);
 
             let weights_base = self.weights.as_ptr();
-            let input_ptr = input.as_ptr() as *const u8;
+            let input_ptr = input.as_ptr();
             let input32 = input.as_ptr() as *const i32;
             let bias_ptr = self.biases.as_ptr();
             let out_ptr = output.as_mut_ptr() as *mut i32;
@@ -783,7 +784,7 @@ impl<
             if num_regs <= 4 {
                 // Shape A: four independent per-lane partials per register break
                 // the `usdot` latency chain; bias is folded in at the end.
-                let mut p = [vdupq_n_s32(0); MAX_REGS];
+                let mut p = [vdupq_n_s32(0); I8MM_MAX_REGS];
 
                 let mut i = 0;
                 while i < main_end {
@@ -826,7 +827,7 @@ impl<
             } else {
                 // Shape B: one resident accumulator per register — per-lane
                 // partials would need 4x the vectors and spill.
-                let mut acc = [vdupq_n_s32(0); MAX_REGS];
+                let mut acc = [vdupq_n_s32(0); I8MM_MAX_REGS];
                 for j in 0..num_regs {
                     acc[j] = vld1q_s32(bias_ptr.add(j * 4));
                 }
@@ -880,7 +881,7 @@ mod tests {
     ) -> LinearLayer<I, O, PI, PO> {
         let weights = AlignedBuffer::from_elem(0, PI * PO);
         let mut layer = LinearLayer {
-            biases: AlignedBuffer::from_elem(0, PO),
+            biases: Align64([0; PO]),
             forward_fn: LinearLayer::<I, O, PI, PO>::select_forward_fn(weights.as_slice()),
             weights,
         };
@@ -995,7 +996,7 @@ mod tests {
     }
 
     #[test]
-    fn load_reads_biases_and_repackages_row_major_weights() {
+    fn load_repackages_active_weights_and_consumes_serialized_padding() {
         const I: usize = 6;
         const O: usize = 3;
         const PI: usize = 8;
@@ -1008,9 +1009,11 @@ mod tests {
         for conceptual_idx in 0..PI * O {
             data.write_i8(conceptual_idx as i8 - 40).unwrap();
         }
+        data.push(99);
 
         let mut cursor = Cursor::new(data);
         let layer = LinearLayer::<I, O, PI, PO>::load(&mut cursor).unwrap();
+        assert_eq!(cursor.read_u8().unwrap(), 99);
 
         assert_eq!(&layer.biases[..O], &biases);
         assert_eq!(&layer.biases[O..PO], &[0; PO - O]);
@@ -1018,9 +1021,13 @@ mod tests {
             for input_idx in 0..PI {
                 let conceptual_idx = output_idx * PI + input_idx;
                 let packed_idx = layer.get_packed_weight_index(input_idx, output_idx);
+                let expected = if input_idx < I {
+                    conceptual_idx as i8 - 40
+                } else {
+                    0
+                };
                 assert_eq!(
-                    layer.weights[packed_idx],
-                    conceptual_idx as i8 - 40,
+                    layer.weights[packed_idx], expected,
                     "input {input_idx}, output {output_idx}",
                 );
             }
@@ -1060,6 +1067,90 @@ mod tests {
         assert_forward_matches_reference::<10, 8, 12, 8>(29, 5);
         assert_forward_matches_reference::<18, 8, 24, 8>(43, 3);
         assert_forward_matches_reference::<64, 16, 64, 16>(97, 11);
+    }
+
+    #[test]
+    fn forward_ignores_serialized_padding_weights() {
+        type Layer = LinearLayer<5, 16, 8, 32>;
+        let mut data = Vec::new();
+        for _ in 0..16 {
+            data.extend(i32::MAX.to_le_bytes());
+        }
+        for _ in 0..16 {
+            data.extend([0, 0, 0, 0, 1, 127, 128, 255]);
+        }
+        let layer = Layer::load(&mut Cursor::new(data)).unwrap();
+        let input = Align64([0, 0, 0, 0, 1, 255, 128, 127]);
+        let mut output = Align64([17; 32]);
+
+        layer.forward(&input, &mut output);
+
+        assert_eq!(&output[..16], &[i32::MIN; 16]);
+        assert_eq!(&output[16..], &[17; 16]);
+    }
+
+    #[test]
+    fn forward_dispatch_handles_more_than_64_outputs() {
+        assert_forward_matches_reference::<18, 68, 24, 72>(91, 7);
+    }
+
+    #[test]
+    fn forward_loaded_layers_match_row_major_reference() {
+        fn run<const I: usize, const O: usize, const PI: usize, const PO: usize>() {
+            for seed in 0..8 {
+                let mut data = Vec::new();
+                let mut output = Align64([17; PO]);
+                let mut expected = [17; PO];
+                let mut input = Align64([0; PI]);
+                for (i, value) in input.iter_mut().enumerate() {
+                    *value = match seed {
+                        0 | 1 => u8::MAX,
+                        _ => (i * 193 + seed * 61) as u8,
+                    };
+                }
+                let biases: [i32; O] = std::array::from_fn(|row| match (row + seed) % 4 {
+                    0 => i32::MIN,
+                    1 => i32::MAX,
+                    2 => 0,
+                    _ => -151,
+                });
+                for bias in biases {
+                    data.extend(bias.to_le_bytes());
+                }
+                for (row, out) in expected[..O].iter_mut().enumerate() {
+                    let mut sum = i64::from(biases[row]);
+                    for (column, &value) in input.iter().enumerate() {
+                        let weight = match seed {
+                            0 => i8::MIN,
+                            1 => i8::MAX,
+                            _ => (row * 13 + column * 29 + seed * 17) as i8,
+                        };
+                        data.push(weight as u8);
+                        if column < I {
+                            sum += i64::from(value) * i64::from(weight);
+                        }
+                    }
+                    *out = sum as i32;
+                }
+                let layer = LinearLayer::<I, O, PI, PO>::load(&mut Cursor::new(data)).unwrap();
+                layer.forward(&input, &mut output);
+                assert_eq!(output.0, expected, "shape {I}x{O}, seed {seed}");
+            }
+        }
+
+        use super::super::{
+            L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS,
+            L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS,
+        };
+        run::<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>();
+        run::<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>();
+        run::<18, 48, 24, 56>();
+        run::<23, 8, 24, 8>();
+        run::<10, 8, 12, 8>();
+        run::<18, 68, 24, 72>();
+        run::<7, 3, 8, 5>();
+        run::<0, 16, 0, 16>();
+        run::<3, 0, 8, 8>();
     }
 
     #[test]

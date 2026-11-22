@@ -197,3 +197,113 @@ impl SmallMoveList {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_initializes_every_legal_child_at_capacity_and_with_an_odd_tail() {
+        let opponent = 0x0000_2222_2222_2222_u64;
+        for empties in [0x0000_1111_1111_1111_u64, 0x0000_1111_1111_1110] {
+            let board = Board::from_bitboards(!(empties | opponent), opponent);
+            let moves = board.legal_moves();
+            assert_eq!(moves.bits(), empties);
+
+            let mut list = SmallMoveList::new();
+            assert!(list.generate(&board, moves));
+            assert!(list.iter().map(|mv| mv.sq).eq(moves.iter()));
+            for mv in list.iter() {
+                assert_eq!(mv.next, board.make_move(mv.sq));
+                assert_eq!(mv.next_moves, LegalMoves::EMPTY);
+                assert_eq!(mv.value, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn generate_stops_before_writing_the_wipeout_batch() {
+        let empties = 0x7_0002_u64;
+        let opponent = 0x600_u64;
+        let board = Board::from_bitboards(!(empties | opponent), opponent);
+        let moves = board.legal_moves();
+        assert_eq!(moves.bits(), empties);
+        let mut list = SmallMoveList::new();
+        assert!(!list.generate(&board, moves));
+
+        let paired = cfg!(all(
+            target_arch = "x86_64",
+            target_feature = "avx512cd",
+            target_feature = "avx512vl"
+        ));
+        let written = if paired { 2 } else { 3 };
+        assert!(list.iter().map(|mv| mv.sq).eq(moves.iter().take(written)));
+    }
+
+    #[test]
+    fn best_first_iter_yields_moves_in_descending_value_order_with_tie_breaking() {
+        let board = Board::new();
+        let squares: Vec<_> = board.legal_moves().iter().collect();
+        for (values, order) in [
+            ([10, 30, 30, 20], [1, 2, 3, 0]),
+            ([i32::MIN, i32::MAX, i32::MIN, i32::MAX], [1, 3, 2, 0]),
+        ] {
+            let mut list = SmallMoveList::new();
+            for (&sq, value) in squares.iter().zip(values) {
+                let next = board.make_move(sq);
+                list.push(SmallMove {
+                    sq,
+                    next,
+                    next_moves: next.legal_moves(),
+                    value,
+                });
+            }
+
+            let mut moves = list.best_first_iter();
+            for i in order {
+                let mv = moves.next().unwrap();
+                let next = board.make_move(squares[i]);
+                assert_eq!((mv.sq, mv.value), (squares[i], values[i]));
+                assert_eq!(mv.next, next);
+                assert_eq!(mv.next_moves, next.legal_moves());
+            }
+            assert!(moves.next().is_none());
+        }
+    }
+
+    #[test]
+    fn evaluates_and_orders_a_twelve_empty_position() {
+        use crate::eval::Eval;
+        use crate::probcut::Selectivity;
+        use crate::search::root_move::RootMoves;
+        use crate::transposition_table::TranspositionTable;
+
+        let board = Board::from_bitboards(0x4022_0607_3700_0080, 0x14d9_b8f8_c87e_fc7f);
+        let eval = Eval::shared_for_tests();
+        let tt = TranspositionTable::new(0);
+        let roots = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+        let mut list = SmallMoveList::new();
+        assert!(list.generate(&board, board.legal_moves()));
+        list.evaluate_moves(&mut ctx);
+
+        let records: Vec<_> = list
+            .best_first_iter()
+            .map(|mv| {
+                assert_eq!(mv.next, board.make_move(mv.sq));
+                (mv.sq.index(), mv.value, mv.next_moves.bits())
+            })
+            .collect();
+        assert_eq!(
+            records,
+            [
+                (50, 477_952, 0x2b00_4100_0000_0000),
+                (8, 477_696, 0x2104_4100_0001_0000),
+                (23, 464_896, 0x2304_4100_0001_0000),
+                (61, 446_464, 0x8b04_4100_0000_0000),
+                (46, 445_184, 0xa304_0100_0001_0000),
+                (9, 444_672, 0x2304_4100_0001_0100),
+            ]
+        );
+    }
+}

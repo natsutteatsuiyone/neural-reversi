@@ -874,6 +874,61 @@ mod tests {
     }
 
     #[test]
+    fn dispatched_solvers_match_proved_scores_and_node_counts() {
+        use crate::eval::Eval;
+        use crate::probcut::Selectivity;
+        use crate::search::root_move::RootMoves;
+        use crate::transposition_table::TranspositionTable;
+
+        let eval = Eval::shared_for_tests();
+        let tt = TranspositionTable::new(0);
+        let cases = [
+            (
+                0xf9c1_a591_8585_9fbc,
+                0x063e_5a6e_7a7a_6040,
+                [(-65, -12, 4), (64, -2, 3)],
+            ),
+            (
+                0xfe54_7864_441e_0c00,
+                0x01ab_879b_bbe1_f1f9,
+                [(-65, -26, 8), (64, -22, 5)],
+            ),
+            (
+                0x1c1c_0422_242a_1c20,
+                0xe0e1_fbdd_dbd5_e3cf,
+                [(-65, -40, 9), (64, -30, 4)],
+            ),
+            (
+                0x005f_6159_5fdf_df7f,
+                0xfca0_9ea6_2020_2000,
+                [(-65, 2, 28), (64, 6, 5)],
+            ),
+            (0xffff_ffff_ffff_fff0, 0, [(-65, 64, 0), (64, 64, 0)]),
+        ];
+        for (player, opponent, windows) in cases {
+            let board = Board::from_bitboards(player, opponent);
+            let squares: Vec<_> = board.empty_squares().iter().collect();
+            let roots = RootMoves::new(&board);
+            let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+            for (alpha, expect_score, expect_nodes) in windows {
+                let alpha = DiscScore::new(alpha);
+                let before = ctx.n_nodes;
+                let score = match *squares.as_slice() {
+                    [a, b] => solve2(&mut ctx, &board, alpha, a, b),
+                    [a, b, c] => solve3(&mut ctx, &board, alpha, a, b, c),
+                    [a, b, c, d] => solve4(&mut ctx, &board, alpha, a, b, c, d),
+                    _ => panic!("invalid solver fixture"),
+                };
+                assert_eq!(
+                    (score.value(), ctx.n_nodes - before),
+                    (expect_score, expect_nodes),
+                    "player {player:#018x}, opponent {opponent:#018x}, alpha {alpha:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn sort_last4_puts_odd_quadrants_first() {
         use Square::{A1, A3, A6, A8, C1, C8, F1, H1, H6, H8};
 

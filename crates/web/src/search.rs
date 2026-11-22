@@ -632,7 +632,7 @@ mod tests {
     fn random_opening_requires_the_initial_board_and_single_pv() {
         let mut search = Search::new(
             Rc::new(TranspositionTable::new(1)),
-            Rc::new(Eval::new().unwrap()),
+            Eval::shared_for_tests(),
         );
         let level = Level {
             mid_depth: 2,
@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn multi_pv_keeps_the_best_line_in_the_root_tt_entry() {
         let tt = Rc::new(TranspositionTable::new(1));
-        let mut search = Search::new(Rc::clone(&tt), Rc::new(Eval::new().unwrap()));
+        let mut search = Search::new(Rc::clone(&tt), Eval::shared_for_tests());
         let level = Level {
             mid_depth: 4,
             end_depth: 0,
@@ -694,7 +694,7 @@ mod tests {
     #[test]
     fn depth3_only_cuts_with_nonselective_tt_entries() {
         let board = Board::new();
-        let eval = Rc::new(Eval::new().unwrap());
+        let eval = Eval::shared_for_tests();
         let tt = Rc::new(TranspositionTable::new(1));
         let mut ctx = SearchContext::new(
             &board,

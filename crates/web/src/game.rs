@@ -9,9 +9,9 @@ use reversi_core::types::Depth;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-use crate::config::{
-    DEFAULT_MID_DEPTH, DEFAULT_TT_MB, MAX_MID_DEPTH, MIDGAME_SELECTIVITY, MIN_MID_DEPTH,
-};
+#[cfg(not(test))]
+use crate::config::DEFAULT_TT_MB;
+use crate::config::{DEFAULT_MID_DEPTH, MAX_MID_DEPTH, MIDGAME_SELECTIVITY, MIN_MID_DEPTH};
 use crate::eval::Eval;
 use crate::level::Level;
 use crate::search::Search;
@@ -266,6 +266,14 @@ impl Game {
     }
 }
 
+#[cfg(test)]
+fn new_search() -> Search {
+    let tt = Rc::new(TranspositionTable::new(1));
+    let eval = Eval::shared_for_tests();
+    Search::new(tt, eval)
+}
+
+#[cfg(not(test))]
 fn new_search() -> Search {
     let tt = Rc::new(TranspositionTable::new(DEFAULT_TT_MB));
     let eval = Rc::new(Eval::new().expect("Failed to load evaluation network"));

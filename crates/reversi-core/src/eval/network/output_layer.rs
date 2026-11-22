@@ -4,30 +4,48 @@ use std::io::{self, Read};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use crate::util::align::Align64;
+#[cfg(target_arch = "aarch64")]
 use crate::util::aligned_buffer::AlignedBuffer;
 
+#[cfg(target_arch = "aarch64")]
+const NEON_CHUNK: usize = size_of::<std::arch::aarch64::uint8x16_t>();
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+const AVX2_CHUNK: usize = size_of::<std::arch::x86_64::__m128i>();
+#[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
+const AVX512_CHUNK: usize = size_of::<std::arch::x86_64::__m256i>();
+
+type ForwardFn<const SEG0_DIMS: usize, const SEG1_DIMS: usize, const PADDED_INPUT_DIMS: usize> =
+    unsafe fn(
+        &OutputLayer<SEG0_DIMS, SEG1_DIMS, PADDED_INPUT_DIMS>,
+        &Align64<[u8; SEG0_DIMS]>,
+        &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32;
+
 /// Output layer with 16-bit weights for computing a single scalar output.
-pub struct OutputLayer<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize> {
+pub struct OutputLayer<
+    const SEG0_DIMS: usize,
+    const SEG1_DIMS: usize,
+    const PADDED_INPUT_DIMS: usize,
+> {
     /// Bias term for the output neuron.
     bias: i32,
     /// Weight vector aligned for SIMD access.
-    weights: AlignedBuffer<i16>,
+    weights: Align64<[i16; PADDED_INPUT_DIMS]>,
     /// Weights packed as per-chunk low/high bytes for the AArch64 I8MM path.
     #[cfg(target_arch = "aarch64")]
     i8mm_weights: AlignedBuffer<u8>,
-    /// Function pointer to the optimal forward implementation, selected at load time
-    /// based on detected CPU SIMD capabilities.
-    forward_fn: unsafe fn(&Self, [&[u8]; 2]) -> i32,
+    forward_fn: ForwardFn<SEG0_DIMS, SEG1_DIMS, PADDED_INPUT_DIMS>,
 }
 
-impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
-    OutputLayer<INPUT_DIMS, PADDED_INPUT_DIMS>
+impl<const SEG0_DIMS: usize, const SEG1_DIMS: usize, const PADDED_INPUT_DIMS: usize>
+    OutputLayer<SEG0_DIMS, SEG1_DIMS, PADDED_INPUT_DIMS>
 {
     /// Loads the output layer from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let bias = reader.read_i32::<LittleEndian>()?;
 
-        let mut weights = AlignedBuffer::<i16>::from_elem(0, PADDED_INPUT_DIMS);
+        let mut weights = Align64([0i16; PADDED_INPUT_DIMS]);
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         #[cfg(target_arch = "aarch64")]
@@ -46,7 +64,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
 
     #[cfg(target_arch = "aarch64")]
     fn pack_i8mm_weights(weights: &[i16]) -> AlignedBuffer<u8> {
-        const CHUNK: usize = 16;
+        const CHUNK: usize = NEON_CHUNK;
 
         debug_assert!(weights.len() >= PADDED_INPUT_DIMS);
 
@@ -87,17 +105,18 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         }
     }
 
-    /// Selects the optimal forward implementation based on CPU features.
-    ///
-    /// Selection priority (highest to lowest):
-    /// 1. AVX-512 with VNNI (if compiled with `target-feature=+avx512bw` and CPU supports VNNI)
-    /// 2. AVX-512 without VNNI (if compiled with `target-feature=+avx512bw`)
-    /// 3. AVX2 with VNNI (if compiled with `target-feature=+avx2` and CPU supports `avxvnni`)
-    /// 4. AVX2 without VNNI (if compiled with `target-feature=+avx2`)
-    /// 5. ARM NEON with I8MM/DotProd (if compiled for `aarch64` with NEON and CPU supports both)
-    /// 6. ARM NEON (if compiled for `aarch64` with `target-feature=+neon`)
-    /// 7. Scalar fallback (all other cases)
-    fn select_forward_fn() -> unsafe fn(&Self, [&[u8]; 2]) -> i32 {
+    fn select_forward_fn() -> ForwardFn<SEG0_DIMS, SEG1_DIMS, PADDED_INPUT_DIMS> {
+        const CHUNK: usize = cfg_select! {
+            all(target_arch = "x86_64", target_feature = "avx512bw") => AVX512_CHUNK,
+            all(target_arch = "x86_64", target_feature = "avx2") => AVX2_CHUNK,
+            all(target_arch = "aarch64", target_feature = "neon") => NEON_CHUNK,
+            _ => 1,
+        };
+        let whole_chunks = SEG0_DIMS.is_multiple_of(CHUNK) && SEG1_DIMS.is_multiple_of(CHUNK);
+        if !whole_chunks {
+            return Self::forward_scalar_wrapper;
+        }
+
         #[cfg(target_arch = "x86_64")]
         {
             cfg_select! {
@@ -146,26 +165,11 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     }
 
     /// Computes the weighted sum of 8-bit inputs with 16-bit weights, plus the bias term.
-    ///
-    /// # Preconditions
-    ///
-    /// - The sum of all segment lengths must equal `INPUT_DIMS`.
-    /// - On AVX-512 builds (`target-feature=+avx512bw`), each non-empty segment must:
-    ///   - have length as a multiple of 32, and
-    ///   - start at a 32-byte aligned address.
-    /// - On AVX2 builds (`target-feature=+avx2`), each non-empty segment must:
-    ///   - have length as a multiple of 16, and
-    ///   - start at a 16-byte aligned address.
-    /// - On NEON builds (`target_arch=aarch64`, `target-feature=+neon`), each non-empty
-    ///   segment must have length as a multiple of 16.
     #[inline(always)]
-    pub fn forward(&self, segments: [&[u8]; 2]) -> i32 {
-        debug_assert_eq!(
-            segments.iter().map(|segment| segment.len()).sum::<usize>(),
-            INPUT_DIMS
-        );
-
-        unsafe { (self.forward_fn)(self, segments) }
+    pub fn forward(&self, seg0: &Align64<[u8; SEG0_DIMS]>, seg1: &Align64<[u8; SEG1_DIMS]>) -> i32 {
+        const { assert!(SEG0_DIMS + SEG1_DIMS <= PADDED_INPUT_DIMS) };
+        // SAFETY: `select_forward_fn` returns only a kernel whose target features and chunk width fit these segments.
+        unsafe { (self.forward_fn)(self, seg0, seg1) }
     }
 
     /// Computes the forward pass using the scalar fallback.
@@ -174,49 +178,72 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     ///
     /// This wrapper has no additional safety requirements; it exists only to
     /// match the `unsafe fn` signature of the SIMD forward implementations.
-    #[allow(dead_code)]
-    unsafe fn forward_scalar_wrapper(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_scalar(segments)
+    unsafe fn forward_scalar_wrapper(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
+        self.forward_scalar(seg0, seg1)
     }
 
     /// Computes the forward pass on AVX-512 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw,avx512vnni")]
-    fn forward_avx512_vnni(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_avx512::<true>(segments)
+    fn forward_avx512_vnni(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
+        self.forward_avx512::<true>(seg0, seg1)
     }
 
     /// Computes the forward pass on AVX-512 without VNNI (emulated via `VPMADDWD` + `VPADDD`).
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
-    fn forward_avx512_no_vnni(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_avx512::<false>(segments)
+    fn forward_avx512_no_vnni(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
+        self.forward_avx512::<false>(seg0, seg1)
     }
 
     /// Computes the forward pass on AVX2 with VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2,avxvnni")]
     #[allow(dead_code)]
-    fn forward_avx2_vnni(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_avx2::<true>(segments)
+    fn forward_avx2_vnni(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
+        self.forward_avx2::<true>(seg0, seg1)
     }
 
     /// Computes the forward pass on AVX2 without VNNI.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[allow(dead_code)]
-    fn forward_avx2_no_vnni(&self, segments: [&[u8]; 2]) -> i32 {
-        self.forward_avx2::<false>(segments)
+    fn forward_avx2_no_vnni(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
+        self.forward_avx2::<false>(seg0, seg1)
     }
 
     /// Computes the forward pass on ARM NEON.
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[inline]
-    fn forward_neon(&self, segments: [&[u8]; 2]) -> i32 {
+    fn forward_neon(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
         use std::arch::aarch64::*;
 
-        const CHUNK: usize = 16;
+        const CHUNK: usize = NEON_CHUNK;
         const UNROLL: usize = 2;
 
         unsafe {
@@ -230,56 +257,58 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
             let mut acc6 = vdupq_n_s32(0);
             let mut acc7 = vdupq_n_s32(0);
 
-            let mut weight_offset = 0usize;
-            for input in segments {
-                let len = input.len();
-                debug_assert_eq!(len % CHUNK, 0);
+            macro_rules! accumulate_chunk {
+                ($input_u8:expr, $w_lo:expr, $w_hi:expr, $a0:ident, $a1:ident, $a2:ident, $a3:ident) => {{
+                    let input_u8 = $input_u8;
 
-                let num_chunks = len / CHUNK;
-                let input_ptr = input.as_ptr();
-                let weight_ptr = self.weights.as_ptr().add(weight_offset);
-                let mut chunk_idx = 0usize;
+                    let inp_lo = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(input_u8)));
+                    let inp_hi = vreinterpretq_s16_u16(vmovl_high_u8(input_u8));
 
-                macro_rules! accumulate_chunk {
-                    ($input_u8:expr, $w_lo:expr, $w_hi:expr, $a0:ident, $a1:ident, $a2:ident, $a3:ident) => {{
-                        let input_u8 = $input_u8;
+                    let w_lo = $w_lo;
+                    let w_hi = $w_hi;
 
-                        // Zero-extend u8 -> i16 (values in [0, 255] fit in i16).
-                        let inp_lo = vreinterpretq_s16_u16(vmovl_u8(vget_low_u8(input_u8)));
-                        let inp_hi = vreinterpretq_s16_u16(vmovl_high_u8(input_u8));
-
-                        let w_lo = $w_lo;
-                        let w_hi = $w_hi;
-
-                        $a0 = vmlal_s16($a0, vget_low_s16(inp_lo), vget_low_s16(w_lo));
-                        $a1 = vmlal_high_s16($a1, inp_lo, w_lo);
-                        $a2 = vmlal_s16($a2, vget_low_s16(inp_hi), vget_low_s16(w_hi));
-                        $a3 = vmlal_high_s16($a3, inp_hi, w_hi);
-                    }};
-                }
-
-                while chunk_idx + UNROLL <= num_chunks {
-                    let offset = chunk_idx * CHUNK;
-                    let input_u8 = vld1q_u8_x2(input_ptr.add(offset));
-                    let weights = vld1q_s16_x4(weight_ptr.add(offset));
-
-                    accumulate_chunk!(input_u8.0, weights.0, weights.1, acc0, acc1, acc2, acc3);
-                    accumulate_chunk!(input_u8.1, weights.2, weights.3, acc4, acc5, acc6, acc7);
-
-                    chunk_idx += UNROLL;
-                }
-
-                while chunk_idx < num_chunks {
-                    let offset = chunk_idx * CHUNK;
-                    let input_u8 = vld1q_u8(input_ptr.add(offset));
-                    let weights = vld1q_s16_x2(weight_ptr.add(offset));
-
-                    accumulate_chunk!(input_u8, weights.0, weights.1, acc0, acc1, acc2, acc3);
-                    chunk_idx += 1;
-                }
-
-                weight_offset += len;
+                    $a0 = vmlal_s16($a0, vget_low_s16(inp_lo), vget_low_s16(w_lo));
+                    $a1 = vmlal_high_s16($a1, inp_lo, w_lo);
+                    $a2 = vmlal_s16($a2, vget_low_s16(inp_hi), vget_low_s16(w_hi));
+                    $a3 = vmlal_high_s16($a3, inp_hi, w_hi);
+                }};
             }
+
+            macro_rules! accumulate_segment {
+                ($input:expr, $len:expr, $weight_offset:expr) => {{
+                    let input = $input;
+                    let len: usize = $len;
+                    let weight_offset: usize = $weight_offset;
+                    debug_assert_eq!(len % CHUNK, 0);
+
+                    let num_chunks = len / CHUNK;
+                    let input_ptr = input.as_ptr();
+                    let weight_ptr = self.weights.as_ptr().add(weight_offset);
+                    let mut chunk_idx = 0usize;
+
+                    while chunk_idx + UNROLL <= num_chunks {
+                        let offset = chunk_idx * CHUNK;
+                        let input_u8 = vld1q_u8_x2(input_ptr.add(offset));
+                        let weights = vld1q_s16_x4(weight_ptr.add(offset));
+
+                        accumulate_chunk!(input_u8.0, weights.0, weights.1, acc0, acc1, acc2, acc3);
+                        accumulate_chunk!(input_u8.1, weights.2, weights.3, acc4, acc5, acc6, acc7);
+
+                        chunk_idx += UNROLL;
+                    }
+
+                    while chunk_idx < num_chunks {
+                        let offset = chunk_idx * CHUNK;
+                        let input_u8 = vld1q_u8(input_ptr.add(offset));
+                        let weights = vld1q_s16_x2(weight_ptr.add(offset));
+
+                        accumulate_chunk!(input_u8, weights.0, weights.1, acc0, acc1, acc2, acc3);
+                        chunk_idx += 1;
+                    }
+                }};
+            }
+            accumulate_segment!(seg0, SEG0_DIMS, 0);
+            accumulate_segment!(seg1, SEG1_DIMS, SEG0_DIMS);
 
             acc0 = vaddq_s32(acc0, acc4);
             acc1 = vaddq_s32(acc1, acc5);
@@ -288,7 +317,7 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
 
             let sum01 = vaddq_s32(acc0, acc1);
             let sum23 = vaddq_s32(acc2, acc3);
-            vaddvq_s32(vaddq_s32(sum01, sum23)) + self.bias
+            vaddvq_s32(vaddq_s32(sum01, sum23)).wrapping_add(self.bias)
         }
     }
 
@@ -296,10 +325,14 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon,dotprod,i8mm")]
     #[inline]
-    fn forward_neon_i8mm(&self, segments: [&[u8]; 2]) -> i32 {
+    fn forward_neon_i8mm(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
         use std::arch::aarch64::*;
 
-        const CHUNK: usize = 16;
+        const CHUNK: usize = NEON_CHUNK;
         const UNROLL: usize = 4;
 
         unsafe {
@@ -316,68 +349,76 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
             let mut acc_hi2 = vdupq_n_s32(0);
             let mut acc_hi3 = vdupq_n_s32(0);
 
-            let mut weight_offset = 0usize;
-            for input in segments {
-                let len = input.len();
-                debug_assert_eq!(len % CHUNK, 0);
+            macro_rules! accumulate_chunk {
+                ($input_u8:expr, $weight_low:expr, $weight_high:expr, $acc_lo:ident, $acc_hi:ident) => {{
+                    let input_u8 = $input_u8;
+                    let weight_low = $weight_low;
+                    let weight_high = vreinterpretq_s8_u8($weight_high);
 
-                let num_chunks = len / CHUNK;
-                let input_ptr = input.as_ptr();
-                let weight_ptr = self.i8mm_weights.as_ptr().add(weight_offset * 2);
-                let mut chunk_idx = 0usize;
-
-                macro_rules! accumulate_chunk {
-                    ($input_u8:expr, $weight_low:expr, $weight_high:expr, $acc_lo:ident, $acc_hi:ident) => {{
-                        let input_u8 = $input_u8;
-                        let weight_low = $weight_low;
-                        let weight_high = vreinterpretq_s8_u8($weight_high);
-
-                        $acc_lo = vdotq_u32($acc_lo, input_u8, weight_low);
-                        $acc_hi = vusdotq_s32($acc_hi, input_u8, weight_high);
-                    }};
-                }
-
-                while chunk_idx + UNROLL <= num_chunks {
-                    let offset = chunk_idx * CHUNK;
-                    let input01_u8 = vld1q_u8_x2(input_ptr.add(offset));
-                    let packed01 = vld1q_u8_x4(weight_ptr.add(offset * 2));
-
-                    accumulate_chunk!(input01_u8.0, packed01.0, packed01.1, acc_lo0, acc_hi0);
-                    accumulate_chunk!(input01_u8.1, packed01.2, packed01.3, acc_lo1, acc_hi1);
-
-                    let input23_u8 = vld1q_u8_x2(input_ptr.add(offset + CHUNK * 2));
-                    let packed23 = vld1q_u8_x4(weight_ptr.add((offset + CHUNK * 2) * 2));
-
-                    accumulate_chunk!(input23_u8.0, packed23.0, packed23.1, acc_lo2, acc_hi2);
-                    accumulate_chunk!(input23_u8.1, packed23.2, packed23.3, acc_lo3, acc_hi3);
-
-                    chunk_idx += UNROLL;
-                }
-
-                while chunk_idx < num_chunks {
-                    let offset = chunk_idx * CHUNK;
-                    let input_u8 = vld1q_u8(input_ptr.add(offset));
-                    let packed = vld1q_u8_x2(weight_ptr.add(offset * 2));
-
-                    accumulate_chunk!(input_u8, packed.0, packed.1, acc_lo0, acc_hi0);
-                    chunk_idx += 1;
-                }
-
-                weight_offset += len;
+                    $acc_lo = vdotq_u32($acc_lo, input_u8, weight_low);
+                    $acc_hi = vusdotq_s32($acc_hi, input_u8, weight_high);
+                }};
             }
+
+            macro_rules! accumulate_segment {
+                ($input:expr, $len:expr, $weight_offset:expr) => {{
+                    let input = $input;
+                    let len: usize = $len;
+                    let weight_offset: usize = $weight_offset;
+                    debug_assert_eq!(len % CHUNK, 0);
+
+                    let num_chunks = len / CHUNK;
+                    let input_ptr = input.as_ptr();
+                    let weight_ptr = self.i8mm_weights.as_ptr().add(weight_offset * 2);
+                    let mut chunk_idx = 0usize;
+
+                    while chunk_idx + UNROLL <= num_chunks {
+                        let offset = chunk_idx * CHUNK;
+                        let input01_u8 = vld1q_u8_x2(input_ptr.add(offset));
+                        let packed01 = vld1q_u8_x4(weight_ptr.add(offset * 2));
+
+                        accumulate_chunk!(input01_u8.0, packed01.0, packed01.1, acc_lo0, acc_hi0);
+                        accumulate_chunk!(input01_u8.1, packed01.2, packed01.3, acc_lo1, acc_hi1);
+
+                        let input23_u8 = vld1q_u8_x2(input_ptr.add(offset + CHUNK * 2));
+                        let packed23 = vld1q_u8_x4(weight_ptr.add((offset + CHUNK * 2) * 2));
+
+                        accumulate_chunk!(input23_u8.0, packed23.0, packed23.1, acc_lo2, acc_hi2);
+                        accumulate_chunk!(input23_u8.1, packed23.2, packed23.3, acc_lo3, acc_hi3);
+
+                        chunk_idx += UNROLL;
+                    }
+
+                    while chunk_idx < num_chunks {
+                        let offset = chunk_idx * CHUNK;
+                        let input_u8 = vld1q_u8(input_ptr.add(offset));
+                        let packed = vld1q_u8_x2(weight_ptr.add(offset * 2));
+
+                        accumulate_chunk!(input_u8, packed.0, packed.1, acc_lo0, acc_hi0);
+                        chunk_idx += 1;
+                    }
+                }};
+            }
+            accumulate_segment!(seg0, SEG0_DIMS, 0);
+            accumulate_segment!(seg1, SEG1_DIMS, SEG0_DIMS);
 
             let lo = vaddq_u32(vaddq_u32(acc_lo0, acc_lo1), vaddq_u32(acc_lo2, acc_lo3));
             let hi = vaddq_s32(vaddq_s32(acc_hi0, acc_hi1), vaddq_s32(acc_hi2, acc_hi3));
-            vaddvq_s32(vaddq_s32(vreinterpretq_s32_u32(lo), vshlq_n_s32::<8>(hi))) + self.bias
+            vaddvq_s32(vaddq_s32(vreinterpretq_s32_u32(lo), vshlq_n_s32::<8>(hi)))
+                .wrapping_add(self.bias)
         }
     }
 
     /// Computes the forward pass using the scalar fallback for non-SIMD architectures or testing.
-    fn forward_scalar(&self, segments: [&[u8]; 2]) -> i32 {
+    fn forward_scalar(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
         let mut acc = self.bias;
 
         let mut weight_offset = 0usize;
-        for segment in segments {
+        for segment in [&seg0.0[..], &seg1.0[..]] {
             for (i, &value) in segment.iter().enumerate() {
                 acc = acc.wrapping_add((value as i32) * (self.weights[weight_offset + i] as i32));
             }
@@ -391,11 +432,15 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[inline]
-    fn forward_avx512<const USE_VNNI: bool>(&self, segments: [&[u8]; 2]) -> i32 {
+    fn forward_avx512<const USE_VNNI: bool>(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
         use crate::eval::util::mm512_dpwssd_epi32;
         use std::arch::x86_64::*;
 
-        const CHUNK: usize = 32;
+        const CHUNK: usize = AVX512_CHUNK;
         const UNROLL: usize = 4;
 
         let mut acc0 = _mm512_setzero_si512();
@@ -404,71 +449,76 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         let mut acc3 = _mm512_setzero_si512();
 
         unsafe {
-            let mut weight_offset = 0usize;
-            for input in segments {
-                let len = input.len();
-                debug_assert_eq!(len % CHUNK, 0);
+            macro_rules! accumulate_segment {
+                ($input:expr, $len:expr, $weight_offset:expr) => {{
+                    let input = $input;
+                    let len: usize = $len;
+                    let weight_offset: usize = $weight_offset;
+                    debug_assert_eq!(len % CHUNK, 0);
 
-                let num_chunks = len / CHUNK;
-                let input_ptr = input.as_ptr() as *const __m256i;
-                let weight_ptr = self.weights.as_ptr().add(weight_offset) as *const __m512i;
-                let mut chunk_idx = 0usize;
+                    let num_chunks = len / CHUNK;
+                    let input_ptr = input.as_ptr() as *const __m256i;
+                    let weight_ptr = self.weights.as_ptr().add(weight_offset) as *const __m512i;
+                    let mut chunk_idx = 0usize;
 
-                // Main loop (4-way unrolled)
-                while chunk_idx + UNROLL <= num_chunks {
-                    let input_u8_0 = _mm256_load_si256(input_ptr.add(chunk_idx));
-                    let input_low_0 = _mm512_cvtepu8_epi16(input_u8_0);
-                    let weight_0 = _mm512_load_si512(weight_ptr.add(chunk_idx));
-                    acc0 = mm512_dpwssd_epi32::<USE_VNNI>(acc0, input_low_0, weight_0);
+                    while chunk_idx + UNROLL <= num_chunks {
+                        let input_u8_0 = _mm256_load_si256(input_ptr.add(chunk_idx));
+                        let input_low_0 = _mm512_cvtepu8_epi16(input_u8_0);
+                        let weight_0 = _mm512_load_si512(weight_ptr.add(chunk_idx));
+                        acc0 = mm512_dpwssd_epi32::<USE_VNNI>(acc0, input_low_0, weight_0);
 
-                    let input_u8_1 = _mm256_load_si256(input_ptr.add(chunk_idx + 1));
-                    let input_low_1 = _mm512_cvtepu8_epi16(input_u8_1);
-                    let weight_1 = _mm512_load_si512(weight_ptr.add(chunk_idx + 1));
-                    acc1 = mm512_dpwssd_epi32::<USE_VNNI>(acc1, input_low_1, weight_1);
+                        let input_u8_1 = _mm256_load_si256(input_ptr.add(chunk_idx + 1));
+                        let input_low_1 = _mm512_cvtepu8_epi16(input_u8_1);
+                        let weight_1 = _mm512_load_si512(weight_ptr.add(chunk_idx + 1));
+                        acc1 = mm512_dpwssd_epi32::<USE_VNNI>(acc1, input_low_1, weight_1);
 
-                    let input_u8_2 = _mm256_load_si256(input_ptr.add(chunk_idx + 2));
-                    let input_low_2 = _mm512_cvtepu8_epi16(input_u8_2);
-                    let weight_2 = _mm512_load_si512(weight_ptr.add(chunk_idx + 2));
-                    acc2 = mm512_dpwssd_epi32::<USE_VNNI>(acc2, input_low_2, weight_2);
+                        let input_u8_2 = _mm256_load_si256(input_ptr.add(chunk_idx + 2));
+                        let input_low_2 = _mm512_cvtepu8_epi16(input_u8_2);
+                        let weight_2 = _mm512_load_si512(weight_ptr.add(chunk_idx + 2));
+                        acc2 = mm512_dpwssd_epi32::<USE_VNNI>(acc2, input_low_2, weight_2);
 
-                    let input_u8_3 = _mm256_load_si256(input_ptr.add(chunk_idx + 3));
-                    let input_low_3 = _mm512_cvtepu8_epi16(input_u8_3);
-                    let weight_3 = _mm512_load_si512(weight_ptr.add(chunk_idx + 3));
-                    acc3 = mm512_dpwssd_epi32::<USE_VNNI>(acc3, input_low_3, weight_3);
+                        let input_u8_3 = _mm256_load_si256(input_ptr.add(chunk_idx + 3));
+                        let input_low_3 = _mm512_cvtepu8_epi16(input_u8_3);
+                        let weight_3 = _mm512_load_si512(weight_ptr.add(chunk_idx + 3));
+                        acc3 = mm512_dpwssd_epi32::<USE_VNNI>(acc3, input_low_3, weight_3);
 
-                    chunk_idx += UNROLL;
-                }
+                        chunk_idx += UNROLL;
+                    }
 
-                // Remainder
-                while chunk_idx < num_chunks {
-                    let input_u8 = _mm256_load_si256(input_ptr.add(chunk_idx));
-                    let input_i16 = _mm512_cvtepu8_epi16(input_u8);
-                    let weight = _mm512_load_si512(weight_ptr.add(chunk_idx));
-                    acc0 = mm512_dpwssd_epi32::<USE_VNNI>(acc0, input_i16, weight);
+                    while chunk_idx < num_chunks {
+                        let input_u8 = _mm256_load_si256(input_ptr.add(chunk_idx));
+                        let input_i16 = _mm512_cvtepu8_epi16(input_u8);
+                        let weight = _mm512_load_si512(weight_ptr.add(chunk_idx));
+                        acc0 = mm512_dpwssd_epi32::<USE_VNNI>(acc0, input_i16, weight);
 
-                    chunk_idx += 1;
-                }
-
-                weight_offset += len;
+                        chunk_idx += 1;
+                    }
+                }};
             }
+            accumulate_segment!(seg0, SEG0_DIMS, 0);
+            accumulate_segment!(seg1, SEG1_DIMS, SEG0_DIMS);
         }
 
         acc0 = _mm512_add_epi32(acc0, acc1);
         acc2 = _mm512_add_epi32(acc2, acc3);
         acc0 = _mm512_add_epi32(acc0, acc2);
 
-        _mm512_reduce_add_epi32(acc0) + self.bias
+        _mm512_reduce_add_epi32(acc0).wrapping_add(self.bias)
     }
 
     /// Computes the forward pass using the AVX2 implementation.
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     #[target_feature(enable = "avx2")]
     #[inline]
-    fn forward_avx2<const USE_VNNI: bool>(&self, segments: [&[u8]; 2]) -> i32 {
+    fn forward_avx2<const USE_VNNI: bool>(
+        &self,
+        seg0: &Align64<[u8; SEG0_DIMS]>,
+        seg1: &Align64<[u8; SEG1_DIMS]>,
+    ) -> i32 {
         use crate::eval::util::{m256_hadd, mm256_dpwssd_epi32};
         use std::arch::x86_64::*;
 
-        const CHUNK: usize = 16;
+        const CHUNK: usize = AVX2_CHUNK;
         const UNROLL: usize = 4;
 
         let mut acc0 = _mm256_setzero_si256();
@@ -477,104 +527,105 @@ impl<const INPUT_DIMS: usize, const PADDED_INPUT_DIMS: usize>
         let mut acc3 = _mm256_setzero_si256();
 
         unsafe {
-            let mut weight_offset = 0usize;
-            for input in segments {
-                let len = input.len();
-                debug_assert_eq!(len % CHUNK, 0);
+            macro_rules! accumulate_segment {
+                ($input:expr, $len:expr, $weight_offset:expr) => {{
+                    let input = $input;
+                    let len: usize = $len;
+                    let weight_offset: usize = $weight_offset;
+                    debug_assert_eq!(len % CHUNK, 0);
 
-                let num_chunks = len / CHUNK;
-                let input_ptr = input.as_ptr() as *const __m128i;
-                let weight_ptr = self.weights.as_ptr().add(weight_offset) as *const __m256i;
-                let mut chunk_idx = 0usize;
+                    let num_chunks = len / CHUNK;
+                    let input_ptr = input.as_ptr() as *const __m128i;
+                    let weight_ptr = self.weights.as_ptr().add(weight_offset) as *const __m256i;
+                    let mut chunk_idx = 0usize;
 
-                // Main loop (4-way unrolled)
-                while chunk_idx + UNROLL <= num_chunks {
-                    let input_chunk0 = _mm_load_si128(input_ptr.add(chunk_idx));
-                    let input_i16_0 = _mm256_cvtepu8_epi16(input_chunk0);
-                    let weight_chunk0 = _mm256_load_si256(weight_ptr.add(chunk_idx));
-                    acc0 = mm256_dpwssd_epi32::<USE_VNNI>(acc0, input_i16_0, weight_chunk0);
+                    while chunk_idx + UNROLL <= num_chunks {
+                        let input_chunk0 = _mm_load_si128(input_ptr.add(chunk_idx));
+                        let input_i16_0 = _mm256_cvtepu8_epi16(input_chunk0);
+                        let weight_chunk0 = _mm256_load_si256(weight_ptr.add(chunk_idx));
+                        acc0 = mm256_dpwssd_epi32::<USE_VNNI>(acc0, input_i16_0, weight_chunk0);
 
-                    let input_chunk1 = _mm_load_si128(input_ptr.add(chunk_idx + 1));
-                    let input_i16_1 = _mm256_cvtepu8_epi16(input_chunk1);
-                    let weight_chunk1 = _mm256_load_si256(weight_ptr.add(chunk_idx + 1));
-                    acc1 = mm256_dpwssd_epi32::<USE_VNNI>(acc1, input_i16_1, weight_chunk1);
+                        let input_chunk1 = _mm_load_si128(input_ptr.add(chunk_idx + 1));
+                        let input_i16_1 = _mm256_cvtepu8_epi16(input_chunk1);
+                        let weight_chunk1 = _mm256_load_si256(weight_ptr.add(chunk_idx + 1));
+                        acc1 = mm256_dpwssd_epi32::<USE_VNNI>(acc1, input_i16_1, weight_chunk1);
 
-                    let input_chunk2 = _mm_load_si128(input_ptr.add(chunk_idx + 2));
-                    let input_i16_2 = _mm256_cvtepu8_epi16(input_chunk2);
-                    let weight_chunk2 = _mm256_load_si256(weight_ptr.add(chunk_idx + 2));
-                    acc2 = mm256_dpwssd_epi32::<USE_VNNI>(acc2, input_i16_2, weight_chunk2);
+                        let input_chunk2 = _mm_load_si128(input_ptr.add(chunk_idx + 2));
+                        let input_i16_2 = _mm256_cvtepu8_epi16(input_chunk2);
+                        let weight_chunk2 = _mm256_load_si256(weight_ptr.add(chunk_idx + 2));
+                        acc2 = mm256_dpwssd_epi32::<USE_VNNI>(acc2, input_i16_2, weight_chunk2);
 
-                    let input_chunk3 = _mm_load_si128(input_ptr.add(chunk_idx + 3));
-                    let input_i16_3 = _mm256_cvtepu8_epi16(input_chunk3);
-                    let weight_chunk3 = _mm256_load_si256(weight_ptr.add(chunk_idx + 3));
-                    acc3 = mm256_dpwssd_epi32::<USE_VNNI>(acc3, input_i16_3, weight_chunk3);
+                        let input_chunk3 = _mm_load_si128(input_ptr.add(chunk_idx + 3));
+                        let input_i16_3 = _mm256_cvtepu8_epi16(input_chunk3);
+                        let weight_chunk3 = _mm256_load_si256(weight_ptr.add(chunk_idx + 3));
+                        acc3 = mm256_dpwssd_epi32::<USE_VNNI>(acc3, input_i16_3, weight_chunk3);
 
-                    chunk_idx += UNROLL;
-                }
+                        chunk_idx += UNROLL;
+                    }
 
-                // Remainder
-                while chunk_idx < num_chunks {
-                    let input_chunk = _mm_load_si128(input_ptr.add(chunk_idx));
-                    let input_i16 = _mm256_cvtepu8_epi16(input_chunk);
-                    let weight_chunk = _mm256_load_si256(weight_ptr.add(chunk_idx));
-                    acc0 = mm256_dpwssd_epi32::<USE_VNNI>(acc0, input_i16, weight_chunk);
+                    while chunk_idx < num_chunks {
+                        let input_chunk = _mm_load_si128(input_ptr.add(chunk_idx));
+                        let input_i16 = _mm256_cvtepu8_epi16(input_chunk);
+                        let weight_chunk = _mm256_load_si256(weight_ptr.add(chunk_idx));
+                        acc0 = mm256_dpwssd_epi32::<USE_VNNI>(acc0, input_i16, weight_chunk);
 
-                    chunk_idx += 1;
-                }
-
-                weight_offset += len;
+                        chunk_idx += 1;
+                    }
+                }};
             }
+            accumulate_segment!(seg0, SEG0_DIMS, 0);
+            accumulate_segment!(seg1, SEG1_DIMS, SEG0_DIMS);
         }
 
         acc0 = _mm256_add_epi32(acc0, acc1);
         acc2 = _mm256_add_epi32(acc2, acc3);
         acc0 = _mm256_add_epi32(acc0, acc2);
 
-        m256_hadd(acc0) + self.bias
+        m256_hadd(acc0).wrapping_add(self.bias)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::align::Align64;
     use byteorder::{LittleEndian, WriteBytesExt};
     use std::io::Cursor;
 
-    fn build_layer<const INPUT: usize, const PADDED: usize>(
+    fn build_layer<const SEG0: usize, const SEG1: usize, const PADDED: usize>(
         bias: i32,
         seed: i32,
-    ) -> OutputLayer<INPUT, PADDED> {
-        let mut weights = AlignedBuffer::<i16>::from_elem(0, PADDED);
-        for (idx, weight) in weights.iter_mut().take(INPUT).enumerate() {
+    ) -> OutputLayer<SEG0, SEG1, PADDED> {
+        let mut weights = Align64([0i16; PADDED]);
+        for (idx, weight) in weights.iter_mut().take(SEG0 + SEG1).enumerate() {
             *weight = ((idx as i32 * 4099 + seed).rem_euclid(60_001) - 30_000) as i16;
         }
 
         #[cfg(target_arch = "aarch64")]
-        let i8mm_weights = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(weights.as_slice());
+        let i8mm_weights = OutputLayer::<SEG0, SEG1, PADDED>::pack_i8mm_weights(weights.as_slice());
 
         OutputLayer {
             bias,
             weights,
             #[cfg(target_arch = "aarch64")]
             i8mm_weights,
-            forward_fn: OutputLayer::<INPUT, PADDED>::select_forward_fn(),
+            forward_fn: OutputLayer::<SEG0, SEG1, PADDED>::select_forward_fn(),
         }
     }
 
-    fn reference_forward<const INPUT: usize, const PADDED: usize>(
-        layer: &OutputLayer<INPUT, PADDED>,
-        segments: [&[u8]; 2],
+    fn reference_forward<const SEG0: usize, const SEG1: usize, const PADDED: usize>(
+        layer: &OutputLayer<SEG0, SEG1, PADDED>,
+        seg0: &Align64<[u8; SEG0]>,
+        seg1: &Align64<[u8; SEG1]>,
     ) -> i32 {
         let mut acc = layer.bias;
         let mut weight_offset = 0;
-        for segment in segments {
+        for segment in [&seg0.0[..], &seg1.0[..]] {
             for (idx, &value) in segment.iter().enumerate() {
                 acc += i32::from(value) * i32::from(layer.weights[weight_offset + idx]);
             }
             weight_offset += segment.len();
         }
-        debug_assert_eq!(weight_offset, INPUT);
+        debug_assert_eq!(weight_offset, SEG0 + SEG1);
         acc
     }
 
@@ -606,7 +657,8 @@ mod tests {
 
     #[test]
     fn load_reads_bias_and_every_padded_weight() {
-        const INPUT: usize = 5;
+        const SEG0: usize = 3;
+        const SEG1: usize = 2;
         const PADDED: usize = 8;
         let bias = -123_456;
         let weights = [-30000, -257, -1, 0, 1, 255, 1024, 30_000];
@@ -617,7 +669,7 @@ mod tests {
         }
 
         let mut cursor = Cursor::new(data);
-        let layer = OutputLayer::<INPUT, PADDED>::load(&mut cursor).unwrap();
+        let layer = OutputLayer::<SEG0, SEG1, PADDED>::load(&mut cursor).unwrap();
 
         assert_eq!(layer.bias, bias);
         assert_eq!(&layer.weights[..], &weights);
@@ -625,7 +677,7 @@ mod tests {
 
     #[test]
     fn load_reports_truncated_biases_or_weights() {
-        type Layer = OutputLayer<4, 8>;
+        type Layer = OutputLayer<2, 2, 8>;
 
         let mut missing_bias = Cursor::new([0u8; 2]);
         assert!(Layer::load(&mut missing_bias).is_err());
@@ -640,32 +692,89 @@ mod tests {
 
     #[test]
     fn forward_scalar_matches_reference_for_arbitrary_segment_lengths() {
-        const INPUT: usize = 7;
+        const SEG0: usize = 3;
+        const SEG1: usize = 4;
         const PADDED: usize = 8;
-        let layer = build_layer::<INPUT, PADDED>(1234, 17);
-        let seg0 = [255, 0, 7];
-        let seg1 = [1, 2, 3, 4];
-        let segments = [&seg0[..], &seg1[..]];
-        let expected = reference_forward(&layer, segments);
+        let layer = build_layer::<SEG0, SEG1, PADDED>(1234, 17);
+        let seg0 = Align64([255, 0, 7]);
+        let seg1 = Align64([1, 2, 3, 4]);
+        let expected = reference_forward(&layer, &seg0, &seg1);
 
-        assert_eq!(layer.forward_scalar(segments), expected);
+        assert_eq!(layer.forward_scalar(&seg0, &seg1), expected);
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "assertion `left == right` failed")]
-    fn forward_rejects_segment_lengths_that_do_not_sum_to_input_dims() {
-        let layer = build_layer::<16, 16>(0, 1);
-        let seg0 = Align64([0u8; 16]);
-        let extra = [1u8];
+    fn forward_handles_partial_chunks_and_keeps_the_second_segment_offset() {
+        let layer = build_layer::<3, 32, 40>(1234, 17);
+        let (seg0, seg1) = patterned_segments::<3, 32>();
+        assert_eq!(
+            layer.forward(&seg0, &seg1),
+            reference_forward(&layer, &seg0, &seg1)
+        );
 
-        let _ = layer.forward([&seg0.0[..], &extra[..]]);
+        let layer = build_layer::<32, 3, 40>(1234, 17);
+        let (seg0, seg1) = patterned_segments::<32, 3>();
+        assert_eq!(
+            layer.forward(&seg0, &seg1),
+            reference_forward(&layer, &seg0, &seg1)
+        );
+    }
+
+    #[test]
+    fn forward_matches_reference_when_segments_fill_16_byte_but_not_32_byte_chunks() {
+        let layer = build_layer::<16, 48, 64>(-4321, 29);
+        let (seg0, seg1) = patterned_segments::<16, 48>();
+        assert_eq!(
+            layer.forward(&seg0, &seg1),
+            reference_forward(&layer, &seg0, &seg1)
+        );
+    }
+
+    #[test]
+    fn forward_wraps_bias_for_both_signed_endpoints() {
+        let mut input = Align64([0u8; 32]);
+        let empty = Align64([]);
+        input[0] = 1;
+        for (bias, weight, expected) in [(i32::MAX, 1i16, i32::MIN), (i32::MIN, -1, i32::MAX)] {
+            let mut bytes = bias.to_le_bytes().to_vec();
+            bytes.extend(weight.to_le_bytes());
+            bytes.resize(4 + 32 * 2, 0);
+            let layer = OutputLayer::<32, 0, 32>::load(&mut Cursor::new(bytes)).unwrap();
+            assert_eq!(layer.forward(&input, &empty), expected);
+        }
+    }
+
+    #[test]
+    fn forward_wraps_an_overflowing_dot_across_both_segments() {
+        let first = Align64([255u8; 64]);
+        let second = Align64([253u8; 256]);
+        for weight in [i16::MIN + 7, i16::MAX] {
+            let mut bytes = 0i32.to_le_bytes().to_vec();
+            for _ in 0..320 {
+                bytes.extend(weight.to_le_bytes());
+            }
+            let layer = OutputLayer::<64, 256, 320>::load(&mut Cursor::new(bytes)).unwrap();
+            let expected = (i64::from(weight) * (64 * 255 + 256 * 253)) as i32;
+            assert_eq!(layer.forward(&first, &second), expected);
+            #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+            assert_eq!(unsafe { layer.forward_neon(&first, &second) }, expected);
+        }
+    }
+
+    #[test]
+    fn permuting_the_first_segment_updates_the_dispatched_weights() {
+        let mut layer = build_layer::<32, 32, 64>(1234, 17);
+        let (first, second) = patterned_segments::<32, 32>();
+        let expected = reference_forward(&layer, &first, &second);
+        let order: [usize; 32] = std::array::from_fn(|i| 31 - i);
+        let reordered = Align64(order.map(|i| first[i]));
+        layer.permute_leading_weights(&order);
+        assert_eq!(layer.forward(&reordered, &second), expected);
     }
 
     #[test]
     #[cfg(target_arch = "aarch64")]
     fn pack_i8mm_weights_splits_low_and_high_bytes_by_chunk() {
-        const INPUT: usize = 20;
         const PADDED: usize = 20;
         let mut weights = [0i16; PADDED];
         weights[0] = 0x1234;
@@ -674,7 +783,7 @@ mod tests {
         weights[16] = i16::MAX;
         weights[17] = -30_000;
 
-        let packed = OutputLayer::<INPUT, PADDED>::pack_i8mm_weights(&weights);
+        let packed = OutputLayer::<20, 0, PADDED>::pack_i8mm_weights(&weights);
 
         assert_eq!(packed.len(), 64);
         assert_eq!(packed[0], 0x34);
@@ -693,33 +802,31 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     fn neon_forward_kernels_match_reference_for_chunked_segments() {
-        const INPUT: usize = 64;
-        const PADDED: usize = 64;
-        let layer = build_layer::<INPUT, PADDED>(-6789, 4099);
+        let layer = build_layer::<16, 48, 64>(-6789, 4099);
         let (seg0, seg1) = chunk16_segments();
-        let segments = [&seg0.0[..], &seg1.0[..]];
-        let expected = reference_forward(&layer, segments);
+        let expected = reference_forward(&layer, &seg0, &seg1);
 
         unsafe {
-            assert_eq!(layer.forward_neon(segments), expected, "neon");
+            assert_eq!(layer.forward_neon(&seg0, &seg1), expected, "neon");
         }
 
         if std::arch::is_aarch64_feature_detected!("i8mm")
             && std::arch::is_aarch64_feature_detected!("dotprod")
         {
             unsafe {
-                assert_eq!(layer.forward_neon_i8mm(segments), expected, "i8mm");
+                assert_eq!(layer.forward_neon_i8mm(&seg0, &seg1), expected, "i8mm");
             }
 
-            let mut single = Align64([0; INPUT]);
+            let mut single = Align64([0; 64]);
             for (idx, value) in single.iter_mut().enumerate() {
                 *value = ((idx * 37 + 11) & 0xff) as u8;
             }
-            let single_segments = [&single.0[..], &[][..]];
-            let single_expected = reference_forward(&layer, single_segments);
+            let empty = Align64([]);
+            let single_layer = build_layer::<64, 0, 64>(-6789, 4099);
+            let single_expected = reference_forward(&single_layer, &single, &empty);
             unsafe {
                 assert_eq!(
-                    layer.forward_neon_i8mm(single_segments),
+                    single_layer.forward_neon_i8mm(&single, &empty),
                     single_expected,
                     "i8mm unrolled",
                 );
@@ -730,20 +837,17 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn avx2_forward_kernels_match_reference_for_chunked_segments() {
-        const INPUT: usize = 96;
-        const PADDED: usize = 96;
-        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let layer = build_layer::<16, 80, 96>(-6789, 29);
         let (seg0, seg1) = patterned_segments::<16, 80>();
-        let segments = [&seg0.0[..], &seg1.0[..]];
-        let expected = reference_forward(&layer, segments);
+        let expected = reference_forward(&layer, &seg0, &seg1);
 
         unsafe {
-            assert_eq!(layer.forward_avx2_no_vnni(segments), expected, "avx2");
+            assert_eq!(layer.forward_avx2_no_vnni(&seg0, &seg1), expected, "avx2");
         }
 
         if std::arch::is_x86_feature_detected!("avxvnni") {
             unsafe {
-                assert_eq!(layer.forward_avx2_vnni(segments), expected, "avx2 vnni");
+                assert_eq!(layer.forward_avx2_vnni(&seg0, &seg1), expected, "avx2 vnni");
             }
         }
     }
@@ -751,20 +855,25 @@ mod tests {
     #[test]
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     fn avx512_forward_kernels_match_reference_for_chunked_segments() {
-        const INPUT: usize = 192;
-        const PADDED: usize = 192;
-        let layer = build_layer::<INPUT, PADDED>(-6789, 29);
+        let layer = build_layer::<32, 160, 192>(-6789, 29);
         let (seg0, seg1) = patterned_segments::<32, 160>();
-        let segments = [&seg0.0[..], &seg1.0[..]];
-        let expected = reference_forward(&layer, segments);
+        let expected = reference_forward(&layer, &seg0, &seg1);
 
         unsafe {
-            assert_eq!(layer.forward_avx512_no_vnni(segments), expected, "avx512");
+            assert_eq!(
+                layer.forward_avx512_no_vnni(&seg0, &seg1),
+                expected,
+                "avx512"
+            );
         }
 
         if std::arch::is_x86_feature_detected!("avx512vnni") {
             unsafe {
-                assert_eq!(layer.forward_avx512_vnni(segments), expected, "avx512 vnni",);
+                assert_eq!(
+                    layer.forward_avx512_vnni(&seg0, &seg1),
+                    expected,
+                    "avx512 vnni",
+                );
             }
         }
     }

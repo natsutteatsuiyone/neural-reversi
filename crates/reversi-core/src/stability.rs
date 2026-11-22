@@ -370,7 +370,8 @@ fn has_enough_opponent_discs_for_cutoff(opponent_count: u32, alpha: DiscScore) -
 /// Returns [`None`] if the cutoff cannot be proven.
 #[inline(always)]
 pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: DiscScore) -> Option<DiscScore> {
-    if alpha.value() >= NWS_STABILITY_THRESHOLD[n_empties as usize] as i32 {
+    let &threshold = NWS_STABILITY_THRESHOLD.get(n_empties as usize)?;
+    if alpha.value() >= i32::from(threshold) {
         if !has_enough_opponent_discs_for_cutoff(board.opponent().count(), alpha) {
             return None;
         }
@@ -390,6 +391,16 @@ pub fn stability_cutoff(board: &Board, n_empties: u32, alpha: DiscScore) -> Opti
 mod tests {
     use super::*;
     use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn stability_cutoff_returns_none_on_the_empty_board() {
+        let board = Board::from_bitboards(0_u64, 0_u64);
+        assert_eq!(board.empty_count(), 64);
+        assert_eq!(
+            stability_cutoff(&board, board.empty_count(), DiscScore::new(64)),
+            None
+        );
+    }
 
     fn reference_find_edge_stable(old_p: u8, old_o: u8, mut stable: u8) -> u8 {
         let e = !(old_p | old_o);

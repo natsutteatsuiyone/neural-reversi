@@ -8,14 +8,14 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::eval::Eval;
 use crate::flip;
-use crate::move_list::MoveList;
+use crate::move_list::{ConcurrentMoveIterator, MoveList};
 use crate::probcut::Selectivity;
 use crate::score::{DiscScore, Score};
 use crate::search::context::SearchContext;
 use crate::search::endgame;
 use crate::search::node_type::{NodeType, NonPV, PV};
 use crate::search::strategy::{EndGameStrategy, SearchStrategy};
-use crate::search::threading::{Claim, SplitPoint, SplitRequest, Thread};
+use crate::search::threading::{Claim, SplitPoint, SplitPointTask, SplitRequest, Thread};
 use crate::stability::stability_cutoff;
 use crate::transposition_table::{Bound, TTSlot};
 use crate::types::Depth;
@@ -304,7 +304,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             best_move = m;
             ctx.merge_counters(&c);
 
-            if thread.should_stop() {
+            if thread.should_stop_after_split() {
                 return Score::ZERO;
             }
 
@@ -437,17 +437,14 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
 /// The caller must not hold the split-point lock.
 pub(super) fn search_split_point<NT: NodeType>(
     ctx: &mut SearchContext,
-    board: &Board,
-    depth: Depth,
+    task: &SplitPointTask,
+    move_iter: &ConcurrentMoveIterator,
     thread: &Arc<Thread>,
     split_point: &Arc<SplitPoint>,
 ) {
-    let beta = split_point.task().beta;
+    let (board, depth, beta) = (task.board, task.depth, task.beta);
     let cut_node = split_point.state().cut_node();
-    let move_iter = split_point.move_iter();
 
-    // move_iter.next() is a lock-free fetch_add: helpers claim moves without
-    // the lock, which is only taken to publish results.
     while let Some((mv, move_count)) = move_iter.next() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
         let _claim = claim_child::<EndGameStrategy>(thread, &next, depth);
@@ -480,7 +477,7 @@ pub(super) fn search_split_point<NT: NodeType>(
 
         // Abort check
         if thread.should_stop() {
-            split_point.state().set_all_helpers_searching(false);
+            split_point.state().set_all_helpers_searching_locked(false);
             return;
         }
 
@@ -536,7 +533,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
     move_list: &MoveList,
     depth: Depth,
     alpha: Score,
-    tt_entry_index: TTSlot,
+    tt_slot: TTSlot<'_>,
     tt_pv: bool,
 ) -> Option<Score> {
     let etc_depth = depth - 1;
@@ -556,7 +553,7 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
                 && score > alpha
             {
                 ctx.tt.store(
-                    tt_entry_index,
+                    tt_slot,
                     board,
                     score,
                     Bound::Lower,
@@ -702,6 +699,58 @@ mod tests {
     use crate::probcut::Selectivity;
     use crate::search::node_type::{NonPV, PV};
     use crate::search::strategy::MidGameStrategy;
+
+    #[test]
+    fn enhanced_cutoff_stores_the_first_child_bound_that_beats_alpha() {
+        use crate::search::root_move::RootMoves;
+        use crate::transposition_table::TranspositionTable;
+
+        let board = Board::new();
+        let moves = MoveList::new(&board);
+        let children = [
+            (Bound::Lower, -6),
+            (Bound::Exact, 2),
+            (Bound::Upper, 1),
+            (Bound::Exact, -3),
+        ];
+        assert_eq!(moves.count(), children.len());
+        let tt = TranspositionTable::new(1);
+        let depth = 7;
+        for (mv, (bound, raw)) in moves.iter().zip(children) {
+            let child = board.make_move_with_flipped(mv.flipped, mv.sq);
+            let slot = tt.probe(&child, child.hash()).slot();
+            tt.store(
+                slot,
+                &child,
+                Score::from_raw(raw),
+                bound,
+                depth - 1,
+                None,
+                Selectivity::None,
+                false,
+                false,
+            );
+        }
+
+        let root_moves = RootMoves::new(&board);
+        let eval = Eval::shared_for_tests();
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let parent = tt.probe(&board, board.hash()).slot();
+        let score = enhanced_transposition_cutoff::<MidGameStrategy>(
+            &mut ctx,
+            &board,
+            &moves,
+            depth,
+            Score::from_raw(-2),
+            parent,
+            false,
+        );
+        assert_eq!(score, Some(Score::from_raw(-1)));
+        let stored = tt.lookup(&board, board.hash()).unwrap();
+        assert_eq!(stored.bound(), Bound::Lower);
+        assert_eq!(Some(stored.score()), score);
+        assert_eq!(stored.best_move(), Some(moves[2].sq));
+    }
 
     /// Reduction for a move whose ordering estimate sits exactly on alpha, so
     /// the ordering-margin term contributes nothing.
@@ -850,6 +899,269 @@ mod tests {
             1
         );
         assert_eq!(lmr_max_reduction(30), 10);
+    }
+
+    #[test]
+    fn stored_fail_high_can_cut_at_its_bound_but_not_above_it() {
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::square::Square;
+        use crate::transposition_table::TranspositionTable;
+
+        let board = Board::from_bitboards(0x5a22_718a_3461_5654_u64, 0xa5dd_8e75_cb9e_a92a_u64);
+        let a1_score = board
+            .make_move(Square::A1)
+            .make_move(Square::H1)
+            .final_score();
+        let h1_score = board
+            .make_move(Square::H1)
+            .make_move(Square::A1)
+            .final_score();
+        assert!(a1_score < h1_score);
+
+        let tt = TranspositionTable::new(0);
+        let key = board.hash();
+        tt.store(
+            tt.probe(&board, key).slot(),
+            &board,
+            Score::MAX,
+            Bound::Upper,
+            0,
+            Some(Square::A1),
+            Selectivity::None,
+            true,
+            false,
+        );
+        let root_moves = RootMoves::new(&board);
+        let eval = Eval::shared_for_tests();
+        let pool = ThreadPool::new(1);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let returned = search::<PV, EndGameStrategy>(
+            &mut ctx,
+            &board,
+            2,
+            a1_score - 2,
+            a1_score - 1,
+            pool.main(),
+            false,
+        );
+
+        let stored = tt.lookup(&board, key).unwrap();
+        assert_eq!(returned, a1_score);
+        assert_eq!(stored.score(), returned);
+        assert_eq!(stored.bound(), Bound::Lower);
+        assert!(stored.can_cut(a1_score, 2, Selectivity::None, true));
+        assert!(!stored.can_cut(a1_score + 1, 2, Selectivity::None, true));
+    }
+
+    fn exact_endgame_score(board: Board) -> Score {
+        fn alphabeta(board: Board, mut alpha: Score, beta: Score) -> Score {
+            let moves = board.legal_moves();
+            if moves.is_empty() {
+                let opponent = board.switch_players();
+                return if opponent.has_legal_moves() {
+                    -alphabeta(opponent, -beta, -alpha)
+                } else {
+                    board.solve(board.empty_count())
+                };
+            }
+            let mut best = -Score::INF;
+            for sq in moves.iter() {
+                let score = -alphabeta(board.make_move(sq), -beta, -alpha);
+                if score > best {
+                    best = score;
+                    if best >= beta {
+                        break;
+                    }
+                    alpha = alpha.max(best);
+                }
+            }
+            best
+        }
+
+        alphabeta(board, -Score::INF, Score::INF)
+    }
+
+    fn assert_fail_soft(score: Score, alpha: Score, beta: Score, exact: Score) {
+        assert!(score > -Score::INF && score < Score::INF);
+        if score <= alpha {
+            assert!(
+                exact <= score,
+                "{score:?} is below the exact score {exact:?}"
+            );
+        } else if score >= beta {
+            assert!(
+                score <= exact,
+                "{score:?} is above the exact score {exact:?}"
+            );
+        } else {
+            assert_eq!(score, exact);
+        }
+    }
+
+    fn sample_endgame_board(seed: u32, empties: u32) -> Board {
+        let mut board = Board::new();
+        while board.empty_count() > empties {
+            let moves = board.legal_moves();
+            if moves.is_empty() {
+                board = board.switch_players();
+                assert!(board.has_legal_moves());
+            } else {
+                let index = ((seed * 17 + board.empty_count() * 13) % moves.count()) as usize;
+                board = board.make_move(moves.iter().nth(index).unwrap());
+            }
+        }
+        board
+    }
+
+    #[test]
+    fn stability_cutoffs_bound_exhaustive_endgame_scores() {
+        let mut strict_cutoff = false;
+        for seed in 0..6 {
+            let board = sample_endgame_board(seed, 7);
+            let exact = exact_endgame_score(board);
+            for threshold in 12..=64 {
+                let alpha = DiscScore::new(threshold);
+                if let Some(cutoff) = stability_cutoff(&board, board.empty_count(), alpha) {
+                    assert!(exact <= Score::from_disc_diff(cutoff));
+                    assert!(cutoff <= alpha);
+                    strict_cutoff |= cutoff < alpha;
+                }
+            }
+        }
+        assert!(strict_cutoff);
+    }
+
+    #[test]
+    fn exact_pvs_windows_match_exhaustive_endgame_scores() {
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::transposition_table::TranspositionTable;
+
+        let eval = Eval::shared_for_tests();
+        let pool = ThreadPool::new(1);
+
+        for seed in 0..6 {
+            let board = sample_endgame_board(seed, 7);
+            assert!(board.legal_moves().count() > 1);
+            let exact = exact_endgame_score(board);
+            let root_moves = RootMoves::new(&board);
+            for (alpha, beta) in [
+                (-Score::INF, Score::INF),
+                (exact - 3, exact - 1),
+                (exact - 2, exact),
+                (exact - 1, exact + 1),
+                (exact, exact + 2),
+                (exact + 1, exact + 3),
+            ] {
+                let tt = TranspositionTable::new(0);
+                let mut ctx =
+                    SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+                let score = search::<PV, EndGameStrategy>(
+                    &mut ctx,
+                    &board,
+                    board.empty_count(),
+                    alpha,
+                    beta,
+                    pool.main(),
+                    false,
+                );
+                assert_fail_soft(score, alpha, beta, exact);
+                assert_eq!(ctx.empty_list.count(), board.empty_count());
+            }
+        }
+    }
+
+    #[test]
+    fn exact_nonpv_loop_matches_exhaustive_endgame_score() {
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::transposition_table::TranspositionTable;
+
+        let depth = EndGameStrategy::DEPTH_TO_SHALLOW + 1;
+        let board = sample_endgame_board(0, depth);
+        let move_list = MoveList::new(&board);
+        assert!(move_list.count() > 1);
+        assert!(move_list.wipeout_move().is_none());
+
+        let exact = exact_endgame_score(board);
+        let eval = Eval::shared_for_tests();
+        let pool = ThreadPool::new(1);
+        let root_moves = RootMoves::new(&board);
+        let first_move = board.legal_moves().iter().next().unwrap();
+        let key = board.hash();
+        for tt_move in [None, Some(first_move)] {
+            for alpha in [exact - 1, exact] {
+                let tt = TranspositionTable::new(0);
+                if let Some(sq) = tt_move {
+                    tt.store(
+                        tt.probe(&board, key).slot(),
+                        &board,
+                        Score::MAX,
+                        Bound::Upper,
+                        0,
+                        Some(sq),
+                        Selectivity::None,
+                        true,
+                        false,
+                    );
+                }
+                let mut ctx =
+                    SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+                let beta = alpha + 1;
+                let score = search::<NonPV, EndGameStrategy>(
+                    &mut ctx,
+                    &board,
+                    depth,
+                    alpha,
+                    beta,
+                    pool.main(),
+                    false,
+                );
+                assert_fail_soft(score, alpha, beta, exact);
+                let stored = tt.lookup(&board, key).unwrap();
+                assert_eq!(stored.bound(), Bound::classify::<NonPV>(score, alpha, beta));
+                assert_eq!(stored.score(), score);
+                assert_eq!(stored.depth(), depth);
+            }
+        }
+    }
+
+    #[test]
+    fn forced_pass_preserves_depth_and_reflects_the_pv_window() {
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::square::Square;
+        use crate::transposition_table::TranspositionTable;
+
+        let player = 0xfffe_u64;
+        let board = Board::from_bitboards(player, !(player | 1));
+        let child = board.switch_players();
+        assert!(!board.has_legal_moves());
+        assert!(child.is_legal_move(Square::A1));
+        let exact = child.make_move(Square::A1).final_score();
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let pool = ThreadPool::new(1);
+
+        for (alpha, beta, child_bound) in [
+            (exact - 3, exact + 1, Bound::Exact),
+            (exact, exact + 4, Bound::Lower),
+            (exact - 4, exact, Bound::Upper),
+        ] {
+            let tt = TranspositionTable::new(0);
+            let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+            let side = ctx.side_to_move;
+            let score =
+                search::<PV, EndGameStrategy>(&mut ctx, &board, 1, alpha, beta, pool.main(), false);
+            assert_eq!(score, exact);
+            let stored = tt.lookup(&child, child.hash()).unwrap();
+            assert_eq!(stored.score(), -exact);
+            assert_eq!(stored.depth(), 1);
+            assert_eq!(stored.bound(), child_bound);
+            assert!(ctx.side_to_move == side);
+            assert_eq!(ctx.empty_list.count(), 1);
+        }
     }
 
     #[test]

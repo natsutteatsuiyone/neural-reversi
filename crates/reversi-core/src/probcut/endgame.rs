@@ -153,11 +153,47 @@ pub struct EndgameWindow {
     pub screen_beta: Score,
 }
 
+impl EndgameWindow {
+    pub(crate) fn scaled_margins(
+        empties: Depth,
+        selectivity: Selectivity,
+        cut_node: bool,
+        beta: Score,
+        eval: Score,
+    ) -> (f64, f64) {
+        let scale = Score::SCALE as f64;
+        let margin = ENDGAME_VERIFY_MODEL.margin(
+            empties,
+            cut_node,
+            beta.value() as f64 / scale,
+            eval.value() as f64 / scale,
+            endgame_tail_multiplier(selectivity, empties),
+        );
+        let screen = margin - SCREEN_MARGINS[usize::from(cut_node)];
+        (margin * scale, screen * scale)
+    }
+
+    pub(crate) fn from_scaled_margins(beta: Score, verification: f64, screen: f64) -> Self {
+        let max = Score::MAX.value();
+        let pc_beta = beta
+            .value()
+            .saturating_add(verification.ceil() as i32)
+            .min(max);
+        let screen_beta = beta
+            .value()
+            .saturating_add(screen.floor() as i32)
+            .clamp(-max, max);
+        Self {
+            pc_beta: Score::from_raw(pc_beta),
+            screen_beta: Score::from_raw(screen_beta),
+        }
+    }
+}
+
 /// Returns the ProbCut window of a node.
 ///
 /// `beta` is the null-window beta and `eval` the main-network static
-/// evaluation. `pc_beta` is clamped to [`Score::MAX`], which no
-/// verification reaches, so a clamped window never cuts.
+/// evaluation. The caller skips verification when `pc_beta` reaches [`Score::MAX`].
 ///
 /// `selectivity` must be one of [`ENDGAME_LEVELS`].
 #[inline]
@@ -168,22 +204,9 @@ pub fn endgame_probcut_window(
     beta: Score,
     eval: Score,
 ) -> EndgameWindow {
-    let scale = Score::SCALE as f64;
-    let max = Score::MAX.value();
-    let margin = ENDGAME_VERIFY_MODEL.margin(
-        empties,
-        cut_node,
-        beta.value() as f64 / scale,
-        eval.value() as f64 / scale,
-        endgame_tail_multiplier(selectivity, empties),
-    );
-    let pc_beta = (beta.value() + (margin * scale).ceil() as i32).min(max);
-    let screen = margin - SCREEN_MARGINS[usize::from(cut_node)];
-    let screen_beta = (beta.value() + (screen * scale).floor() as i32).clamp(-max, max);
-    EndgameWindow {
-        pc_beta: Score::from_raw(pc_beta),
-        screen_beta: Score::from_raw(screen_beta),
-    }
+    let (verification, screen) =
+        EndgameWindow::scaled_margins(empties, selectivity, cut_node, beta, eval);
+    EndgameWindow::from_scaled_margins(beta, verification, screen)
 }
 
 /// Samples of endgame ProbCut attempts, used to fit and check the models on
@@ -295,6 +318,26 @@ mod tests {
     #[test]
     fn model_was_fitted_for_the_engine_main_network() {
         assert_eq!(ENDGAME_PROBCUT_WEIGHTS, crate::eval::EVAL_FILE_NAME);
+    }
+
+    #[test]
+    fn windows_at_extreme_empty_counts_reach_the_upper_clamp() {
+        for cut_node in [false, true] {
+            let window = endgame_probcut_window(
+                u32::MAX,
+                Selectivity::Level4,
+                cut_node,
+                Score::from_raw(1),
+                Score::ZERO,
+            );
+            assert_eq!(
+                window,
+                EndgameWindow {
+                    pc_beta: Score::MAX,
+                    screen_beta: Score::MAX,
+                }
+            );
+        }
     }
 
     #[test]

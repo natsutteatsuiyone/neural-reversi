@@ -191,10 +191,14 @@ pub struct GtpEngine {
 impl GtpEngine {
     /// Creates a new GTP engine with the specified configuration.
     pub fn new(config: &EngineConfig) -> Self {
+        Self::from_search(search::Search::new(&config.search_options()), config.level)
+    }
+
+    fn from_search(search: search::Search, level: usize) -> Self {
         Self {
             game: GameState::new(),
-            search: search::Search::new(&config.search_options()),
-            level: config.level,
+            search,
+            level,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             time_settings: TimeSettings::Infinite,
@@ -668,14 +672,7 @@ mod tests {
 
     #[test]
     fn setboard_preserves_absolute_colors_and_rejects_invalid_input_atomically() {
-        let config = EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        };
-        let mut engine = GtpEngine::new(&config);
+        let mut engine = test_engine();
         // White (b1) has no move; Black can play c1.
         let text = format!("XO------X-------X-------{}", "-".repeat(40));
         assert!(matches!(
@@ -727,14 +724,7 @@ mod tests {
 
     #[test]
     fn play_pass_and_genmove_confirm_an_automatic_pass() {
-        let config = EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        };
-        let mut engine = GtpEngine::new(&config);
+        let mut engine = test_engine();
         // Black a1 leaves White without a move while Black can still play g1.
         let text = format!("-OXOOO--{}", "-".repeat(56));
         assert!(matches!(
@@ -784,14 +774,7 @@ mod tests {
 
     #[test]
     fn genmove_and_pass_on_finished_game_return_errors() {
-        let config = EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        };
-        let mut engine = GtpEngine::new(&config);
+        let mut engine = test_engine();
         let full = format!("{}O", "X".repeat(63));
         assert!(matches!(
             engine.handle_setboard(&full, PlayerColor::Black),
@@ -904,13 +887,10 @@ mod tests {
     }
 
     fn test_engine() -> GtpEngine {
-        GtpEngine::new(&EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        })
+        GtpEngine::from_search(
+            search::Search::from_shared_resources(&crate::config::test_shared_resources(1, 1)),
+            1,
+        )
     }
 
     fn exec_line(engine: &mut GtpEngine, line: &str) -> String {

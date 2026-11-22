@@ -10,8 +10,9 @@ use crate::score::Score;
 use crate::search::node_type::NodeType;
 use crate::square::Square;
 use crate::types::Depth;
-use crate::util::aligned_buffer::AlignedBuffer;
+use crate::util::aligned_buffer::{AlignedBuffer, Zeroable};
 use std::{
+    fmt,
     hint::{Locality, prefetch_read},
     mem,
     sync::atomic::{AtomicU8, AtomicU64, Ordering, fence},
@@ -75,35 +76,41 @@ impl Bound {
     }
 }
 
-/// An entry position in a [`TranspositionTable`].
+/// A borrowed handle to one entry of a [`TranspositionTable`].
 ///
-/// Only [`TranspositionTable::probe`] creates one, so it is in bounds for the
-/// table that issued it, which unsafe code relies on. Which table issued it
-/// is not tracked: a slot must go back to that table or to one of the same
-/// size.
-#[derive(Clone, Copy, Debug)]
-pub struct TTSlot(usize);
+/// Pass it back to the table that issued it: `store` stamps the entry with
+/// the generation of the table it is called on.
+#[derive(Clone, Copy)]
+pub struct TTSlot<'tt>(&'tt TTEntry);
+
+impl fmt::Debug for TTSlot<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("TTSlot")
+            .field(&std::ptr::from_ref(self.0))
+            .finish()
+    }
+}
 
 /// The result of probing a transposition-table cluster.
-pub enum TTProbeResult {
+pub enum TTProbeResult<'tt> {
     /// Found an entry whose stored board matches the probe.
     Hit {
         /// The data of the entry.
         data: TTEntryData,
         /// The slot of the entry.
-        slot: TTSlot,
+        slot: TTSlot<'tt>,
     },
     /// No matching board was found.
     Miss {
         /// Replacement candidate for a potential store.
-        slot: TTSlot,
+        slot: TTSlot<'tt>,
     },
 }
 
-impl TTProbeResult {
+impl<'tt> TTProbeResult<'tt> {
     /// Returns the slot for a subsequent store.
     #[inline(always)]
-    pub fn slot(&self) -> TTSlot {
+    pub fn slot(&self) -> TTSlot<'tt> {
         match self {
             TTProbeResult::Hit { slot, .. } | TTProbeResult::Miss { slot } => *slot,
         }
@@ -145,7 +152,10 @@ pub struct TTEntryData {
 }
 
 const _: () = assert!(mem::size_of::<TTEntryData>() == 8);
+const _: () = assert!(CLUSTER_SIZE == 2);
 const _: () = assert!(CLUSTER_BYTE_SIZE == CACHE_LINE_SIZE);
+const _: () = assert!(mem::size_of::<TTSlot<'_>>() == mem::size_of::<usize>());
+const _: () = assert!(mem::size_of::<Option<TTSlot<'_>>>() == mem::size_of::<usize>());
 
 /// [`TTEntryData::best_move`] value of an entry without a best move.
 const NO_MOVE: u8 = u8::MAX;
@@ -317,6 +327,9 @@ pub struct TTEntry {
     data: AtomicU64,
     seq: AtomicU64,
 }
+
+// SAFETY: an all-zero `TTEntry` represents an empty entry.
+unsafe impl Zeroable for TTEntry {}
 
 impl Default for TTEntry {
     fn default() -> Self {
@@ -637,8 +650,7 @@ impl TranspositionTable {
         let entries_size = cluster_count as usize * CLUSTER_SIZE;
 
         TranspositionTable {
-            // SAFETY: an all-zero `TTEntry` is the empty entry.
-            entries: unsafe { AlignedBuffer::zeroed(entries_size) },
+            entries: AlignedBuffer::zeroed(entries_size),
             cluster_count,
             generation: AtomicU8::new(0),
         }
@@ -677,17 +689,15 @@ impl TranspositionTable {
     /// No thread may write to the table for the duration of the call.
     pub unsafe fn duplicate(&self) -> Self {
         let len = self.entries.len();
-        // SAFETY: an all-zero `TTEntry` is valid (see `new`); the bytes are
-        // then overwritten by a copy of entries with no concurrent writers.
-        let entries = unsafe {
-            let entries = AlignedBuffer::<TTEntry>::zeroed(len);
+        let entries = AlignedBuffer::<TTEntry>::zeroed(len);
+        // SAFETY: no concurrent writers exist for the duration of this call.
+        unsafe {
             std::ptr::copy_nonoverlapping(
                 self.entries.as_ptr(),
                 entries.as_ptr() as *mut TTEntry,
                 len,
             );
-            entries
-        };
+        }
         TranspositionTable {
             entries,
             cluster_count: self.cluster_count,
@@ -781,13 +791,18 @@ impl TranspositionTable {
     /// On miss, returns the first unused slot if one exists; otherwise returns
     /// the slot with the lowest replacement score (`depth - AGE_WEIGHT * relative_age`).
     #[inline(always)]
-    pub fn probe(&self, board: &Board, key: u64) -> TTProbeResult {
+    pub fn probe(&self, board: &Board, key: u64) -> TTProbeResult<'_> {
         let cluster_idx = self.get_cluster_idx(key);
         let board_player = board.player().bits();
         let board_opponent = board.opponent().bits();
-        // Keep the last stable victim so a persistently busy slot does not
-        // force replacement back to the cluster head.
-        let mut fallback_replace_idx = None;
+        // SAFETY: `get_cluster_idx` returns an in-bounds cluster start, so both slots exist.
+        let (entry0, entry1) = unsafe {
+            (
+                self.entries.get_unchecked(cluster_idx),
+                self.entries.get_unchecked(cluster_idx + 1),
+            )
+        };
+        let mut last_stable_victim = None;
 
         // Retry the cluster when a slot is in-flight so a just-finished hit
         // can still win over a replacement miss.
@@ -795,21 +810,17 @@ impl TranspositionTable {
             let mut saw_in_flight_writer = false;
             let mut slot0_victim = None;
 
-            // SAFETY: `get_cluster_idx` returns a multiple of `CLUSTER_SIZE` in
-            // `0..cluster_count * CLUSTER_SIZE`, so both slots are in bounds
-            // (CLUSTER_SIZE == 2, asserted above).
-            let entry0 = unsafe { self.entries.get_unchecked(cluster_idx) };
             match entry0.try_load_snapshot() {
                 Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
                         return TTProbeResult::Miss {
-                            slot: TTSlot(cluster_idx),
+                            slot: TTSlot(entry0),
                         };
                     }
                     if same_board_bits(player, opponent, board_player, board_opponent) {
                         return TTProbeResult::Hit {
                             data: tt_data,
-                            slot: TTSlot(cluster_idx),
+                            slot: TTSlot(entry0),
                         };
                     }
 
@@ -818,21 +829,21 @@ impl TranspositionTable {
                 None => saw_in_flight_writer = true,
             }
 
-            let idx1 = cluster_idx + 1;
-            let entry1 = unsafe { self.entries.get_unchecked(idx1) };
             match entry1.try_load_snapshot() {
                 Some((player, opponent, _seq, tt_data)) => {
                     if !tt_data.is_occupied() {
-                        return TTProbeResult::Miss { slot: TTSlot(idx1) };
+                        return TTProbeResult::Miss {
+                            slot: TTSlot(entry1),
+                        };
                     }
                     if same_board_bits(player, opponent, board_player, board_opponent) {
                         return TTProbeResult::Hit {
                             data: tt_data,
-                            slot: TTSlot(idx1),
+                            slot: TTSlot(entry1),
                         };
                     }
 
-                    let replace_idx = if let Some(slot0_data) = slot0_victim {
+                    let replace_entry = if let Some(slot0_data) = slot0_victim {
                         // Replacement scoring is only needed when both stable
                         // slots are occupied misses. Hits and empty-slot misses
                         // avoid the generation load entirely.
@@ -840,24 +851,24 @@ impl TranspositionTable {
                         if tt_data.replacement_score(generation)
                             < slot0_data.replacement_score(generation)
                         {
-                            idx1
+                            entry1
                         } else {
-                            cluster_idx
+                            entry0
                         }
                     } else {
-                        idx1
+                        entry1
                     };
 
-                    fallback_replace_idx = Some(replace_idx);
+                    last_stable_victim = Some(replace_entry);
                     if !saw_in_flight_writer {
                         return TTProbeResult::Miss {
-                            slot: TTSlot(replace_idx),
+                            slot: TTSlot(replace_entry),
                         };
                     }
                 }
                 None => {
                     if slot0_victim.is_some() {
-                        fallback_replace_idx = Some(cluster_idx);
+                        last_stable_victim = Some(entry0);
                     }
                 }
             }
@@ -866,20 +877,18 @@ impl TranspositionTable {
         }
 
         TTProbeResult::Miss {
-            slot: TTSlot(fallback_replace_idx.unwrap_or(cluster_idx)),
+            slot: TTSlot(last_stable_victim.unwrap_or(entry0)),
         }
     }
 
-    /// Stores data into a slot previously returned by [`probe`](Self::probe).
+    /// Stores a finite search score into a slot returned by [`probe`](Self::probe).
     ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if `slot` is out of bounds.
+    /// Scores outside the open interval between the score sentinels are ignored.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     pub fn store(
         &self,
-        slot: TTSlot,
+        slot: TTSlot<'_>,
         board: &Board,
         score: Score,
         bound: Bound,
@@ -889,11 +898,9 @@ impl TranspositionTable {
         is_endgame: bool,
         is_pv: bool,
     ) {
-        debug_assert!(
-            slot.0 < self.entries.len(),
-            "TT store index {} out of bounds",
-            slot.0
-        );
+        if !score.is_finite() {
+            return;
+        }
         let data = TTEntryData::new(
             score,
             best_move,
@@ -904,10 +911,7 @@ impl TranspositionTable {
             is_endgame,
             is_pv,
         );
-        // SAFETY: only `probe` creates a `TTSlot`, with an index within the
-        // `entries` of the table that issued it.
-        let entry = unsafe { self.entries.get_unchecked(slot.0) };
-        entry.save(board, data);
+        slot.0.save(board, data);
     }
 
     /// Lowers by one ply the depth of the entry for `board` at a slot returned
@@ -915,21 +919,10 @@ impl TranspositionTable {
     ///
     /// The shallower depth lets a later same-board store replace the entry and
     /// makes it a cheaper victim for other boards.
-    ///
-    /// # Panics
-    ///
-    /// Panics in debug builds if `slot` is out of bounds.
     #[inline(always)]
-    pub fn penalize(&self, slot: TTSlot, board: &Board, expected: TTEntryData) {
-        debug_assert!(
-            slot.0 < self.entries.len(),
-            "TT penalize index {} out of bounds",
-            slot.0
-        );
-        // SAFETY: only `probe` creates a `TTSlot`, with an index within the
-        // `entries` of the table that issued it.
-        let entry = unsafe { self.entries.get_unchecked(slot.0) };
-        entry.penalize(board.player().bits(), board.opponent().bits(), expected);
+    pub fn penalize(&self, slot: TTSlot<'_>, board: &Board, expected: TTEntryData) {
+        slot.0
+            .penalize(board.player().bits(), board.opponent().bits(), expected);
     }
 
     /// Returns the first entry index of the cluster selected by `key`.

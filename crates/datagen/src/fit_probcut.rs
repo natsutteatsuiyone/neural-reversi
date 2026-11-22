@@ -444,7 +444,7 @@ fn report_in_sample(fits: &[PlyFit; NUM_PLY]) {
 fn emit_params(fits: &[PlyFit; NUM_PLY]) {
     println!("/// Statistical parameters for midgame ProbCut indexed by ply.");
     println!("#[rustfmt::skip]");
-    println!("const PROBCUT_PARAMS: [ProbcutMidgameParams; {NUM_PLY}] = [");
+    println!("pub const PROBCUT_PARAMS: [ProbcutMidgameParams; NUM_PLY] = [");
     for fit in fits {
         let params = fit.params;
         println!("    ProbcutMidgameParams {{");

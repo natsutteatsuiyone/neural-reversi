@@ -13,7 +13,7 @@
 //! - 0 = current player's disc
 //! - 1 = opponent's disc
 //! - 2 = empty square
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
@@ -104,6 +104,24 @@ impl PatternFeature {
         Self { data }
     }
 
+    #[inline(always)]
+    pub(super) fn row(&self, index: usize) -> usize {
+        debug_assert!(
+            self.data[index] < PATTERN_FEATURE_SIZES[index],
+            "pattern feature value out of range"
+        );
+        PATTERN_FEATURE_OFFSETS[index] + usize::from(self.data[index])
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set(&mut self, idx: usize, value: u16) {
+        assert!(
+            value < PATTERN_FEATURE_SIZES[idx],
+            "pattern feature value out of range"
+        );
+        self.data[idx] = value;
+    }
+
     /// Returns the feature value at `idx` without bounds checking.
     ///
     /// # Safety
@@ -179,13 +197,6 @@ impl Index<usize> for PatternFeature {
     }
 }
 
-impl IndexMut<usize> for PatternFeature {
-    #[inline(always)]
-    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
-        &mut self.data[idx]
-    }
-}
-
 /// A mapping from a board square to the features it participates in.
 ///
 /// Since each square can be part of multiple patterns, this struct
@@ -236,14 +247,20 @@ pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = build_eval_f2x
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
 pub const fn calc_pattern_size(pattern_index: usize) -> usize {
-    let mut value = 1;
-    let mut j = 0;
-    while j < EVAL_F2X[pattern_index].n_square {
-        value *= 3;
-        j += 1;
-    }
-    value
+    PATTERN_FEATURE_SIZES[pattern_index] as usize
 }
+
+const PATTERN_FEATURE_SIZES: [u16; NUM_PATTERN_FEATURES] = {
+    let mut sizes = [0u16; NUM_PATTERN_FEATURES];
+    let mut i = 0;
+    while i < NUM_PATTERN_FEATURES {
+        let size = 3u32.pow(EVAL_F2X[i].n_square as u32);
+        assert!(size <= u16::MAX as u32);
+        sizes[i] = size as u16;
+        i += 1;
+    }
+    sizes
+};
 
 /// Computes the total number of input features across all patterns.
 const fn sum_eval_f2x() -> usize {
@@ -496,8 +513,8 @@ impl PatternFeatures {
         let mut pattern_features = Self::zeroed();
 
         let o_board = board.switch_players();
-        let p_feature = &mut pattern_features.p_features[ply];
-        let o_feature = &mut pattern_features.o_features[ply];
+        let p_feature = &mut pattern_features.p_features[ply].data;
+        let o_feature = &mut pattern_features.o_features[ply].data;
         for (i, f2x) in EVAL_F2X.iter().enumerate() {
             for &sq in &f2x.squares[..f2x.n_square] {
                 p_feature[i] = p_feature[i] * 3 + get_square_color(board, sq);
@@ -509,12 +526,19 @@ impl PatternFeatures {
 
     /// Incrementally updates pattern features after a move is made.
     ///
-    /// Updates only the affected patterns rather than recomputing all features
-    /// from scratch, handling both the placed disc and all flipped discs.
+    /// The source slot at `ply` must describe the position before the move.
+    /// `sq`, `flipped`, and `side_to_move` describe the move in that position.
+    ///
+    /// In that position `sq` must be empty and every square of `flipped` must
+    /// hold a disc of the side not to move.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the move flips no discs or `ply + 1` is outside the feature slots.
     #[inline(always)]
     pub fn update(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
-        debug_assert!(!flipped.is_empty());
-        debug_assert!(ply < MAX_PLY - 1);
+        assert!(ply < MAX_PLY - 1, "pattern update requires a successor ply");
+        assert!(!flipped.is_empty(), "a move must flip at least one disc");
 
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512bw") => unsafe {
@@ -546,8 +570,8 @@ impl PatternFeatures {
     ) {
         self.p_features[ply + 1] = self.p_features[ply];
         self.o_features[ply + 1] = self.o_features[ply];
-        let p_out = &mut self.p_features[ply + 1];
-        let o_out = &mut self.o_features[ply + 1];
+        let p_out = &mut self.p_features[ply + 1].data;
+        let o_out = &mut self.o_features[ply + 1].data;
 
         let placed = &EVAL_X2F[sq.index()];
 
@@ -555,8 +579,8 @@ impl PatternFeatures {
             for &[feature_idx, power] in placed.features() {
                 let idx = feature_idx as usize;
                 let delta = power as u16;
-                p_out[idx] -= delta << 1;
-                o_out[idx] -= delta;
+                p_out[idx] = p_out[idx].wrapping_sub(delta << 1);
+                o_out[idx] = o_out[idx].wrapping_sub(delta);
             }
 
             for x in flipped.iter() {
@@ -564,16 +588,16 @@ impl PatternFeatures {
                 for &[feature_idx, power] in flipped_sq.features() {
                     let idx = feature_idx as usize;
                     let delta = power as u16;
-                    p_out[idx] -= delta;
-                    o_out[idx] += delta;
+                    p_out[idx] = p_out[idx].wrapping_sub(delta);
+                    o_out[idx] = o_out[idx].wrapping_add(delta);
                 }
             }
         } else {
             for &[feature_idx, power] in placed.features() {
                 let idx = feature_idx as usize;
                 let delta = power as u16;
-                p_out[idx] -= delta;
-                o_out[idx] -= delta << 1;
+                p_out[idx] = p_out[idx].wrapping_sub(delta);
+                o_out[idx] = o_out[idx].wrapping_sub(delta << 1);
             }
 
             for x in flipped.iter() {
@@ -581,8 +605,8 @@ impl PatternFeatures {
                 for &[feature_idx, power] in flipped_sq.features() {
                     let idx = feature_idx as usize;
                     let delta = power as u16;
-                    p_out[idx] += delta;
-                    o_out[idx] -= delta;
+                    p_out[idx] = p_out[idx].wrapping_add(delta);
+                    o_out[idx] = o_out[idx].wrapping_sub(delta);
                 }
             }
         }
@@ -1100,6 +1124,29 @@ fn get_square_color(board: &Board, sq: Square) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "index out of bounds")]
+    fn row_rejects_a_pattern_index_outside_the_table() {
+        let _ = PatternFeature::new().row(NUM_PATTERN_FEATURES);
+    }
+
+    #[test]
+    fn feature_offsets_match_the_production_pattern_partitions() {
+        let mut max_feature = PatternFeature::new();
+        let zero_feature = PatternFeature::new();
+        let mut start = 0;
+        for (i, squares) in [8; 20].into_iter().chain([9; 8]).chain([7; 4]).enumerate() {
+            let size = 3usize.pow(squares);
+            assert_eq!(calc_pattern_size(i), size);
+            assert_eq!(zero_feature.row(i), start);
+            max_feature.set(i, (size - 1) as u16);
+            assert_eq!(max_feature.row(i), start + size - 1);
+            start += size;
+        }
+        assert_eq!(start, INPUT_FEATURE_DIMS);
+        assert_eq!(start, 297_432);
+    }
     use crate::flip;
 
     #[derive(Clone, Copy)]
@@ -1465,6 +1512,42 @@ mod tests {
             updated.update_scalar(case.sq, case.flipped, case.ply, case.side_to_move);
 
             assert_case_matches_full_rebuild(&updated, case);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "a move must flip at least one disc")]
+    fn update_rejects_empty_flip_mask() {
+        let board = Board::from_bitboards(Bitboard::new(0), Bitboard::new(0));
+        let mut features = PatternFeatures::new(&board, 0);
+        features.update(Square::A1, Bitboard::new(0), 0, SideToMove::Player);
+    }
+
+    #[test]
+    fn update_rejects_a_missing_successor_without_writing() {
+        let zero = PatternFeature::new();
+        let mut features = PatternFeatures::from_features(MAX_PLY - 1, &zero, &zero);
+        for ply in [MAX_PLY - 1, MAX_PLY, usize::MAX] {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                features.update(Square::A1, Square::B1.bitboard(), ply, SideToMove::Player);
+            }));
+            assert!(result.is_err());
+        }
+        assert_eq!(features.p_feature(MAX_PLY - 1).data, zero.data);
+        assert_eq!(features.o_feature(MAX_PLY - 1).data, zero.data);
+    }
+
+    #[test]
+    fn scalar_update_wraps_raw_seeded_features() {
+        let zero = PatternFeature::new();
+        let mut features = PatternFeatures::from_features(0, &zero, &zero);
+        features.update_scalar(Square::A1, Square::B1.bitboard(), 0, SideToMove::Player);
+
+        for lane in 0..NUM_PATTERN_FEATURES {
+            let placed = i32::from(EVAL_FEATURE[Square::A1.index()][lane]);
+            let flipped = i32::from(EVAL_FEATURE[Square::B1.index()][lane]);
+            assert_eq!(features.p_feature(1)[lane], (-2 * placed - flipped) as u16);
+            assert_eq!(features.o_feature(1)[lane], (-placed + flipped) as u16);
         }
     }
 

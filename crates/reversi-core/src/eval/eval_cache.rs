@@ -1,17 +1,14 @@
 //! Hash table for caching neural network evaluation results.
 
+mod policy;
+
 use std::hint::{Locality, prefetch_read};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::score::Score;
 use crate::util::aligned_buffer::AlignedBuffer;
 
-const KEY_MASK: u64 = 0xFFFFFFFFFFFF;
-const SCORE_BITS: u32 = 16;
-const EMPTY_SCORE_BITS: u16 = i16::MIN as u16;
-const EMPTY_ENTRY: u64 = EMPTY_SCORE_BITS as u64;
-const WAYS: usize = 4;
-const WAY_BITS: u32 = WAYS.trailing_zeros();
+use self::policy::{EMPTY_ENTRY, WAYS, bucket_count, location, pack, select_way};
 
 /// One cache set. `align(32)` keeps every bucket inside a single 64-byte line,
 /// so a probe of all `WAYS` entries touches exactly one line.
@@ -40,8 +37,7 @@ impl EvalCache {
     /// Creates a new cache with `2^size_log2` entries, rounded up to one bucket
     /// when `size_log2` is smaller than a bucket.
     pub fn new(size_log2: u32) -> Self {
-        assert!(size_log2 < usize::BITS, "EvalCache size does not fit usize");
-        let bucket_count = 1usize << size_log2.saturating_sub(WAY_BITS);
+        let bucket_count = bucket_count(size_log2);
         let mask = bucket_count as u64 - 1;
 
         EvalCache {
@@ -59,6 +55,11 @@ impl EvalCache {
     }
 
     /// Returns a cached score or evaluates and stores it on a miss.
+    ///
+    /// # Panics
+    ///
+    /// On a miss, panics if the evaluator returns a score outside the inclusive
+    /// range between the score sentinels.
     #[inline(always)]
     pub fn get_or_insert_with(&self, key: u64, evaluate: impl FnOnce() -> Score) -> Score {
         let (cached, slot) = self.probe_for_store(key);
@@ -67,7 +68,7 @@ impl EvalCache {
         }
 
         let score = evaluate();
-        slot.store(Self::pack(key, score.value()), Ordering::Relaxed);
+        slot.store(pack(key, score), Ordering::Relaxed);
         score
     }
 
@@ -77,7 +78,6 @@ impl EvalCache {
         let (index, victim_way) = self.location(key);
         // SAFETY: `location()` masks `index` to `0..self.table.len()`.
         let bucket = unsafe { self.table.get_unchecked(index) };
-        let key_masked = key & KEY_MASK;
 
         // All ways share one cache line, so loading them unconditionally is
         // cheaper than branching per way on a compare that rarely predicts.
@@ -86,36 +86,9 @@ impl EvalCache {
             unsafe { bucket.entries.get_unchecked(way) }.load(Ordering::Relaxed)
         });
 
-        let mut hit_ways = 0u32;
-        let mut empty_ways = 0u32;
-        for (way, &entry) in entries.iter().enumerate() {
-            let matches = (entry >> SCORE_BITS == key_masked) & (entry as u16 != EMPTY_SCORE_BITS);
-            hit_ways |= (matches as u32) << way;
-            empty_ways |= ((entry == EMPTY_ENTRY) as u32) << way;
-        }
-
-        if hit_ways != 0 {
-            // A key occupies at most one way, so the lowest match is the match.
-            let way = hit_ways.trailing_zeros() as usize;
-            // SAFETY: `hit_ways` only carries bits below `WAYS`, so `way` is a
-            // valid index into both arrays.
-            let (entry, slot) = unsafe {
-                (
-                    *entries.get_unchecked(way),
-                    bucket.entries.get_unchecked(way),
-                )
-            };
-            return (Some(Self::unpack_score(entry)), slot);
-        }
-
-        let way = if empty_ways != 0 {
-            empty_ways.trailing_zeros() as usize
-        } else {
-            victim_way
-        };
-        // SAFETY: `empty_ways` only carries bits below `WAYS`, and `location()`
-        // bounds `victim_way` to `0..WAYS`.
-        (None, unsafe { bucket.entries.get_unchecked(way) })
+        let (score, way) = select_way(key, &entries, victim_way);
+        // SAFETY: `select_way` returns a way below `WAYS`.
+        (score, unsafe { bucket.entries.get_unchecked(way) })
     }
 
     /// Prefetches the bucket that `probe(key)` will read into L1.
@@ -131,28 +104,7 @@ impl EvalCache {
     /// Calculates the bucket and the way to evict from the position key.
     #[inline(always)]
     fn location(&self, key: u64) -> (usize, usize) {
-        let rotated = key.rotate_left(SCORE_BITS);
-        let index = (rotated & self.mask) as usize;
-        // The index consumes the low end of `rotated`, so the top end supplies
-        // an eviction way that does not correlate with it.
-        let victim_way = (rotated >> (u64::BITS - WAY_BITS)) as usize;
-        (index, victim_way)
-    }
-
-    /// Packs key and score into a single `u64`.
-    #[inline(always)]
-    fn pack(key: u64, score: i32) -> u64 {
-        debug_assert!(
-            (-Score::INF.value()..=Score::INF.value()).contains(&score),
-            "cache score must be within the Score sentinel range"
-        );
-        ((key & KEY_MASK) << SCORE_BITS) | score as u16 as u64
-    }
-
-    /// Decodes a score from a non-empty packed entry.
-    #[inline(always)]
-    fn unpack_score(entry: u64) -> Score {
-        Score::from_raw(entry as i16 as i32)
+        location(key, self.mask)
     }
 
     /// Clears all entries in the cache.
@@ -167,6 +119,7 @@ impl EvalCache {
 
 #[cfg(test)]
 mod tests {
+    use super::policy::{KEY_MASK, SCORE_BITS, WAY_BITS};
     use super::*;
 
     fn colliding_keys() -> (u64, u64) {
@@ -327,11 +280,69 @@ mod tests {
     }
 
     #[test]
-    #[cfg(debug_assertions)]
     #[should_panic(expected = "cache score must be within the Score sentinel range")]
     fn insert_rejects_scores_outside_the_scaled_score_domain() {
         let cache = EvalCache::new(4);
         cache.get_or_insert_with(1, || -Score::INF - 1);
+    }
+
+    #[test]
+    fn invalid_evaluation_leaves_existing_entries_unchanged() {
+        let cache = EvalCache::new(0);
+        for key in 1..=4 {
+            cache.get_or_insert_with(key, || Score::from_raw(key as i32));
+        }
+
+        for invalid in [Score::INF + 1, Score::ZERO + i32::MAX] {
+            assert!(std::panic::catch_unwind(|| cache.get_or_insert_with(5, || invalid)).is_err());
+            assert_eq!(cache.probe(5), None);
+            for key in 1..=4 {
+                assert_eq!(cache.probe(key), Some(Score::from_raw(key as i32)));
+            }
+        }
+    }
+
+    #[test]
+    fn concurrent_misses_for_one_key_can_leave_two_ways_and_first_match_wins() {
+        let cache = EvalCache::new(0);
+        let (first_key, other_key) = colliding_keys();
+        let first_score = Score::from_raw(11);
+        let second_score = Score::from_raw(22);
+
+        std::thread::scope(|scope| {
+            let (started, waiting) = std::sync::mpsc::channel();
+            let (publish, resume) = std::sync::mpsc::channel();
+            let cache = &cache;
+            let slow = scope.spawn(move || {
+                cache.get_or_insert_with(first_key, || {
+                    started.send(()).unwrap();
+                    resume.recv().unwrap();
+                    first_score
+                })
+            });
+            waiting.recv().unwrap();
+            cache.get_or_insert_with(other_key, || Score::ZERO);
+            assert_eq!(
+                cache.get_or_insert_with(first_key, || second_score),
+                second_score
+            );
+            publish.send(()).unwrap();
+            assert_eq!(slow.join().unwrap(), first_score);
+        });
+
+        let words = &cache.table[0].entries;
+        assert_eq!(
+            words[0].load(Ordering::Relaxed),
+            pack(first_key, first_score)
+        );
+        assert_eq!(
+            words[1].load(Ordering::Relaxed),
+            pack(first_key, second_score)
+        );
+        assert_eq!(
+            cache.get_or_insert_with(first_key, || panic!("duplicate hit must not evaluate")),
+            first_score
+        );
     }
 
     #[test]

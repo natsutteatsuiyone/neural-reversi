@@ -6,9 +6,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
-use crate::eval::util::clone_biases;
-#[allow(unused_imports)]
-use crate::eval::util::feature_offset;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
@@ -24,14 +21,14 @@ const _: () = assert!(NUM_PATTERN_FEATURES == 32);
 ///
 /// Reference: <https://github.com/official-stockfish/Stockfish/blob/f3bfce353168b03e4fedce515de1898c691f81ec/src/nnue/nnue_feature_transformer.h>
 pub struct BaseInput {
-    biases: AlignedBuffer<i16>,
+    biases: Align64<[i16; HIDDEN_DIMS]>,
     weights: AlignedBuffer<i16>,
 }
 
 impl BaseInput {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i16>::from_elem(0, HIDDEN_DIMS);
+        let mut biases = Align64([0i16; HIDDEN_DIMS]);
         let mut weights = AlignedBuffer::<i16>::from_elem(0, INPUT_FEATURE_DIMS * HIDDEN_DIMS);
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
@@ -50,7 +47,11 @@ impl BaseInput {
 
     /// Performs a forward pass through the base input layer.
     #[inline(always)]
-    pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    pub fn forward(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 unsafe { self.forward_avx512(pattern_feature, output) };
@@ -69,13 +70,17 @@ impl BaseInput {
 
     /// Computes the forward pass using the scalar fallback.
     #[allow(dead_code)]
-    fn forward_scalar(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        let mut acc: Align64<[i16; HIDDEN_DIMS]> = clone_biases(&self.biases);
+    fn forward_scalar(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
+        let mut acc = self.biases;
 
         accumulate_scalar::<HIDDEN_DIMS>(pattern_feature, &self.weights, &mut acc);
 
         let (lo, hi) = acc.0.split_at(OUTPUT_DIMS);
-        for ((out, &v0), &v1) in output[..OUTPUT_DIMS].iter_mut().zip(lo).zip(hi) {
+        for ((out, &v0), &v1) in output.0.iter_mut().zip(lo).zip(hi) {
             let sum0 = v0.clamp(0, ACTIVATION_MAX) as u32;
             let sum1 = v1.clamp(0, ACTIVATION_MAX) as u32;
             *out = ((sum0 * sum1) >> ACTIVATION_SHIFT) as u8;
@@ -85,7 +90,11 @@ impl BaseInput {
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[allow(dead_code)]
-    fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_avx512(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 8;
@@ -117,10 +126,10 @@ impl BaseInput {
 
             macro_rules! accumulate_feature_group {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
                     accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
@@ -168,7 +177,11 @@ impl BaseInput {
         not(target_feature = "avx512bw")
     ))]
     #[target_feature(enable = "avx2")]
-    fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_avx2(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 16;
@@ -203,10 +216,10 @@ impl BaseInput {
 
             macro_rules! accumulate_feature_group {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
                     accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
@@ -247,10 +260,10 @@ impl BaseInput {
 
             macro_rules! accumulate_feature_group_hi {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS + HALF_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS + HALF_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS + HALF_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS + HALF_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS + HALF_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS + HALF_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS + HALF_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS + HALF_REGS;
                     accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
@@ -303,7 +316,11 @@ impl BaseInput {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[allow(dead_code)]
-    fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_neon(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::aarch64::*;
 
         unsafe {
@@ -331,7 +348,7 @@ impl BaseInput {
 
             macro_rules! accumulate_feature_lo {
                 ($feature_idx:expr) => {{
-                    let idx = feature_offset(pattern_feature, $feature_idx) * HIDDEN_DIMS;
+                    let idx = pattern_feature.row($feature_idx) * HIDDEN_DIMS;
                     let base = weights_ptr.add(idx);
                     acc0 = vaddq_s16(acc0, vld1q_s16(base));
                     acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
@@ -394,8 +411,7 @@ impl BaseInput {
 
             macro_rules! accumulate_feature_hi {
                 ($feature_idx:expr) => {{
-                    let idx =
-                        feature_offset(pattern_feature, $feature_idx) * HIDDEN_DIMS + OUTPUT_DIMS;
+                    let idx = pattern_feature.row($feature_idx) * HIDDEN_DIMS + OUTPUT_DIMS;
                     let base = weights_ptr.add(idx);
                     acc0 = vaddq_s16(acc0, vld1q_s16(base));
                     acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
@@ -423,7 +439,7 @@ impl BaseInput {
             }
 
             let one = vdupq_n_s16(ACTIVATION_MAX);
-            let output_ptr = output.as_mut_ptr();
+            let output_ptr = output.0.as_mut_ptr();
 
             // SQSHLU fuses clamp-to-non-negative with the <<5 step:
             // negative inputs saturate to 0, and after `vminq_s16(_, one)`
@@ -472,15 +488,15 @@ mod tests {
     fn valid_pattern_feature(seed: usize) -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..NUM_PATTERN_FEATURES {
-            pattern_feature[idx] = ((idx * seed + 17) % calc_pattern_size(idx)) as u16;
+            pattern_feature.set(idx, ((idx * seed + 17) % calc_pattern_size(idx)) as u16);
         }
         pattern_feature
     }
 
     fn build_layer(pattern_feature: &PatternFeature, seed: i32) -> BaseInput {
         let mut layer = BaseInput {
-            biases: AlignedBuffer::from_elem(0, HIDDEN_DIMS),
-            weights: AlignedBuffer::from_elem(0, INPUT_FEATURE_DIMS * HIDDEN_DIMS),
+            biases: Align64([0; HIDDEN_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * HIDDEN_DIMS),
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
@@ -531,7 +547,7 @@ mod tests {
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn dispatch_ready_layer(natural: &BaseInput) -> BaseInput {
         let mut layer = BaseInput {
-            biases: natural.biases.clone(),
+            biases: natural.biases,
             weights: natural.weights.clone(),
         };
         permute_rows(layer.biases.as_mut_slice(), HIDDEN_DIMS);
@@ -544,12 +560,41 @@ mod tests {
         let pattern_feature = valid_pattern_feature(4099);
         let layer = build_layer(&pattern_feature, 23);
         let expected = reference_forward(&layer, &pattern_feature);
-        let mut actual = Align64([0xCC; OUTPUT_DIMS + 4]);
+        let mut actual = Align64([0xCC; OUTPUT_DIMS]);
 
-        layer.forward_scalar(&pattern_feature, actual.as_mut_slice());
+        layer.forward_scalar(&pattern_feature, &mut actual);
 
-        assert_eq!(&actual.as_ref()[..OUTPUT_DIMS], &expected);
-        assert_eq!(&actual.as_ref()[OUTPUT_DIMS..], &[0xCC; 4]);
+        assert_eq!(actual.as_ref(), &expected);
+    }
+
+    #[test]
+    fn dispatched_base_handles_wrapping_products_and_output_boundaries() {
+        let pattern = PatternFeature::new();
+        let mut layer = BaseInput {
+            biases: Align64([0; HIDDEN_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * HIDDEN_DIMS),
+        };
+        layer.weights[..HIDDEN_DIMS].fill(i16::MAX);
+        let edges = [i16::MIN, -1, 0, 1, 31, 32, 255, 509, 510, 511, i16::MAX];
+        let mut expected = [0; OUTPUT_DIMS];
+        for (i, result) in expected.iter_mut().enumerate() {
+            let lo = edges[i % edges.len()];
+            let hi = edges[(i / edges.len()) % edges.len()];
+            layer.biases[i] = lo.wrapping_sub(i16::MAX);
+            layer.biases[i + OUTPUT_DIMS] = hi.wrapping_sub(i16::MAX);
+            let product = i32::from(lo.clamp(0, 510)) * i32::from(hi.clamp(0, 510));
+            *result = (product / 1024) as u8;
+        }
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        {
+            permute_rows(layer.biases.as_mut_slice(), HIDDEN_DIMS);
+            permute_rows(layer.weights.as_mut_slice(), HIDDEN_DIMS);
+        }
+
+        let mut output = Align64([0xCC; OUTPUT_DIMS * 2]);
+        layer.forward(&pattern, output.sub_array_mut::<0, OUTPUT_DIMS>());
+        assert_eq!(&output[..OUTPUT_DIMS], &expected);
+        assert_eq!(&output[OUTPUT_DIMS..], &[0xCC; OUTPUT_DIMS]);
     }
 
     #[test]
@@ -560,7 +605,7 @@ mod tests {
         let expected = reference_forward(&layer, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { layer.forward_neon(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }
@@ -578,7 +623,7 @@ mod tests {
         let expected = reference_forward(&natural, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { simd.forward_avx2(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }
@@ -592,7 +637,7 @@ mod tests {
         let expected = reference_forward(&natural, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { simd.forward_avx512(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }

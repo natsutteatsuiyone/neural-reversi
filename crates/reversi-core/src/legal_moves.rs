@@ -27,9 +27,6 @@ impl LegalMoves {
     #[inline(always)]
     pub fn new(board: &Board) -> LegalMoves {
         let moves = board.player().legal_moves(board.opponent());
-        // A position whose two sides do not overlap has at most 35 legal
-        // moves: the SAT encoding of "36 or more" is unsatisfiable (Kissat,
-        // checked with DRAT-trim; see neural-reversi-movelist-35-proof).
         debug_assert!(moves.count() as usize <= Self::MAX_COUNT);
         LegalMoves(moves)
     }

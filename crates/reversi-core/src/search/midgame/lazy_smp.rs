@@ -11,6 +11,8 @@
 //!
 //! [`search_root`]: super::search_root
 
+mod policy;
+
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use crate::board::Board;
 use crate::eval::{Eval, EvalMode};
 use crate::probcut::Selectivity;
-use crate::score::{DiscScore, Score};
 use crate::search::SearchTask;
 use crate::search::context::SearchContext;
 use crate::search::correction_history::CorrectionHistories;
@@ -30,22 +31,7 @@ use crate::transposition_table::TranspositionTable;
 use crate::types::Depth;
 
 use super::{aspiration_search, aspiration_window};
-
-/// Depth-skip run lengths per helper; see [`Helper::skips_depth`].
-const SKIP_SIZE: [Depth; 20] = [1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4];
-
-/// Depth-skip phases per helper; see [`Helper::skips_depth`].
-const SKIP_PHASE: [Depth; 20] = [0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7];
-
-/// Extra aspiration window width per step of a helper's index.
-const ASPIRATION_STEP: Score = Score::from_raw(Score::SCALE / 4);
-
-/// Number of distinct aspiration window widths; see
-/// [`Helper::aspiration_widening`].
-const ASPIRATION_CYCLE: usize = 8;
-
-/// Vote margin added to every score so the worst candidate still counts.
-const VOTE_MARGIN: Score = Score::from_disc_diff(DiscScore::new(1));
+use policy::{Ballot, skips_depth, winner};
 
 /// A Lazy SMP helper thread, identified by its index in the pool.
 #[derive(Clone, Copy)]
@@ -59,16 +45,11 @@ impl Helper {
     /// by its phase, so at any moment the helpers spread across neighboring
     /// depths instead of repeating the main thread's iteration.
     fn skips_depth(self, depth_ply: Depth) -> bool {
-        let i = (self.0.get() - 1) % SKIP_SIZE.len();
-        (depth_ply + SKIP_PHASE[i]) / SKIP_SIZE[i] % 2 == 1
+        skips_depth(self.0, depth_ply)
     }
 
-    /// Returns how much wider than the main thread's this helper opens its
-    /// aspiration windows, so the threads fail high and low at different
-    /// scores.
-    pub(super) fn aspiration_widening(self) -> Score {
-        let steps = (self.0.get() % ASPIRATION_CYCLE) as i32;
-        Score::from_raw(ASPIRATION_STEP.value() * steps)
+    pub(super) fn index(self) -> usize {
+        self.0.get()
     }
 }
 
@@ -219,31 +200,48 @@ impl HelperSearch {
 /// thread on a full tie.
 pub(super) fn vote_best(main: Option<Iteration>, helpers: Vec<Iteration>) -> Option<Iteration> {
     let mut candidates: Vec<Iteration> = main.into_iter().chain(helpers).collect();
-    let min_score = candidates.iter().map(|c| c.best_move().score).min()?;
-
-    let mut votes = [0i64; 64];
-    for c in &candidates {
-        let rm = c.best_move();
-        votes[rm.sq as usize] +=
-            i64::from((rm.score - min_score + VOTE_MARGIN).value()) * i64::from(c.depth);
-    }
-    let votes_of = |c: &Iteration| votes[c.best_move().sq as usize];
-
-    let mut best = 0;
-    for (i, c) in candidates.iter().enumerate().skip(1) {
-        let (c_votes, best_votes) = (votes_of(c), votes_of(&candidates[best]));
-        if c_votes > best_votes || (c_votes == best_votes && c.depth > candidates[best].depth) {
-            best = i;
+    let best = winner(&candidates, |it| {
+        let root = it.best_move();
+        Ballot {
+            sq: root.sq,
+            score: root.score,
+            depth: it.depth,
         }
-    }
+    })?;
     Some(candidates.swap_remove(best))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::score::{DiscScore, Score};
     use crate::search::root_move::RootMove;
     use crate::square::Square;
+
+    #[test]
+    fn equal_votes_and_depth_keep_the_first_complete_snapshot() {
+        let snapshot = |sq, next, selectivity| {
+            let mut root = RootMove::new(sq);
+            root.score = Score::from_raw(-137);
+            root.pv = vec![sq, next];
+            Iteration {
+                root_moves: vec![root],
+                depth: 10,
+                selectivity,
+                is_endgame: false,
+            }
+        };
+        let tied_helper = || snapshot(Square::F5, Square::F6, Selectivity::None);
+        let first = || snapshot(Square::D3, Square::C3, Selectivity::Mid);
+        let main_wins = vote_best(Some(first()), vec![tied_helper()]).unwrap();
+        let helper_wins = vote_best(None, vec![first(), tied_helper()]).unwrap();
+        for result in [main_wins, helper_wins] {
+            assert_eq!(result.best_move().sq, Square::D3);
+            assert_eq!(result.best_move().pv, vec![Square::D3, Square::C3]);
+            assert_eq!(result.selectivity, Selectivity::Mid);
+        }
+        assert!(vote_best(None, vec![]).is_none());
+    }
 
     #[test]
     fn vote_prefers_the_move_backed_by_more_and_deeper_iterations() {

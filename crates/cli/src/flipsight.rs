@@ -183,10 +183,14 @@ struct Engine {
 impl Engine {
     fn new(config: &EngineConfig, ponder: bool) -> Self {
         let shared = SearchSharedResources::new(&config.search_options());
+        Self::from_shared(&shared, config.hash_size, ponder)
+    }
+
+    fn from_shared(shared: &SearchSharedResources, hash_mb: usize, ponder: bool) -> Self {
         Engine {
-            search: Search::from_shared_resources(&shared),
+            search: Search::from_shared_resources(shared),
             n_threads: shared.n_threads(),
-            hash_mb: config.hash_size,
+            hash_mb,
             ponder,
             ponder_on: None,
         }
@@ -322,16 +326,7 @@ mod tests {
     }
 
     fn engine_with(ponder: bool) -> Engine {
-        Engine::new(
-            &EngineConfig {
-                hash_size: 1,
-                level: 1,
-                threads: Some(1),
-                eval_file: None,
-                eval_sm_file: None,
-            },
-            ponder,
-        )
+        Engine::from_shared(&crate::config::test_shared_resources(1, 1), 1, ponder)
     }
 
     fn engine() -> Engine {
@@ -409,7 +404,11 @@ mod tests {
             .unwrap()
             .make_move(Square::from_u8(19).unwrap());
         let legal = legal_indices(&board);
-        let req = request(&SAMPLE.replace("[19,26,37,44]", &format!("{legal:?}")));
+        let req = request(
+            &SAMPLE
+                .replace("[19,26,37,44]", &format!("{legal:?}"))
+                .replace("10000", "450"),
+        );
         let reply = engine.play(&req, &board, Instant::now());
         let eval = reply["eval"].as_f64().unwrap();
         assert!(eval.abs() <= 64.0);
@@ -445,13 +444,13 @@ mod tests {
     #[test]
     fn next_request_stops_the_ponder() {
         let mut engine = engine_with(true);
-        let req = request(&SAMPLE.replace("10000", "500"));
+        let req = request(&SAMPLE.replace("10000", "400"));
         let board = position(&req).unwrap();
         let reply = engine.play(&req, &board, Instant::now());
         assert_eq!(reply["environment"]["ponder"], true);
         assert!(engine.ponder_on.is_some());
 
-        let waited = Duration::from_millis(200);
+        let waited = Duration::from_millis(50);
         let started = Instant::now();
         engine.ponder_while(|| thread::sleep(waited));
         assert!(started.elapsed() < waited + Duration::from_millis(500));
@@ -462,7 +461,7 @@ mod tests {
             &request(
                 &SAMPLE
                     .replace("[19,26,37,44]", &format!("{legal:?}"))
-                    .replace("10000", "500"),
+                    .replace("10000", "400"),
             ),
             &next,
             Instant::now(),

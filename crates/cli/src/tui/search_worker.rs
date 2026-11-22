@@ -119,13 +119,14 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
-    use reversi_core::search::options::SearchOptions;
     use reversi_core::square::Square;
 
     use super::*;
 
     fn worker() -> SearchWorker {
-        SearchWorker::new(Search::new(&SearchOptions::new(0).with_threads(Some(1))))
+        SearchWorker::new(Search::from_shared_resources(
+            &crate::config::test_shared_resources(0, 1),
+        ))
     }
 
     fn wait_until_available(worker: &mut SearchWorker) -> Option<(SearchKind, SearchResult)> {

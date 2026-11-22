@@ -18,6 +18,7 @@ use reversi_core::analysis::{self, GameAnalysisMove, GameAnalysisProgress};
 use reversi_core::board::Board;
 use reversi_core::level::{ENDGAME_STEPS, Level, get_level};
 use reversi_core::score::Score;
+#[cfg(not(test))]
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
@@ -268,6 +269,35 @@ fn should_execute(job: &Job, generation: &AtomicU64) -> bool {
     matches!(job.request, Request::Initialize { .. }) || is_current(generation, job.id)
 }
 
+#[cfg(test)]
+fn search_for_tests(hash_size: usize) -> Search {
+    use std::sync::OnceLock;
+
+    use reversi_core::eval::Eval;
+    use reversi_core::search::SearchSharedResources;
+
+    static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+    let eval = EVAL
+        .get_or_init(|| {
+            Arc::new(
+                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+            )
+        })
+        .clone();
+    let shared = SearchSharedResources::from_eval(eval, hash_size, Some(1));
+    Search::from_shared_resources(&shared)
+}
+
+#[cfg(not(test))]
+fn create_search(hash_size: usize) -> Search {
+    Search::new(&SearchOptions::new(hash_size))
+}
+
+#[cfg(test)]
+fn create_search(hash_size: usize) -> Search {
+    search_for_tests(hash_size)
+}
+
 fn execute(
     job: Job,
     search: &mut Option<Search>,
@@ -280,7 +310,7 @@ fn execute(
             search.resize_tt(hash_size);
             search.init();
         } else {
-            *search = Some(Search::new(&SearchOptions::new(hash_size)));
+            *search = Some(create_search(hash_size));
         }
         return Ok((id, EventKind::Ready));
     }

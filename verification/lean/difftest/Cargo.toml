@@ -1,0 +1,11 @@
+[package]
+name = "flip-scalar-difftest"
+version = "0.0.0"
+edition = "2024"
+publish = false
+default-run = "flip-scalar-difftest"
+
+[features]
+probcut-trace = []
+
+[workspace]

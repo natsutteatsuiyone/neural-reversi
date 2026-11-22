@@ -97,7 +97,7 @@ allows `madvise` requests.
 ## Crates
 
 - **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
-- **[cli](crates/cli/)**: Command-line interface for playing Reversi.
+- **[cli](crates/cli/)**: Command-line interface for terminal play (TUI), GTP, GGS, FlipSight, and position solving.
 - **[gui](crates/gui/)**: Native Rust graphical user interface built with NSH, calling `reversi-core` directly.
 - **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
 - **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
@@ -177,6 +177,22 @@ cargo run -p gui --release
 ```
 
 Tests cover the Rust application model and engine rather than a browser/WebDriver layer. Running the window requires a graphical desktop and a compatible GPU driver. See the [GUI README](crates/gui/README.md) for features, saved settings, and platform requirements. The separate `crates/web` application retains its Bun/Vite toolchain.
+
+## Verification
+
+`verification/` holds two formal verification suites for `crates/reversi-core`. Both check hand-written models rather than the compiled Rust binary. Correspondence to `crates/reversi-core` rests on the Rust differential checks, mutant checks, engine unit tests, and source review.
+
+- **[Lean 4 proofs](verification/lean/README.md)** (`verification/lean/`): Proves properties of core engine models, including board and flip logic, stability, evaluation, the transposition table, search, and threading. The runner audits every module and axiom, enforces proof-policy checks, and runs weight-free differential tests against `crates/reversi-core`. Requires [elan](https://github.com/leanprover/elan), Python 3.10 or later, and the Rust toolchain pinned in [`rust-toolchain.toml`](rust-toolchain.toml).
+- **[TLA+ split-point model](verification/tla/split-point/README.md)** (`verification/tla/split-point/`): Model-checks the endgame YBWC split-point concurrency protocol with TLC and verifies that broken protocol mutants fail their expected invariants. Requires Java 11 or later and Python 3.10 or later.
+
+Run either suite from the repository root with `cargo-make`, or run [`verification/lean/check.py`](verification/lean/check.py) and [`verification/tla/split-point/check.py`](verification/tla/split-point/check.py) directly:
+
+```bash
+cargo make verify-lean   # Run Lean proofs, audits, policy regressions, and Rust differential checks
+cargo make verify-tla    # Run default, deep, and mutant TLC checks on the split-point model
+```
+
+GitHub Actions runs [`.github/workflows/verify-lean.yml`](.github/workflows/verify-lean.yml) and [`.github/workflows/verify-tla.yml`](.github/workflows/verify-tla.yml) on pushes and pull requests to `main` when `verification/` or covered `crates/reversi-core` files change.
 
 ## License
 

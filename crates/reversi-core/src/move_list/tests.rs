@@ -109,6 +109,42 @@ fn test_concurrent_move_iterator_from_offset() {
     assert!(concurrent_iter.next().is_none());
 }
 
+#[test]
+fn concurrent_move_iterator_stays_exhausted_at_max_offset() {
+    let iter = ConcurrentMoveIterator::from_offset(MoveList::new(&Board::new()), usize::MAX);
+    assert!(iter.next().is_none());
+    assert!(
+        iter.next().is_none(),
+        "an exhausted iterator reissued a move"
+    );
+}
+
+#[test]
+fn concurrent_move_iterator_shares_the_suffix_once() {
+    let moves = MoveList::new(&Board::new());
+    let expected: Vec<_> = moves
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(index, mv)| (index + 1, mv.sq))
+        .collect();
+    let iter = ConcurrentMoveIterator::from_offset(moves, 1);
+    let start = std::sync::Barrier::new(3);
+    let mut claimed = std::thread::scope(|scope| {
+        let workers = [(); 3].map(|()| {
+            scope.spawn(|| {
+                start.wait();
+                let (mv, index) = iter.next().expect("each worker should claim one move");
+                (index, mv.sq)
+            })
+        });
+        workers.map(|worker| worker.join().unwrap())
+    });
+    claimed.sort_unstable_by_key(|&(index, _)| index);
+    assert_eq!(claimed.as_slice(), expected.as_slice());
+    assert!(iter.next().is_none());
+}
+
 /// Independent eight-direction flip reference used to cross-check move
 /// generation without depending on any SIMD backend.
 fn reference_flip(sq: Square, p: u64, o: u64) -> u64 {

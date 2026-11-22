@@ -7,9 +7,6 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::eval::network::layer_stack::NUM_LAYER_STACKS;
 use crate::eval::pattern_feature::NUM_PATTERN_FEATURES;
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, PatternFeature};
-use crate::eval::util::clone_biases;
-#[allow(unused_imports)]
-use crate::eval::util::feature_offset;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
@@ -25,14 +22,14 @@ const _: () = assert!(NUM_PATTERN_FEATURES == 32);
 /// Phase-adaptive input layer.
 #[derive(Debug)]
 pub struct PhaseAdaptiveInputLayer {
-    biases: AlignedBuffer<i16>,
+    biases: Align64<[i16; OUTPUT_DIMS]>,
     weights: AlignedBuffer<i16>,
 }
 
 impl PhaseAdaptiveInputLayer {
     /// Loads network weights and biases from a binary reader.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
-        let mut biases = AlignedBuffer::<i16>::from_elem(0, OUTPUT_DIMS);
+        let mut biases = Align64([0i16; OUTPUT_DIMS]);
         let mut weights = AlignedBuffer::<i16>::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS);
 
         reader.read_i16_into::<LittleEndian>(biases.as_mut_slice())?;
@@ -51,7 +48,11 @@ impl PhaseAdaptiveInputLayer {
 
     /// Performs a forward pass through the phase-adaptive input layer.
     #[inline(always)]
-    pub fn forward(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    pub fn forward(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         cfg_select! {
             all(target_arch = "x86_64", target_feature = "avx512bw") => {
                 unsafe { self.forward_avx512(pattern_feature, output) };
@@ -70,11 +71,15 @@ impl PhaseAdaptiveInputLayer {
 
     /// Computes the forward pass using the scalar fallback.
     #[allow(dead_code)]
-    fn forward_scalar(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
-        let mut acc: Align64<[i16; OUTPUT_DIMS]> = clone_biases(&self.biases);
+    fn forward_scalar(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
+        let mut acc = self.biases;
         accumulate_scalar::<OUTPUT_DIMS>(pattern_feature, &self.weights, &mut acc);
 
-        for (out, &acc_v) in output[..OUTPUT_DIMS].iter_mut().zip(acc.0.iter()) {
+        for (out, &acc_v) in output.0.iter_mut().zip(acc.0.iter()) {
             let v = acc_v.clamp(0, ACTIVATION_MAX) as u32;
             *out = ((v * v) >> ACTIVATION_SHIFT) as u8;
         }
@@ -83,7 +88,11 @@ impl PhaseAdaptiveInputLayer {
     #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
     #[target_feature(enable = "avx512bw")]
     #[allow(dead_code)]
-    fn forward_avx512(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_avx512(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 4;
@@ -111,10 +120,10 @@ impl PhaseAdaptiveInputLayer {
 
             macro_rules! accumulate_feature_group {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
                     accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
@@ -156,7 +165,11 @@ impl PhaseAdaptiveInputLayer {
         not(target_feature = "avx512bw")
     ))]
     #[target_feature(enable = "avx2")]
-    fn forward_avx2(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_avx2(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::x86_64::*;
 
         const NUM_REGS: usize = 8;
@@ -188,10 +201,10 @@ impl PhaseAdaptiveInputLayer {
 
             macro_rules! accumulate_feature_group {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
                     accumulate_reg!(idx0, idx1, idx2, idx3, 0, acc0);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 1, acc1);
                     accumulate_reg!(idx0, idx1, idx2, idx3, 2, acc2);
@@ -236,7 +249,11 @@ impl PhaseAdaptiveInputLayer {
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
     #[target_feature(enable = "neon")]
     #[allow(dead_code)]
-    fn forward_neon(&self, pattern_feature: &PatternFeature, output: &mut [u8]) {
+    fn forward_neon(
+        &self,
+        pattern_feature: &PatternFeature,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         use std::arch::aarch64::*;
 
         unsafe {
@@ -262,7 +279,7 @@ impl PhaseAdaptiveInputLayer {
 
             macro_rules! accumulate_feature {
                 ($feature_idx:expr) => {{
-                    let idx = feature_offset(pattern_feature, $feature_idx) * OUTPUT_DIMS;
+                    let idx = pattern_feature.row($feature_idx) * OUTPUT_DIMS;
                     let base = weights_ptr.add(idx);
                     acc0 = vaddq_s16(acc0, vld1q_s16(base));
                     acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
@@ -290,7 +307,7 @@ impl PhaseAdaptiveInputLayer {
             }
 
             let one = vdupq_n_s16(ACTIVATION_MAX);
-            let output_ptr = output.as_mut_ptr();
+            let output_ptr = output.0.as_mut_ptr();
 
             // SQSHLU fuses clamp-to-non-negative with the <<5 step. After
             // `vminq_s16(_, one)` the post-shift max is 510<<5 = 16320 (within
@@ -326,7 +343,7 @@ impl PhaseAdaptiveInputLayer {
 /// input layer based on the current ply.
 #[derive(Debug)]
 pub struct PhaseAdaptiveInput {
-    inputs: Vec<PhaseAdaptiveInputLayer>,
+    inputs: Box<[PhaseAdaptiveInputLayer; NUM_PA_INPUTS]>,
 }
 
 impl PhaseAdaptiveInput {
@@ -335,12 +352,20 @@ impl PhaseAdaptiveInput {
         let inputs = (0..NUM_PA_INPUTS)
             .map(|_| PhaseAdaptiveInputLayer::load(reader))
             .collect::<io::Result<Vec<_>>>()?;
+        let Ok(inputs) = Box::try_from(inputs) else {
+            unreachable!()
+        };
         Ok(PhaseAdaptiveInput { inputs })
     }
 
     /// Performs a forward pass, selecting the input layer based on the current ply.
     #[inline(always)]
-    pub fn forward(&self, pattern_feature: &PatternFeature, ply: usize, output: &mut [u8]) {
+    pub fn forward(
+        &self,
+        pattern_feature: &PatternFeature,
+        ply: usize,
+        output: &mut Align64<[u8; OUTPUT_DIMS]>,
+    ) {
         debug_assert!(
             ply < NUM_LAYER_STACKS,
             "ply {ply} out of valid range 0-{}",
@@ -363,15 +388,15 @@ mod tests {
     fn valid_pattern_feature(seed: usize) -> PatternFeature {
         let mut pattern_feature = PatternFeature::new();
         for idx in 0..NUM_PATTERN_FEATURES {
-            pattern_feature[idx] = ((idx * seed + 17) % calc_pattern_size(idx)) as u16;
+            pattern_feature.set(idx, ((idx * seed + 17) % calc_pattern_size(idx)) as u16);
         }
         pattern_feature
     }
 
     fn build_layer(pattern_feature: &PatternFeature, seed: i32) -> PhaseAdaptiveInputLayer {
         let mut layer = PhaseAdaptiveInputLayer {
-            biases: AlignedBuffer::from_elem(0, OUTPUT_DIMS),
-            weights: AlignedBuffer::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS),
+            biases: Align64([0; OUTPUT_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * OUTPUT_DIMS),
         };
 
         for (idx, bias) in layer.biases.iter_mut().enumerate() {
@@ -396,15 +421,15 @@ mod tests {
 
     fn constant_layer(value: i16) -> PhaseAdaptiveInputLayer {
         PhaseAdaptiveInputLayer {
-            biases: AlignedBuffer::from_elem(value, OUTPUT_DIMS),
-            weights: AlignedBuffer::from_elem(0, INPUT_FEATURE_DIMS * OUTPUT_DIMS),
+            biases: Align64([value; OUTPUT_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * OUTPUT_DIMS),
         }
     }
 
     #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
     fn dispatch_ready_layer(natural: &PhaseAdaptiveInputLayer) -> PhaseAdaptiveInputLayer {
         let mut layer = PhaseAdaptiveInputLayer {
-            biases: natural.biases.clone(),
+            biases: natural.biases,
             weights: natural.weights.clone(),
         };
         permute_rows(layer.biases.as_mut_slice(), OUTPUT_DIMS);
@@ -444,45 +469,54 @@ mod tests {
         let pattern_feature = valid_pattern_feature(4099);
         let layer = build_layer(&pattern_feature, 29);
         let expected = reference_forward(&layer, &pattern_feature);
-        let mut actual = Align64([0xCC; OUTPUT_DIMS + 4]);
+        let mut actual = Align64([0xCC; OUTPUT_DIMS]);
 
-        layer.forward_scalar(&pattern_feature, actual.as_mut_slice());
+        layer.forward_scalar(&pattern_feature, &mut actual);
 
-        assert_eq!(&actual.as_ref()[..OUTPUT_DIMS], &expected);
-        assert_eq!(&actual.as_ref()[OUTPUT_DIMS..], &[0xCC; 4]);
+        assert_eq!(actual.as_ref(), &expected);
     }
 
     #[test]
     fn phase_adaptive_input_selects_the_expected_ten_ply_bucket() {
         let pattern_feature = PatternFeature::new();
         let input = PhaseAdaptiveInput {
-            inputs: (0..NUM_PA_INPUTS)
-                .map(|bucket| constant_layer((bucket as i16) * 64))
-                .collect(),
+            inputs: Box::new(std::array::from_fn(|bucket| {
+                constant_layer((bucket as i16) * 64)
+            })),
         };
-        let cases = [
-            (0, 0),
-            (9, 0),
-            (10, 1),
-            (19, 1),
-            (20, 2),
-            (29, 2),
-            (30, 3),
-            (39, 3),
-            (40, 4),
-            (49, 4),
-            (50, 5),
-            (59, 5),
-        ];
-
-        for (ply, bucket) in cases {
+        for ply in 0..60 {
             let mut output = Align64([0xFF; OUTPUT_DIMS]);
-            input.forward(&pattern_feature, ply, output.as_mut_slice());
-            let value = (bucket as u32) * 64;
+            input.forward(&pattern_feature, ply, &mut output);
+            let value = (ply as u32 / 10) * 64;
             let expected = ((value * value) >> ACTIVATION_SHIFT) as u8;
 
             assert_eq!(output.as_ref(), &[expected; OUTPUT_DIMS], "ply {ply}");
         }
+    }
+
+    #[test]
+    fn dispatched_phase_layer_squares_wrapped_values_and_checks_output_boundaries() {
+        let pattern = PatternFeature::new();
+        let mut layer = constant_layer(0);
+        layer.weights[..OUTPUT_DIMS].fill(i16::MAX);
+        let edges = [i16::MIN, -1, 0, 1, 31, 32, 255, 509, 510, 511, i16::MAX];
+        let mut expected = [0; OUTPUT_DIMS];
+        for (i, result) in expected.iter_mut().enumerate() {
+            let value = edges[i % edges.len()];
+            layer.biases[i] = value.wrapping_sub(i16::MAX);
+            let clipped = i32::from(value.clamp(0, 510));
+            *result = (clipped * clipped / 1024) as u8;
+        }
+        #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+        {
+            permute_rows(layer.biases.as_mut_slice(), OUTPUT_DIMS);
+            permute_rows(layer.weights.as_mut_slice(), OUTPUT_DIMS);
+        }
+
+        let mut output = Align64([0xCC; OUTPUT_DIMS * 2]);
+        layer.forward(&pattern, output.sub_array_mut::<OUTPUT_DIMS, OUTPUT_DIMS>());
+        assert_eq!(&output[OUTPUT_DIMS..], &expected);
+        assert_eq!(&output[..OUTPUT_DIMS], &[0xCC; OUTPUT_DIMS]);
     }
 
     #[test]
@@ -491,11 +525,11 @@ mod tests {
     fn phase_adaptive_input_rejects_ply_60_in_debug_builds() {
         let pattern_feature = PatternFeature::new();
         let input = PhaseAdaptiveInput {
-            inputs: (0..NUM_PA_INPUTS).map(|_| constant_layer(0)).collect(),
+            inputs: Box::new(std::array::from_fn(|_| constant_layer(0))),
         };
         let mut output = Align64([0; OUTPUT_DIMS]);
 
-        input.forward(&pattern_feature, 60, output.as_mut_slice());
+        input.forward(&pattern_feature, 60, &mut output);
     }
 
     #[test]
@@ -506,7 +540,7 @@ mod tests {
         let expected = reference_forward(&layer, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { layer.forward_neon(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { layer.forward_neon(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }
@@ -524,7 +558,7 @@ mod tests {
         let expected = reference_forward(&natural, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { simd.forward_avx2(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { simd.forward_avx2(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }
@@ -538,7 +572,7 @@ mod tests {
         let expected = reference_forward(&natural, &pattern_feature);
         let mut actual = Align64([0; OUTPUT_DIMS]);
 
-        unsafe { simd.forward_avx512(&pattern_feature, actual.as_mut_slice()) };
+        unsafe { simd.forward_avx512(&pattern_feature, &mut actual) };
 
         assert_eq!(actual.as_ref(), &expected);
     }

@@ -1,6 +1,7 @@
 mod network;
 
 use std::io;
+use std::sync::Arc;
 
 use reversi_core::{
     board::Board,
@@ -18,7 +19,7 @@ macro_rules! eval_weights_literal {
 
 /// Neural network evaluator with a set-associative evaluation cache.
 pub struct Eval {
-    network: Network,
+    network: Arc<Network>,
     cache: EvalCache,
 }
 
@@ -31,12 +32,36 @@ impl Eval {
     ///
     /// [`io::Error`]: std::io::Error
     pub fn new() -> io::Result<Self> {
-        let network = Network::from_bytes(include_bytes!(concat!(
+        let network = Arc::new(Network::from_bytes(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../",
             eval_weights_literal!()
-        )))?;
+        )))?);
         Ok(Eval {
+            network,
+            cache: EvalCache::new(17),
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn shared_for_tests() -> std::rc::Rc<Self> {
+        use std::rc::Rc;
+        use std::sync::OnceLock;
+
+        static NETWORK: OnceLock<Arc<Network>> = OnceLock::new();
+        let network = NETWORK
+            .get_or_init(|| {
+                Arc::new(
+                    Network::from_bytes(include_bytes!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../",
+                        eval_weights_literal!()
+                    )))
+                    .expect("embedded wasm evaluation weights must load"),
+                )
+            })
+            .clone();
+        Rc::new(Eval {
             network,
             cache: EvalCache::new(17),
         })

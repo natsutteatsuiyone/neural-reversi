@@ -235,6 +235,26 @@ mod tests {
     }
 
     #[test]
+    fn score_history_rounds_toward_zero_and_survives_reset_and_sort() {
+        let roots = RootMoves::new(&Board::new());
+        let sq = roots.get(1).unwrap().sq;
+        let pv = pv_array(&[sq]);
+
+        roots.update(sq, Score::from_raw(-3), true, &pv);
+        roots.update(sq, Score::from_raw(2), false, &pv);
+        roots.reset_scores_from_pv_idx();
+        assert_eq!(find(&roots, sq, |rm| rm.average_score), Score::ZERO);
+        assert_eq!(find(&roots, sq, |rm| rm.mean_squared_score), -2);
+
+        roots.update(sq, Score::from_raw(-3), true, &pv);
+        roots.sort_from_pv_idx();
+        let root = roots.current_pv().unwrap();
+        assert_eq!(root.sq, sq);
+        assert_eq!(root.average_score, Score::from_raw(-1));
+        assert_eq!(root.mean_squared_score, -5);
+    }
+
+    #[test]
     fn update_copies_the_pv_until_the_none_sentinel() {
         let rms = RootMoves::new(&Board::new());
         let sq = rms.get(0).unwrap().sq;

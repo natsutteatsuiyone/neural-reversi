@@ -124,7 +124,7 @@ impl SplitPointState {
 
     /// Sets the `all_helpers_searching` flag.
     #[inline]
-    pub fn set_all_helpers_searching(&self, value: bool) {
+    pub fn set_all_helpers_searching_locked(&self, value: bool) {
         self.all_helpers_searching.store(value, Ordering::Relaxed);
     }
 
@@ -172,6 +172,27 @@ impl SplitPointState {
     }
 }
 
+struct SharedSearchPointers {
+    tt: NonNull<TranspositionTable>,
+
+    root_moves: NonNull<RootMoves>,
+
+    eval: NonNull<Eval>,
+}
+
+const _: () = {
+    const fn require_sync<T: Sync>() {}
+    require_sync::<TranspositionTable>();
+    require_sync::<RootMoves>();
+    require_sync::<Eval>();
+};
+
+// SAFETY: The pointers come from shared references to Sync values that outlive every dispatch.
+unsafe impl Send for SharedSearchPointers {}
+
+// SAFETY: Dispatches create only shared references while participating in the split.
+unsafe impl Sync for SharedSearchPointers {}
+
 /// Task data for a split point containing all information needed for search.
 pub struct SplitPointTask {
     /// Current board position to search from.
@@ -186,14 +207,7 @@ pub struct SplitPointTask {
     /// Current evaluation mode (midgame or endgame).
     pub eval_mode: EvalMode,
 
-    /// Non-null pointer to the shared transposition table.
-    tt: NonNull<TranspositionTable>,
-
-    /// Non-null pointer to the root moves container on the root search frame.
-    root_moves: NonNull<RootMoves>,
-
-    /// Non-null pointer to the neural network evaluator.
-    eval: NonNull<Eval>,
+    shared: SharedSearchPointers,
 
     /// List of empty squares for move generation optimization.
     pub empty_list: EmptyList,
@@ -217,15 +231,6 @@ pub struct SplitPointTask {
     pub parent_split_point: Option<Arc<SplitPoint>>,
 }
 
-// SAFETY: All other fields of `SplitPointTask` are `Send`. The three `NonNull`
-// targets (`TranspositionTable`, `RootMoves`, `Eval`) are `Sync` and outlive the
-// task because the owner holds them alive across `Thread::split`.
-unsafe impl Send for SplitPointTask {}
-
-// SAFETY: Every field is safe to share across threads: the pointed-to types are
-// `Sync` and `SplitPointTask` is cleared only after all helpers finish.
-unsafe impl Sync for SplitPointTask {}
-
 impl SplitPointTask {
     /// Creates task data for a split point.
     #[inline]
@@ -240,9 +245,11 @@ impl SplitPointTask {
             side_to_move: ctx.side_to_move,
             selectivity: ctx.selectivity,
             eval_mode: ctx.eval_mode,
-            tt: NonNull::from(ctx.tt),
-            root_moves: NonNull::from(ctx.root_moves),
-            eval: NonNull::from(ctx.eval),
+            shared: SharedSearchPointers {
+                tt: NonNull::from(ctx.tt),
+                root_moves: NonNull::from(ctx.root_moves),
+                eval: NonNull::from(ctx.eval),
+            },
             empty_list: ctx.empty_list.clone(),
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
@@ -262,7 +269,7 @@ impl SplitPointTask {
         NonNull<Eval>,
         NonNull<RootMoves>,
     ) {
-        (self.tt, self.eval, self.root_moves)
+        (self.shared.tt, self.shared.eval, self.shared.root_moves)
     }
 }
 
@@ -342,11 +349,12 @@ impl SplitPoint {
 
     /// Returns the shared move iterator for the active split point.
     ///
-    /// Lives outside `SplitPointState` so callers may hold this reference
-    /// after releasing the split-point lock.
+    /// # Safety
+    ///
+    /// The iterator must be initialized and retained for the returned borrow.
     #[inline]
-    pub(in crate::search) fn move_iter(&self) -> &ConcurrentMoveIterator {
-        // SAFETY: Initialized before helpers start; valid until all finish.
+    pub(super) unsafe fn move_iter(&self) -> &ConcurrentMoveIterator {
+        // SAFETY: The caller keeps the initialized iterator in place.
         unsafe { (*self.move_iter.get()).as_ref().unwrap() }
     }
 
@@ -374,9 +382,13 @@ impl SplitPoint {
     }
 
     /// Returns the task for the active split point.
+    ///
+    /// # Safety
+    ///
+    /// The task must be initialized and retained for the returned borrow.
     #[inline]
-    pub(in crate::search) fn task(&self) -> &SplitPointTask {
-        // SAFETY: Initialized before helpers start; valid until all finish.
+    pub(super) unsafe fn task(&self) -> &SplitPointTask {
+        // SAFETY: The caller keeps the initialized task in place.
         unsafe {
             (*self.task.get())
                 .as_ref()

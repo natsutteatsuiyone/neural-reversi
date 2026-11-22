@@ -343,7 +343,7 @@ mod tests {
     use crate::eval::Eval;
     use crate::level::Level;
     use crate::player_color::PlayerColor;
-    use crate::probcut::{self, Selectivity};
+    use crate::probcut::Selectivity;
     use crate::score::Score;
     use crate::transposition_table::TranspositionTable;
 
@@ -386,7 +386,6 @@ mod tests {
             }
         }
 
-        probcut::init();
         let pool = ThreadPool::new(2);
         let ffo_41 = Board::from_string(
             "-OOOOO----OOOOX--OOOOOO-XXXXXOO--XXOOX--OOXOXX----OXXO---OOO--O-",
@@ -411,7 +410,6 @@ mod tests {
 
     #[test]
     fn threads_alternate_between_helper_searches_and_split_points() {
-        probcut::init();
         let pool = ThreadPool::new(8);
         let eval = Eval::shared_for_tests();
         let task = |board, level| task(&pool, &eval, board, level, Selectivity::Level1);
@@ -446,5 +444,55 @@ mod tests {
                 assert!(!thread.is_search_aborted());
             }
         }
+    }
+
+    #[test]
+    fn last_pool_reference_on_worker_shuts_down_after_root_returns() {
+        let pool = ThreadPool::new(2);
+        let worker_pool = Arc::downgrade(&pool);
+        let observed_pool = worker_pool.clone();
+        let main = pool.main().clone();
+        let (retained, ready) = mpsc::channel();
+        let (release, proceed) = mpsc::channel();
+        let proceed = Mutex::new(proceed);
+        let (exited, finished) = mpsc::channel();
+        let job: HelperJob = Arc::new(move |worker| {
+            let pool = worker_pool.upgrade().unwrap();
+            retained.send(()).unwrap();
+            if proceed.lock().unwrap().recv().is_ok() {
+                drop(pool);
+                exited.send(worker.exit.load(Ordering::Acquire)).unwrap();
+            }
+        });
+        pool.thinking.store(true, Ordering::Release);
+        pool.start_helpers(&job);
+        drop(job);
+        pool.notify_all();
+        let timeout = Duration::from_secs(10);
+        ready
+            .recv_timeout(timeout)
+            .expect("worker did not retain the pool");
+
+        let eval = Eval::shared_for_tests();
+        let root = task(
+            &pool,
+            &eval,
+            Board::new(),
+            Level::uniform(1, 0),
+            Selectivity::None,
+        );
+        let result = pool.start_thinking(root, None);
+        drop(pool);
+        assert!(result.recv_timeout(timeout).unwrap().best_move().is_some());
+        assert!(!main.exit.load(Ordering::Acquire));
+
+        release.send(()).unwrap();
+        assert!(
+            finished
+                .recv_timeout(timeout)
+                .expect("worker did not finish dropping the pool")
+        );
+        assert!(main.exit.load(Ordering::Acquire));
+        assert!(observed_pool.upgrade().is_none());
     }
 }

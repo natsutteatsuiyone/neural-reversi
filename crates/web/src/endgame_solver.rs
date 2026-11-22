@@ -55,6 +55,9 @@ impl EndgameSolver {
 
         let tt_mb = tt_mb.unwrap_or(DEFAULT_TT_MB as u32) as usize;
         let tt = Rc::new(TranspositionTable::new(tt_mb));
+        #[cfg(test)]
+        let eval = Eval::shared_for_tests();
+        #[cfg(not(test))]
         let eval = Rc::new(Eval::new().map_err(|e| {
             JsValue::from_str(&format!("Failed to load evaluation network: {}", e))
         })?);

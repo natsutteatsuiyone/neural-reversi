@@ -18,6 +18,21 @@ use std::ptr::NonNull;
 use crate::constants::CACHE_LINE_SIZE;
 use crate::util::large_pages;
 
+/// Marker trait for types whose all-zero byte representation is valid.
+///
+/// # Safety
+///
+/// Every all-zero byte pattern of `size_of::<Self>()` bytes must be a valid
+/// value of `Self`.
+pub(crate) unsafe trait Zeroable {}
+
+// SAFETY: all-zero bytes represent 0 for integer primitives.
+unsafe impl Zeroable for i16 {}
+// SAFETY: all-zero bytes represent 0 for integer primitives.
+unsafe impl Zeroable for u16 {}
+// SAFETY: all-zero bytes are valid when every array element is `Zeroable`.
+unsafe impl<T: Zeroable, const N: usize> Zeroable for [T; N] {}
+
 /// A fixed-length buffer of `len` `T` values whose start address is cache-line-aligned.
 pub struct AlignedBuffer<T> {
     /// Allocation base. `CACHE_LINE_SIZE`-aligned; dangling (never
@@ -101,15 +116,45 @@ impl<T> AlignedBuffer<T> {
         }
     }
 
+    /// # Safety
+    ///
+    /// The first `initialized` slots must be valid, and `ptr`, `cap` and `large_pages` must describe their original backing.
+    unsafe fn drop_initialized(ptr: NonNull<T>, initialized: usize, cap: usize, large_pages: bool) {
+        struct Release<T> {
+            ptr: NonNull<T>,
+            cap: usize,
+            large_pages: bool,
+        }
+
+        impl<T> Drop for Release<T> {
+            fn drop(&mut self) {
+                // SAFETY: the backing was transferred to this guard by `drop_initialized`.
+                unsafe { AlignedBuffer::release(self.ptr, self.cap, self.large_pages) };
+            }
+        }
+
+        let _release = Release {
+            ptr,
+            cap,
+            large_pages,
+        };
+        // SAFETY: the caller owns the initialized prefix and the original backing.
+        unsafe {
+            std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
+                ptr.as_ptr(),
+                initialized,
+            ))
+        };
+    }
+
     /// Creates a buffer of `len` zeroed elements.
     ///
     /// Unlike [`AlignedBuffer::from_elem`] this does not write the elements;
     /// the allocation itself is zeroed.
-    ///
-    /// # Safety
-    ///
-    /// An all-zero byte pattern must be a valid value of `T`.
-    pub unsafe fn zeroed(len: usize) -> Self {
+    pub fn zeroed(len: usize) -> Self
+    where
+        T: Zeroable,
+    {
         let (ptr, large_pages) = Self::alloc_raw(len, true);
         AlignedBuffer {
             ptr,
@@ -152,6 +197,7 @@ impl<T> AlignedBuffer<T> {
             unsafe { base.add(i).write(item) };
             fill.initialized = i + 1;
         }
+        drop(it);
         fill.into_buffer()
     }
 
@@ -219,11 +265,7 @@ impl<T> Drop for Filling<T> {
         // SAFETY: the first `initialized` slots hold valid `T` values, and the
         // allocation is described by `cap`/`large_pages`.
         unsafe {
-            std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
-                self.ptr.as_ptr(),
-                self.initialized,
-            ));
-            AlignedBuffer::release(self.ptr, self.cap, self.large_pages);
+            AlignedBuffer::drop_initialized(self.ptr, self.initialized, self.cap, self.large_pages);
         };
     }
 }
@@ -252,11 +294,7 @@ impl<T> Drop for AlignedBuffer<T> {
         // SAFETY: the first `self.len` slots are initialized, and the
         // allocation is described by `len`/`large_pages`.
         unsafe {
-            std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(
-                self.ptr.as_ptr(),
-                self.len,
-            ));
-            Self::release(self.ptr, self.len, self.large_pages);
+            Self::drop_initialized(self.ptr, self.len, self.len, self.large_pages);
         };
     }
 }
@@ -315,6 +353,32 @@ mod tests {
         assert_eq!(v.len(), 0);
         assert_eq!(v.as_slice(), &[] as &[i64]);
         assert_eq!(v.as_ptr() as usize % CACHE_LINE_SIZE, 0);
+    }
+
+    #[test]
+    fn zeroed_buffer_contains_aligned_zero_values() {
+        let v = AlignedBuffer::<[u16; 3]>::zeroed(23);
+        assert_eq!(v.as_slice(), &[[0; 3]; 23]);
+        assert_eq!(v.as_ptr().addr() % CACHE_LINE_SIZE, 0);
+    }
+
+    #[test]
+    fn zero_sized_elements_keep_their_logical_drop_count() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        struct ZeroSized;
+        impl Drop for ZeroSized {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        let v = AlignedBuffer::from_iter((0..19).map(|_| ZeroSized));
+        assert_eq!(v.len(), 19);
+        assert_eq!(v.as_ptr().addr() % CACHE_LINE_SIZE, 0);
+        drop(v);
+        assert_eq!(DROPS.load(Ordering::Relaxed), 19);
     }
 
     #[test]

@@ -476,7 +476,7 @@ mod tests {
         ProbCutDatagen {
             search: Search::new(
                 Rc::new(TranspositionTable::new(1)),
-                Rc::new(Eval::new().unwrap()),
+                Eval::shared_for_tests(),
             ),
             score_cache: HashMap::new(),
             cache_hits: 0,
@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn midgame_scores_do_not_depend_on_previous_positions() {
-        let eval = Rc::new(Eval::new().unwrap());
+        let eval = Eval::shared_for_tests();
         let mut warm = ProbCutDatagen {
             search: Search::new(Rc::new(TranspositionTable::new(1)), Rc::clone(&eval)),
             score_cache: HashMap::new(),

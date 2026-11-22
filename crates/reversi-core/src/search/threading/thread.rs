@@ -102,6 +102,8 @@ pub struct Thread {
     /// Cache-padded: hot cross-thread atomic; isolate from neighbour writes.
     pub(super) searching: Align64<AtomicBool>,
 
+    failed: AtomicBool,
+
     /// Flag signaling the thread to exit.
     pub(super) exit: AtomicBool,
 }
@@ -118,6 +120,21 @@ pub struct SplitRequest<'a> {
     pub move_count: usize,
     pub node_type: NodeTypeId,
     pub cut_node: bool,
+}
+
+struct SplitUnwindGuard<'a> {
+    thread: &'a Thread,
+    sp: &'a Arc<SplitPoint>,
+}
+
+impl Drop for SplitUnwindGuard<'_> {
+    fn drop(&mut self) {
+        self.thread.abandon_active_split();
+        while !self.sp.state().helpers_mask.none() {
+            thread::yield_now();
+        }
+        self.thread.finalize_split_point(self.sp);
+    }
 }
 
 impl Thread {
@@ -154,6 +171,7 @@ impl Thread {
             active_split_point: SyncUnsafeCell::new(None),
             ready: AtomicBool::new(false),
             searching: Align64(AtomicBool::new(false)),
+            failed: AtomicBool::new(false),
             exit: AtomicBool::new(false),
         }
     }
@@ -286,12 +304,12 @@ impl Thread {
             if sp_state.cutoff() {
                 return true;
             }
-            current = sp.task().parent_split_point.as_ref();
+            // SAFETY: The worker's participation retains its active task and each ancestor.
+            current = unsafe { sp.task() }.parent_split_point.as_ref();
         }
         false
     }
 
-    /// Forces the next `should_stop()` call to re-check the active split-point chain.
     #[inline]
     pub(super) fn reset_cutoff_cache(&self) {
         self.local_chain_cutoff.store(false, Ordering::Relaxed);
@@ -317,7 +335,7 @@ impl Thread {
     ///    split points, it can only join split points created by its helpers
     pub(super) fn can_join(&self, sp: &Arc<SplitPoint>) -> bool {
         // Acquire pairs with Release store after updating thread state
-        if self.searching.load(Ordering::Acquire) {
+        if self.searching.load(Ordering::Acquire) || self.failed.load(Ordering::Relaxed) {
             return false;
         }
 
@@ -346,8 +364,9 @@ impl Thread {
     /// cutoff, `all_helpers_searching`, below [`MAX_THREADS_PER_SPLITPOINT`]).
     #[inline]
     pub(super) fn book_into(&self, sp: &Arc<SplitPoint>, sp_state: &SplitPointState) {
+        let assignment = sp.clone();
         sp_state.helpers_mask.set(self.idx);
-        *self.active_split_point_mut() = Some(sp.clone());
+        *self.active_split_point_mut() = Some(assignment);
         self.searching.store(true, Ordering::Release);
     }
 
@@ -367,29 +386,10 @@ impl Thread {
         ctx: &mut SearchContext,
         req: SplitRequest,
     ) -> (Score, Option<Square>, SearchCounters) {
-        struct SplitUnwindGuard<'a> {
-            thread: &'a Thread,
-            sp: &'a Arc<SplitPoint>,
-        }
-
-        impl Drop for SplitUnwindGuard<'_> {
-            fn drop(&mut self) {
-                // Keep helpers' borrowed `SplitPointTask` references alive
-                // until every worker leaves this split point before unwind drops
-                // the owner's `RootMoves` or `SearchTask`.
-                while !self.sp.state().helpers_mask.none() {
-                    thread::yield_now();
-                }
-                self.thread.finalize_split_point(self.sp);
-            }
-        }
-
         // Pick the next available split point
         let sp = &self.split_points[self.split_points_size.load(Ordering::Relaxed)];
 
-        // Initialize the split point with search parameters
-        self.initialize_split_point(sp, ctx, req);
-        let unwind_guard = SplitUnwindGuard { thread: self, sp };
+        let unwind_guard = self.initialize_split_point(sp, ctx, req);
 
         // Enter idle loop as owner thread - will return when all searchers finish
         self.idle_loop();
@@ -408,48 +408,53 @@ impl Thread {
 
     /// Initializes a split point with search parameters and finds workers.
     #[inline]
-    fn initialize_split_point(&self, sp: &Arc<SplitPoint>, ctx: &SearchContext, req: SplitRequest) {
+    fn initialize_split_point<'a>(
+        &'a self,
+        sp: &'a Arc<SplitPoint>,
+        ctx: &'a SearchContext,
+        req: SplitRequest,
+    ) -> SplitUnwindGuard<'a> {
         let task = SplitPointTask::new(&req, self.active_split_point().clone(), ctx);
         let move_iter = ConcurrentMoveIterator::from_offset(req.move_list, req.move_count);
+        let assignment = sp.clone();
 
         debug_assert!(self.searching.load(Ordering::Acquire));
         debug_assert!(self.split_points_size.load(Ordering::Relaxed) < MAX_SPLITPOINTS_PER_THREAD);
 
-        let _guard = sp.lock();
-        sp.set_move_iter(move_iter);
-        // No contention here until split_points_size is incremented
-        let sp_state = sp.state();
-        sp_state.set_owner_thread_idx(self.idx);
-        sp_state.set_level(
-            task.parent_split_point
-                .as_ref()
-                .map_or(0, |parent| parent.state().level() + 1),
-        );
-        sp_state.helpers_mask.clear();
-        sp_state.helpers_mask.set(self.idx);
-        sp_state.set_best_score(req.best_score);
-        sp_state.set_best_move(req.best_move);
-        sp_state.set_alpha(req.alpha);
-        sp.set_task(task);
-        sp.reset_counters_locked();
-        sp_state.clear_cutoff();
-        sp_state.set_all_helpers_searching(true); // Must be set under lock protection
-        sp.copy_pv(ctx.pv());
-        sp_state.set_cut_node(req.cut_node);
+        let unwind_guard;
+        {
+            let _guard = sp.lock();
+            sp.set_move_iter(move_iter);
+            let sp_state = sp.state();
+            sp_state.set_owner_thread_idx(self.idx);
+            sp_state.set_level(
+                task.parent_split_point
+                    .as_ref()
+                    .map_or(0, |parent| parent.state().level() + 1),
+            );
+            sp_state.helpers_mask.clear();
+            sp_state.helpers_mask.set(self.idx);
+            sp_state.set_best_score(req.best_score);
+            sp_state.set_best_move(req.best_move);
+            sp_state.set_alpha(req.alpha);
+            sp.set_task(task);
+            sp.reset_counters_locked();
+            sp_state.clear_cutoff();
+            sp_state.set_all_helpers_searching_locked(true);
+            sp.copy_pv(ctx.pv());
+            sp_state.set_cut_node(req.cut_node);
 
-        self.split_points_size.fetch_add(1, Ordering::Release);
-        *self.active_split_point_mut() = Some(sp.clone());
-        self.reset_cutoff_cache();
+            *self.active_split_point_mut() = Some(assignment);
+            self.reset_cutoff_cache();
+            unwind_guard = SplitUnwindGuard { thread: self, sp };
+            self.split_points_size.fetch_add(1, Ordering::Release);
 
-        // Try to allocate available threads
-        if let Some(pool) = self.pool.upgrade() {
-            pool.assign_helpers_to_split_point(sp);
+            if let Some(pool) = self.pool.upgrade() {
+                pool.assign_helpers_to_split_point(sp);
+            }
         }
 
-        // Everything is set up. The owner thread enters the idle loop, from which
-        // it will instantly launch a search, because its 'searching' flag is set.
-        // The thread will return from the idle loop when all searchers have finished
-        // their work at this split point.
+        unwind_guard
     }
 
     /// Cleans up after all threads have finished working on a split point.
@@ -468,7 +473,8 @@ impl Thread {
             // protection to avoid a race with Thread::can_join().
             self.searching.store(true, Ordering::Release);
             self.split_points_size.fetch_sub(1, Ordering::Release);
-            *self.active_split_point_mut() = sp.task().parent_split_point.clone();
+            // SAFETY: This owner has not cleared or reused the completed slot.
+            *self.active_split_point_mut() = unsafe { sp.task() }.parent_split_point.clone();
         }
 
         // Clear task data after releasing thread lock to minimize lock duration
@@ -525,35 +531,58 @@ impl Thread {
 
     /// Runs the helper job this thread is booked for, then becomes idle.
     fn run_helper_job(self: &Arc<Self>, job: &HelperJob) {
-        job(self);
+        struct FinishJob<'a>(&'a Thread);
 
-        let _guard = self.lock();
+        impl Drop for FinishJob<'_> {
+            fn drop(&mut self) {
+                let _guard = self.0.lock();
+                if thread::panicking() {
+                    self.0.failed.store(true, Ordering::Relaxed);
+                }
+                self.0.searching.store(false, Ordering::Release);
+            }
+        }
+
+        let _finish_job = FinishJob(self);
+        job(self);
+    }
+
+    fn detach_split(&self, _guard: &spinlock::SpinLockGuard<'_>) -> Option<Arc<SplitPoint>> {
+        let sp = self.active_split_point_mut().take();
+        self.reset_cutoff_cache();
         self.searching.store(false, Ordering::Release);
+        sp
+    }
+
+    fn abandon_active_split(&self) {
+        let sp = {
+            let guard = self.lock();
+            self.failed.store(true, Ordering::Relaxed);
+            self.detach_split(&guard)
+        };
+        if let Some(sp) = sp {
+            let _guard = sp.lock();
+            let state = sp.state();
+            if state.owner_thread_idx() != self.idx {
+                self.abort_state.request_abort();
+            }
+            state.set_all_helpers_searching_locked(false);
+            state.helpers_mask.reset(self.idx);
+        }
     }
 
     /// Searches this thread's share of its active split point, then tries to
     /// join another one.
     fn search_active_split_point(self: &Arc<Self>) {
-        struct UnwindCleanup<'a> {
-            thread: &'a Thread,
-            sp: &'a Arc<SplitPoint>,
-        }
+        struct UnwindCleanup<'a>(&'a Thread);
 
         impl Drop for UnwindCleanup<'_> {
             fn drop(&mut self) {
-                {
-                    let _guard = self.thread.lock();
-                    *self.thread.active_split_point_mut() = None;
-                    self.thread.reset_cutoff_cache();
-                    self.thread.searching.store(false, Ordering::Release);
-                }
-                let _guard = self.sp.lock();
-                let sp_state = self.sp.state();
-                sp_state.set_all_helpers_searching(false);
-                sp_state.helpers_mask.reset(self.thread.idx);
+                self.0.abandon_active_split();
             }
         }
 
+        let cleanup = UnwindCleanup(self);
         let sp = {
             let _guard = self.lock();
             self.active_split_point()
@@ -561,31 +590,13 @@ impl Thread {
                 .expect("searching thread must have an active split point")
         };
 
-        let cleanup = UnwindCleanup {
-            thread: self,
-            sp: &sp,
-        };
-
         let counters = {
-            let task = sp.task();
-            let (board, depth, node_type) = (task.board, task.depth, task.node_type);
-            let mut ctx = SearchContext::from_split_point(&sp);
-            self.dispatch_search(&mut ctx, &board, depth, node_type, &sp);
+            // SAFETY: Our participation bit retains the published slot until this scope ends.
+            let (task, moves) = unsafe { (sp.task(), sp.move_iter()) };
+            let mut ctx = unsafe { SearchContext::from_split_task(task) };
+            self.dispatch_search(&mut ctx, task, moves, &sp);
             ctx.counters()
         };
-
-        {
-            let _guard = self.lock();
-            // An idle thread has no active split point, so its next search
-            // cannot see the cutoffs of this one. `book_into` and
-            // `finalize_split_point` change the active chain without a reset
-            // and rely on this one: until then the thread reads the cache
-            // only with no active split point, which records "no cutoff" at
-            // an epoch that every cutoff on its next chain moves past.
-            *self.active_split_point_mut() = None;
-            self.reset_cutoff_cache();
-            self.searching.store(false, Ordering::Release);
-        }
 
         // Publish counters before clearing helpers_mask: the Release on
         // reset() pairs with the owner's Acquire in helpers_mask.none().
@@ -596,8 +607,12 @@ impl Thread {
         let guard = sp.lock();
         let sp_state = sp.state();
         sp.merge_counters_locked(&counters);
-        sp_state.set_all_helpers_searching(false);
-        sp_state.helpers_mask.reset(self.idx);
+        {
+            let thread_guard = self.lock();
+            self.detach_split(&thread_guard);
+            sp_state.set_all_helpers_searching_locked(false);
+            sp_state.helpers_mask.reset(self.idx);
+        }
 
         // After clearing our helpers_mask bit, the owner may observe none() and
         // tear down the split point, so we must not access sp data after this.
@@ -669,20 +684,19 @@ impl Thread {
     fn dispatch_search(
         self: &Arc<Self>,
         ctx: &mut SearchContext,
-        board: &Board,
-        depth: Depth,
-        node_type: NodeTypeId,
+        task: &SplitPointTask,
+        moves: &ConcurrentMoveIterator,
         sp: &Arc<SplitPoint>,
     ) {
-        match node_type {
+        match task.node_type {
             NodeTypeId::NonPv => {
-                search_split_point::<NonPV>(ctx, board, depth, self, sp);
+                search_split_point::<NonPV>(ctx, task, moves, self, sp);
             }
             NodeTypeId::Pv => {
-                search_split_point::<PV>(ctx, board, depth, self, sp);
+                search_split_point::<PV>(ctx, task, moves, self, sp);
             }
             NodeTypeId::Root => {
-                search_split_point::<Root>(ctx, board, depth, self, sp);
+                search_split_point::<Root>(ctx, task, moves, self, sp);
             }
         }
     }
@@ -759,6 +773,9 @@ impl Thread {
     /// Books this idle thread for the helper job `job`.
     pub(super) fn book_helper_job(&self, job: HelperJob) {
         let _guard = self.lock();
+        if self.failed.load(Ordering::Relaxed) {
+            return;
+        }
         debug_assert!(!self.searching.load(Ordering::Relaxed));
         *self.helper_job.lock().unwrap() = Some(job);
         self.searching.store(true, Ordering::Release);
@@ -819,5 +836,368 @@ impl Thread {
         }
 
         self.is_search_aborted()
+    }
+
+    #[inline]
+    pub(in crate::search) fn should_stop_after_split(&self) -> bool {
+        if self.cutoff_occurred() {
+            self.local_chain_cutoff.store(true, Ordering::Relaxed);
+            return true;
+        }
+
+        self.is_search_aborted()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::Eval;
+    use crate::probcut::Selectivity;
+    use crate::search::root_move::RootMoves;
+    use crate::transposition_table::TranspositionTable;
+
+    #[test]
+    fn ancestor_cutoff_is_detected_after_epoch_wrap_and_cache_reset() {
+        let board = Board::new();
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let epoch = Arc::new(Align64(AtomicU64::new(u64::MAX)));
+        let worker = Thread::new(
+            0,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AbortState::new()),
+            epoch.clone(),
+            1,
+            None,
+            Weak::new(),
+        );
+        worker.searching.store(true, Ordering::Relaxed);
+        let request = || SplitRequest {
+            board: &board,
+            alpha: Score::ZERO,
+            beta: Score::ZERO + 1,
+            best_score: -Score::INF,
+            best_move: None,
+            depth: board.empty_count(),
+            move_list: MoveList::new(&board),
+            move_count: 0,
+            node_type: NodeTypeId::NonPv,
+            cut_node: true,
+        };
+        let [parent, child, ..] = &worker.split_points;
+        std::mem::forget(worker.initialize_split_point(parent, &ctx, request()));
+        std::mem::forget(worker.initialize_split_point(child, &ctx, request()));
+        assert!(!worker.split_point_cutoff_occurred());
+
+        let unrelated = SplitPoint::default();
+        let publish = |point: &SplitPoint| {
+            let _guard = point.lock();
+            worker.mark_split_point_cutoff(point.state());
+        };
+        publish(&unrelated);
+        assert_eq!(epoch.load(Ordering::Relaxed), 0);
+        assert!(!worker.should_stop());
+
+        publish(parent);
+        publish(&SplitPoint::default());
+        assert_eq!(epoch.load(Ordering::Relaxed), 2);
+        assert!(!child.state().cutoff());
+        assert!(worker.split_point_cutoff_occurred());
+        publish(parent);
+        assert_eq!(epoch.load(Ordering::Relaxed), 2);
+        assert!(worker.should_stop());
+
+        worker.reset_cutoff_cache();
+        assert!(worker.should_stop());
+    }
+
+    #[test]
+    fn completed_split_rejects_parent_cutoff_with_epoch_alias() {
+        let board = Board::new();
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let roots = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+        let epoch = Arc::new(Align64(AtomicU64::new(0)));
+        let worker = Arc::new(Thread::new(
+            0,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AbortState::new()),
+            epoch.clone(),
+            1,
+            None,
+            Weak::new(),
+        ));
+        worker.searching.store(true, Ordering::Relaxed);
+        let request = || {
+            let move_list = MoveList::new(&board);
+            SplitRequest {
+                board: &board,
+                alpha: Score::ZERO,
+                beta: Score::ZERO + 1,
+                best_score: Score::ZERO,
+                best_move: None,
+                depth: board.empty_count(),
+                move_count: move_list.count(),
+                move_list,
+                node_type: NodeTypeId::NonPv,
+                cut_node: true,
+            }
+        };
+        let parent = &worker.split_points[0];
+        std::mem::forget(worker.initialize_split_point(parent, &ctx, request()));
+        worker.split(&mut ctx, request());
+        assert!(Arc::ptr_eq(
+            worker.active_split_point().as_ref().unwrap(),
+            parent
+        ));
+
+        {
+            let _guard = parent.lock();
+            worker.mark_split_point_cutoff(parent.state());
+        }
+        epoch.store(u64::MAX, Ordering::Release);
+        assert_eq!(
+            worker.local_seen_cutoff_epoch.load(Ordering::Relaxed),
+            u64::MAX
+        );
+        assert!(
+            worker.should_stop_after_split(),
+            "the completed split missed an ancestor cutoff at the cached epoch"
+        );
+        assert!(worker.should_stop());
+
+        worker.search_active_split_point();
+        worker.finalize_split_point(parent);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn nested_dispatch_unwind_restores_parent_and_allows_slot_reuse() {
+        use crate::player_color::PlayerColor;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let board = Board::from_string(
+            "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let roots = RootMoves::new(&board);
+        let mut ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+        let worker = Arc::new(Thread::new(
+            0,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AbortState::new()),
+            Arc::new(Align64(AtomicU64::new(0))),
+            1,
+            None,
+            Weak::new(),
+        ));
+        worker.searching.store(true, Ordering::Relaxed);
+        fn request(board: &Board, node_type: NodeTypeId) -> SplitRequest<'_> {
+            SplitRequest {
+                board,
+                alpha: Score::ZERO,
+                beta: Score::ZERO + 1,
+                best_score: -Score::INF,
+                best_move: None,
+                depth: board.empty_count(),
+                move_list: MoveList::new(board),
+                move_count: 0,
+                node_type,
+                cut_node: true,
+            }
+        }
+        let [parent, child, ..] = &worker.split_points;
+        std::mem::forget(worker.initialize_split_point(
+            parent,
+            &ctx,
+            request(&board, NodeTypeId::NonPv),
+        ));
+        let played = MoveList::new(&board)[0];
+        let next = board.make_move_with_flipped(played.flipped, played.sq);
+        ctx.update(played.sq, played.flipped);
+
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            worker.split(&mut ctx, request(&next, NodeTypeId::Pv))
+        }))
+        .expect_err("expected the PV split assertion");
+        assert!(
+            panic
+                .downcast_ref::<&str>()
+                .is_some_and(|message| message.contains("move_count > 1"))
+        );
+        assert_eq!(worker.split_points_size.load(Ordering::Relaxed), 1);
+        assert!(Arc::ptr_eq(
+            worker.active_split_point().as_ref().unwrap(),
+            parent
+        ));
+        assert!(parent.state().helpers_mask.test(worker.idx));
+        assert!(child.state().helpers_mask.none());
+
+        let (score, _, counters) = worker.split(&mut ctx, request(&next, NodeTypeId::NonPv));
+        assert!(score > -Score::INF);
+        assert!(counters.n_nodes > 0);
+        assert_eq!(worker.split_points_size.load(Ordering::Relaxed), 1);
+        assert!(Arc::ptr_eq(
+            worker.active_split_point().as_ref().unwrap(),
+            parent
+        ));
+        assert!(parent.state().helpers_mask.test(worker.idx));
+        assert!(child.state().helpers_mask.none());
+
+        worker.search_active_split_point();
+        assert!(parent.state().helpers_mask.none());
+        worker.finalize_split_point(parent);
+        assert!(!worker.has_active_split_point());
+    }
+
+    #[cfg(all(debug_assertions, panic = "unwind"))]
+    #[test]
+    fn panicking_split_helper_cancels_search_and_cannot_be_rebooked() {
+        use crate::player_color::PlayerColor;
+        use std::time::{Duration, Instant};
+
+        let board = Board::from_string(
+            "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let root_moves = RootMoves::new(&board);
+        let ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+        let pool = ThreadPool::new(2);
+        let owner = pool.main();
+        let helper = &pool.threads[1];
+        owner.searching.store(true, Ordering::Relaxed);
+        pool.thinking.store(true, Ordering::Release);
+
+        let request = |node_type| SplitRequest {
+            board: &board,
+            alpha: Score::ZERO,
+            beta: Score::ZERO + 1,
+            best_score: -Score::INF,
+            best_move: None,
+            depth: board.empty_count(),
+            move_list: MoveList::new(&board),
+            move_count: 0,
+            node_type,
+            cut_node: true,
+        };
+        let first = &owner.split_points[0];
+        std::mem::forget(owner.initialize_split_point(first, &ctx, request(NodeTypeId::Pv)));
+        pool.notify_all();
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while first.state().all_helpers_searching() || first.state().helpers_mask.test(helper.idx) {
+            assert!(
+                Instant::now() < deadline,
+                "helper did not release its first split"
+            );
+            thread::yield_now();
+        }
+
+        owner.search_active_split_point();
+        assert!(first.state().helpers_mask.none());
+        owner.finalize_split_point(first);
+        assert!(
+            owner.should_stop(),
+            "split owner could accept the result after the helper lost a move"
+        );
+
+        owner.abort_state.begin_search();
+        assert!(!owner.should_stop());
+        std::mem::forget(owner.initialize_split_point(first, &ctx, request(NodeTypeId::NonPv)));
+        assert!(
+            !first.state().helpers_mask.test(helper.idx),
+            "a new split booked the panicking helper"
+        );
+
+        let job: HelperJob = Arc::new(|_| unreachable!());
+        pool.start_helpers(&job);
+        assert!(!helper.searching.load(Ordering::Acquire));
+    }
+
+    #[cfg(panic = "unwind")]
+    #[test]
+    fn unwind_after_initial_booking_retires_the_split() {
+        use crate::player_color::PlayerColor;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let board = Board::from_string(
+            "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        let tt = TranspositionTable::new(0);
+        let eval = Eval::shared_for_tests();
+        let roots = RootMoves::new(&board);
+        let ctx = SearchContext::new(&board, Selectivity::None, &roots, &tt, &eval);
+        let pool = ThreadPool::new(2);
+        let owner = pool.main();
+        let sp = &owner.split_points[0];
+        owner.searching.store(true, Ordering::Relaxed);
+
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _activation = owner.initialize_split_point(
+                sp,
+                &ctx,
+                SplitRequest {
+                    board: &board,
+                    alpha: Score::ZERO,
+                    beta: Score::ZERO + 1,
+                    best_score: -Score::INF,
+                    best_move: None,
+                    depth: board.empty_count(),
+                    move_list: MoveList::new(&board),
+                    move_count: 0,
+                    node_type: NodeTypeId::NonPv,
+                    cut_node: true,
+                },
+            );
+            let booked = sp.state().helpers_mask.test(pool.threads[1].idx);
+            pool.thinking.store(true, Ordering::Release);
+            pool.notify_all();
+            assert!(booked, "fixture did not book the sleeping helper");
+            panic!("after initial booking");
+        }))
+        .unwrap_err();
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"after initial booking"));
+        assert_eq!(owner.split_points_size.load(Ordering::Relaxed), 0);
+        assert!(sp.state().helpers_mask.none());
+        assert!(!owner.has_active_split_point());
+    }
+
+    #[cfg(panic = "unwind")]
+    #[test]
+    fn panicking_helper_job_clears_assignment_and_stops_accepting_work() {
+        let worker = Arc::new(Thread::new(
+            1,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(AbortState::new()),
+            Arc::new(Align64(AtomicU64::new(0))),
+            2,
+            None,
+            Weak::new(),
+        ));
+        worker.book_helper_job(Arc::new(|_| panic!("helper job fixture")));
+        let handle = {
+            let worker = worker.clone();
+            thread::spawn(move || worker.idle_loop())
+        };
+        let panic = handle.join().unwrap_err();
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"helper job fixture"));
+        assert!(
+            !worker.searching.load(Ordering::Acquire),
+            "exited helper job remained assigned"
+        );
+        worker.book_helper_job(Arc::new(|_| unreachable!()));
+        assert!(!worker.searching.load(Ordering::Acquire));
     }
 }

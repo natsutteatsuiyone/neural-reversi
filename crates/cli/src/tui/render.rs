@@ -811,16 +811,9 @@ mod tests {
     use reversi_core::square::Square;
 
     use super::*;
-    use crate::config::EngineConfig;
 
     fn app() -> App {
-        App::new(&EngineConfig {
-            hash_size: 1,
-            level: 1,
-            threads: Some(1),
-            eval_file: None,
-            eval_sm_file: None,
-        })
+        App::for_tests(1)
     }
 
     /// Draws `app` on a `width` x `height` terminal and returns the screen text.

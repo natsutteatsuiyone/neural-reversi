@@ -236,7 +236,7 @@ mod tests {
             Square::D4.bitboard() | Square::C4.bitboard(),
         );
         let tt = Rc::new(TranspositionTable::new(1));
-        let eval = Rc::new(Eval::new().unwrap());
+        let eval = Eval::shared_for_tests();
         let mut ctx = SearchContext::new(&board, Selectivity::None, tt, eval, None);
         let position = |ctx: &SearchContext, sq| ctx.root_moves.iter().position(|rm| rm.sq == sq);
         let b4 = position(&ctx, Square::B4).unwrap();

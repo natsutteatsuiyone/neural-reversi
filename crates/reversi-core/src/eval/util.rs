@@ -2,12 +2,13 @@
 
 use std::io::{self, Read};
 
-use crate::{
-    eval::pattern_feature::{
-        NUM_PATTERN_FEATURES, PATTERN_FEATURE_OFFSETS, PatternFeature, calc_pattern_size,
-    },
-    util::align::Align64,
-};
+use crate::eval::pattern_feature::{NUM_PATTERN_FEATURES, PatternFeature};
+#[cfg(any(
+    test,
+    all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "aarch64", target_feature = "neon")
+))]
+use crate::util::align::Align64;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 use std::arch::x86_64::*;
@@ -19,26 +20,34 @@ pub const fn ceil_to_multiple(n: usize, base: usize) -> usize {
     n.div_ceil(base) * base
 }
 
-/// Clones a bias vector into a 64-byte-aligned array.
-///
-/// `biases` must have at least `N` elements; elements are copied with
-/// `copy_nonoverlapping` without runtime bounds checks in release builds.
+#[cfg(any(
+    test,
+    all(target_arch = "x86_64", target_feature = "avx2"),
+    all(target_arch = "aarch64", target_feature = "neon")
+))]
 #[inline(always)]
-pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
-    debug_assert!(
-        biases.len() >= N,
-        "bias slice has {} elements, need at least {}",
-        biases.len(),
-        N
-    );
-    let mut acc = std::mem::MaybeUninit::<Align64<[T; N]>>::uninit();
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            biases.as_ptr(),
-            (*acc.as_mut_ptr()).as_mut_ptr() as *mut T,
-            N,
-        );
-        acc.assume_init()
+pub fn clone_biases<T: Copy, const SRC: usize, const N: usize>(
+    biases: &Align64<[T; SRC]>,
+) -> Align64<[T; N]> {
+    const { assert!(N <= SRC) };
+    let Some(prefix) = biases.first_chunk() else {
+        unreachable!()
+    };
+    Align64(*prefix)
+}
+
+#[inline(always)]
+pub(super) fn accumulate_scalar<const DIMS: usize>(
+    pattern_feature: &PatternFeature,
+    weights: &[i16],
+    acc: &mut [i16; DIMS],
+) {
+    let (rows, _) = weights.as_chunks::<DIMS>();
+    for idx in 0..NUM_PATTERN_FEATURES {
+        let row = &rows[pattern_feature.row(idx)];
+        for (sum, &weight) in acc.iter_mut().zip(row) {
+            *sum = sum.wrapping_add(weight);
+        }
     }
 }
 
@@ -52,39 +61,19 @@ pub fn clone_biases<T: Copy, const N: usize>(biases: &[T]) -> Align64<[T; N]> {
 /// Returns [`io::ErrorKind::InvalidData`] if data is left, or the error of
 /// the read.
 pub fn expect_end_of_weights<R: Read>(reader: &mut R) -> io::Result<()> {
-    match reader.read_exact(&mut [0u8]) {
-        Ok(()) => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the weights continue past the end of this network's layout; they are for a different network",
-        )),
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => Ok(()),
-        Err(e) => Err(e),
+    loop {
+        match reader.read(&mut [0u8]) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "the weights continue past the end of this network's layout; they are for a different network",
+                ));
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
     }
-}
-
-/// Computes the feature offset for a given pattern feature index.
-///
-/// `idx` must be less than [`NUM_PATTERN_FEATURES`], and the feature value at
-/// `idx` must be less than [`calc_pattern_size`]`(idx)`. Release builds check
-/// neither, and the callers read weight rows at the returned offset without
-/// bounds checks.
-#[inline(always)]
-pub fn feature_offset(pattern_feature: &PatternFeature, idx: usize) -> usize {
-    debug_assert!(
-        idx < NUM_PATTERN_FEATURES,
-        "feature index {} out of bounds (max {})",
-        idx,
-        NUM_PATTERN_FEATURES - 1
-    );
-    debug_assert!(
-        usize::from(pattern_feature[idx]) < calc_pattern_size(idx),
-        "feature value {} out of range for pattern {} (size {})",
-        pattern_feature[idx],
-        idx,
-        calc_pattern_size(idx)
-    );
-    *unsafe { PATTERN_FEATURE_OFFSETS.get_unchecked(idx) }
-        + unsafe { pattern_feature.get_unchecked(idx) } as usize
 }
 
 /// Multiplies signed 16-bit lanes by signed 16-bit lanes and accumulates into 32-bit results.
@@ -281,6 +270,36 @@ pub fn m256_hadd(sum_vec: __m256i) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn expect_end_of_weights_distinguishes_clean_eof_and_a_truncated_checksum() {
+        let weights = [0x17, 0x30, 0xfe];
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 0).unwrap();
+        encoder.include_checksum(true).unwrap();
+        encoder.write_all(&weights).unwrap();
+        let frame = encoder.finish().unwrap();
+
+        let check_end = |bytes: &[u8]| {
+            let mut decoder = zstd::stream::read::Decoder::new(bytes).unwrap();
+            let mut decoded = [0; 3];
+            decoder.read_exact(&mut decoded).unwrap();
+            assert_eq!(decoded, weights);
+            expect_end_of_weights(&mut decoder)
+        };
+
+        assert!(check_end(&frame).is_ok());
+        let mut followed_by_data = frame.clone();
+        followed_by_data.extend(zstd::stream::encode_all(&b"extra"[..], 0).unwrap());
+        assert_eq!(
+            check_end(&followed_by_data).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            check_end(&frame[..frame.len() - 1]).unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+    }
 
     #[test]
     fn clone_biases_copies_the_prefix_into_a_64_byte_aligned_array() {
@@ -290,7 +309,7 @@ mod tests {
             phase: u8,
         }
 
-        let source = [
+        let source = Align64([
             Bias {
                 value: -7,
                 phase: 0,
@@ -311,38 +330,12 @@ mod tests {
                 value: 99,
                 phase: 4,
             },
-        ];
+        ]);
 
         let cloned: Align64<[Bias; 4]> = clone_biases(&source);
 
         assert_eq!(cloned.as_slice(), &source[..4]);
         assert_eq!((cloned.as_ptr() as usize) % 64, 0);
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "bias slice")]
-    fn clone_biases_rejects_short_slices_in_debug_builds() {
-        let _: Align64<[u32; 4]> = clone_biases(&[1u32, 2, 3]);
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "feature index")]
-    fn feature_offset_rejects_out_of_bounds_indices_in_debug_builds() {
-        let pattern_feature = PatternFeature::new();
-
-        let _ = feature_offset(&pattern_feature, NUM_PATTERN_FEATURES);
-    }
-
-    #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "feature value")]
-    fn feature_offset_rejects_out_of_range_values_in_debug_builds() {
-        let mut pattern_feature = PatternFeature::new();
-        pattern_feature[0] = calc_pattern_size(0) as u16;
-
-        let _ = feature_offset(&pattern_feature, 0);
     }
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]

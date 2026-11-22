@@ -10,13 +10,14 @@ use std::path::Path;
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::eval::pattern_feature::{INPUT_FEATURE_DIMS, NUM_PATTERN_FEATURES, PatternFeature};
-use crate::eval::util::{expect_end_of_weights, feature_offset};
+use crate::eval::util::{accumulate_scalar, expect_end_of_weights};
 use crate::score::Score;
 use crate::util::align::Align64;
 use crate::util::aligned_buffer::AlignedBuffer;
 
 /// Hidden layer dimension.
 const PA_OUTPUT_DIMS: usize = 128;
+const _: () = assert!(NUM_PATTERN_FEATURES == 32);
 
 /// Fixed-point scaling factor for output weights (divide by 2^8).
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 8;
@@ -75,8 +76,8 @@ impl OutputLayer {
 
 /// Small neural network optimized for endgame positions.
 pub struct NetworkSmall {
-    input_layers: Vec<InputLayer>,
-    output_layers: Vec<OutputLayer>,
+    input_layers: Box<[InputLayer; NUM_INPUT_LAYERS]>,
+    output_layers: Box<[OutputLayer; NUM_OUTPUT_LAYERS]>,
     forward_fn: unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32,
 }
 
@@ -117,6 +118,11 @@ impl NetworkSmall {
             output_layers.push(output_layer);
         }
         expect_end_of_weights(&mut decoder)?;
+        let (Ok(input_layers), Ok(output_layers)) =
+            (Box::try_from(input_layers), Box::try_from(output_layers))
+        else {
+            unreachable!()
+        };
 
         // Select the optimal forward implementation at load time
         let forward_fn = Self::select_forward_fn();
@@ -169,7 +175,7 @@ impl NetworkSmall {
         let output_layer = &self.output_layers[ply_offset];
 
         let sum = unsafe { (self.forward_fn)(pattern_feature, input_layer, output_layer) };
-        let score = ((sum + output_layer.bias) >> OUTPUT_WEIGHT_SCALE_BITS)
+        let score = (sum.wrapping_add(output_layer.bias) >> OUTPUT_WEIGHT_SCALE_BITS)
             .clamp(-Score::INF.value(), Score::INF.value());
         let score = Score::from_raw(score);
 
@@ -247,28 +253,14 @@ impl NetworkSmall {
         input_layer: &InputLayer,
         output_layer: &OutputLayer,
     ) -> i32 {
-        let mut acc = [0i32; PA_OUTPUT_DIMS];
-
-        // Initialize with biases
-        for (dst, &bias) in acc.iter_mut().zip(input_layer.biases.iter()) {
-            *dst = bias as i32;
-        }
-
-        // Accumulate weights based on pattern features
-        let weights = input_layer.weights.as_slice();
-        for feature_idx in 0..NUM_PATTERN_FEATURES {
-            let offset = feature_offset(pattern_feature, feature_idx);
-            let row = &weights[offset * PA_OUTPUT_DIMS..(offset + 1) * PA_OUTPUT_DIMS];
-            for (dst, &w) in acc.iter_mut().zip(row.iter()) {
-                *dst += w as i32;
-            }
-        }
+        let mut acc = input_layer.biases.0;
+        accumulate_scalar(pattern_feature, &input_layer.weights, &mut acc);
 
         // Apply squared clipped ReLU and compute dot product with output weights
         let mut output = 0i32;
         for (value, &weight) in acc.iter().zip(output_layer.weights.iter()) {
             if *value > 0 {
-                let clamped = (*value).min(ACTIVATION_CLAMP_MAX as i32);
+                let clamped = i32::from((*value).min(ACTIVATION_CLAMP_MAX));
                 let activation = (clamped * clamped) >> 10;
                 output = output.wrapping_add(activation * (weight as i32));
             }
@@ -311,10 +303,10 @@ impl NetworkSmall {
 
             macro_rules! accumulate_4 {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
 
                     let w0 = _mm512_load_si512(weights_ptr.add(idx0));
                     let w1 = _mm512_load_si512(weights_ptr.add(idx1));
@@ -436,10 +428,10 @@ impl NetworkSmall {
 
             macro_rules! accumulate_4 {
                 ($base:expr) => {{
-                    let idx0 = feature_offset(pattern_feature, $base) * NUM_REGS;
-                    let idx1 = feature_offset(pattern_feature, $base + 1) * NUM_REGS;
-                    let idx2 = feature_offset(pattern_feature, $base + 2) * NUM_REGS;
-                    let idx3 = feature_offset(pattern_feature, $base + 3) * NUM_REGS;
+                    let idx0 = pattern_feature.row($base) * NUM_REGS;
+                    let idx1 = pattern_feature.row($base + 1) * NUM_REGS;
+                    let idx2 = pattern_feature.row($base + 2) * NUM_REGS;
+                    let idx3 = pattern_feature.row($base + 3) * NUM_REGS;
 
                     macro_rules! accumulate_reg {
                         ($j:expr, $acc:ident) => {{
@@ -587,7 +579,7 @@ impl NetworkSmall {
         const _: () = assert!(NUM_REGS == 16, "NEON implementation assumes 16 registers");
 
         let weights_ptr = input_layer.weights.as_ptr();
-        let bias_ptr = input_layer.biases.as_ptr() as *const i16;
+        let bias_ptr = input_layer.biases.as_ptr();
 
         unsafe {
             let clamp_max = vdupq_n_s16(ACTIVATION_CLAMP_MAX);
@@ -602,7 +594,7 @@ impl NetworkSmall {
                 }};
             }
 
-            let out_w_ptr = output_layer.weights.as_ptr() as *const i16;
+            let out_w_ptr = output_layer.weights.as_ptr();
 
             macro_rules! accumulate_half {
                 ($lane_base:expr) => {{
@@ -619,8 +611,7 @@ impl NetworkSmall {
                     // into each load's immediate; a runtime loop regresses by ~5%.
                     macro_rules! accumulate_feature {
                         ($feat:expr) => {{
-                            let idx = feature_offset(pattern_feature, $feat) * PA_OUTPUT_DIMS
-                                + $lane_base;
+                            let idx = pattern_feature.row($feat) * PA_OUTPUT_DIMS + $lane_base;
                             let base = weights_ptr.add(idx);
                             acc0 = vaddq_s16(acc0, vld1q_s16(base));
                             acc1 = vaddq_s16(acc1, vld1q_s16(base.add(8)));
@@ -703,8 +694,7 @@ impl NetworkSmall {
                 }};
             }
 
-            let mut total = 0;
-            total += {
+            let first_half = {
                 let mut s0 = vdupq_n_s32(0);
                 let mut s1 = vdupq_n_s32(0);
 
@@ -713,7 +703,7 @@ impl NetworkSmall {
                 dot_block!(32, s0, s1, acc4, acc5, acc6, acc7);
                 reduce_dot_sum!(s0, s1)
             };
-            total += {
+            let second_half = {
                 let mut s0 = vdupq_n_s32(0);
                 let mut s1 = vdupq_n_s32(0);
 
@@ -723,7 +713,7 @@ impl NetworkSmall {
                 reduce_dot_sum!(s0, s1)
             };
 
-            total
+            first_half.wrapping_add(second_half)
         }
     }
 }
@@ -757,8 +747,8 @@ mod tests {
         forward_fn: unsafe fn(&PatternFeature, &InputLayer, &OutputLayer) -> i32,
     ) -> NetworkSmall {
         NetworkSmall {
-            input_layers: (0..NUM_INPUT_LAYERS).map(empty_input_layer).collect(),
-            output_layers: (0..NUM_OUTPUT_LAYERS).map(empty_output_layer).collect(),
+            input_layers: Box::new(std::array::from_fn(empty_input_layer)),
+            output_layers: Box::new(std::array::from_fn(empty_output_layer)),
             forward_fn,
         }
     }
@@ -803,13 +793,15 @@ mod tests {
     ) {
         let mut pattern_feature = PatternFeature::new();
         for feature_idx in 0..NUM_PATTERN_FEATURES {
-            pattern_feature[feature_idx] =
-                ((feature_idx * 4099 + 17) % calc_pattern_size(feature_idx)) as u16;
+            pattern_feature.set(
+                feature_idx,
+                ((feature_idx * 4099 + 17) % calc_pattern_size(feature_idx)) as u16,
+            );
         }
 
         let mut input_layer = InputLayer {
             biases: Align64([0i16; PA_OUTPUT_DIMS]),
-            weights: AlignedBuffer::from_elem(0i16, INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
         };
         let mut expected_acc = [0i32; PA_OUTPUT_DIMS];
 
@@ -829,7 +821,7 @@ mod tests {
 
         let weights = input_layer.weights.as_mut_slice();
         for feature_idx in 0..NUM_PATTERN_FEATURES {
-            let offset = feature_offset(&pattern_feature, feature_idx) * PA_OUTPUT_DIMS;
+            let offset = pattern_feature.row(feature_idx) * PA_OUTPUT_DIMS;
             let row = &mut weights[offset..offset + PA_OUTPUT_DIMS];
 
             for (idx, weight) in row.iter_mut().enumerate() {
@@ -879,9 +871,22 @@ mod tests {
 
     #[test]
     fn from_bytes_rejects_weights_longer_than_the_network_layout() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../").to_string()
-            + crate::eval::EVAL_SM_FILE_NAME;
-        let mut bytes = std::fs::read(path).unwrap();
+        use std::io::Write;
+
+        static ZEROS: [u8; 64 * 1024] = [0; 64 * 1024];
+        let decoded_len = NUM_INPUT_LAYERS
+            * (PA_OUTPUT_DIMS + INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS)
+            * std::mem::size_of::<i16>()
+            + NUM_OUTPUT_LAYERS
+                * (std::mem::size_of::<i32>() + PA_OUTPUT_DIMS * std::mem::size_of::<i16>());
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 1).unwrap();
+        let mut remaining = decoded_len;
+        while remaining > 0 {
+            let chunk = remaining.min(ZEROS.len());
+            encoder.write_all(&ZEROS[..chunk]).unwrap();
+            remaining -= chunk;
+        }
+        let mut bytes = encoder.finish().unwrap();
         assert!(NetworkSmall::from_bytes(&bytes).is_ok());
 
         // A second zstd frame continues the decoded stream by one byte.
@@ -895,14 +900,22 @@ mod tests {
         let network = network_with_forward_fn(route_probe_forward);
         let pattern_feature = PatternFeature::new();
 
-        let cases = [(30, 16), (39, 25), (40, 42), (49, 51), (50, 68), (59, 77)];
-
-        for (ply, expected_raw) in cases {
+        for (offset, ply) in (30..60).enumerate() {
+            let expected_raw = (16 * (offset / 10 + 1) + offset) as i32;
             assert_eq!(
                 network.evaluate(&pattern_feature, ply),
                 Score::from_raw(expected_raw),
                 "ply {ply}"
             );
+        }
+    }
+
+    #[test]
+    fn evaluate_rejects_plies_outside_the_small_network() {
+        let network = network_with_forward_fn(zero_forward);
+        let pattern = PatternFeature::new();
+        for ply in [0, 29, 60, usize::MAX] {
+            assert!(std::panic::catch_unwind(|| network.evaluate(&pattern, ply)).is_err());
         }
     }
 
@@ -921,6 +934,96 @@ mod tests {
             network.evaluate(&pattern_feature, ENDGAME_START_PLY + 1),
             Score::MIN + 1
         );
+    }
+
+    #[test]
+    fn evaluate_wraps_output_bias_at_i32_boundaries() {
+        let mut network = network_with_forward_fn(route_probe_forward);
+        network.input_layers[0].biases[0] = 0;
+        network.output_layers[0].bias = i32::MAX;
+        network.output_layers[0].weights[0] = 1;
+        network.output_layers[1].bias = i32::MIN;
+        network.output_layers[1].weights[0] = -1;
+        let pattern = PatternFeature::new();
+
+        assert_eq!(network.evaluate(&pattern, 30), Score::MIN + 1);
+        assert_eq!(network.evaluate(&pattern, 31), Score::MAX - 1);
+    }
+
+    #[test]
+    fn scalar_wraps_hidden_sum_before_activation() {
+        let mut input = InputLayer {
+            biases: Align64([0; PA_OUTPUT_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
+        };
+        input.biases[0] = i16::MAX;
+        input.weights[0] = 1;
+        let mut output = empty_output_layer(0);
+        output.weights[0] = 1;
+        let pattern = PatternFeature::new();
+
+        assert_eq!(NetworkSmall::forward_scalar(&pattern, &input, &output), 0);
+    }
+
+    #[test]
+    fn dispatched_dot_wraps_across_both_halves() {
+        let input = InputLayer {
+            biases: Align64([1023; PA_OUTPUT_DIMS]),
+            weights: AlignedBuffer::zeroed(INPUT_FEATURE_DIMS * PA_OUTPUT_DIMS),
+        };
+        let pattern = PatternFeature::new();
+        let kernel = NetworkSmall::select_forward_fn();
+
+        for weight in [i16::MIN, i16::MAX] {
+            let output = OutputLayer {
+                bias: 0,
+                weights: Align64([weight; PA_OUTPUT_DIMS]),
+            };
+            let expected = (128 * 1022 * i64::from(weight)) as i32;
+            assert_eq!(unsafe { kernel(&pattern, &input, &output) }, expected);
+        }
+    }
+
+    #[test]
+    fn dispatched_scores_match_wide_arithmetic_with_explicit_word_boundaries() {
+        use crate::eval::pattern_feature::PATTERN_FEATURE_OFFSETS;
+
+        let (pattern, mut input, _, _) = build_forward_fixture();
+        let mut hidden = input.biases.0.map(i64::from);
+        for feature in 0..NUM_PATTERN_FEATURES {
+            let row = PATTERN_FEATURE_OFFSETS[feature] + usize::from(pattern[feature]);
+            let start = row * PA_OUTPUT_DIMS;
+            for (column, sum) in hidden.iter_mut().enumerate() {
+                let weight = (feature * 32_759 + column * 7919 + 1031) as i16;
+                input.weights[start + column] = weight;
+                *sum += i64::from(weight);
+            }
+        }
+        let activation = hidden.map(|sum| {
+            let v = i64::from((sum as i16).clamp(0, 1023));
+            v * v / 1024
+        });
+        let kernel = NetworkSmall::select_forward_fn();
+        let mut network = network_with_forward_fn(kernel);
+        network.input_layers[0] = input;
+        for (offset, raw) in [i32::MIN, -257, -1, 0, 255, 256, i32::MAX]
+            .into_iter()
+            .enumerate()
+        {
+            let output = &mut network.output_layers[offset];
+            output.weights.0 = std::array::from_fn(|i| (i * 11_531 + offset * 32_549) as i16);
+            let dot = activation
+                .iter()
+                .zip(output.weights.iter())
+                .map(|(&value, &weight)| value * i64::from(weight))
+                .sum::<i64>() as i32;
+            output.bias = raw.wrapping_sub(dot);
+            let input = &network.input_layers[0];
+            assert_eq!(NetworkSmall::forward_scalar(&pattern, input, output), dot);
+            assert_eq!(unsafe { kernel(&pattern, input, output) }, dot);
+            let expected = raw.div_euclid(256).clamp(-16_383, 16_383);
+            assert_eq!(network.evaluate(&pattern, 30 + offset).value(), expected);
+        }
     }
 
     #[test]

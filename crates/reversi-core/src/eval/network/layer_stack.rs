@@ -7,8 +7,8 @@ use super::linear_layer::LinearLayer;
 use super::output_layer::OutputLayer;
 use super::{
     L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS, L2_INPUT_DIMS,
-    L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS, LO_INPUT_DIMS,
-    LO_PADDED_INPUT_DIMS, NetworkBuffers,
+    L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS, LO_PADDED_INPUT_DIMS,
+    NetworkBuffers, PA_INPUT_END,
 };
 
 const OUTPUT_WEIGHT_SCALE_BITS: u32 = 6;
@@ -18,7 +18,7 @@ type L1Layer =
     LinearLayer<L1_INPUT_DIMS, L1_OUTPUT_DIMS, L1_PADDED_INPUT_DIMS, L1_PADDED_OUTPUT_DIMS>;
 type L2Layer =
     LinearLayer<L2_INPUT_DIMS, L2_OUTPUT_DIMS, L2_PADDED_INPUT_DIMS, L2_PADDED_OUTPUT_DIMS>;
-type FinalOutputLayer = OutputLayer<LO_INPUT_DIMS, LO_PADDED_INPUT_DIMS>;
+type FinalOutputLayer = OutputLayer<L2_OUTPUT_DIMS, PA_INPUT_END, LO_PADDED_INPUT_DIMS>;
 
 /// Layer stack for a specific game ply.
 pub(super) struct LayerStack {
@@ -50,31 +50,96 @@ impl LayerStack {
     #[inline(always)]
     fn forward_l1(&self, buffers: &mut NetworkBuffers) {
         self.l1.forward(&buffers.l1_input, &mut buffers.l1_li_out);
-        let l1_out = &buffers.l1_li_out[..L1_OUTPUT_DIMS];
-        sqr_clipped_and_clipped_relu_16(l1_out, &mut buffers.l1_out[..L2_INPUT_DIMS]);
+        sqr_clipped_and_clipped_relu_16(&buffers.l1_li_out, &mut buffers.l1_out);
     }
 
     #[inline(always)]
     fn forward_l2(&self, buffers: &mut NetworkBuffers) {
         self.l2.forward(&buffers.l1_out, &mut buffers.l2_li_out);
-        screlu::<L2_PADDED_OUTPUT_DIMS>(
-            buffers.l2_li_out.as_slice(),
-            buffers.l2_out.as_mut_slice(),
-        );
+        screlu(&buffers.l2_li_out, &mut buffers.l2_out);
     }
 
     #[inline(always)]
     fn forward_output(&self, buffers: &NetworkBuffers) -> Score {
-        let score = (self.lo.forward(buffers.output_segments()) >> OUTPUT_WEIGHT_SCALE_BITS)
+        let (l2_out, bypass) = buffers.output_segments();
+        let score = (self.lo.forward(l2_out, bypass) >> OUTPUT_WEIGHT_SCALE_BITS)
             .clamp(-Score::INF.value(), Score::INF.value());
         Score::from_raw(score)
     }
 }
 
-pub(super) fn load_layer_stacks<R: Read>(reader: &mut R) -> io::Result<Box<[LayerStack]>> {
+pub(super) fn load_layer_stacks<R: Read>(
+    reader: &mut R,
+) -> io::Result<Box<[LayerStack; NUM_LAYER_STACKS]>> {
     let mut layer_stacks = Vec::with_capacity(NUM_LAYER_STACKS);
     for _ in 0..NUM_LAYER_STACKS {
         layer_stacks.push(LayerStack::load(reader)?);
     }
-    Ok(layer_stacks.into_boxed_slice())
+    let Ok(layer_stacks) = Box::try_from(layer_stacks) else {
+        unreachable!()
+    };
+    Ok(layer_stacks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::eval::network::{LO_INPUT_DIMS, with_network_buffers};
+    use std::io::Cursor;
+
+    #[test]
+    fn loaded_stack_preserves_output_order_and_signed_scaling() {
+        let hidden: [i32; L2_OUTPUT_DIMS] = std::array::from_fn(|i| i as i32 * 283 - 401);
+        let bypass: [u8; LO_INPUT_DIMS - L2_OUTPUT_DIMS] =
+            std::array::from_fn(|i| (i * 29 + 71) as u8);
+        let weights: [i16; LO_PADDED_INPUT_DIMS] =
+            std::array::from_fn(|i| (i * 3299 + 12_307) as i16);
+        let activations = hidden.map(|value| {
+            let clipped = i64::from(value.clamp(0, 255 * 64));
+            (clipped * clipped / (1 << 20)) as u8
+        });
+        let dot: i64 = activations
+            .into_iter()
+            .chain(bypass)
+            .zip(weights)
+            .map(|(a, w)| i64::from(a) * i64::from(w))
+            .sum();
+
+        let mut hidden_layers = vec![0; L1_OUTPUT_DIMS * (4 + L1_PADDED_INPUT_DIMS)];
+        for value in hidden {
+            hidden_layers.extend(value.to_le_bytes());
+        }
+        hidden_layers.resize(
+            hidden_layers.len() + L2_OUTPUT_DIMS * L2_PADDED_INPUT_DIMS,
+            0,
+        );
+
+        for raw in [
+            i32::MIN,
+            -2_097_089,
+            -65,
+            -1,
+            0,
+            63,
+            64,
+            2_097_152,
+            i32::MAX,
+        ] {
+            let mut bytes = hidden_layers.clone();
+            bytes.extend(raw.wrapping_sub(dot as i32).to_le_bytes());
+            for weight in weights {
+                bytes.extend(weight.to_le_bytes());
+            }
+            let len = bytes.len();
+            let mut reader = Cursor::new(bytes);
+            let stack = LayerStack::load(&mut reader).unwrap();
+            assert_eq!(reader.position(), len as u64);
+
+            let actual = with_network_buffers(|buffers| {
+                buffers.l1_input[..bypass.len()].copy_from_slice(&bypass);
+                stack.forward(buffers)
+            });
+            assert_eq!(actual.value(), raw.div_euclid(64).clamp(-32767, 32767));
+        }
+    }
 }

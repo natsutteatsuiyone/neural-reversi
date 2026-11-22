@@ -37,55 +37,30 @@ const BLOCKED_WEIGHT_LAYOUT: bool = cfg!(all(
 #[derive(Clone, Copy)]
 struct AlignedI16Array<const N: usize>([i16; N]);
 
-struct AlignedWeights {
-    ptr: *mut i8,
-    len: usize,
-}
-
-impl AlignedWeights {
-    fn new(len: usize) -> Self {
-        use std::alloc::{Layout, alloc_zeroed, handle_alloc_error};
-        unsafe {
-            let layout = Layout::from_size_align(len, 16).unwrap();
-            let ptr = alloc_zeroed(layout) as *mut i8;
-            if ptr.is_null() {
-                handle_alloc_error(layout);
-            }
-            Self { ptr, len }
-        }
-    }
-
-    fn as_ptr(&self) -> *const i8 {
-        self.ptr
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [i8] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
-    }
-}
-
-impl Drop for AlignedWeights {
-    fn drop(&mut self) {
-        use std::alloc::{Layout, dealloc};
-        unsafe {
-            let layout = Layout::from_size_align(self.len, 16).unwrap();
-            dealloc(self.ptr as *mut u8, layout);
-        }
-    }
-}
+#[repr(align(16))]
+#[derive(Clone, Copy)]
+struct AlignedI8Row([i8; NN_DIMS]);
 
 struct InputLayer {
     biases: AlignedI16Array<NN_DIMS>,
-    weights: AlignedWeights,
+    weights: Box<[AlignedI8Row]>,
 }
 
 impl InputLayer {
     fn load<R: Read>(reader: &mut R) -> io::Result<Self> {
         let mut biases_array = [0i16; NN_DIMS];
-        let mut weights = AlignedWeights::new(INPUT_FEATURE_DIMS * NN_DIMS);
+        let mut weights = vec![AlignedI8Row([0i8; NN_DIMS]); INPUT_FEATURE_DIMS].into_boxed_slice();
 
         reader.read_i16_into::<LittleEndian>(&mut biases_array)?;
-        reader.read_i8_into(weights.as_mut_slice())?;
+        const { assert!(size_of::<AlignedI8Row>() == NN_DIMS) };
+        // SAFETY: `AlignedI8Row` is a padding-free `[i8; NN_DIMS]` (asserted above), so the rows form one `i8` slice.
+        let flat = unsafe {
+            std::slice::from_raw_parts_mut(
+                weights.as_mut_ptr().cast::<i8>(),
+                weights.len() * NN_DIMS,
+            )
+        };
+        reader.read_i8_into(flat)?;
 
         Ok(Self {
             biases: AlignedI16Array(biases_array),
@@ -409,16 +384,14 @@ impl Network {
         use std::arch::wasm32::*;
 
         unsafe {
-            let weights = input_layer.weights.as_ptr();
             let mut row_ptrs =
                 std::mem::MaybeUninit::<[*const v128; NUM_PATTERN_FEATURES]>::uninit();
             let row_ptrs_ptr = row_ptrs.as_mut_ptr() as *mut *const v128;
 
             for feature_idx in 0..NUM_PATTERN_FEATURES {
                 let offset = feature_offset(pattern_feature, feature_idx);
-                row_ptrs_ptr
-                    .add(feature_idx)
-                    .write(weights.add(offset * NN_DIMS) as *const v128);
+                let row = input_layer.weights.get_unchecked(offset);
+                row_ptrs_ptr.add(feature_idx).write(row.0.as_ptr().cast());
             }
             // SAFETY: the loop above writes every NUM_PATTERN_FEATURES pointer
             // slot exactly once.
@@ -582,14 +555,9 @@ impl Network {
     ) -> i64 {
         let mut input_activation = input_layer.biases.0;
 
-        // SAFETY: `input_layer.weights` owns `len` initialized bytes at `ptr`
-        // for the lifetime of the layer, and scalar forward only reads them.
-        let weights = unsafe {
-            std::slice::from_raw_parts(input_layer.weights.as_ptr(), input_layer.weights.len)
-        };
         for feature_idx in 0..NUM_PATTERN_FEATURES {
             let offset = feature_offset(pattern_feature, feature_idx);
-            let row = &weights[offset * NN_DIMS..(offset + 1) * NN_DIMS];
+            let row = &input_layer.weights[offset].0;
             for i in 0..NN_DIMS {
                 input_activation[i] += row[i] as i16;
             }

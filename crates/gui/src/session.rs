@@ -686,7 +686,7 @@ mod tests {
         while !done(session) {
             assert!(Instant::now() < deadline, "session did not settle");
             session.tick(settings, Instant::now() + Duration::from_secs(2));
-            thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(1));
         }
     }
 

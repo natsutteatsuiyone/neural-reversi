@@ -16,5 +16,5 @@ mod thread;
 pub(crate) use abort::AbortState;
 pub(in crate::search) use in_flight::Claim;
 pub(crate) use pool::ThreadPool;
-pub(in crate::search) use split_point::SplitPoint;
+pub(in crate::search) use split_point::{SplitPoint, SplitPointTask};
 pub(in crate::search) use thread::{HelperJob, SplitRequest, Thread};

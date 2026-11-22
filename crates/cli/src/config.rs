@@ -36,3 +36,24 @@ impl EngineConfig {
             .with_eval_paths(self.eval_file.as_deref(), self.eval_sm_file.as_deref())
     }
 }
+
+#[cfg(test)]
+pub(crate) fn test_shared_resources(
+    tt_mb_size: usize,
+    n_threads: usize,
+) -> reversi_core::search::SearchSharedResources {
+    use std::sync::{Arc, OnceLock};
+
+    use reversi_core::eval::Eval;
+    use reversi_core::search::SearchSharedResources;
+
+    static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
+    let eval = EVAL
+        .get_or_init(|| {
+            Arc::new(
+                Eval::with_weight_files(None, None).expect("embedded evaluation weights must load"),
+            )
+        })
+        .clone();
+    SearchSharedResources::from_eval(eval, tt_mb_size, Some(n_threads))
+}
