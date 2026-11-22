@@ -1,186 +1,160 @@
-//! Game difficulty levels and search depth configuration.
+//! Fixed-depth search levels.
 
-use crate::probcut::Selectivity;
+use crate::constants::INITIAL_EMPTY_COUNT;
+use crate::probcut::{ENDGAME_STEPS, Selectivity};
 use crate::types::Depth;
 
-/// A difficulty level with associated search depths.
+/// Depth limits of a fixed-level search.
 ///
-/// Each level defines:
-/// - A midgame search depth for the middle portion of the game
-/// - Endgame depths for each step in [`Self::ENDGAME_SELECTIVITY`]
-///
-/// Higher levels generally correspond to deeper searches and stronger play.
-#[derive(Copy, Clone)]
+/// A position is searched `mid_depth` plies deep until few enough squares
+/// are empty for the endgame solver to take over. The solver climbs
+/// [`Selectivity::ENDGAME_LADDER`] as far as [`Self::end_selectivity`] says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Level {
-    /// Search depth used during the midgame phase.
+    /// Deepest midgame iteration.
     pub mid_depth: Depth,
-    /// Endgame search depths, one per [`Self::ENDGAME_SELECTIVITY`] entry.
-    pub end_depth: [Depth; ENDGAME_STEPS],
+    end_depth: [Depth; ENDGAME_STEPS],
+    last_step: Selectivity,
 }
 
-/// Number of steps in [`Level::ENDGAME_SELECTIVITY`].
-pub const ENDGAME_STEPS: usize = 5;
+const FULL_DEPTH: Depth = INITIAL_EMPTY_COUNT as Depth;
+
+/// Highest preset level.
+pub const MAX_LEVEL: usize = PRESET_END_DEPTHS.len() - 1;
+
+#[rustfmt::skip]
+const PRESET_END_DEPTHS: [Depth; 31] = [
+    1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20,
+    21, 21, 22, 22, 24, 24, 24, 26, 26, 26,
+    28, 28, 30, 30, 30, 30, 30, 30, 30, 30,
+];
 
 impl Level {
-    /// Selectivity sequence for iterative endgame search.
-    ///
-    /// Progresses from aggressive pruning to exact solving.
-    pub const ENDGAME_SELECTIVITY: [Selectivity; ENDGAME_STEPS] = [
-        Selectivity::Level1,
-        Selectivity::Level2,
-        Selectivity::Level3,
-        Selectivity::Level4,
-        Selectivity::None,
-    ];
-
-    /// Creates a level with `mid_depth` for the midgame and the same endgame
-    /// depth for every [`Self::ENDGAME_SELECTIVITY`] step.
+    /// Creates a level that solves every [`Selectivity::ENDGAME_LADDER`] step
+    /// from `end_depth` empties.
     pub const fn uniform(mid_depth: Depth, end_depth: Depth) -> Self {
-        Level {
-            mid_depth,
-            end_depth: [end_depth; ENDGAME_STEPS],
-        }
+        Self::with_depths(mid_depth, [end_depth; ENDGAME_STEPS])
     }
 
-    /// Creates a level with `mid_depth` for the midgame and one endgame depth
-    /// per [`Self::ENDGAME_SELECTIVITY`] step.
+    /// Creates a level that solves each [`Selectivity::ENDGAME_LADDER`] step
+    /// from its own entry of `end_depth` empties.
     pub const fn with_depths(mid_depth: Depth, end_depth: [Depth; ENDGAME_STEPS]) -> Self {
         Level {
             mid_depth,
             end_depth,
+            last_step: Selectivity::None,
         }
     }
 
-    /// Creates a [`Level`] for time-controlled search.
-    ///
-    /// Sets `mid_depth` to 60 (effectively unlimited) and `end_depth` to 14.
-    /// The endgame depth only affects the root dispatch: positions with at
-    /// most `end_depth` empties enter the endgame solver directly, while
-    /// deeper positions start in the midgame driver, which hands off to the
-    /// endgame solver itself once iterative deepening approaches the full
-    /// depth. [`Search::run`] extends the endgame depth to 60 once a previous
-    /// time-controlled search completes an endgame solve at `Selectivity::Level2`
-    /// or higher.
-    ///
-    /// [`Search::run`]: crate::search::Search::run
-    pub const fn unlimited() -> Self {
-        Self::uniform(60, 14)
-    }
-
-    /// Creates a [`Level`] for perfect endgame solving.
+    /// Creates a level that solves every position exactly.
     pub const fn perfect() -> Self {
-        Self::uniform(60, 60)
+        Self::uniform(FULL_DEPTH, FULL_DEPTH)
     }
 
-    /// Returns the endgame search depth for a given [`Selectivity`] level.
+    /// Returns preset level `n`, which searches the midgame `n` plies deep.
+    ///
+    /// Level 0 searches one ply like level 1; frontends offer
+    /// `1..=MAX_LEVEL`.
     ///
     /// # Panics
     ///
-    /// Panics if `selectivity` is not in [`Self::ENDGAME_SELECTIVITY`].
-    pub fn end_depth_for(&self, selectivity: Selectivity) -> Depth {
-        let index = Self::ENDGAME_SELECTIVITY
-            .iter()
-            .position(|&s| s == selectivity)
-            .unwrap();
-        self.end_depth[index]
-    }
-
-    /// Returns the endgame search depth for the first selectivity step
-    /// (`Selectivity::Level1`).
-    pub fn min_end_depth(&self) -> Depth {
-        self.end_depth[0]
-    }
-}
-
-/// Maximum valid level index.
-pub const MAX_LEVEL: usize = LEVELS.len() - 1;
-
-/// Returns the [`Level`] configuration for a specific difficulty level.
-///
-/// # Panics
-///
-/// Panics if `lv` is outside the valid range of 0 to [`MAX_LEVEL`].
-pub fn get_level(lv: usize) -> Level {
-    if lv >= LEVELS.len() {
-        panic!(
-            "Invalid level: {}. Valid range is 0 to {}",
-            lv,
-            LEVELS.len() - 1
+    /// Panics if `n` is greater than [`MAX_LEVEL`].
+    pub fn preset(n: usize) -> Self {
+        assert!(
+            n <= MAX_LEVEL,
+            "invalid level {n}: the valid range is 0 to {MAX_LEVEL}"
         );
+        Self::uniform((n as Depth).max(1), PRESET_END_DEPTHS[n])
     }
-    LEVELS[lv]
-}
 
-/// Pre-configured difficulty levels from 0 to [`MAX_LEVEL`] (hardest).
-///
-/// Index 0 is present in the table (with the same midgame depth as 1), while
-/// frontends expose `1..=MAX_LEVEL`.
-#[rustfmt::skip]
-const LEVELS: [Level; 31] = [
-    Level::uniform(1, 1),
-    Level::uniform(1, 2),
-    Level::uniform(2, 4),
-    Level::uniform(3, 6),
-    Level::uniform(4, 8),
-    Level::uniform(5, 10),
-    Level::uniform(6, 12),
-    Level::uniform(7, 14),
-    Level::uniform(8, 16),
-    Level::uniform(9, 18),
-    Level::uniform(10, 20),
-    Level::uniform(11, 21),
-    Level::uniform(12, 21),
-    Level::uniform(13, 22),
-    Level::uniform(14, 22),
-    Level::uniform(15, 24),
-    Level::uniform(16, 24),
-    Level::uniform(17, 24),
-    Level::uniform(18, 26),
-    Level::uniform(19, 26),
-    Level::uniform(20, 26),
-    Level::uniform(21, 28),
-    Level::uniform(22, 28),
-    Level::uniform(23, 30),
-    Level::uniform(24, 30),
-    Level::uniform(25, 30),
-    Level::uniform(26, 30),
-    Level::uniform(27, 30),
-    Level::uniform(28, 30),
-    Level::uniform(29, 30),
-    Level::uniform(30, 30),
-];
+    /// Returns this level with the endgame ladder capped at `last`: the
+    /// steps after it are never run.
+    ///
+    /// The depths of the steps up to `last` are kept.
+    #[must_use]
+    pub fn stopping_at(self, last: Selectivity) -> Self {
+        Level {
+            last_step: self.last_step.min(last),
+            ..self
+        }
+    }
+
+    /// Returns the last [`Selectivity::ENDGAME_LADDER`] step a position with
+    /// `n_empties` empties is solved to, or `None` if the position is left
+    /// to the midgame search.
+    ///
+    /// The ladder runs in order, so a step counts only if every step before
+    /// it is solved from `n_empties` empties too.
+    pub fn end_selectivity(&self, n_empties: Depth) -> Option<Selectivity> {
+        Selectivity::ENDGAME_LADDER
+            .into_iter()
+            .zip(self.end_depth)
+            .take_while(|&(selectivity, end_depth)| {
+                selectivity <= self.last_step && n_empties <= end_depth
+            })
+            .map(|(selectivity, _)| selectivity)
+            .last()
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_end_depth_for() {
-        let level = Level {
-            mid_depth: 10,
-            end_depth: [20, 22, 23, 24, 25],
-        };
+    fn end_selectivity_is_the_last_step_solved_from_the_empties() {
+        let level = Level::with_depths(12, [28, 27, 26, 25, 24]);
 
-        assert_eq!(level.end_depth_for(Selectivity::Level1), 20);
-        assert_eq!(level.end_depth_for(Selectivity::Level2), 22);
-        assert_eq!(level.end_depth_for(Selectivity::Level3), 23);
-        assert_eq!(level.end_depth_for(Selectivity::Level4), 24);
-        assert_eq!(level.end_depth_for(Selectivity::None), 25);
+        for (n_empties, expected) in [
+            (29, None),
+            (28, Some(Selectivity::Level1)),
+            (27, Some(Selectivity::Level2)),
+            (26, Some(Selectivity::Level3)),
+            (25, Some(Selectivity::Level4)),
+            (24, Some(Selectivity::None)),
+            (1, Some(Selectivity::None)),
+        ] {
+            assert_eq!(level.end_selectivity(n_empties), expected, "{n_empties}");
+        }
     }
 
     #[test]
-    #[should_panic(expected = "Invalid level")]
-    fn get_level_panics_above_the_valid_range() {
-        // Pinning the message ensures the panic comes from `get_level`'s explicit
-        // range guard, not from some unrelated panic source.
-        let _ = get_level(LEVELS.len());
+    fn end_selectivity_stops_at_the_first_step_out_of_reach() {
+        let level = Level::with_depths(12, [24, 20, 24, 24, 24]);
+
+        assert_eq!(level.end_selectivity(25), None);
+        assert_eq!(level.end_selectivity(22), Some(Selectivity::Level1));
+        assert_eq!(level.end_selectivity(20), Some(Selectivity::None));
     }
 
     #[test]
-    fn max_level_matches_last_table_entry() {
-        assert_eq!(MAX_LEVEL, LEVELS.len() - 1);
-        let max = get_level(MAX_LEVEL);
-        assert_eq!(max.mid_depth, LEVELS[MAX_LEVEL].mid_depth);
-        assert_eq!(max.end_depth, LEVELS[MAX_LEVEL].end_depth);
+    fn stopping_at_caps_the_ladder_and_keeps_the_earlier_depths() {
+        let level = Level::perfect().stopping_at(Selectivity::Level2);
+
+        for n_empties in [1, 30, 60] {
+            assert_eq!(level.end_selectivity(n_empties), Some(Selectivity::Level2));
+        }
+
+        let level = Level::uniform(12, 24).stopping_at(Selectivity::Level4);
+        assert_eq!(level.end_selectivity(25), None);
+        assert_eq!(level.end_selectivity(24), Some(Selectivity::Level4));
+        assert_eq!(
+            level.stopping_at(Selectivity::None).end_selectivity(24),
+            Some(Selectivity::Level4)
+        );
+    }
+
+    #[test]
+    fn presets_span_level_zero_to_max_level() {
+        assert_eq!(Level::preset(0), Level::uniform(1, 1));
+        assert_eq!(Level::preset(1), Level::uniform(1, 2));
+        assert_eq!(Level::preset(21), Level::uniform(21, 28));
+        assert_eq!(Level::preset(MAX_LEVEL), Level::uniform(30, 30));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid level")]
+    fn preset_panics_above_max_level() {
+        let _ = Level::preset(MAX_LEVEL + 1);
     }
 }

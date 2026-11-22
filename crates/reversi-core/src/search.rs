@@ -36,7 +36,6 @@ use std::sync::Arc;
 use crate::board::Board;
 use crate::constants::{INITIAL_EMPTY_COUNT, MAX_THREADS};
 use crate::eval::{Eval, EvalMode};
-use crate::level::Level;
 use crate::probcut::Selectivity;
 use crate::search::correction_history::CorrectionHistories;
 use crate::search::options::{SearchOptions, available_cpus};
@@ -82,6 +81,14 @@ pub struct SearchSharedResources {
     thread_pool: Option<Arc<ThreadPool>>,
 }
 
+const TIMED_ENDGAME_ROOT_MAX_EMPTIES: Depth = 14;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RootPhase {
+    Midgame { max_depth: Depth },
+    Endgame { last: Selectivity },
+}
+
 /// Position, resolved search settings, and shared resources for one root search.
 pub(crate) struct SearchTask {
     /// Board position to search.
@@ -97,8 +104,7 @@ pub(crate) struct SearchTask {
     pub pool: Arc<ThreadPool>,
     /// Shared evaluation function.
     pub eval: Arc<Eval>,
-    /// Search depth and endgame configuration.
-    pub level: Level,
+    pub phase: RootPhase,
     /// Whether to report multiple principal variations.
     pub multi_pv: bool,
     /// Optional callback invoked to report search progress.
@@ -288,18 +294,32 @@ impl Search {
         let callback = options.callback.clone();
         let n_empties = board.empty_count();
 
-        let (time_manager, mut effective_level) =
-            self.build_time_controls(n_empties, &options.constraint);
+        let (time_manager, phase) = match &options.constraint {
+            SearchConstraint::Level(level) => {
+                let phase = match level.end_selectivity(n_empties) {
+                    Some(last) => RootPhase::Endgame { last },
+                    None => RootPhase::Midgame {
+                        max_depth: level.mid_depth,
+                    },
+                };
+                (None, phase)
+            }
+            SearchConstraint::Time(mode) => {
+                let tm = Arc::new(TimeManager::new(
+                    *mode,
+                    self.threads.abort_state(),
+                    n_empties,
+                ));
+                (Some(tm), self.timed_root_phase(n_empties))
+            }
+        };
         let is_time_mode = time_manager.is_some();
         let deadline = time_manager.clone();
 
-        if is_time_mode {
-            self.maybe_extend_endgame_depth(n_empties, &mut effective_level);
-        }
         // The timer starts with the search, so an endgame root must not run
         // under the smaller midgame deadline even briefly.
         if let Some(tm) = &time_manager
-            && is_endgame_root(&effective_level, n_empties)
+            && matches!(phase, RootPhase::Endgame { .. })
         {
             tm.set_endgame_mode(true);
         }
@@ -310,7 +330,7 @@ impl Search {
             tt: self.tt.clone(),
             pool: self.threads.clone(),
             eval: self.eval.clone(),
-            level: effective_level,
+            phase,
             multi_pv: options.multi_pv,
             callback: callback.clone(),
             time_manager,
@@ -332,48 +352,35 @@ impl Search {
         result
     }
 
-    fn build_time_controls(
-        &self,
-        n_empties: Depth,
-        constraint: &SearchConstraint,
-    ) -> (Option<Arc<TimeManager>>, Level) {
-        match constraint {
-            SearchConstraint::Level(level) => (None, *level),
-            SearchConstraint::Time(mode) => {
-                let tm = Arc::new(TimeManager::new(
-                    *mode,
-                    self.threads.abort_state(),
-                    n_empties,
-                ));
-                (Some(tm), Level::unlimited())
+    fn timed_root_phase(&self, n_empties: Depth) -> RootPhase {
+        let solved_before = self
+            .endgame_start_n_empties
+            .is_some_and(|start| n_empties <= start);
+
+        if n_empties <= TIMED_ENDGAME_ROOT_MAX_EMPTIES || solved_before {
+            RootPhase::Endgame {
+                last: Selectivity::None,
+            }
+        } else {
+            RootPhase::Midgame {
+                max_depth: n_empties,
             }
         }
     }
 
-    /// Lifts the endgame depth cap to [`Level::perfect`] once a previous
-    /// time-controlled search has finished an endgame solve at
-    /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`] or higher.
-    ///
-    /// Time-controlled searches default to [`Level::unlimited`], which caps the
-    /// endgame at 14 ply.
-    fn maybe_extend_endgame_depth(&mut self, n_empties: Depth, level: &mut Level) {
-        let Some(start) = self.endgame_start_n_empties else {
-            return;
-        };
-        if n_empties > start {
-            self.endgame_start_n_empties = None;
-        } else {
-            *level = Level::with_depths(level.mid_depth, Level::perfect().end_depth);
-        }
-    }
-
     /// Records the empty count at which an endgame solve first finished
-    /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`]. Later time-controlled searches
-    /// then skip the midgame iterations and extend their end depth.
+    /// [`ENDGAME_TRACKING_MIN_SELECTIVITY`].
     ///
     /// Until then, each search starts with midgame iterations, so a result
     /// exists even if the endgame solve aborts before finishing a level.
     fn update_endgame_tracking(&mut self, n_empties: Depth, result: &SearchResult) {
+        if self
+            .endgame_start_n_empties
+            .is_some_and(|start| n_empties > start)
+        {
+            self.endgame_start_n_empties = None;
+        }
+
         if n_empties > 0
             && self.endgame_start_n_empties.is_none()
             && result.is_endgame()
@@ -408,26 +415,17 @@ impl Search {
     }
 }
 
-/// Dispatches to midgame or endgame search based on remaining empties.
-///
-/// Compares the minimum endgame depth from the level configuration against the
-/// number of empty squares. If the endgame depth covers all empties, delegates
-/// to the endgame solver; otherwise delegates to the midgame search.
 fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    if is_endgame_root(&task.level, task.board.empty_count()) {
-        return endgame::search_root(task, thread);
+    match task.phase {
+        RootPhase::Midgame { max_depth } => midgame::search_root(task, max_depth, thread),
+        RootPhase::Endgame { last } => endgame::search_root(task, last, thread),
     }
-
-    midgame::search_root(task, thread)
-}
-
-fn is_endgame_root(level: &Level, n_empties: Depth) -> bool {
-    level.min_end_depth() >= n_empties
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::level::Level;
     use crate::score::Score;
     use crate::search::counters::SearchCounters;
     use crate::search::time_control::TimeControlMode;
@@ -502,10 +500,8 @@ mod tests {
         assert_eq!(search.tt().generation(), 0);
     }
 
-    #[test]
-    fn midgame_iterations_are_skipped_only_after_a_level2_endgame_solve() {
-        let mut search = search_for_tests();
-        let endgame = |selectivity| SearchResult::BestMove {
+    fn endgame_result(selectivity: Selectivity) -> SearchResult {
+        SearchResult::BestMove {
             sq: Square::A1,
             score: Score::ZERO,
             n_nodes: 0,
@@ -515,12 +511,51 @@ mod tests {
             is_endgame: true,
             pv_moves: vec![],
             counters: SearchCounters::default(),
-        };
+        }
+    }
 
-        search.update_endgame_tracking(30, &endgame(Selectivity::Level1));
+    #[test]
+    fn midgame_iterations_are_skipped_only_after_a_level2_endgame_solve() {
+        let mut search = search_for_tests();
+
+        search.update_endgame_tracking(30, &endgame_result(Selectivity::Level1));
         assert_eq!(search.endgame_start_n_empties, None);
 
-        search.update_endgame_tracking(28, &endgame(Selectivity::Level2));
+        search.update_endgame_tracking(28, &endgame_result(Selectivity::Level2));
         assert_eq!(search.endgame_start_n_empties, Some(27));
+    }
+
+    #[test]
+    fn endgame_tracking_is_dropped_by_a_search_with_more_empties() {
+        let mut search = search_for_tests();
+        search.endgame_start_n_empties = Some(27);
+
+        search.update_endgame_tracking(27, &endgame_result(Selectivity::Level1));
+        assert_eq!(search.endgame_start_n_empties, Some(27));
+
+        search.update_endgame_tracking(28, &endgame_result(Selectivity::Level1));
+        assert_eq!(search.endgame_start_n_empties, None);
+    }
+
+    #[test]
+    fn timed_root_starts_in_the_endgame_near_the_end_or_after_a_tracked_solve() {
+        let mut search = search_for_tests();
+        let endgame = RootPhase::Endgame {
+            last: Selectivity::None,
+        };
+        let midgame = |max_depth| RootPhase::Midgame { max_depth };
+
+        assert_eq!(
+            search.timed_root_phase(TIMED_ENDGAME_ROOT_MAX_EMPTIES),
+            endgame
+        );
+        assert_eq!(
+            search.timed_root_phase(TIMED_ENDGAME_ROOT_MAX_EMPTIES + 1),
+            midgame(TIMED_ENDGAME_ROOT_MAX_EMPTIES + 1)
+        );
+
+        search.endgame_start_n_empties = Some(27);
+        assert_eq!(search.timed_root_phase(27), endgame);
+        assert_eq!(search.timed_root_phase(28), midgame(28));
     }
 }

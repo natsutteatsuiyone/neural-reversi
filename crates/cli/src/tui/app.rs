@@ -280,7 +280,7 @@ impl App {
             {
                 self.search.start(
                     *self.game.board(),
-                    level::get_level(self.level),
+                    level::Level::preset(self.level),
                     SearchKind::Move,
                 );
             }
@@ -598,7 +598,7 @@ impl App {
 
         if self.search.start(
             *self.game.board(),
-            level::get_level(self.level),
+            level::Level::preset(self.level),
             SearchKind::Hint,
         ) {
             self.ui_mode = UiMode::HintsLoading;
@@ -614,7 +614,7 @@ impl App {
         if !self.game.board().is_game_over() && self.game.board().has_legal_moves() {
             self.search.start(
                 *self.game.board(),
-                level::get_level(self.level),
+                level::Level::preset(self.level),
                 SearchKind::Move,
             );
         }

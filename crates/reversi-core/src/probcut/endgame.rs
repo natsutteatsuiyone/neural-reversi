@@ -18,7 +18,6 @@
 //! tree, the exact score runs well above the shallow score, unlike in game
 //! records.
 
-use crate::level::Level;
 use crate::probcut::Selectivity;
 use crate::score::Score;
 use crate::types::Depth;
@@ -33,10 +32,10 @@ const MODEL_EMPTIES: std::ops::RangeInclusive<u32> = 13..=30;
 /// by `cut_node`: 10% at expected all nodes, 0.1% at expected cut nodes.
 pub const SCREEN_RATES: [f64; 2] = [0.1, 0.001];
 
-/// The selectivity levels endgame ProbCut runs at: [`Level::ENDGAME_SELECTIVITY`]
+/// The selectivity levels endgame ProbCut runs at: [`Selectivity::ENDGAME_LADDER`]
 /// without its final exact step.
 pub const ENDGAME_LEVELS: [Selectivity; 4] = {
-    let [levels @ .., Selectivity::None] = Level::ENDGAME_SELECTIVITY else {
+    let [levels @ .., Selectivity::None] = Selectivity::ENDGAME_LADDER else {
         panic!("the endgame selectivity ladder must end at Selectivity::None");
     };
     levels

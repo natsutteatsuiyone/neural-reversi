@@ -14,6 +14,9 @@ pub use endgame::{
     VERIFY_DEPTH, VERIFY_FIT_T_MAX, VerifyModel, endgame_probcut_window, endgame_tail_multiplier,
 };
 
+/// Number of steps in [`Selectivity::ENDGAME_LADDER`].
+pub const ENDGAME_STEPS: usize = 5;
+
 /// Selectivity level for search pruning (ProbCut confidence levels).
 ///
 /// `Mid` is used for time-controlled midgame search; on the endgame ladder
@@ -46,6 +49,16 @@ pub enum Selectivity {
 }
 
 impl Selectivity {
+    /// Selectivity steps of an endgame solve in the order they run, from the
+    /// most aggressive pruning to the exact solve.
+    pub const ENDGAME_LADDER: [Selectivity; ENDGAME_STEPS] = [
+        Selectivity::Level1,
+        Selectivity::Level2,
+        Selectivity::Level3,
+        Selectivity::Level4,
+        Selectivity::None,
+    ];
+
     /// Returns the statistical confidence multiplier (t-value).
     #[inline]
     pub fn t_value(self) -> f64 {

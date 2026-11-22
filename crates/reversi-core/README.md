@@ -32,8 +32,8 @@ The engine is split into three layers.
 └────────────────────────────────────────────────────────┘
 ```
 
-The entry point is `Search::run`. It compares the number of empty squares
-against the `Level`'s `min_end_depth` and dispatches to either
+The entry point is `Search::run`. It resolves the search constraint and the
+number of empty squares into a `RootPhase` and dispatches to either
 `midgame::search_root` or `endgame::search_root`. Both share the same
 `search()` negamax core, while the `SearchStrategy` trait
 (`MidGameStrategy` / `EndGameStrategy`) supplies the constants and pruning
@@ -213,8 +213,9 @@ not a tuning choice: it keeps the reduced child depth at one ply or more.
 
 Iterative selectivity. The depth is fixed (all remaining empties are
 solved); what changes between iterations is the confidence level. The loop
-walks `Level::ENDGAME_SELECTIVITY = [Level1, Level2, Level3, Level4, None]`,
-ending with `None` for an exact solve.
+walks `Selectivity::ENDGAME_LADDER = [Level1, Level2, Level3, Level4, None]`
+up to the `last` step of `RootPhase::Endgame`. The full ladder ends with
+`None` for an exact solve.
 
 - On direct entry, `estimate_aspiration_base_score` takes an `Exact` TT
   score if present, otherwise runs `midgame::evaluate_depth2` when at least
@@ -550,20 +551,42 @@ pub struct Score(i32);
 
 ### Level
 
-`Level { mid_depth, end_depth: [Depth; ENDGAME_STEPS] }`. The `end_depth` slots line
-up with `Level::ENDGAME_SELECTIVITY` (`Level1 / Level2 / Level3 / Level4 / None`).
+`Level` holds the depth limits of a fixed-level search: `mid_depth` and one
+endgame depth per `Selectivity::ENDGAME_LADDER` step
+(`Level1 / Level2 / Level3 / Level4 / None`). A step is solved from positions
+with at most that many empties.
 
-- `get_level(i)` returns a preset configuration for UIs (see the array at
-  the bottom of `level.rs`).
-- `Level::unlimited()` is the baseline used in time-control mode: an
-  effectively unlimited `mid_depth` paired with a moderate `end_depth`
-  cap that only controls the root dispatch. Positions with more empties
-  than the cap start in the midgame driver, which hands off to the
-  endgame solve loop in-run once deepening reaches the full depth.
-  Once a previous time-controlled `Search::run` has completed an endgame
-  solve at `ENDGAME_TRACKING_MIN_SELECTIVITY` (`Level2`) or higher (recorded
-  by `update_endgame_tracking`), subsequent calls lift the `end_depth` to
-  `Level::perfect()`'s value so the endgame root is entered directly.
+- `Level::end_selectivity(n_empties)` returns the last ladder step solved
+  from `n_empties` empties, or `None` when the position is left to the
+  midgame search. The ladder runs in order, so a step counts only when every
+  step before it is solved from that empty count too.
+- `Level::preset(i)` returns a preset for UIs: `mid_depth` is the level
+  number and the endgame depth comes from `PRESET_END_DEPTHS`. Level 0,
+  which UIs do not offer, has a `mid_depth` of one like level 1.
+- `Level::stopping_at(last)` caps the ladder at `last`. The depth limits of
+  the steps up to `last` are kept, so a position with more empties still
+  goes to the midgame search.
+
+### Root phase
+
+`Search::run` resolves the constraint into a `RootPhase` before the search
+starts.
+
+- `SearchConstraint::Level`: `RootPhase::Endgame { last }` when
+  `Level::end_selectivity` names a step, otherwise
+  `RootPhase::Midgame { max_depth }` with the level's `mid_depth`.
+- `SearchConstraint::Time`: positions with at most `TIMED_ENDGAME_ROOT_MAX_EMPTIES`
+  empties start in `RootPhase::Endgame` with the full ladder. Positions with
+  more start in `RootPhase::Midgame` over all empties. When deepening
+  reaches the full depth, `TimeManager::should_enter_endgame` decides from
+  the remaining budget whether the root is handed to the endgame solve loop
+  in-run or the midgame result is returned.
+  Once a time-controlled `Search::run` has completed an endgame solve at
+  `ENDGAME_TRACKING_MIN_SELECTIVITY` (`Level2`) or higher,
+  `update_endgame_tracking` records the empty count of the position after
+  the move. Subsequent calls with at most that many empties start in
+  `RootPhase::Endgame`. A call with more empties falls back to the rule
+  above and clears the record.
 
 ### Time control
 

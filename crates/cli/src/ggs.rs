@@ -18,7 +18,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
-use reversi_core::level::{MAX_LEVEL, get_level};
+use reversi_core::level::{Level, MAX_LEVEL};
 use reversi_core::search::time_control::TimeControlMode;
 use reversi_core::search::{self, SearchRunOptions, StopToken, options::SearchOptions};
 use reversi_core::transposition_table::TranspositionTable;
@@ -800,7 +800,7 @@ fn build_search_run_options(search_limit: session::SearchLimit) -> SearchRunOpti
     match search_limit {
         session::SearchLimit::Time(time_mode) => SearchRunOptions::with_time(time_mode),
         session::SearchLimit::Level { level } => {
-            SearchRunOptions::with_level(get_level(level.min(MAX_LEVEL)))
+            SearchRunOptions::with_level(Level::preset(level.min(MAX_LEVEL)))
         }
     }
 }

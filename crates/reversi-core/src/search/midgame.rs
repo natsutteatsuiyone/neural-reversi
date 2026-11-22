@@ -54,7 +54,7 @@ const DEPTH1_MOVE_ORDER_MASKS: [Bitboard; 10] = [
 /// The other threads of a parallel pool run Lazy SMP helper searches on the
 /// same root until this search returns or hands the root to the endgame
 /// solver, whose split points then share the work among the same threads.
-pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+pub fn search_root(task: SearchTask, max_depth: Depth, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let root_moves = RootMoves::new(&board);
 
@@ -80,7 +80,7 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
     let n_empties = ctx.empty_list.count();
 
-    let max_depth = task.level.mid_depth.max(1).min(n_empties);
+    let max_depth = max_depth.max(1).min(n_empties);
     ctx.correction_history = Some(task.corrections.take(thread.idx()));
     let helpers = Helpers::start(&task, max_depth);
     let outcome = iterate(&mut ctx, &board, &task, max_depth, &helpers, thread);
@@ -102,12 +102,12 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
         }
         Outcome::Endgame(completed, base_score) => endgame::solve_root(
             &mut ctx,
-            &board,
             &task,
             thread,
             base_score,
             completed,
             super::ENDGAME_TRACKING_MIN_SELECTIVITY,
+            Selectivity::None,
         ),
     }
 }
@@ -503,9 +503,9 @@ mod schedule_tests {
     use super::*;
     use std::sync::Arc;
 
-    use crate::level::Level;
     use crate::player_color::PlayerColor;
     use crate::score::DiscScore;
+    use crate::search::RootPhase;
     use crate::search::threading::ThreadPool;
     use crate::search::time_control::{TimeControlMode, TimeManager};
     use crate::transposition_table::TranspositionTable;
@@ -745,7 +745,7 @@ mod schedule_tests {
             tt: Arc::new(TranspositionTable::new(0)),
             pool: pool.clone(),
             eval: shared_eval(),
-            level: Level::uniform(1, 1),
+            phase: RootPhase::Midgame { max_depth: 1 },
             multi_pv: false,
             callback: Some(Arc::new(move |progress| {
                 if progress.depth == 1 {
@@ -757,7 +757,7 @@ mod schedule_tests {
             corrections: Default::default(),
         };
 
-        let result = search_root(task, pool.main());
+        let result = search_root(task, 1, pool.main());
 
         assert_eq!(result.depth(), 1);
         assert!(result.best_move().is_some());
@@ -812,7 +812,9 @@ mod schedule_tests {
             tt: Arc::new(TranspositionTable::new(1)),
             pool: pool.clone(),
             eval: shared_eval(),
-            level: Level::unlimited(),
+            phase: RootPhase::Midgame {
+                max_depth: n_empties,
+            },
             multi_pv: false,
             callback: None,
             time_manager: Some(time_manager),
@@ -820,7 +822,7 @@ mod schedule_tests {
             corrections: Default::default(),
         };
 
-        let result = search_root(task, pool.main());
+        let result = search_root(task, n_empties, pool.main());
 
         assert!(result.is_endgame());
         assert_eq!(result.depth(), n_empties);

@@ -16,7 +16,7 @@ use colored::Colorize;
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
-    level::{ENDGAME_STEPS, Level},
+    level::Level,
     player_color::PlayerColor,
     probcut::Selectivity,
     score::{DiscScore, Score},
@@ -1294,10 +1294,8 @@ fn build_constraint(args: &Args) -> SearchConstraint {
     if let Some(time_per_move_ms) = args.time {
         SearchConstraint::Time(TimeControlMode::Fixed { time_per_move_ms })
     } else if args.selective_only {
-        // An end depth of 0 for the last step stops the ladder before it.
-        let mut end_depth = [args.depth; ENDGAME_STEPS];
-        end_depth[ENDGAME_STEPS - 1] = 0;
-        SearchConstraint::Level(Level::with_depths(args.depth, end_depth))
+        let level = Level::uniform(args.depth, args.depth).stopping_at(Selectivity::Level4);
+        SearchConstraint::Level(level)
     } else {
         SearchConstraint::Level(Level::uniform(args.depth, args.depth))
     }
@@ -1475,8 +1473,7 @@ mod tests {
         assert_eq!(default_args.time, None);
         match build_constraint(&default_args) {
             SearchConstraint::Level(level) => {
-                assert_eq!(level.mid_depth, 60);
-                assert_eq!(level.end_depth, [60; ENDGAME_STEPS]);
+                assert_eq!(level, Level::perfect());
             }
             SearchConstraint::Time(_) => panic!("expected default Level constraint"),
         }

@@ -13,7 +13,6 @@ use crate::board::Board;
 use crate::eval::EvalMode;
 use crate::flip;
 use crate::legal_moves::LegalMoves;
-use crate::level::Level;
 use crate::probcut;
 use crate::probcut::Selectivity;
 use crate::score::{DISC_SCORE_INF, DISC_SCORE_MAX};
@@ -97,7 +96,7 @@ impl EndGameCaches {
 }
 
 /// Performs root search for endgame positions using iterative selectivity.
-pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+pub fn search_root(task: SearchTask, last: Selectivity, thread: &Arc<Thread>) -> SearchResult {
     let board = task.board;
     let root_moves = RootMoves::new(&board);
 
@@ -119,27 +118,27 @@ pub fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
     let completed = CompletedState::new(task.pv_count(ctx.root_moves.count()));
     solve_root(
         &mut ctx,
-        &board,
         &task,
         thread,
         base_score,
         completed,
         Selectivity::Level1,
+        last,
     )
 }
 
 /// Runs the multi-PV, iterative-selectivity solve loop on an existing context.
 pub(super) fn solve_root(
     ctx: &mut SearchContext,
-    board: &Board,
     task: &SearchTask,
     thread: &Arc<Thread>,
     base_score: Score,
     mut completed: CompletedState,
     min_reported: Selectivity,
+    last: Selectivity,
 ) -> SearchResult {
+    let board = &task.board;
     let time_manager = task.time_manager.as_deref();
-    let use_time_control = time_manager.is_some();
     #[cfg(feature = "search-stats")]
     let mut endgame_start = (completed.last.is_some() && task.callback.is_some())
         .then(|| (std::time::Instant::now(), ctx.counters()));
@@ -172,9 +171,8 @@ pub(super) fn solve_root(
             initial_aspiration_window(pv_idx, base_score, previous_pv_score);
 
         // Iterative selectivity loop
-        for (step, selectivity) in Level::ENDGAME_SELECTIVITY.into_iter().enumerate() {
-            // Check depth limit when not using time control
-            if !use_time_control && task.level.end_depth_for(selectivity) < n_empties {
+        for (step, selectivity) in Selectivity::ENDGAME_LADDER.into_iter().enumerate() {
+            if selectivity > last {
                 break;
             }
 
@@ -681,6 +679,7 @@ mod tests {
     use super::*;
     use crate::eval::Eval;
     use crate::player_color::PlayerColor;
+    use crate::search::RootPhase;
     use crate::search::result::Iteration;
     use crate::search::strategy::SearchStrategy;
     use crate::search::threading::ThreadPool;
@@ -881,7 +880,9 @@ mod tests {
             tt,
             pool: pool.clone(),
             eval,
-            level: Level::perfect(),
+            phase: RootPhase::Endgame {
+                last: Selectivity::None,
+            },
             multi_pv,
             callback,
             time_manager: None,
@@ -927,12 +928,12 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert_is_fallback_result(&result);
@@ -960,12 +961,12 @@ mod tests {
 
             let result = solve_root(
                 &mut ctx,
-                &task.board,
                 &task,
                 pool.main(),
                 Score::ZERO,
                 completed,
                 Selectivity::Level2,
+                Selectivity::None,
             );
 
             assert_is_fallback_result(&result);
@@ -990,12 +991,12 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert_is_fallback_result(&result);
@@ -1025,12 +1026,12 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert_is_fallback_result(&result);
@@ -1046,17 +1047,17 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert!(result.is_endgame());
         assert_eq!(result.depth(), 9);
-        assert_eq!(result.selectivity(), Level::ENDGAME_SELECTIVITY[1]);
+        assert_eq!(result.selectivity(), Selectivity::ENDGAME_LADDER[1]);
     }
 
     #[test]
@@ -1068,7 +1069,7 @@ mod tests {
         let mut ctx = fallback_context(&task, &root_moves);
         // Abort once the last PV line finishes its first level, while the
         // other lines have finished every level.
-        let n_levels = Level::ENDGAME_SELECTIVITY.len();
+        let n_levels = Selectivity::ENDGAME_LADDER.len();
         abort_at.store(
             (ctx.root_moves.count() - 1) * n_levels + 1,
             Ordering::Relaxed,
@@ -1076,12 +1077,12 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert_is_fallback_result(&result);
@@ -1090,7 +1091,7 @@ mod tests {
     #[test]
     fn endgame_handoff_does_not_count_midgame_lines_as_completed_endgame_lines() {
         let pool = ThreadPool::new(1);
-        let abort_at = Arc::new(AtomicUsize::new(Level::ENDGAME_SELECTIVITY.len()));
+        let abort_at = Arc::new(AtomicUsize::new(Selectivity::ENDGAME_LADDER.len()));
         let (root_moves, task, mut completed) =
             solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
         let mut ctx = fallback_context(&task, &root_moves);
@@ -1107,12 +1108,12 @@ mod tests {
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             midgame_score,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert!(!result.is_endgame());
@@ -1128,17 +1129,17 @@ mod tests {
         let (root_moves, task, completed) =
             solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
         let mut ctx = fallback_context(&task, &root_moves);
-        let n_levels = Level::ENDGAME_SELECTIVITY.len();
+        let n_levels = Selectivity::ENDGAME_LADDER.len();
         abort_at.store(ctx.root_moves.count() * n_levels, Ordering::Relaxed);
 
         let result = solve_root(
             &mut ctx,
-            &task.board,
             &task,
             pool.main(),
             Score::ZERO,
             completed,
             Selectivity::Level2,
+            Selectivity::None,
         );
 
         assert!(result.is_endgame());

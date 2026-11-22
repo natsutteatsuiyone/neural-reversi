@@ -14,7 +14,7 @@ use std::io::{self, BufRead, Write};
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
 use reversi_core::game_state::GameState;
-use reversi_core::level::{MAX_LEVEL, get_level};
+use reversi_core::level::{Level, MAX_LEVEL};
 use reversi_core::player_color::PlayerColor;
 use reversi_core::search::time_control::{TimeControlMode, TimeSettings};
 use reversi_core::search::{self, SearchRunOptions};
@@ -501,7 +501,7 @@ impl GtpEngine {
         let options = match self.current_time_control() {
             TimeControlMode::Infinite => {
                 let level_idx = self.level.min(MAX_LEVEL);
-                SearchRunOptions::with_level(get_level(level_idx))
+                SearchRunOptions::with_level(Level::preset(level_idx))
             }
             mode => SearchRunOptions::with_time(mode),
         };

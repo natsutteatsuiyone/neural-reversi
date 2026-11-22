@@ -6,8 +6,9 @@ use std::{
 };
 
 use directories::BaseDirs;
-use reversi_core::level::{ENDGAME_STEPS, MAX_LEVEL};
+use reversi_core::level::MAX_LEVEL;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::probcut::ENDGAME_STEPS;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -55,7 +56,6 @@ pub struct Settings {
     pub hash_size: usize,
     pub analysis_open: bool,
     pub language: Language,
-    /// Index into `Level::ENDGAME_SELECTIVITY` (73%, 86%, 95%, 99%, 100%).
     pub solver_selectivity: usize,
     pub solver_multi_pv: bool,
     /// Layout proportions, in percent.

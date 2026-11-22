@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use reversi_core::{
-    analysis::GameAnalysisProgress, player_color::PlayerColor, score::Score, square::Square,
+    analysis::GameAnalysisProgress, player_color::PlayerColor, probcut::Selectivity, score::Score,
+    square::Square,
 };
 
 use crate::engine::{Engine, EngineError, EventKind, Progress, Request};
@@ -624,7 +625,7 @@ impl Session {
             Activity::Solver,
             Request::Solver {
                 board: position.board,
-                selectivity: settings.solver_selectivity,
+                selectivity: Selectivity::ENDGAME_LADDER[settings.solver_selectivity],
                 multi_pv: settings.solver_multi_pv,
             },
         );

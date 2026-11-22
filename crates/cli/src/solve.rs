@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
-    level::{Level, get_level},
+    level::Level,
     obf::ObfPosition,
     player_color::PlayerColor,
     score::Score,
@@ -45,7 +45,7 @@ pub fn solve(
     let level_config = if exact {
         Level::perfect()
     } else {
-        get_level(config.level)
+        Level::preset(config.level)
     };
 
     if !all_moves {

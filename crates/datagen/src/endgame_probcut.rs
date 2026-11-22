@@ -23,7 +23,7 @@ use reversi_core::{
 #[cfg(feature = "trace")]
 use reversi_core::{
     eval::EvalMode,
-    level::{ENDGAME_STEPS, Level},
+    level::Level,
     search::{Search, SearchRunOptions, SearchSharedResources, options::SearchOptions},
 };
 #[cfg(any(feature = "trace", test))]
@@ -398,10 +398,7 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
     let mut traced: Vec<(usize, TraceRecord)> = Vec::new();
     for (index, &(game, board)) in root_boards.iter().enumerate() {
         let n_empties = board.empty_count();
-        // An end depth of 0 for the last level stops the ladder before the exact solve.
-        let mut end_depth = [n_empties; ENDGAME_STEPS];
-        end_depth[ENDGAME_STEPS - 1] = 0;
-        let level = Level::with_depths(n_empties, end_depth);
+        let level = Level::uniform(n_empties, n_empties).stopping_at(Selectivity::Level4);
         search.init();
         search.run(&board, &SearchRunOptions::with_level(level));
         traced.extend(probcut::trace::take().into_iter().map(|r| (game, r)));

@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
-use crate::level::{ENDGAME_STEPS, Level};
+use crate::probcut::{ENDGAME_STEPS, Selectivity};
 use crate::search::threading::AbortState;
 use crate::square::Square;
 use crate::types::Depth;
@@ -878,7 +878,7 @@ impl EndgameClock<'_> {
         if stop && is_debug_enabled() {
             eprintln!(
                 "[TimeManager] Stopping endgame selectivity: selectivity={:?}, elapsed={}ms, factor={factor:.3}, maxi={}ms",
-                Level::ENDGAME_SELECTIVITY[step],
+                Selectivity::ENDGAME_LADDER[step],
                 elapsed,
                 prediction.budget_ms
             );

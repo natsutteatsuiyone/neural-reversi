@@ -341,17 +341,21 @@ mod tests {
     use super::*;
     use crate::board::Board;
     use crate::eval::Eval;
-    use crate::level::Level;
     use crate::player_color::PlayerColor;
     use crate::probcut::Selectivity;
     use crate::score::Score;
+    use crate::search::RootPhase;
     use crate::transposition_table::TranspositionTable;
+
+    const EXACT_SOLVE: RootPhase = RootPhase::Endgame {
+        last: Selectivity::None,
+    };
 
     fn task(
         pool: &Arc<ThreadPool>,
         eval: &Arc<Eval>,
         board: Board,
-        level: Level,
+        phase: RootPhase,
         mid_selectivity: Selectivity,
     ) -> SearchTask {
         SearchTask {
@@ -360,7 +364,7 @@ mod tests {
             tt: Arc::new(TranspositionTable::new(16)),
             pool: pool.clone(),
             eval: eval.clone(),
-            level,
+            phase,
             multi_pv: false,
             callback: None,
             time_manager: None,
@@ -398,7 +402,7 @@ mod tests {
         let table = pool.in_flight.as_deref().unwrap();
         let claims: Vec<_> = positions.iter().map(|p| table.claim(p.hash())).collect();
         let eval = Eval::shared_for_tests();
-        let task = task(&pool, &eval, ffo_41, Level::perfect(), Selectivity::None);
+        let task = task(&pool, &eval, ffo_41, EXACT_SOLVE, Selectivity::None);
         let solved = pool
             .start_thinking(task, None)
             .recv_timeout(Duration::from_secs(600))
@@ -412,7 +416,7 @@ mod tests {
     fn threads_alternate_between_helper_searches_and_split_points() {
         let pool = ThreadPool::new(8);
         let eval = Eval::shared_for_tests();
-        let task = |board, level| task(&pool, &eval, board, level, Selectivity::Level1);
+        let task = |board, phase| task(&pool, &eval, board, phase, Selectivity::Level1);
         let endgame = Board::from_string(
             "-OOO------OOOO--XXXOOXXX-XOOOXX-XXXXOOOOOXXOOOO---OXOO---OOOO---",
             PlayerColor::Black,
@@ -429,13 +433,13 @@ mod tests {
         // that disturbs the other.
         for _ in 0..3 {
             let solved = pool
-                .start_thinking(task(endgame, Level::uniform(10, 60)), None)
+                .start_thinking(task(endgame, EXACT_SOLVE), None)
                 .recv()
                 .unwrap();
             assert!(solved.is_endgame());
 
             let result = pool
-                .start_thinking(task(midgame, Level::uniform(10, 0)), None)
+                .start_thinking(task(midgame, RootPhase::Midgame { max_depth: 10 }), None)
                 .recv()
                 .unwrap();
             assert_eq!(result.depth(), 10);
@@ -478,7 +482,7 @@ mod tests {
             &pool,
             &eval,
             Board::new(),
-            Level::uniform(1, 0),
+            RootPhase::Midgame { max_depth: 1 },
             Selectivity::None,
         );
         let result = pool.start_thinking(root, None);

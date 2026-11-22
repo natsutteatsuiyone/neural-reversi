@@ -1,6 +1,6 @@
 use nsh_base::{radio, radio_group};
 use nsh_core::prelude::*;
-use reversi_core::level::{ENDGAME_STEPS, Level};
+use reversi_core::probcut::{ENDGAME_STEPS, Selectivity};
 
 use super::analysis::activity_icon;
 use super::assets::icon;
@@ -221,7 +221,7 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                         .text_color(color(SECONDARY)),
                 )
                 .child(radio_group().flex_row().flex_wrap().gap_3().children(
-                    Level::ENDGAME_SELECTIVITY.into_iter().enumerate().map(
+                    Selectivity::ENDGAME_LADDER.into_iter().enumerate().map(
                         move |(index, selectivity)| {
                             let id = format!("{prefix}-selectivity-{index}");
                             let focus_id = id.clone();

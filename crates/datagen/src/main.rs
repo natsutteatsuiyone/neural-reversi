@@ -15,7 +15,8 @@ use std::process::ExitCode;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use reversi_core::level::{ENDGAME_STEPS, Level};
+use reversi_core::level::Level;
+use reversi_core::probcut::ENDGAME_STEPS;
 use reversi_core::types::Depth;
 
 use crate::shuffle::FilterConfig;

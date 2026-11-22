@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 
 use reversi_core::analysis::{self, GameAnalysisMove, GameAnalysisProgress};
 use reversi_core::board::Board;
-use reversi_core::level::{ENDGAME_STEPS, Level, get_level};
+use reversi_core::level::Level;
+use reversi_core::probcut::Selectivity;
 use reversi_core::score::Score;
 #[cfg(not(test))]
 use reversi_core::search::options::SearchOptions;
@@ -43,8 +44,7 @@ pub enum Request {
     },
     Solver {
         board: Board,
-        /// Index into `Level::ENDGAME_SELECTIVITY` (the last step is exact).
-        selectivity: usize,
+        selectivity: Selectivity,
         multi_pv: bool,
     },
     AnalyzeGame {
@@ -330,13 +330,13 @@ fn execute(
                     increment_ms: 0,
                 })
             } else {
-                SearchRunOptions::with_level(get_level(level))
+                SearchRunOptions::with_level(Level::preset(level))
             };
             (board, options)
         }
         Request::Hint { board, level } => (
             board,
-            SearchRunOptions::with_level(get_level(level)).multi_pv(true),
+            SearchRunOptions::with_level(Level::preset(level)).multi_pv(true),
         ),
         Request::Solver {
             board,
@@ -344,14 +344,15 @@ fn execute(
             multi_pv,
         } => (
             board,
-            SearchRunOptions::with_level(solver_level(selectivity)).multi_pv(multi_pv),
+            SearchRunOptions::with_level(Level::perfect().stopping_at(selectivity))
+                .multi_pv(multi_pv),
         ),
         Request::AnalyzeGame {
             board,
             moves,
             level,
         } => {
-            let options = SearchRunOptions::with_level(get_level(level)).stop_token(stop);
+            let options = SearchRunOptions::with_level(Level::preset(level)).stop_token(stop);
             let mut analysis_error = None;
             if let Err(error) = analysis::analyze_game(
                 board,
@@ -401,12 +402,6 @@ fn execute(
     });
     let result = search.run(&board, &options);
     Ok((id, EventKind::Finished(outcome(&result, start))))
-}
-
-fn solver_level(selectivity: usize) -> Level {
-    let mut end_depth = [0; ENDGAME_STEPS];
-    end_depth[..=selectivity].fill(60);
-    Level::with_depths(60, end_depth)
 }
 
 pub fn format_pv(squares: &[Square]) -> String {
