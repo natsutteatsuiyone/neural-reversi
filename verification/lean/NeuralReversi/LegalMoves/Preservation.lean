@@ -160,6 +160,23 @@ theorem constructor_filters_bounded (debug : Bool) (bits : Bits) (m : Raw)
     (fs : List Filter) : bounded (applyFilters fs m) :=
   filters_bounded fs m (constructor_bounded_of_initial debug bits m initial accepted)
 
+def NonEmpty := { m : Raw // m.bits ≠ 0 }
+
+def nonEmpty (m : Raw) : Option NonEmpty :=
+  if h : m.bits = 0 then none else some ⟨m, h⟩
+
+theorem nonEmpty_none_iff (m : Raw) : nonEmpty m = none ↔ m.bits = 0 := by
+  by_cases h : m.bits = 0 <;> simp [nonEmpty, h]
+
+theorem nonEmpty_get (m : Raw) (n : NonEmpty) (accepted : nonEmpty m = some n) :
+    n.val = m := by
+  by_cases h : m.bits = 0
+  · simp [nonEmpty, h] at accepted
+  · rw [nonEmpty, dite_eq_right h] at accepted
+    have eq := Option.some.inj accepted
+    subst eq
+    rfl
+
 example : fromGenerated false (~~~0#64) = .ok ⟨~~~0#64⟩ := rfl
 example : ¬ bounded ⟨~~~0#64⟩ := by unfold bounded; decide
 example : fromGenerated true (~~~0#64) =

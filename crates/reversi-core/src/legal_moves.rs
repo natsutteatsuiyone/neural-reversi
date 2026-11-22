@@ -1,5 +1,6 @@
 //! Legal move sets.
 
+use std::num::NonZeroU64;
 use std::ops::BitAnd;
 
 use crate::bitboard::{Bitboard, BitboardIterator};
@@ -35,6 +36,12 @@ impl LegalMoves {
     #[inline(always)]
     pub const fn is_empty(self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Returns the moves as a [`NonEmptyLegalMoves`], or [`None`] if there is no move.
+    #[inline(always)]
+    pub fn non_empty(self) -> Option<NonEmptyLegalMoves> {
+        NonZeroU64::new(self.bits()).map(NonEmptyLegalMoves)
     }
 
     /// Checks whether `sq` is one of the moves.
@@ -101,6 +108,18 @@ impl LegalMoves {
     }
 }
 
+/// A [`LegalMoves`] with at least one move, which unsafe code may rely on.
+#[derive(Debug, Copy, Clone)]
+pub struct NonEmptyLegalMoves(NonZeroU64);
+
+impl NonEmptyLegalMoves {
+    /// Returns the moves as a [`LegalMoves`].
+    #[inline(always)]
+    pub const fn get(self) -> LegalMoves {
+        LegalMoves(Bitboard::new(self.0.get()))
+    }
+}
+
 impl BitAnd<Bitboard> for LegalMoves {
     type Output = LegalMoves;
 
@@ -124,6 +143,17 @@ mod tests {
         let single_board = Board::from_bitboards(Square::A1.bitboard(), Square::B1.bitboard());
         let single = LegalMoves::new(&single_board);
         assert_eq!(single.only_move(), Some(Square::C1));
+    }
+
+    #[test]
+    fn non_empty_is_none_only_for_the_empty_set() {
+        assert!(LegalMoves::EMPTY.non_empty().is_none());
+
+        let initial = LegalMoves::new(&Board::new());
+        assert_eq!(
+            initial.non_empty().map(NonEmptyLegalMoves::get),
+            Some(initial)
+        );
     }
 
     #[test]

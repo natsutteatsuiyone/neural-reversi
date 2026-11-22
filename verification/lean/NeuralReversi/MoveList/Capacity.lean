@@ -140,6 +140,15 @@ theorem single_dispatch_safe (skip : Bool) (b : Bits)
   have zero := (population_zero_iff _).mpr cleared
   exact ⟨by omega, progress.2⟩
 
+theorem nonEmpty_single_dispatch_safe (m : LegalMoves.Raw) (n : LegalMoves.NonEmpty)
+    (accepted : LegalMoves.nonEmpty m = some n)
+    (single : dispatch true n.val.bits = .single) :
+    n.val = m ∧ population m.bits = 1 ∧ m.bits.ctz.toNat < 64 := by
+  have same := LegalMoves.nonEmpty_get m n accepted
+  have safe := single_dispatch_safe true n.val.bits (fun _ => n.property) single
+  rw [same] at safe
+  exact ⟨same, safe⟩
+
 theorem filtered_scalar_safe (m : LegalMoves.Raw) (initial : LegalMoves.bounded m)
     (fs : List LegalMoves.Filter) (k : Nat)
     (active : k < population (LegalMoves.applyFilters fs m).bits) :

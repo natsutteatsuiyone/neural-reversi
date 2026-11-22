@@ -325,8 +325,7 @@ pub fn evaluate_shallow_with_tt(
 ) -> Score {
     debug_assert!(depth == 2 || depth == 3);
 
-    let moves = board.legal_moves();
-    if moves.is_empty() {
+    let Some(moves) = board.legal_moves().non_empty() else {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -336,7 +335,7 @@ pub fn evaluate_shallow_with_tt(
         } else {
             return board.solve(ctx.empty_list.count());
         }
-    }
+    };
 
     let org_alpha = alpha;
     let tt_probe_result = ctx.tt.probe(board, board.hash());
@@ -404,8 +403,7 @@ pub fn evaluate_depth2(
     mut alpha: Score,
     beta: Score,
 ) -> Score {
-    let moves = board.legal_moves();
-    if moves.is_empty() {
+    let Some(moves) = board.legal_moves().non_empty() else {
         let next = board.switch_players();
         if next.has_legal_moves() {
             ctx.update_pass();
@@ -415,7 +413,7 @@ pub fn evaluate_depth2(
         } else {
             return board.solve(ctx.empty_list.count());
         }
-    }
+    };
 
     let mut move_list = MoveList::with_at_least_one_move(board, moves);
     if move_list.wipeout_move().is_some() {

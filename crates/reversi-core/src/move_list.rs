@@ -13,7 +13,7 @@ use std::slice;
 use crate::bitboard::Bitboard;
 use crate::board::Board;
 use crate::flip;
-use crate::legal_moves::LegalMoves;
+use crate::legal_moves::{LegalMoves, NonEmptyLegalMoves};
 use crate::square::Square;
 
 pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
@@ -99,11 +99,11 @@ impl MoveList {
     /// move. Skips the empty-`moves` dispatch but still dispatches a
     /// scalar single-square path when there is exactly one bit set.
     #[inline(always)]
-    pub(crate) fn with_at_least_one_move(board: &Board, moves: LegalMoves) -> MoveList {
+    pub(crate) fn with_at_least_one_move(board: &Board, moves: NonEmptyLegalMoves) -> MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
-        // SAFETY: caller guarantees `moves` is not empty.
+        // SAFETY: a `NonEmptyLegalMoves` is never empty.
         unsafe {
-            Self::fill_in_place::<true>(board, moves, result.as_mut_ptr());
+            Self::fill_in_place::<true>(board, moves.get(), result.as_mut_ptr());
             result.assume_init()
         }
     }
