@@ -598,6 +598,12 @@ mod transposition_table {
     }
 
     #[test]
+    #[should_panic(expected = "TranspositionTable: size overflows usize")]
+    fn rejects_mebibytes_that_overflow_the_byte_count() {
+        let _ = TranspositionTable::new(1usize << (usize::BITS - 20));
+    }
+
+    #[test]
     fn get_cluster_idx_maps_keys_across_aligned_clusters() {
         let tt = TranspositionTable::new(1);
         let clusters = tt.cluster_count as usize;

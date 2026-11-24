@@ -641,17 +641,24 @@ impl TranspositionTable {
     /// The backing entry storage is exactly `mb_size` MiB when `mb_size > 0`.
     /// When `mb_size` is 0, creates a minimal 16-cluster table (1 KiB)
     /// suitable for testing.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested size exceeds the supported allocation layout.
     pub fn new(mb_size: usize) -> Self {
         let cluster_count = if mb_size == 0 {
             16
         } else {
-            (mb_size as u64 * 1024 * 1024) / CLUSTER_BYTE_SIZE as u64
+            let bytes = mb_size
+                .checked_mul(1024 * 1024)
+                .expect("TranspositionTable: size overflows usize");
+            bytes / CLUSTER_BYTE_SIZE
         };
-        let entries_size = cluster_count as usize * CLUSTER_SIZE;
+        let entries_size = cluster_count * CLUSTER_SIZE;
 
         TranspositionTable {
             entries: AlignedBuffer::zeroed(entries_size),
-            cluster_count,
+            cluster_count: cluster_count as u64,
             generation: AtomicU8::new(0),
         }
     }
