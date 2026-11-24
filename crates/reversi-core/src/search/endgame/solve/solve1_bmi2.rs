@@ -255,7 +255,7 @@ pub(super) fn solve1(player: u64, alpha: DiscScore, sq: Square) -> DiscScore {
         let entry = &*SOLVE1_TABLE.0.as_ptr().add(sq_idx);
         let row_idx = ((player >> (entry.rank_shift as usize)) & 0xff) as usize;
 
-        let count_base = COUNT_FLIP.0[0].as_ptr();
+        let count_base = COUNT_FLIP.0.as_flattened().as_ptr();
         let count_file_row = count_base.add(entry.count_file_offset as usize);
         // Let the row lookup overlap both PEXT-dependent lookups.
         let row_count = *count_file_row.add(row_idx) as u32;
