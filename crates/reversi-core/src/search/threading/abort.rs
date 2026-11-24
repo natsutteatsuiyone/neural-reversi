@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const SEARCH_GEN_INCREMENT: u64 = 1 << 32;
 const SEARCH_GEN_MASK: u64 = 0xFFFF_FFFF_0000_0000;
 const ABORT_GEN_MASK: u64 = 0x0000_0000_FFFF_FFFF;
 
@@ -8,20 +7,13 @@ const ABORT_GEN_MASK: u64 = 0x0000_0000_FFFF_FFFF;
 /// and external abort callers.
 ///
 /// High 32 bits: current search generation, bumped by [`Self::begin_search`].
-/// Low 32 bits: the generation an abort was requested for.
-/// The current search is aborted iff the halves are equal. Because an abort
-/// is recorded as a generation match rather than a resettable flag, a racing
-/// abort can never be erased by the start of a search; conversely a stale
-/// abort from a finished generation never leaks into the next one.
+/// Low 32 bits: an abort marker. Starting a search sets it to the previous
+/// generation. Requesting an abort sets it to the current generation.
+/// The current search is aborted iff the halves are equal.
 ///
 /// An abort that happens strictly before `begin_search` targets the previous
-/// generation and is a no-op. To stop a search that has not started yet,
-/// target its generation with [`Self::request_abort_for`], as
-/// [`StopToken`](crate::search::StopToken) does.
-///
-/// The search generation is 32 bits wide. A stale abort can collide with a
-/// recycled generation only after exactly 2^32 intervening searches without
-/// another abort request.
+/// generation. [`StopToken`](crate::search::StopToken) delivers a pending
+/// stop with [`Self::request_abort_for`] after the new generation starts.
 #[derive(Debug)]
 pub(crate) struct AbortState(AtomicU64);
 
@@ -34,8 +26,11 @@ impl AbortState {
     /// Starts a new search generation, neutralizes stale abort requests, and
     /// returns the new generation.
     pub(crate) fn begin_search(&self) -> u32 {
-        let previous = self.0.fetch_add(SEARCH_GEN_INCREMENT, Ordering::AcqRel);
-        (previous.wrapping_add(SEARCH_GEN_INCREMENT) >> 32) as u32
+        let previous = self.0.update(Ordering::AcqRel, Ordering::Acquire, |state| {
+            let generation = (state >> 32) as u32;
+            (u64::from(generation.wrapping_add(1)) << 32) | u64::from(generation)
+        });
+        ((previous >> 32) as u32).wrapping_add(1)
     }
 
     /// Records an abort request for the current search generation.
@@ -96,6 +91,21 @@ mod tests {
         state.begin_search();
 
         assert!(!state.is_aborted());
+    }
+
+    #[test]
+    fn begin_search_ignores_a_marker_matching_the_next_generation() {
+        for (previous, next) in [(u32::MAX - 1, u32::MAX), (u32::MAX, 0)] {
+            let word = (u64::from(previous) << 32) | u64::from(next);
+            let state = AbortState(AtomicU64::new(word));
+
+            assert_eq!(state.begin_search(), next);
+            assert!(!state.is_aborted(), "generation {next} started aborted");
+            state.request_abort_for(previous);
+            assert!(!state.is_aborted());
+            state.request_abort_for(next);
+            assert!(state.is_aborted());
+        }
     }
 
     #[test]
