@@ -5,7 +5,7 @@ import NeuralReversi.Stability.Cutoff
 namespace NeuralReversi.EndgameStability
 
 open Stability.Semantics
-open Stability.Cutoff (countColor countEmpty terminalScore popcount stabilityCutoff DiscScore)
+open Stability.Cutoff (countColor countEmpty terminalScore popcount cutoffStable stabilityCutoff DiscScore)
 open Bitboard.Moves (X86Config)
 open PvsBoardTree (Position pass play legalSquares minimax)
 private abbrev FlipConfig := Flip.Dispatch.X86Config
@@ -149,16 +149,16 @@ theorem cutoffContract_proven : CutoffContract := by
     obtain ⟨score, threshold, _⟩ := Stability.Cutoff.stabilityCutoff_some_spec hit
     let s := stateAt b.val true
     have repr := stateAt_represents b.val true b.property
-    have stableCount : popcount (getStableDiscs b.val.opponent b.val.player) ≤ 64 := by
+    have stableCount : popcount (cutoffStable b.val.opponent b.val.player alpha) ≤ 64 := by
       unfold popcount
       simpa using (List.countP_le_length (p := fun sq : Fin 64 =>
-        (getStableDiscs b.val.opponent b.val.player).getLsbD sq.val) (l := List.finRange 64))
+        (cutoffStable b.val.opponent b.val.player alpha).getLsbD sq.val) (l := List.finRange 64))
     refine ⟨by omega, by omega, ?_, threshold⟩
     have lo : -PvsMoveLoop.scoreInf ≤ 256 * result.value := by
       unfold PvsMoveLoop.scoreInf
       omega
     have bounded (t : State) (reached : Reach s t) : 256 * terminalScore t.board true ≤ 256 * result.value := by
-      have le := Stability.Cutoff.terminalScore_le_of_stable repr reached
+      have le := Stability.Cutoff.terminalScore_le_of_stable repr reached alpha
       omega
     simpa [inPerspective] using bound_of_reachable_payoffs mc fc s true
       (256 * result.value) lo bounded b true (.refl s)

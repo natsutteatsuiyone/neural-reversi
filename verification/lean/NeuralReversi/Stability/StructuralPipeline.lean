@@ -8,6 +8,19 @@ namespace NeuralReversi.Stability.Semantics
 def SoundMask (s : State) (c : Color) (mask : Word) : Prop :=
   ∀ sq : Fin 64, mask.getLsbD sq.val = true → Stable s c (boardSquare sq)
 
+theorem getStableByContact_sound {s : State} {c : Color} {central previous : Word} {full : FullLines}
+    (sound : SoundMask s c previous)
+    (step : ∀ known, SoundMask s c known → SoundMask s c (contactStep central known full)) :
+    SoundMask s c (getStableByContact central previous full) := by
+  refine getStableByContact_preserves central previous full (SoundMask s c) ?_ step
+  intro sq marked
+  simp only [BitVec.getLsbD_or, Bool.or_eq_true] at marked
+  rcases marked with old | allAxes
+  · exact sound sq old
+  · have empty : SoundMask s c 0 := by intro i bit; simp at bit
+    apply step 0 empty sq
+    simpa [contactStep, FullLines.intersection] using allAxes
+
 theorem source_contactStep_sound {s : State} {c : Color} {p o known : Word}
     (repr : Represents s c p o) (sound : SoundMask s c known) :
     SoundMask s c (contactStep (p &&& center) known (getFullLines (p ||| o))) := by
@@ -39,12 +52,8 @@ theorem source_contactClosure_sound {s : State} {c : Color} {p o seed : Word}
 
 theorem source_contact_sound {s : State} {c : Color} {p o seed : Word}
     (repr : Represents s c p o) (sound : SoundMask s c seed) :
-    SoundMask s c (getStableByContact (p &&& center) seed (getFullLines (p ||| o))) := by
-  unfold getStableByContact
-  split
-  · intro sq h
-    simp at h
-  · exact source_contactClosure_sound repr sound
+    SoundMask s c (getStableByContact (p &&& center) seed (getFullLines (p ||| o))) :=
+  getStableByContact_sound sound (fun _ h => source_contactStep_sound repr h)
 
 theorem source_full_seed_sound {s : State} {c : Color} {p o : Word}
     (repr : Represents s c p o) :
@@ -67,19 +76,12 @@ theorem source_full_seed_sound {s : State} {c : Color} {p o : Word}
     | a + 4 => omega
 
 def seededStable (p o edge : Word) : Word :=
-  getStableByContact (p &&& center)
-    (edge ||| ((getFullLines (p ||| o)).intersection &&& (p &&& center)))
-    (getFullLines (p ||| o))
+  getStableByContact (p &&& center) edge (getFullLines (p ||| o))
 
 theorem seededStable_sound {s : State} {c : Color} {p o edge : Word}
     (repr : Represents s c p o) (edgeSound : SoundMask s c edge) :
-    SoundMask s c (seededStable p o edge) := by
-  apply source_contact_sound repr
-  intro sq marked
-  simp only [BitVec.getLsbD_or, Bool.or_eq_true] at marked
-  rcases marked with edgeBit | fullBit
-  · exact edgeSound sq edgeBit
-  · exact source_full_seed_sound repr sq fullBit
+    SoundMask s c (seededStable p o edge) :=
+  source_contact_sound repr edgeSound
 
 theorem seededStable_never_flips {s t : State} {c : Color} {p o edge : Word}
     (repr : Represents s c p o) (edgeSound : SoundMask s c edge)

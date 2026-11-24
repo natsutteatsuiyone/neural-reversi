@@ -26,7 +26,11 @@ termination_by (~~~stable).toNat
 decreasing_by exact contactStep_decreases central stable full _h
 
 def getStableByContact (central previous : Word) (full : FullLines) : Word :=
-  if previous = 0 then 0 else contactClosure central previous full
+  let seed := previous ||| (full.intersection &&& central)
+  if seed = 0 then seed else contactClosure central seed full
+
+-- On a full board with D4 as the only friendly disc, the edge seed is empty.
+#guard getStableByContact (1 <<< 27) 0 (getFullLines (~~~0)) = 1 <<< 27
 
 theorem contactClosure_preserves (central stable : Word) (full : FullLines)
     (P : Word → Prop) (step : ∀ x, P x → P (contactStep central x full))
@@ -44,13 +48,13 @@ theorem contactClosure_preserves (central stable : Word) (full : FullLines)
       exact ih (step x initial)
 
 theorem getStableByContact_preserves (central previous : Word) (full : FullLines)
-    (P : Word → Prop) (zero : P 0) (initial : P previous)
+    (P : Word → Prop) (initial : P (previous ||| (full.intersection &&& central)))
     (step : ∀ x, P x → P (contactStep central x full)) :
     P (getStableByContact central previous full) := by
-  unfold getStableByContact
+  dsimp only [getStableByContact]
   split
-  · exact zero
-  · exact contactClosure_preserves central previous full P step initial
+  · exact initial
+  · exact contactClosure_preserves central _ full P step initial
 
 theorem contactClosure_fixed (central stable : Word) (full : FullLines) :
     contactStep central (contactClosure central stable full) full =

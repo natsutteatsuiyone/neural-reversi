@@ -14,12 +14,14 @@ def Direction.delta : Direction → Int × Int
 def Along (a x : Square) (d : Direction) (k : Nat) : Prop :=
   (x.1.val : Int) = a.1.val + (k : Int) * d.delta.1 ∧
   (x.2.val : Int) = a.2.val + (k : Int) * d.delta.2
-def Captured (b : Board) (c : Color) (a x : Square) : Prop :=
-  ∃ d : Direction, ∃ n : Nat, 1 ≤ n ∧ n ≤ 6 ∧
+def CapturedAlong (b : Board) (c : Color) (a x : Square) (d : Direction) : Prop :=
+  ∃ n : Nat, 1 ≤ n ∧ n ≤ 6 ∧
     (∃ endpoint : Square, Along a endpoint d (n+1) ∧ b endpoint = some c) ∧
     (∀ k : Nat, 1 ≤ k → k ≤ n →
       ∃ y : Square, Along a y d k ∧ b y = some (Opposite c)) ∧
     (∃ k : Nat, 1 ≤ k ∧ k ≤ n ∧ Along a x d k)
+def Captured (b : Board) (c : Color) (a x : Square) : Prop :=
+  ∃ d, CapturedAlong b c a x d
 noncomputable def place (b : Board) (c : Color) (a : Square) : Board := by
   classical
   exact fun x => if x = a ∨ Captured b c a x then some c else b x

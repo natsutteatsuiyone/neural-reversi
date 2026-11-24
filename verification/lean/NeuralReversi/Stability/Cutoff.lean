@@ -1,4 +1,4 @@
-import NeuralReversi.Stability.EdgeGameBridge
+import NeuralReversi.Stability.SingleEmpty
 
 namespace NeuralReversi.Stability.Cutoff
 
@@ -35,6 +35,15 @@ def hasEnoughOpponentDiscsForCutoff (opponentCount : Nat) (alpha : DiscScore) : 
   decide (2 * (opponentCount : Int) ≥
     discScoreMax.value - alpha.value + 2 * stabilityCutoffDiscMargin)
 
+def singleEmptyMaxShortfall : Int := 4
+
+def cutoffStable (discs other : Word) (alpha : DiscScore) : Word :=
+  let stable := getStableDiscs discs other
+  let shortfall := discScoreMax.value - 2 * (popcount stable : Int) - alpha.value
+  if 0 < shortfall ∧ shortfall ≤ 2 * singleEmptyMaxShortfall then
+    singleEmptyStable discs other stable
+  else stable
+
 def stabilityCutoff (player opponent : Word) (nEmpties : Fin 64) (alpha : DiscScore) :
     Option DiscScore :=
   if alpha.value ≥ nwsStabilityThreshold nEmpties then
@@ -42,7 +51,7 @@ def stabilityCutoff (player opponent : Word) (nEmpties : Fin 64) (alpha : DiscSc
       none
     else
       let score : DiscScore :=
-        ⟨discScoreMax.value - 2 * (popcount (getStableDiscs opponent player) : Int)⟩
+        ⟨discScoreMax.value - 2 * (popcount (cutoffStable opponent player alpha) : Int)⟩
       if score.value ≤ alpha.value then
         some score
       else
@@ -50,10 +59,17 @@ def stabilityCutoff (player opponent : Word) (nEmpties : Fin 64) (alpha : DiscSc
   else
     none
 
+private def shieldedB5Player : Word := 0x003e4e0812420f00
+private def shieldedB5Opponent : Word := 0xffc1b1f7edbdb0bc
+
+#guard discScoreMax.value -
+  2 * (popcount (getStableDiscs shieldedB5Opponent shieldedB5Player) : Int) = 12
+#guard stabilityCutoff shieldedB5Player shieldedB5Opponent 4 ⟨6⟩ = some ⟨6⟩
+
 theorem stabilityCutoff_some_spec {player opponent : Word} {nEmpties : Fin 64}
     {alpha cutoff : DiscScore}
     (h : stabilityCutoff player opponent nEmpties alpha = some cutoff) :
-    cutoff.value = 64 - 2 * (popcount (getStableDiscs opponent player) : Int) ∧
+    cutoff.value = 64 - 2 * (popcount (cutoffStable opponent player alpha) : Int) ∧
     cutoff.value ≤ alpha.value ∧
     alpha.value ≥ nwsStabilityThreshold nEmpties ∧
     hasEnoughOpponentDiscsForCutoff (popcount opponent) alpha = true := by
@@ -128,12 +144,21 @@ theorem represents_swap {s : State} {c : Color} {p o : Word}
     exact repr.1 x
 
 theorem stable_opponent_count_le_reachable {s t : State} {c : Color} {player opponent : Word}
-    (repr : Represents s c player opponent) (future : Reach s t) :
-    popcount (getStableDiscs opponent player) ≤ countColor t.board (Opposite c) := by
+    (repr : Represents s c player opponent) (future : Reach s t) (alpha : DiscScore) :
+    popcount (cutoffStable opponent player alpha) ≤ countColor t.board (Opposite c) := by
+  have opp := represents_swap repr
+  have first : SoundMask s (Opposite c) (getStableDiscs opponent player) :=
+    fun sq marked t reached => returned_disc_never_flips opp reached sq marked
+  have sound : SoundMask s (Opposite c) (cutoffStable opponent player alpha) := by
+    unfold cutoffStable
+    dsimp only
+    split
+    · exact singleEmptyStable_sound opp first
+    · exact first
   unfold popcount countColor
   apply countP_mono
   intro sq hmarked
-  have hstay := returned_disc_never_flips (represents_swap repr) future sq hmarked
+  have hstay := sound sq hmarked t future
   simp [hstay]
 
 def terminalScore (b : Board) (c : Color) : Int :=
@@ -160,9 +185,9 @@ theorem rawDiscDiff_le_bound (b : Board) (c : Color) :
   omega
 
 theorem terminalScore_le_of_stable {s t : State} {c : Color} {player opponent : Word}
-    (repr : Represents s c player opponent) (future : Reach s t) :
-    terminalScore t.board c ≤ 64 - 2 * (popcount (getStableDiscs opponent player) : Int) := by
-  have hcount := stable_opponent_count_le_reachable repr future
+    (repr : Represents s c player opponent) (future : Reach s t) (alpha : DiscScore) :
+    terminalScore t.board c ≤ 64 - 2 * (popcount (cutoffStable opponent player alpha) : Int) := by
+  have hcount := stable_opponent_count_le_reachable repr future alpha
   have hbound := terminalScore_le_bound t.board c
   omega
 
@@ -248,7 +273,7 @@ theorem stabilityCutoff_sound {s : State} {c : Color} {player opponent : Word}
   refine ⟨?_, hle⟩
   rw [hscore]
   exact minimaxVal_le_of_reachable_terminal_bound hval
-    (fun t future _ => terminalScore_le_of_stable repr future)
+    (fun t future _ => terminalScore_le_of_stable repr future alpha)
 
 theorem stabilityCutoff_le_alpha {s : State} {c : Color} {player opponent : Word}
     {nEmpties : Fin 64} {alpha cutoff : DiscScore} {v : Int}

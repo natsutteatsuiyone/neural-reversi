@@ -347,6 +347,20 @@ to move at or below `alpha`.
   generated at compile time. It is combined with detection of fully-filled
   ranks, files, and diagonals and iterative 4-direction contact propagation
   (`get_stable_by_contact`) to lower-bound the stable count.
+- When the first pass falls short of the cutoff by at most
+  `SINGLE_EMPTY_MAX_SHORTFALL` discs, `stability_cutoff_single_empty` runs
+  a second pass using AVX2 or scalar code selected at compile time.
+  A line with one empty square can receive at most one more move. A disc
+  of the side to move that is safe on its other three axes keeps its color
+  until that square is played. It shields opponent discs farther along the
+  line from being flipped by that move.
+  Each of the three axes is safe if its line is full or the disc touches a
+  stable edge disc of the side to move along that axis. A line with one
+  empty square is also safe if an opponent disc lies between the empty
+  square and the disc of the side to move. That intervening opponent disc
+  must have a full line or an adjacent first-pass stable opponent disc on
+  each of its other three axes. Contact propagation uses the resulting
+  directional masks to extend the set of stable opponent discs.
 
 ### Parallel search
 
