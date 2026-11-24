@@ -6,7 +6,7 @@ use crate::{
     probcut::Selectivity,
     score::Score,
     search::context::SearchContext,
-    search::counters::SearchCounters,
+    search::counters::{SearchCounters, SearchStats},
     search::root_move::RootMove,
     square::Square,
     transposition_table::{Bound, TranspositionTable},
@@ -197,16 +197,17 @@ pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
         return SearchResult::NoLegalMove;
     };
 
+    let n_nodes = moves.count() as u64;
     SearchResult::BestMove {
         sq: best_move,
         score: best_score,
-        n_nodes: moves.count() as u64,
+        n_nodes,
         pv_line: vec![best_move],
         depth: 1,
         selectivity: Selectivity::None,
         is_endgame: false,
         pv_moves: vec![],
-        counters: SearchCounters::default(),
+        counters: SearchStats::default().with_nodes(n_nodes),
     }
 }
 
@@ -352,6 +353,14 @@ mod tests {
     use crate::constants::MAX_PLY;
     use crate::score::{DiscScore, Score};
     use crate::search::root_move::RootMoves;
+
+    #[test]
+    fn quick_move_reports_the_same_node_count_in_both_views() {
+        let result = quick_move(&Board::new(), &Eval::shared_for_tests());
+
+        assert_eq!(result.n_nodes(), 4);
+        assert_eq!(result.counters().n_nodes, result.n_nodes());
+    }
 
     struct TestResources {
         root_moves: RootMoves,
