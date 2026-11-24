@@ -44,6 +44,7 @@ mod imp {
         if page_size == 0 || size < page_size {
             return None;
         }
+        let alloc_size = size.checked_next_multiple_of(page_size)?;
 
         let _lock = PRIVILEGE_LOCK
             .lock()
@@ -55,7 +56,7 @@ mod imp {
         let mem = unsafe {
             VirtualAlloc(
                 ptr::null(),
-                size.next_multiple_of(page_size),
+                alloc_size,
                 MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES,
                 PAGE_READWRITE,
             )
