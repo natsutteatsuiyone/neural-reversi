@@ -9,7 +9,7 @@ use crate::{
     search::counters::SearchCounters,
     search::root_move::RootMove,
     square::Square,
-    transposition_table::TranspositionTable,
+    transposition_table::{Bound, TranspositionTable},
     types::Depth,
 };
 
@@ -72,7 +72,7 @@ impl Iteration {
 }
 
 /// The result a root search reports when it stops: the most recently
-/// completed iteration, or the TT move or [`quick_move`] when none completed.
+/// completed iteration, or an exact TT result or [`quick_move`] when none completed.
 ///
 /// An iteration completes once every PV line has been searched at the same
 /// depth and selectivity; aborted iterations leave root-move scores mixed
@@ -160,9 +160,12 @@ impl CompletedState {
     }
 }
 
-/// Returns the TT's best move for `board` as a result, if it is legal.
+/// Returns the TT's exact result for `board` if the cached move is legal.
 fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
     let data = tt.lookup(board, board.hash())?;
+    if data.bound() != Bound::Exact {
+        return None;
+    }
     let sq = data.best_move()?;
     board.is_legal_move(sq).then(|| SearchResult::BestMove {
         sq,
@@ -349,7 +352,6 @@ mod tests {
     use crate::constants::MAX_PLY;
     use crate::score::{DiscScore, Score};
     use crate::search::root_move::RootMoves;
-    use crate::transposition_table::Bound;
 
     struct TestResources {
         root_moves: RootMoves,
@@ -404,6 +406,45 @@ mod tests {
         ctx.tt.clear_shared();
         let result = CompletedState::new(1).into_result(&ctx, &board);
         assert_eq!(result.best_move(), Some(quick));
+    }
+
+    #[test]
+    fn without_a_completed_iteration_reports_only_an_exact_cached_endgame_score() {
+        let board = Board::from_bitboards(0xde52_7100_7814_a8a2_u64, 0x21ad_0eff_87eb_175d_u64);
+        let res = TestResources::new(&board);
+        let ctx = res.context(&board);
+        let quick = quick_move(&board, ctx.eval);
+        let tt_sq = Square::H6;
+        let tt_score = Score::from_disc_diff(DiscScore::new(-4));
+        let quick_report = (quick.best_move(), quick.score(), false);
+        let exact_report = (Some(tt_sq), Some(tt_score), true);
+
+        for (bound, expected) in [
+            (Bound::Lower, quick_report),
+            (Bound::Upper, quick_report),
+            (Bound::Exact, exact_report),
+        ] {
+            ctx.tt.clear_shared();
+            let probe = ctx.tt.probe(&board, board.hash());
+            ctx.tt.store(
+                probe.slot(),
+                &board,
+                tt_score,
+                bound,
+                2,
+                Some(tt_sq),
+                Selectivity::None,
+                true,
+                false,
+            );
+
+            let result = CompletedState::new(1).into_result(&ctx, &board);
+            assert_eq!(
+                (result.best_move(), result.score(), result.is_endgame()),
+                expected,
+                "{bound:?}",
+            );
+        }
     }
 
     #[test]
