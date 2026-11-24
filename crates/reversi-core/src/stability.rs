@@ -114,12 +114,12 @@ const fn x_to_bit(x: u8) -> u8 {
 }
 
 const fn edge_stability_index(player_edge: u8, opponent_edge: u8) -> usize {
-    ((player_edge as usize) << 8) | opponent_edge as usize
+    (((player_edge | opponent_edge) as usize) << 8) | player_edge as usize
 }
 
 /// Computes the edge stability lookup table.
 ///
-/// Returns a 65536-entry table indexed by `player_edge * 256 + opponent_edge`.
+/// Returns a 65536-entry table indexed by `(player_edge | opponent_edge) * 256 + player_edge`.
 const fn init_edge_stability() -> [u8; EDGE_STABILITY_SIZE] {
     let mut table: [u8; EDGE_STABILITY_SIZE] = [0; EDGE_STABILITY_SIZE];
 
@@ -227,28 +227,30 @@ fn pack_h1h8(x: u64) -> usize {
 }
 
 #[inline(always)]
-fn edge_stability(player_edge: usize, opponent_edge: usize) -> u8 {
+fn edge_stability(player_edge: usize, occupied_edge: usize) -> u8 {
     debug_assert!(player_edge < 256);
-    debug_assert!(opponent_edge < 256);
+    debug_assert!(occupied_edge < 256);
+    debug_assert_eq!(player_edge & !occupied_edge, 0);
 
     // SAFETY: callers pass packed edges, so each index component is 0..256 and
     // the combined table index is within EDGE_STABILITY_SIZE.
     unsafe {
         *EDGE_STABILITY
             .0
-            .get_unchecked((player_edge << 8) | opponent_edge)
+            .get_unchecked((occupied_edge << 8) | player_edge)
     }
 }
 
 /// Returns stable discs along all four edges (rank 1, rank 8, A-file, H-file).
 ///
+/// `occ` must be the occupied squares of both players (`p | o`).
 /// Uses the pre-computed edge stability table for fast lookup.
 #[inline]
-fn get_stable_edge(p: u64, o: u64) -> u64 {
-    u64::from(edge_stability((p & 0xff) as usize, (o & 0xff) as usize))
-        | u64::from(edge_stability((p >> 56) as usize, (o >> 56) as usize)) << 56
-        | unpack_a2a7(edge_stability(pack_a1a8(p), pack_a1a8(o)))
-        | unpack_h2h7(edge_stability(pack_h1h8(p), pack_h1h8(o)))
+fn get_stable_edge(p: u64, occ: u64) -> u64 {
+    u64::from(edge_stability((p & 0xff) as usize, (occ & 0xff) as usize))
+        | u64::from(edge_stability((p >> 56) as usize, (occ >> 56) as usize)) << 56
+        | unpack_a2a7(edge_stability(pack_a1a8(p), pack_a1a8(occ)))
+        | unpack_h2h7(edge_stability(pack_h1h8(p), pack_h1h8(occ)))
 }
 
 #[derive(Clone, Copy)]
@@ -371,9 +373,11 @@ fn get_stable_by_contact(central_mask: u64, previous_stable: u64, safe_lines: Li
 /// 3. Contact propagation (discs adjacent to already-stable discs)
 #[inline]
 pub fn get_stable_discs(player: Bitboard, opponent: Bitboard) -> Bitboard {
-    let central_mask = player.bits() & CENTRAL_MASK;
-    let full = get_full_lines(player.bits() | opponent.bits());
-    let stable = get_stable_edge(player.bits(), opponent.bits());
+    let p = player.bits();
+    let occ = p | opponent.bits();
+    let central_mask = p & CENTRAL_MASK;
+    let full = get_full_lines(occ);
+    let stable = get_stable_edge(p, occ);
     Bitboard::new(get_stable_by_contact(central_mask, stable, full))
 }
 
@@ -635,8 +639,9 @@ fn propagate_avx2(locked: __m256i, one_l: __m256i, one_r: __m256i) -> (__m256i, 
 fn single_empty_line_stable_avx2(player: u64, opponent: u64, stable: u64) -> u64 {
     use std::arch::x86_64::*;
 
-    let opp_edge = get_stable_edge(opponent, player);
-    let empties = _mm256_set1_epi64x(!(player | opponent) as i64);
+    let occ = player | opponent;
+    let opp_edge = get_stable_edge(opponent, occ);
+    let empties = _mm256_set1_epi64x(!occ as i64);
     let (has_empty, one_l, one_r) = scan_empties_avx2(empties);
 
     let prev_touch = adjacent_lanes_avx2(_mm256_set1_epi64x(stable as i64));
@@ -721,8 +726,9 @@ fn propagate_axis(locked: u64, one_l: u64, one_r: u64, axis: &AxisSpec) -> u64 {
 
 #[cfg(any(test, not(all(target_arch = "x86_64", target_feature = "avx2"))))]
 fn single_empty_line_stable_scalar(player: u64, opponent: u64, stable: u64) -> u64 {
-    let empties = !(player | opponent);
-    let opp_edge = get_stable_edge(opponent, player);
+    let occ = player | opponent;
+    let empties = !occ;
+    let opp_edge = get_stable_edge(opponent, occ);
     let (has_h, one_hl, one_hr) = scan_axis_scalar(empties, &AXIS_H);
     let (has_v, one_vl, one_vr) = scan_axis_scalar(empties, &AXIS_V);
     let (has_d7, one_7l, one_7r) = scan_axis_scalar(empties, &AXIS_D7);
@@ -877,7 +883,7 @@ mod tests {
 
         for (p, o) in cases {
             assert_eq!(
-                edge_stability(p as usize, o as usize),
+                edge_stability(p as usize, (p | o) as usize),
                 reference_find_edge_stable(p, o, p),
                 "edge stability mismatch for p={p:#04x} o={o:#04x}",
             );
@@ -888,7 +894,7 @@ mod tests {
             let p: u8 = rng.random();
             let o: u8 = rng.random::<u8>() & !p;
             assert_eq!(
-                edge_stability(p as usize, o as usize),
+                edge_stability(p as usize, (p | o) as usize),
                 reference_find_edge_stable(p, o, p),
                 "edge stability mismatch for p={p:#04x} o={o:#04x}",
             );
@@ -1063,8 +1069,9 @@ mod tests {
 
     fn reference_single_empty_line_stable(player: u64, opponent: u64, stable: u64) -> u64 {
         const STEPS: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 1), (1, 1)];
-        let empties = !(player | opponent);
-        let opp_edge = get_stable_edge(opponent, player);
+        let occ = player | opponent;
+        let empties = !occ;
+        let opp_edge = get_stable_edge(opponent, occ);
         let has = |bits: u64, sq: i32| bits >> sq & 1 != 0;
         let ray = |sq: i32, dir: usize, sign: i32| {
             let (dx, dy) = STEPS[dir];
