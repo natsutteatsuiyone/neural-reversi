@@ -187,7 +187,14 @@ impl SearchStrategy for EndGameStrategy {
                     let (sq1, sq2, sq3, sq4) = endgame::sort_last4(&ctx.empty_list);
                     endgame::solve4(ctx, board, alpha_d, sq1, sq2, sq3, sq4)
                 }
-                _ => endgame::shallow_search(
+                5 => endgame::shallow_search::<5>(
+                    ctx,
+                    board,
+                    alpha_d,
+                    &mut caches.shallow,
+                    board.legal_moves(),
+                ),
+                _ => endgame::shallow_search::<6>(
                     ctx,
                     board,
                     alpha_d,

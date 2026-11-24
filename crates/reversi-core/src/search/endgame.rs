@@ -472,7 +472,8 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
 
     ctx.update_endgame(sq);
     let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-        -shallow_search(ctx, next, -beta, &mut caches.shallow, next_moves)
+        debug_assert_eq!(ctx.empty_list.count(), 6);
+        -shallow_search::<6>(ctx, next, -beta, &mut caches.shallow, next_moves)
     } else {
         -null_window_search(ctx, next, -beta, caches, cutoff, next_moves)
     };
@@ -480,30 +481,31 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
     score
 }
 
-/// Null window search for positions with at most [`DEPTH_TO_SHALLOW_SEARCH`] empties.
+/// Null window search for positions with `EMPTIES` (5 or 6) empty squares.
 ///
 /// Orders moves by isolated empties, quadrant parity, and corner priority.
 ///
 /// `moves` must be the legal moves of `board`.
-pub(super) fn shallow_search(
+pub(super) fn shallow_search<const EMPTIES: u32>(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: DiscScore,
     sc: &mut EndGameCache<Shallow>,
     moves: LegalMoves,
 ) -> DiscScore {
+    const { assert!(EMPTIES == 5 || EMPTIES == 6) };
+    debug_assert_eq!(ctx.empty_list.count(), EMPTIES);
     debug_assert_eq!(moves, board.legal_moves());
-    let n_empties = ctx.empty_list.count();
     let beta = alpha + 1;
 
     if moves.is_empty() {
         let next = board.switch_players();
         let next_moves = next.legal_moves();
         if next_moves.is_empty() {
-            return board.solve_disc_diff(n_empties);
+            return board.solve_disc_diff(EMPTIES);
         }
         ctx.increment_nodes();
-        return -shallow_search(ctx, &next, -beta, sc, next_moves);
+        return -shallow_search::<EMPTIES>(ctx, &next, -beta, sc, next_moves);
     }
 
     let cache_idx = sc.slot(board.hash());
@@ -511,13 +513,13 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    if let Some(score) = stability_cutoff(board, n_empties, alpha) {
+    if let Some(score) = stability_cutoff(board, EMPTIES, alpha) {
         ctx.stats.increment_stability_cut();
         return score;
     }
 
     if let Some(sq) = moves.only_move() {
-        let score = shallow_search_move(ctx, board, sq, beta, sc);
+        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, beta, sc);
         sc.store(cache_idx, board, alpha, score);
         return score;
     }
@@ -542,7 +544,7 @@ pub(super) fn shallow_search(
     let isolated_moves = moves & !Bitboard::new(horizontal | (row << 8) | (row >> 8));
     let moves = moves.and_not(isolated_moves.bitboard());
 
-    if let Some(score) = shallow_search_moves(
+    if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         isolated_moves,
@@ -558,7 +560,7 @@ pub(super) fn shallow_search(
     let odd_moves = moves & quadrant_mask;
     let even_moves = moves & !quadrant_mask;
 
-    if let Some(score) = shallow_search_moves(
+    if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         odd_moves.corners(),
@@ -570,7 +572,7 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    if let Some(score) = shallow_search_moves(
+    if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         odd_moves.non_corners(),
@@ -582,7 +584,7 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    if let Some(score) = shallow_search_moves(
+    if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         even_moves.corners(),
@@ -594,7 +596,7 @@ pub(super) fn shallow_search(
         return score;
     }
 
-    if let Some(score) = shallow_search_moves(
+    if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         even_moves.non_corners(),
@@ -613,7 +615,7 @@ pub(super) fn shallow_search(
 
 /// Searches all moves in a bitboard subset for shallow search, returning on beta cutoff.
 #[inline(always)]
-fn shallow_search_moves(
+fn shallow_search_moves<const EMPTIES: u32>(
     ctx: &mut SearchContext,
     board: &Board,
     moves: LegalMoves,
@@ -623,7 +625,7 @@ fn shallow_search_moves(
     sc: &mut EndGameCache<Shallow>,
 ) -> Option<DiscScore> {
     for sq in moves.iter() {
-        let score = shallow_search_move(ctx, board, sq, beta, sc);
+        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, beta, sc);
 
         if score >= beta {
             sc.store(cache_idx, board, beta - 1, score);
@@ -636,8 +638,8 @@ fn shallow_search_moves(
 }
 
 /// Evaluates a single move in shallow search.
-#[inline(always)]
-fn shallow_search_move(
+#[inline(never)]
+fn shallow_search_move<const EMPTIES: u32>(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
@@ -645,26 +647,29 @@ fn shallow_search_move(
     sc: &mut EndGameCache<Shallow>,
 ) -> DiscScore {
     let next = board.make_move(sq);
-    ctx.update_endgame(sq);
     let next_alpha = -beta;
-    let score = if ctx.empty_list.count() == 4 {
+    if EMPTIES == 5 {
+        ctx.increment_nodes();
         let next_cache_idx = sc.slot(next.hash());
         if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
-            -score
-        } else if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
-            ctx.stats.increment_stability_cut();
-            -score
-        } else {
-            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
-            let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
-            sc.store(next_cache_idx, &next, next_alpha, score);
-            -score
+            return -score;
         }
+        if let Some(score) = stability_cutoff(&next, 4, next_alpha) {
+            ctx.stats.increment_stability_cut();
+            return -score;
+        }
+        ctx.empty_list.remove(sq);
+        let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
+        let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
+        ctx.empty_list.restore(sq);
+        sc.store(next_cache_idx, &next, next_alpha, score);
+        -score
     } else {
-        -shallow_search(ctx, &next, -beta, sc, next.legal_moves())
-    };
-    ctx.undo_endgame(sq);
-    score
+        ctx.update_endgame(sq);
+        let score = -shallow_search::<5>(ctx, &next, next_alpha, sc, next.legal_moves());
+        ctx.undo_endgame(sq);
+        score
+    }
 }
 
 /// Scores a position with exactly one empty square.
