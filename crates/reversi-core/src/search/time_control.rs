@@ -120,9 +120,14 @@ fn calculate_remaining_factor_sum(n_empties: u32) -> f64 {
     sum
 }
 
+fn percent_of(time: u64, percent: u64) -> u64 {
+    debug_assert!(percent <= 100);
+    (u128::from(time) * u128::from(percent) / 100) as u64
+}
+
 /// Returns the budget for a single endgame solve attempt in bank modes.
 fn endgame_bank_budget(hard_limit: u64) -> u64 {
-    (hard_limit * ENDGAME_BANK_PERCENT) / 100
+    percent_of(hard_limit, ENDGAME_BANK_PERCENT)
 }
 
 /// Time control mode for a game.
@@ -453,7 +458,7 @@ impl TimeManager {
                 let available = time_per_move_ms.saturating_sub(TIME_BUFFER_MS);
                 Allocation {
                     base_ms: available,
-                    optimum_ms: available * BYOYOMI_MAX_PERCENT / 100,
+                    optimum_ms: percent_of(available, BYOYOMI_MAX_PERCENT),
                     hard_ms: available,
                 }
             }
@@ -464,7 +469,7 @@ impl TimeManager {
             } => {
                 let hard = Self::calculate_safe_time(main_time_ms, n_empties);
                 let base = if is_endgame {
-                    endgame_bank_budget(hard) + increment_ms
+                    endgame_bank_budget(hard).saturating_add(increment_ms)
                 } else {
                     Self::allocate_budget(main_time_ms, increment_ms, n_empties)
                 };
@@ -512,7 +517,7 @@ impl TimeManager {
         };
 
         let base_budget = (main_time_ms as f64 * time_fraction) as u64;
-        base_budget + increment_ms
+        base_budget.saturating_add(increment_ms)
     }
 
     /// Reports the iteration result: updates the scaling factors and recomputes
@@ -695,7 +700,7 @@ impl TimeManager {
             return false;
         }
 
-        if elapsed < optimum * self.min_percent() / 100 {
+        if elapsed < percent_of(optimum, self.min_percent()) {
             return true;
         }
 
@@ -775,7 +780,7 @@ impl TimeManager {
         if self.mode == TimeControlMode::Infinite {
             return u64::MAX;
         }
-        self.maxi_time_ms() * self.min_percent() / 100
+        percent_of(self.maxi_time_ms(), self.min_percent())
     }
 
     /// Returns the maximum (optimum) time in milliseconds.
@@ -935,6 +940,39 @@ mod tests {
             tm.maxi_time_ms(),
             tm.hard_time_limit_ms.load(Ordering::Relaxed),
         )
+    }
+
+    #[test]
+    fn large_time_byoyomi_preserves_the_optimum_percentage() {
+        let tm = make_tm(
+            TimeControlMode::Byoyomi {
+                time_per_move_ms: u64::MAX,
+            },
+            1,
+        );
+        assert_eq!(tm.maxi_time_ms(), 18_077_809_192_235_360_533);
+    }
+
+    #[test]
+    fn large_time_endgame_preserves_the_bank_percentage() {
+        let tm = make_fischer_tm(u64::MAX, 0, 1);
+        tm.set_endgame_mode(true);
+        assert_eq!(tm.maxi_time_ms(), 10_145_709_240_540_253_360);
+    }
+
+    #[test]
+    fn large_time_fischer_increment_clamps_to_the_hard_limit() {
+        let tm = make_fischer_tm(1_000, u64::MAX, 1);
+        assert_eq!(tm.maxi_time_ms(), 950);
+        tm.set_endgame_mode(true);
+        assert_eq!(tm.maxi_time_ms(), 950);
+    }
+
+    #[test]
+    fn large_time_midgame_can_continue_below_the_minimum() {
+        let tm = make_fischer_tm(u64::MAX, 0, 1);
+        assert!(tm.should_continue_iteration());
+        assert_eq!(tm.mini_time_ms(), 13_835_058_055_282_163_673);
     }
 
     #[test]
