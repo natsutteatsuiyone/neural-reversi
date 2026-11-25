@@ -10,8 +10,9 @@ mod midgame_params;
 #[cfg(feature = "probcut-trace")]
 pub use endgame::trace;
 pub use endgame::{
-    ENDGAME_LEVELS, ENDGAME_PROBCUT_WEIGHTS, EndgameWindow, NUM_VERIFY_FEATURES, SCREEN_RATES,
-    VERIFY_DEPTH, VERIFY_FIT_T_MAX, VerifyModel, endgame_probcut_window, endgame_tail_multiplier,
+    ENDGAME_LEVELS, ENDGAME_PROBCUT_SMALL_WEIGHTS, ENDGAME_PROBCUT_WEIGHTS, EndgameWindow,
+    NUM_VERIFY_FEATURES, SCREEN_RATES, SMALL_NETWORK_MAX_EMPTIES, VERIFY_DEPTH, VERIFY_FIT_T_MAX,
+    VerifyModel, endgame_probcut_window, endgame_tail_multiplier, uses_small_network,
 };
 
 /// Number of steps in [`Selectivity::ENDGAME_LADDER`].

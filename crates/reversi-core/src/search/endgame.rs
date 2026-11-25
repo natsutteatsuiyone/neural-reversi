@@ -314,9 +314,12 @@ pub fn try_probcut(
     if !ctx.selectivity.is_enabled() {
         return None;
     }
-    // The screen and the verification use the main network; the rest of the
-    // endgame search stays on the small one.
-    ctx.eval_mode = EvalMode::Main;
+    // The rest of the endgame search stays on the small network.
+    ctx.eval_mode = if probcut::uses_small_network(depth) {
+        EvalMode::Small
+    } else {
+        EvalMode::Main
+    };
     let result = probcut_decision(ctx, board, depth, beta, cut_node);
     ctx.eval_mode = EvalMode::Small;
     #[cfg(feature = "probcut-trace")]

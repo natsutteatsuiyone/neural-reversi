@@ -17,13 +17,17 @@ use std::sync::{
 
 use anyhow::Context;
 use reversi_core::{
-    board::Board, eval::EVAL_FILE_NAME, player_color::PlayerColor, probcut::VERIFY_DEPTH,
+    board::Board,
+    eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME},
+    player_color::PlayerColor,
+    probcut::VERIFY_DEPTH,
     square::Square,
 };
 #[cfg(feature = "trace")]
 use reversi_core::{
     eval::EvalMode,
     level::Level,
+    probcut::uses_small_network,
     search::{Search, SearchRunOptions, SearchSharedResources, options::SearchOptions},
 };
 #[cfg(any(feature = "trace", test))]
@@ -31,7 +35,7 @@ use reversi_core::{probcut::Selectivity, score::Score};
 
 use crate::probcut::{HOLDOUT_FOLD, for_each_game_line, game_fold, replay};
 
-const WEIGHTS_HEADER_PREFIX: &str = "# main_weights=";
+const WEIGHTS_HEADER_PREFIX: &str = "# weights=";
 
 /// Per-worker transposition table.
 #[cfg(feature = "trace")]
@@ -91,7 +95,7 @@ impl EndgameTraceCsvWriter<BufWriter<File>> {
 #[cfg(any(feature = "trace", test))]
 impl<W: Write> EndgameTraceCsvWriter<W> {
     fn new(mut writer: W) -> anyhow::Result<Self> {
-        writeln!(writer, "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}")?;
+        writeln!(writer, "{WEIGHTS_HEADER_PREFIX}{}", engine_weights())?;
         writeln!(writer, "{}", trace_header())?;
         Ok(Self { writer })
     }
@@ -140,6 +144,11 @@ impl GamePositions {
             PlayerColor::White => -black,
         })
     }
+}
+
+/// Main and small network weights, as the weights header records them.
+fn engine_weights() -> String {
+    format!("{EVAL_FILE_NAME},{EVAL_SM_FILE_NAME}")
 }
 
 fn trace_header() -> String {
@@ -250,9 +259,10 @@ pub(crate) fn read_trace_rows(path: &Path) -> anyhow::Result<Vec<TraceRow>> {
     let weights = weights_line
         .strip_prefix(WEIGHTS_HEADER_PREFIX)
         .ok_or_else(|| anyhow::anyhow!("missing weights header: '{weights_line}'"))?;
+    let engine = engine_weights();
     anyhow::ensure!(
-        weights == EVAL_FILE_NAME,
-        "samples were generated with {weights}, but the engine uses {EVAL_FILE_NAME}"
+        weights == engine,
+        "samples were generated with {weights}, but the engine uses {engine}"
     );
 
     let header = lines
@@ -329,15 +339,20 @@ fn parse_trace_row(line: &str, line_number: usize) -> anyhow::Result<TraceRow> {
 
 /// Returns `([static evaluation, verification score], exact score)` of `board`.
 ///
-/// The first two are computed as endgame ProbCut sees them: main network, no
-/// selective pruning.
+/// The first two are computed as endgame ProbCut sees them: the network
+/// [`uses_small_network`] selects, no selective pruning.
 #[cfg(feature = "trace")]
 fn label(search: &mut Search, board: &Board) -> ([Score; 2], i32) {
     search.init();
-    let eval = search.eval().evaluate_simple(board, EvalMode::Main);
+    let eval_mode = if uses_small_network(board.empty_count()) {
+        EvalMode::Small
+    } else {
+        EvalMode::Main
+    };
+    let eval = search.eval().evaluate_simple(board, eval_mode);
     let options = SearchRunOptions::with_level(Level::uniform(VERIFY_DEPTH, VERIFY_DEPTH))
         .disable_probcut()
-        .with_eval_mode(EvalMode::Main);
+        .with_eval_mode(eval_mode);
     let score = search
         .run(board, &options)
         .score()
@@ -363,6 +378,8 @@ pub(crate) struct TraceOptions {
     pub fit_folds: bool,
     /// Keep attempts whose position hash is divisible by this.
     pub one_in: u64,
+    /// Keep attempts whose empty count is in this range.
+    pub sample_empties: RangeInclusive<u32>,
     /// Keep at most this many distinct positions per empty count.
     pub max_per_empties: usize,
     /// Worker threads.
@@ -392,7 +409,7 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
 
     // Roots run one at a time with every thread, so each drained batch of
     // records belongs to the root that produced it.
-    probcut::trace::set_sampling(options.one_in, 0..=60);
+    probcut::trace::set_sampling(options.one_in, options.sample_empties.clone());
     let mut search =
         Search::new(&SearchOptions::new(SEARCH_TT_MB).with_threads(Some(options.threads.max(1))));
     let mut traced: Vec<(usize, TraceRecord)> = Vec::new();
@@ -584,7 +601,7 @@ mod tests {
         let wrong_weights = TempFile::new("wrong-weights");
         fs::write(
             wrong_weights.path(),
-            format!("# main_weights=stale.zst\n{}\n", trace_header()),
+            format!("{WEIGHTS_HEADER_PREFIX}stale.zst\n{}\n", trace_header()),
         )?;
         assert!(
             read_trace_rows(wrong_weights.path())
@@ -597,7 +614,8 @@ mod tests {
         fs::write(
             bad_flag.path(),
             format!(
-                "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}\n{}\n1,20,0,0,-1,0,1,2,0,0\n",
+                "{WEIGHTS_HEADER_PREFIX}{}\n{}\n1,20,0,0,-1,0,1,2,0,0\n",
+                engine_weights(),
                 trace_header()
             ),
         )?;
@@ -612,7 +630,8 @@ mod tests {
         fs::write(
             short_row.path(),
             format!(
-                "{WEIGHTS_HEADER_PREFIX}{EVAL_FILE_NAME}\n{}\n1,20,0,0,-1,0,1,0,0\n",
+                "{WEIGHTS_HEADER_PREFIX}{}\n{}\n1,20,0,0,-1,0,1,0,0\n",
+                engine_weights(),
                 trace_header()
             ),
         )?;

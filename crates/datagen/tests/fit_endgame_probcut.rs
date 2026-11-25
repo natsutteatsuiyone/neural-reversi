@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use reversi_core::eval::EVAL_FILE_NAME;
+use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use reversi_core::probcut::VERIFY_DEPTH;
 
 #[test]
@@ -13,7 +13,7 @@ fn empty_fit_exits_with_an_input_error_without_panicking() {
     fs::write(
         &path,
         format!(
-            "# main_weights={EVAL_FILE_NAME}\n\
+            "# weights={EVAL_FILE_NAME},{EVAL_SM_FILE_NAME}\n\
              game,empties,s0,s{VERIFY_DEPTH},exact,beta,selectivity,cut_node,engine_cut,replayed_cut\n"
         ),
     )

@@ -27,6 +27,22 @@ struct Cli {
     command: SubCommands,
 }
 
+/// Which endgame ProbCut attempts `endgame-trace` keeps.
+#[derive(Debug, clap::Args)]
+struct TraceSampling {
+    /// Keep attempts whose position hash is divisible by this.
+    #[arg(long, default_value_t = 64)]
+    one_in: u64,
+
+    /// Keep attempts with at most this many empties.
+    #[arg(long, default_value_t = 60)]
+    sample_max_empties: u32,
+
+    /// Keep at most this many distinct positions per empty count.
+    #[arg(long, default_value_t = usize::MAX)]
+    max_per_empties: usize,
+}
+
 #[derive(Debug, Subcommand)]
 enum SubCommands {
     Selfplay {
@@ -130,13 +146,8 @@ enum SubCommands {
         #[arg(long)]
         fit_folds: bool,
 
-        /// Keep attempts whose position hash is divisible by this.
-        #[arg(long, default_value_t = 64)]
-        one_in: u64,
-
-        /// Keep at most this many distinct positions per empty count.
-        #[arg(long, default_value_t = usize::MAX)]
-        max_per_empties: usize,
+        #[command(flatten)]
+        sampling: TraceSampling,
 
         #[arg(long, default_value_t = std::thread::available_parallelism().map_or(1, |n| n.get()))]
         threads: usize,
@@ -154,6 +165,11 @@ enum SubCommands {
         /// `endgame-trace` output to check the fitted models against.
         #[arg(long)]
         validate: Option<PathBuf>,
+
+        /// Fit the small-network model (attempts with at most
+        /// `SMALL_NETWORK_MAX_EMPTIES` empties) instead of the main-network one.
+        #[arg(long)]
+        small: bool,
     },
     Shuffle {
         #[arg(short, long)]
@@ -348,8 +364,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             root_min_empties,
             root_max_empties,
             fit_folds,
-            one_in,
-            max_per_empties,
+            sampling,
             threads,
         } => endgame_probcut::trace(
             &input,
@@ -358,8 +373,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 roots,
                 root_empties: root_min_empties..=root_max_empties,
                 fit_folds,
-                one_in,
-                max_per_empties,
+                one_in: sampling.one_in,
+                sample_empties: 0..=sampling.sample_max_empties,
+                max_per_empties: sampling.max_per_empties,
                 threads,
             },
         )
@@ -371,10 +387,12 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         SubCommands::FitProbcut { input } => {
             fit_probcut::execute(&input).context("failed to execute fit-probcut")
         }
-        SubCommands::FitEndgameProbcut { input, validate } => {
-            fit_endgame_probcut::execute(&input, validate.as_deref())
-                .context("failed to execute fit-endgame-probcut")
-        }
+        SubCommands::FitEndgameProbcut {
+            input,
+            validate,
+            small,
+        } => fit_endgame_probcut::execute(&input, validate.as_deref(), small)
+            .context("failed to execute fit-endgame-probcut"),
         SubCommands::Shuffle {
             input_dir,
             output_dir,
