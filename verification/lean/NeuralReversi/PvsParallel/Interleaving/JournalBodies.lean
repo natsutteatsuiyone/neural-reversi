@@ -30,7 +30,8 @@ private theorem local_score (i : Input) (continues : i.lookup = some none) :
   unfold Input.run Input.arm
   rw [local_lookup,continues]
   change ((localInput i).eval mc fc addr past (match NonPvMir.dispatch i.empties.count.toNat with
-    | some (.fixed a) => .fixed a | some .shallow => .shallow | none => .deep i.active)).score = _
+    | some (.fixed a) => .fixed a | some .shallow => .shallow (decide (i.empties.count.toNat = 6))
+    | none => .deep i.active)).score = _
   cases which : NonPvMir.dispatch i.empties.count.toNat with
   | none => rfl
   | some a => cases a <;> rfl
@@ -42,7 +43,7 @@ private theorem direct_dispatch (n : Nat) (small : n ≤ 4) :
 
 private theorem direct_score (i : Input) (local_ : i.lookup = some none) (small : i.empties.count.toNat ≤ 4) :
     (i.run mc fc addr past).score = (EndgameSearch.Direct.Mir.run i.target i.bmi2 i.board.val
-      i.empties.links i.empties.parity i.empties.count i.alpha i.checked).map (·.raw.toInt) := by
+      i.empties i.alpha i.checked).map (·.raw.toInt) := by
   unfold Input.run Input.arm
   rw [local_,direct_dispatch _ small]
   dsimp only
@@ -368,7 +369,7 @@ private def board : Position := ⟨⟨~~~(0:BitVec 64),0⟩,by simp [Board.wellF
 private def input (b : Position) (level : Selectivity) : Input :=
   let mask := Board.emptySquares b.val
   let empty : EndgameSearch.Cancellation.EmptyState :=
-    ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount b.val⟩
+    ⟨Empties.encode mask,Board.emptyCount b.val⟩
   ⟨b,empty,EndgameSearch.emptyState_initial b,⟨BitVec.ofInt 32 (-1)⟩,⟨0⟩,empty.count,level,[],
     ⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩,true,false,false,true,.other,false,false⟩
 

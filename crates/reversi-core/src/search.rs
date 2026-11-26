@@ -25,7 +25,7 @@ pub mod time_control;
 
 pub(crate) use aspiration::widen_aspiration_window;
 #[doc(hidden)]
-pub use endgame::solve_last1;
+pub use endgame::{Empties, odd_quadrants, quadrant, solve_last1};
 pub use options::{SearchConstraint, SearchRunOptions};
 pub use progress::{SearchProgress, SearchProgressCallback};
 pub(crate) use pvs::{LMR_MIN_DEPTH, search};

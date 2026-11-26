@@ -2,8 +2,7 @@
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
-use crate::constants::MAX_PLY;
-use crate::empty_list::EmptyList;
+use crate::constants::{INITIAL_EMPTY_COUNT, MAX_PLY};
 use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::{PatternFeature, PatternFeatures};
@@ -21,7 +20,7 @@ use crate::transposition_table::TranspositionTable;
 
 /// The search context that maintains all state during search operations.
 // The field order is the layout: `n_nodes`, `tt`, `eval`, the three scalars
-// after it and the empty list's count share the cache line after
+// after it and `n_empties` share the cache line after
 // `pattern_features`. The order rustc picked on its own moved them apart and
 // made ST hard-20 1.5% slower.
 #[repr(C)]
@@ -48,8 +47,9 @@ pub struct SearchContext<'a> {
     pub side_to_move: SideToMove,
     /// Current evaluation mode (midgame vs endgame).
     pub eval_mode: EvalMode,
-    /// List of empty squares on the board, optimized for quick access
-    pub empty_list: EmptyList,
+    /// Number of empty squares. The null-window endgame search does not update
+    /// it while it runs.
+    pub n_empties: u32,
     /// Search stack for maintaining PV and search state at each ply
     pub stack: SearchStack,
     /// Diagnostic counters other than `n_nodes`; last so that the
@@ -70,13 +70,13 @@ impl<'a> SearchContext<'a> {
         tt: &'a TranspositionTable,
         eval: &'a Eval,
     ) -> SearchContext<'a> {
-        let empty_list = EmptyList::new(board);
-        let ply = empty_list.ply();
+        let n_empties = board.empty_count();
+        let ply = INITIAL_EMPTY_COUNT - n_empties as usize;
         SearchContext {
             n_nodes: 0,
             side_to_move: SideToMove::Player,
             selectivity,
-            empty_list,
+            n_empties,
             tt,
             root_moves,
             eval,
@@ -97,8 +97,8 @@ impl<'a> SearchContext<'a> {
     /// access throughout the lifetime of the resulting context.
     #[inline]
     pub unsafe fn from_split_task(task: &'a SplitPointTask) -> Self {
-        let empty_list = task.empty_list.clone();
-        let ply = empty_list.ply();
+        let n_empties = task.board.empty_count();
+        let ply = INITIAL_EMPTY_COUNT - n_empties as usize;
         let pattern_features =
             PatternFeatures::from_features(ply, &task.p_feature, &task.o_feature);
         let (tt, eval, root_moves) = task.shared_ptrs();
@@ -107,7 +107,7 @@ impl<'a> SearchContext<'a> {
         SearchContext {
             n_nodes: 0,
             side_to_move: task.side_to_move,
-            empty_list,
+            n_empties,
             selectivity: task.selectivity,
             tt,
             root_moves,
@@ -140,29 +140,14 @@ impl<'a> SearchContext<'a> {
         self.pattern_features
             .update(sq, flipped, self.ply(), self.side_to_move);
         self.switch_players();
-        self.empty_list.remove(sq);
+        self.n_empties -= 1;
     }
 
     /// Undoes the most recent midgame move after its descendant updates are undone.
     #[inline]
-    pub fn undo(&mut self, sq: Square) {
-        self.empty_list.restore(sq);
+    pub fn undo(&mut self) {
+        self.n_empties += 1;
         self.switch_players();
-    }
-
-    /// Removes an endgame move's square without updating features or side to move.
-    ///
-    /// The search must restore the empty list before reading pattern features again.
-    #[inline]
-    pub fn update_endgame(&mut self, sq: Square) {
-        self.increment_nodes();
-        self.empty_list.remove(sq);
-    }
-
-    /// Restores the most recently removed endgame square that is still absent.
-    #[inline]
-    pub fn undo_endgame(&mut self, sq: Square) {
-        self.empty_list.restore(sq);
     }
 
     /// Updates the context when a pass move is made.
@@ -184,7 +169,7 @@ impl<'a> SearchContext<'a> {
     /// representing how far we are from the start of the game.
     #[inline]
     pub fn ply(&self) -> usize {
-        self.empty_list.ply()
+        INITIAL_EMPTY_COUNT - self.n_empties as usize
     }
 
     /// Increments the node counter for search statistics.
@@ -325,7 +310,7 @@ mod tests {
         check(&ctx, &after_pass, 0);
         ctx.update(sq, flipped);
         check(&ctx, &after_move, 1);
-        ctx.undo(sq);
+        ctx.undo();
         check(&ctx, &after_pass, 0);
         ctx.undo_pass();
         check(&ctx, &root, 0);

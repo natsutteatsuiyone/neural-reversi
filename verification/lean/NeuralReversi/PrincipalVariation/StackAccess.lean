@@ -178,7 +178,7 @@ def ContextRowsContract : Prop :=
       let flipped := Flip.Dispatch.resultValue fc move.val board.val.player board.val.opponent
       let child := placement s move.val flipped
       (∃ row, stack[ply child]? = some row) ∧ ply child = ply s + 1 ∧
-      ply (undo child move.val) = ply s ∧ ∃ next, promote stack (ply s) move.val = some next
+      ply (undo child) = ply s ∧ ∃ next, promote stack (ply s) move.val = some next
 
 theorem contextRowsContract_proven : ContextRowsContract := by
   intro s board stack agrees shape
@@ -186,10 +186,10 @@ theorem contextRowsContract_proven : ContextRowsContract := by
   obtain ⟨row, parent, _⟩ := (fetch stack (ply s) shape).2 parentIn
   refine ⟨⟨row, parent⟩, rfl, ?_⟩
   intro mc fc move flipped child
-  have childIn : ply child < capacity :=
-    (SearchContextState.shallowContract_proven mc fc board move s agrees.1).2.2.1
-  obtain ⟨_, _, childPly, _, restored, _⟩ := SearchContextState.placementContract_proven mc fc board move s agrees
-  have restoredPly : ply (undo child move.val) = ply s := by unfold ply; rw [restored]
+  obtain ⟨_, _, childPly, _, restored, _, _, _, _, below⟩ :=
+    SearchContextState.placementContract_proven mc fc board move s agrees
+  have childIn : ply child < capacity := by unfold capacity; exact below
+  have restoredPly : ply (undo child) = ply s := by unfold ply; rw [restored]
   obtain ⟨nextRow, childRead, _⟩ := (fetch stack (ply child) shape).2 childIn
   refine ⟨⟨nextRow, childRead⟩, childPly, restoredPly, ?_⟩
   have hc : stack[ply s + 1]? = some nextRow := childPly ▸ childRead

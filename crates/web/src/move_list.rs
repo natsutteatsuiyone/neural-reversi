@@ -36,7 +36,7 @@ pub fn evaluate_moves<SS: SearchStrategy>(
         9,  9,  9,  9,  9,  9,  9,  9    // 56-63 empty squares
     ];
 
-    if depth < MIN_DEPTH[ctx.empty_list.count() as usize] {
+    if depth < MIN_DEPTH[ctx.n_empties as usize] {
         evaluate_moves_fast(move_list, ctx, board, tt_move);
         return;
     }
@@ -100,7 +100,7 @@ fn evaluate_moves_shallow<SS: SearchStrategy>(
                 mv.value -= potential_mobility * POTENTIAL_MOBILITY_SCALE;
             }
 
-            ctx.undo(mv.sq);
+            ctx.undo();
         }
     }
 }

@@ -24,8 +24,8 @@ private theorem DirectExit.history (path : DirectExit mc i) (p : Pool) (s : Loca
   | @terminal t branch ours theirs =>
     cases t with
     | shallow =>
-      change i.arm = .shallow at branch
-      simp only [Input.run,branch,Input.eval]
+      obtain ⟨_,arm⟩ := branch
+      simp only [Input.run,arm,Input.eval]
       rw [EndgameSearch.ShallowMir.run.eq_def]
       split
       · simp [theirs]
@@ -44,7 +44,7 @@ private theorem DirectExit.returns (path : DirectExit mc i) : i.arm ≠ .failed 
   | table arm => simp [arm]
   | @terminal t branch _ _ =>
     cases t with
-    | shallow => change i.arm = .shallow at branch; simp [branch]
+    | shallow => obtain ⟨_,arm⟩ := branch; simp [arm]
     | deep => obtain ⟨_,arm⟩ := branch; simp [arm]
 
 def directStream (w : Worker p) (site owner : Nat) (i : Input) (stamp : Option Nat) (clock : Nat → Nat) (n : Nat) :=
@@ -55,6 +55,7 @@ private theorem direct_sites (w : Worker p) (site owner : Nat) (i : Input) (stam
   unfold directStream boundary
   cases i.arm
   case' deep poll => cases poll
+  case' shallow six => cases six
   all_goals simp [plan,Forest.calls,Invocations.Calls.events,Invocations.Calls.count,
     Invocations.Exit.node,Invocations.Exit.score,Invocations.Exit.event,NativeFrameCache.project,Event.edge?,site?,
     target,List.filterMap_cons]

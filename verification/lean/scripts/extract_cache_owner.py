@@ -30,6 +30,7 @@ NODES = {
 
 
 def targets(fn):
+    fn = re.sub(r"^(shallow_search(?:_moves?)?)::<(?:5|6|EMPTIES)>$", r"\1", fn)
     exact = {
         THREAD+"::idle_loop":("idle",0), THREAD+"::run_helper_job":("job",0),
         THREAD+"::dispatch_search":("dispatch",0), THREAD+"::split":("split",0),

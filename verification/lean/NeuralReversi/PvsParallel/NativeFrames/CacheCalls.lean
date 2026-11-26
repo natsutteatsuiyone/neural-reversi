@@ -104,8 +104,10 @@ theorem Forest.run (f : Forest node) (clock : Nat → Nat) (time : ∀ {a b}, a 
 def plan (deep : Forest .deep) (shallow : Forest .shallow) : Arm → Forest .boundary
   | .failed | .table _ => .nil
   | .fixed _ => .call 0 .access .forward (by decide) .nil .nil
-  | .shallow => .call 0 .access .forward (by decide) .nil
+  | .shallow false => .call 0 .access .forward (by decide) .nil
       (.call 3 .shallow .borrowShallow (by decide) shallow .nil)
+  | .shallow true => .call 0 .access .forward (by decide) .nil
+      (.call 4 .shallow .borrowShallow (by decide) shallow .nil)
   | .deep true => .call 0 .access .forward (by decide) .nil
       (.call 1 .deep .borrowPair (by decide) deep .nil)
   | .deep false => .call 0 .access .forward (by decide) .nil
@@ -116,7 +118,8 @@ theorem sites (deep shallow) (arm : Arm) (returned : arm ≠ .failed) :
   cases arm with
   | failed => contradiction
   | deep poll => cases poll <;> rfl
-  | fixed | table | shallow => rfl
+  | shallow six => cases six <;> rfl
+  | fixed | table => rfl
 
 def boundaryArgs (w : Worker p) (parentOpening : Nat) (input : Input) : Operands :=
   ⟨frameKey (EndgameSearch.CacheOwner.poolPlan p.size).length w.ordinal parentOpening,input⟩

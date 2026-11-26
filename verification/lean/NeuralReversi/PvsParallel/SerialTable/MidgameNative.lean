@@ -33,11 +33,11 @@ structure Inputs extends Heuristics where
 abbrev Empties (b : Position) := {s : EmptyState // s.matches b}
 
 private def initial (b : Position) : Empties b :=
-  ⟨ContextPathMir.leafState (ContextPathMir.start b),by rw [ContextPathMir.start_eq]; exact EndgameSearch.emptyState_initial b⟩
+  ⟨ContextPathMir.leafState b,EndgameSearch.emptyState_initial b⟩
 
 private def placeState (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (s : Empties b) (move : GeneratedSquare mc b.val) : Empties (play mc fc b move).val :=
-  ⟨s.val.remove move.val,(EndgameSearch.emptyStatePlayContract_proven mc fc b move _ _ _ s.property).2.2.1⟩
+  ⟨s.val.remove move.val,(EndgameSearch.emptyStatePlayContract_proven mc fc b move _ _ s.property).2.1⟩
 
 /-- One same-depth forced pass is possible between reductions in depth.
     Placement, IIR before placement, and ProbCut verification all reduce depth. -/
@@ -287,7 +287,7 @@ private def frame (ops : Inputs) (path : Path) (level : Selectivity) (q : Reques
       mobile ops (fun pp ll r s good low => descend pp ll r s good (lower_rank mc q r low)) path level q state ⟨pos,Nat.le_refl _⟩ valid.window has
     else if other : Board.hasLegalMoves mc (pass q.board).val then
       .pvsPass (descend (5 :: path) level (MidgameSites.passed q)
-        ⟨state.val,EndgameSearch.emptyState_pass q.board _ _ _ state.property⟩ ⟨MidgameScoreRange.reflected valid.window,fun scout => by
+        ⟨state.val,EndgameSearch.emptyState_pass q.board _ _ state.property⟩ ⟨MidgameScoreRange.reflected valid.window,fun scout => by
         have eq := valid.narrow scout; change -q.alpha = -q.beta+1; omega⟩ (by
         simp [rank,MidgameSites.passed,has,other]))
     else .terminal

@@ -5,13 +5,12 @@ namespace NeuralReversi.EndgameSearch.ShallowMir
 open EndgameTreeCache (Store)
 open PvsBoardTree (Position)
 
-def masks (moves : LegalMoves.Raw) (empties : Bitboard.Bits) (parity : Fin 16) : List LegalMoves.Raw :=
-  let table : Vector Bitboard.Bits 16 := #v[0x0000000000000000, 0x000000000f0f0f0f, 0x00000000f0f0f0f0, 0x00000000ffffffff, 0x0f0f0f0f00000000, 0x0f0f0f0f0f0f0f0f, 0x0f0f0f0ff0f0f0f0, 0x0f0f0f0fffffffff, 0xf0f0f0f000000000, 0xf0f0f0f00f0f0f0f, 0xf0f0f0f0f0f0f0f0, 0xf0f0f0f0ffffffff, 0xffffffff00000000, 0xffffffff0f0f0f0f, 0xfffffffff0f0f0f0, 0xffffffffffffffff]
+def masks (moves : LegalMoves.Raw) (empties oddQuadrants : Bitboard.Bits) : List LegalMoves.Raw :=
   let neighbors := ShallowMoveOrder.neighbors empties
   let isolated := LegalMoves.bitand moves (~~~neighbors)
   let rest := LegalMoves.andNot moves isolated.bits
-  let odd := LegalMoves.bitand rest table[parity]
-  let even := LegalMoves.bitand rest (~~~table[parity])
+  let odd := LegalMoves.bitand rest oddQuadrants
+  let even := LegalMoves.bitand rest (~~~oddQuadrants)
   [isolated, LegalMoves.corners odd, LegalMoves.nonCorners odd, LegalMoves.corners even, LegalMoves.nonCorners even]
 
 def write (b : Position) (alpha : Int) (r : Result) : Result :=

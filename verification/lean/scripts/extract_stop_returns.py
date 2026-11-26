@@ -106,12 +106,7 @@ def project(dump):
     solve, _, args, dst = p.named("Board::solve")
     checked(dst == "_0" and p.resolve(args[0], seeds) == "board", "terminal board/result")
     count = args[1].removeprefix("move ")
-    count_calls = [(n, operands) for n, name, operands, d in p.calls if d == count and name == "EmptyList::count"]
-    checked(len(count_calls) == 1, "terminal empties source")
-    (counter, operands), = count_calls
-    emp_ref = operands[0].removeprefix("move ")
-    checked(normal_target(p, counter) == solve and p.defs[emp_ref] == [f"&((*{p.arg('ctx')}).10: empty_list::EmptyList)"],
-            "terminal empties receiver")
+    checked(p.defs[count] == [f"copy ((*{p.arg('ctx')}).10: u32)"], "terminal empties source")
     routes.append(("terminal", 0, [(solve, ["solve"])] + finish(p, normal_target(p, solve), "_0")))
     claim_drop(dump)
     abort_poll(dump)
@@ -161,18 +156,18 @@ def render(dump):
     tail = graph(boundary.source)
     counter = "copy ((*" + boundary.arg("ctx") + ").2: u64)"
     saved = [n for n, s in boundary.ops if s == "_35 = " + counter + ";"]
-    read = [n for n, s in boundary.ops if s == "_128 = " + counter + ";"]
+    read = [n for n, s in boundary.ops if s == "_141 = " + counter + ";"]
     checked(len(saved) == len(read) == 1 and boundary.defs["_35"] == [counter]
-            and boundary.defs["_128"] == [counter] and boundary.defs["_129"] == ["copy _35"]
-            and boundary.defs["_130"] == ["SubWithOverflow(copy _128, copy _129)"]
-            and boundary.defs["_127"] == ["move (_130.0: u64)"]
-            and boundary.defs["_126"] == ["Ge(move _127, const search::strategy::BOUNDARY_STORE_MIN_SUBTREE_NODES)"]
-            and tail[65][-1] == "switchInt(move _126) -> [0: bb73, otherwise: bb66];",
+            and boundary.defs["_141"] == [counter] and boundary.defs["_142"] == ["copy _35"]
+            and boundary.defs["_143"] == ["SubWithOverflow(copy _141, copy _142)"]
+            and boundary.defs["_140"] == ["move (_143.0: u64)"]
+            and boundary.defs["_139"] == ["Ge(move _140, const search::strategy::BOUNDARY_STORE_MIN_SUBTREE_NODES)"]
+            and tail[69][-1] == "switchInt(move _139) -> [0: bb77, otherwise: bb70];",
             "boundary saved/current context node count and store threshold")
-    checked(tail[normal_target(boundary, pc)] == [f"switchInt(move {reg}) -> [0: bb70, otherwise: bb69];"]
-            and [tail[n] for n in (69,74,75,76,77)] ==
-            [[jump(74)], [jump(75)], ["_123 = const ();", jump(76)], ["_0 = copy _121;",jump(77)], ["return;"]]
-            and boundary.defs["_121"] == [("call","Score::from_disc_diff",["move _122"])],
+    checked(tail[normal_target(boundary, pc)] == [f"switchInt(move {reg}) -> [0: bb74, otherwise: bb73];"]
+            and [tail[n] for n in (73,78,79,80,81)] ==
+            [[jump(78)], [jump(79)], ["_136 = const ();", jump(80)], ["_0 = copy _134;",jump(81)], ["return;"]]
+            and boundary.defs["_134"] == [("call","Score::from_disc_diff",["move _135"])],
             "boundary cutoff cannot publish and returns the converted score register")
     return ("import NeuralReversi.PvsParallel.NativeStopReturns.Syntax\n\n"
             "namespace NeuralReversi.PvsParallel.NativeStopReturns\n\n"

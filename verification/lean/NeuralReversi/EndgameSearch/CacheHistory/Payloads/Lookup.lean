@@ -29,7 +29,7 @@ theorem check_lookup_prefix (p : Pool) (i : Input) (t : Table)
         (by simp [lookupOps,List.filterMap_cons,Instruction.write?])
 
 def recursiveArm (i : Input) : Table → Prop
-  | .shallow => i.arm = .shallow
+  | .shallow => ∃ six, i.arm = .shallow six
   | .deep => ∃ poll, i.arm = .deep poll
 
 /-- On a legal-move node a matching physical bound returns before the recursive
@@ -48,8 +48,8 @@ theorem check_lookup_hit (p : Pool) (i : Input) (t : Table)
   have same : (i.run mc fc p.address s.history).history = s.history := by
     cases t with
     | shallow =>
-      change i.arm = .shallow at branch
-      simp only [Input.run,branch,Input.eval]
+      obtain ⟨six,arm⟩ := branch
+      simp only [Input.run,arm,Input.eval]
       rw [ShallowMir.run.eq_def]
       split
       · contradiction

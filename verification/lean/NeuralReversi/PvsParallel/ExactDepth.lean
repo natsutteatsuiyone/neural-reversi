@@ -21,8 +21,8 @@ theorem move_depth (mc : X86Config) (fc : FlipConfig) (b : Position) (depth : De
     (move : GeneratedSquare mc b.val) (full : Full b depth) :
     0 < depth.toNat ∧ Full (play mc fc b move).val (depth - 1) ∧
     ((depth - 1) + 1).toNat = depth.toNat := by
-  obtain ⟨pos, _, child, _, _, _, _, restored⟩ :=
-    EndgameSearch.emptyStatePlayContract_proven mc fc b move _ _ _
+  obtain ⟨pos, child, _, _, restored⟩ :=
+    EndgameSearch.emptyStatePlayContract_proven mc fc b move _ _
       (EndgameSearch.emptyState_initial b)
   unfold Full at full ⊢
   rw [full]

@@ -26,7 +26,7 @@ private def draw : Position := ⟨⟨0x5555555555555555,0xaaaaaaaaaaaaaaaa⟩,rf
 private def input (b : Position) (active : Bool) : Input :=
   let mask := Board.emptySquares b.val
   let empties : EndgameSearch.Cancellation.EmptyState :=
-    ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount b.val⟩
+    ⟨Empties.encode mask,Board.emptyCount b.val⟩
   let vacant : TranspositionTable.ProbeRetry.RawAttempt :=
     ⟨fun slot => if slot = 0 then some ((0,0),TranspositionTable.Packing.zeroData) else none,0⟩
   ⟨b,empties,by

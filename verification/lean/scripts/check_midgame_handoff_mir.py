@@ -91,117 +91,116 @@ BODIES = {
 """,
     'search-midgame-iterate': """
 0: _8 = &((*_3).8: std::option::Option<std::sync::Arc<search::time_control::TimeManager>>); _7 = Option::<Arc<TimeManager>>::as_deref(move _8) => 1;
-1: _10 = &((*_1).10: empty_list::EmptyList); _9 = EmptyList::count(move _10) => 2;
-2: _12 = &(*_3); _14 = &(*((*_1).1: &search::root_move::RootMoves)); _13 = RootMoves::count(move _14) => 3;
-3: _11 = SearchTask::pv_count(move _12, move _13) => 4;
-4: _16 = copy _4; _15 = compute_start_depth(move _16) => 5;
-5: _18 = copy _11; _17 = CompletedState::new(move _18) => 6;
-6: goto 7;
-7: falseUnwind -> [real: bb8, unwind: bb116];
-8: _22 = copy _15; _23 = copy _4; _21 = Le(move _22, move _23); switchInt(move _21) -> [0: bb104, otherwise: bb9];
-9: _24 = const false; _25 = Option::<(Square, Score)>::None; _29 = copy _11; _28 = std::ops::Range::<usize> { start: const 0_usize, end: move _29 }; _27 = <std::ops::Range<usize> as IntoIterator>::into_iter(move _28) => 10;
-10: _30 = move _27; goto 11;
-11: falseUnwind -> [real: bb12, unwind: bb116];
-12: _34 = &mut _30; _33 = &mut (*_34); _32 = <std::ops::Range<usize> as Iterator>::next(move _33) => 13;
-13: _35 = discriminant(_32); switchInt(move _35) -> [0: bb15, 1: bb16, otherwise: bb14];
-14: FakeRead(ForMatchedPlace(None), _32); unreachable;
-15: goto 17;
-16: _37 = copy ((_32 as Some).0: usize); _39 = &(*((*_1).1: &search::root_move::RootMoves)); _40 = copy _37; _38 = RootMoves::set_pv_idx(move _39, move _40) => 18;
-17: _26 = const (); goto 50;
-18: _45 = &(*_1); _46 = copy _15; _44 = aspiration_window(move _45, move _46) => 19;
-19: _41 = copy (_44.0: score::Score); _42 = copy (_44.1: score::Score); _43 = copy (_44.2: score::Score); _50 = &mut (*_1); _51 = &(*_2); _52 = copy _15; _54 = &mut _41; _53 = &mut (*_54); _56 = &mut _42; _55 = &mut (*_56); _57 = copy _43; _58 = &(*_6); _49 = midgame::aspiration_search(move _50, move _51, move _52, move _53, move _55, move _57, move _58) => 20;
-20: _47 = copy (_49.0: score::Score); _48 = copy (_49.1: bool); _60 = &(*((*_1).1: &search::root_move::RootMoves)); _59 = RootMoves::sort_from_pv_idx(move _60) => 21;
-21: _65 = &(*_6); _64 = <Arc<threading::thread::Thread> as Deref>::deref(move _65) => 22;
-22: _63 = &(*_64); _62 = threading::thread::Thread::is_search_aborted(move _63) => 23;
-23: switchInt(move _62) -> [0: bb25, otherwise: bb24];
-24: _26 = const (); goto 49;
-25: _61 = const (); _68 = discriminant(((*_3).7: std::option::Option<std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>>)); switchInt(move _68) -> [1: bb26, otherwise: bb39];
-26: goto 27;
-27: _69 = &((((*_3).7: std::option::Option<std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>>) as Some).0: std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>); _71 = &(*((*_1).1: &search::root_move::RootMoves)); _70 = RootMoves::current_pv(move _71) => 28;
-28: _72 = discriminant(_70); switchInt(move _72) -> [1: bb29, otherwise: bb37];
-29: goto 30;
-30: _73 = move ((_70 as Some).0: search::root_move::RootMove); _75 = copy ((*_1).2: u64); _77 = &(*_5); _76 = Helpers::<'_>::nodes(move _77) => 31;
-31: _78 = AddWithOverflow(copy _75, copy _76); assert(!move (_78.1: bool), "attempt to compute `{} + {}`, which would overflow", move _75, move _76) -> [success: bb32, unwind: bb114];
-32: _74 = move (_78.0: u64); _82 = &(*_69); _81 = <Arc<dyn Fn(SearchProgress) + Send + Sync> as Deref>::deref(move _82) => 33;
-33: _80 = &(*_81); _85 = &(*_1); _87 = &_73; _86 = &(*_87); _88 = copy _15; _89 = copy _4; _90 = copy _47; _91 = copy _74; _84 = SearchProgress::from_iteration(move _85, move _86, move _88, move _89, move _90, move _91, const false) => 34;
-34: _83 = (move _84,); _79 = <dyn Fn(SearchProgress) + Send + Sync as Fn<(SearchProgress,)>>::call(move _80, move _83) => 35;
-35: drop(_84) => 36;
-36: _67 = const (); drop(_73) => 40;
-37: drop(_70) => 38;
-38: goto 39;
-39: _67 = const (); goto 42;
-40: drop(_70) => 41;
-41: goto 42;
-42: _92 = copy _48; _24 = move _92; _95 = &mut _17; _96 = &(*_1); _97 = copy _15; _94 = CompletedState::line_completed(move _95, move _96, move _97, const false) => 43;
-43: _98 = row_score; _93 = Option::<&RootMove>::map::<(Square, Score), row_score>(move _94, move _98) => 44;
-44: _25 = move _93; _102 = &(*_6); _101 = <Arc<threading::thread::Thread> as Deref>::deref(move _102) => 45;
-45: _100 = &(*_101); _99 = threading::thread::Thread::is_search_aborted(move _100) => 46;
-46: switchInt(move _99) -> [0: bb48, otherwise: bb47];
-47: _26 = const (); goto 49;
-48: _31 = const (); _20 = const (); goto 11;
-49: goto 50;
-50: _110 = discriminant(_25); switchInt(move _110) -> [1: bb54, otherwise: bb53];
-51: _107 = move _17; _0 = Outcome::Done(move _107); drop(_107) => 52;
-52: goto 109;
-53: _106 = copy _7; _105 = record_abort(move _106) => 51;
-54: goto 55;
-55: _108 = copy (((_25 as Some).0: (square::Square, score::Score)).0: square::Square); _109 = copy (((_25 as Some).0: (square::Square, score::Score)).1: score::Score); _112 = &(*((*_1).1: &search::root_move::RootMoves)); _111 = RootMoves::sort_all(move _112) => 56;
-56: _114 = discriminant(_7); switchInt(move _114) -> [1: bb57, otherwise: bb66];
-57: goto 58;
-58: _115 = copy ((_7 as Some).0: &search::time_control::TimeManager); _117 = copy ((*_3).6: bool); switchInt(move _117) -> [0: bb59, otherwise: bb62];
-59: _119 = copy _15; _118 = Ge(move _119, const search::aspiration::ASPIRATION_MIN_DEPTH); switchInt(move _118) -> [0: bb61, otherwise: bb60];
-60: _116 = copy _24; goto 63;
-61: goto 62;
-62: _116 = const false; goto 63;
-63: _121 = &(*_115); _122 = copy _108; _124 = copy _109; _123 = Score::to_disc_diff_f32(move _124) => 64;
-64: _125 = copy _15; _126 = copy _116; _120 = TimeManager::report_iteration(move _121, move _122, move _123, move _125, move _126) => 65;
-65: _113 = const (); goto 67;
-66: _113 = const (); goto 67;
-67: _130 = &(*((*_1).1: &search::root_move::RootMoves)); _129 = RootMoves::count(move _130) => 68;
-68: _128 = Eq(move _129, const 1_usize); switchInt(move _128) -> [0: bb74, otherwise: bb69];
-69: _132 = copy _7; _133 = deadline; _131 = Option::<&TimeManager>::is_some_and::<deadline>(move _132, move _133) => 70;
-70: switchInt(move _131) -> [0: bb73, otherwise: bb71];
-71: _135 = move _17; _0 = Outcome::Done(move _135); drop(_135) => 72;
-72: goto 108;
-73: goto 75;
-74: goto 75;
-75: _127 = const (); _140 = &(*_6); _139 = <Arc<threading::thread::Thread> as Deref>::deref(move _140) => 76;
-76: _138 = &(*_139); _137 = threading::thread::Thread::is_search_aborted(move _138) => 77;
-77: switchInt(move _137) -> [0: bb80, otherwise: bb78];
-78: _142 = move _17; _0 = Outcome::Done(move _142); drop(_142) => 79;
-79: goto 108;
-80: _136 = const (); _144 = discriminant(_7); switchInt(move _144) -> [1: bb81, otherwise: bb98];
-81: goto 82;
-82: _145 = copy ((_7 as Some).0: &search::time_control::TimeManager); _147 = copy _15; _148 = copy _4; _146 = Ge(move _147, move _148); switchInt(move _146) -> [0: bb97, otherwise: bb83];
-83: _151 = const true; switchInt(move _151) -> [0: bb88, otherwise: bb84];
-84: _154 = &_4; _155 = &_9; _153 = (move _154, move _155); _156 = copy (_153.0: &u32); _157 = copy (_153.1: &u32); _159 = copy (*_156); _160 = copy (*_157); _158 = Eq(move _159, move _160); switchInt(move _158) -> [0: bb86, otherwise: bb85];
-85: _152 = const (); _150 = const (); goto 89;
-86: _162 = core::panicking::AssertKind::Eq; _164 = move _162; _166 = &(*_156); _165 = &(*_166); _168 = &(*_157); _167 = &(*_168); _170 = Arguments::<'_>::from_str(const "time-controlled midgame searches always target all empties") => 87;
-87: _169 = Option::<Arguments<'_>>::Some(move _170); _163 = core::panicking::assert_failed::<u32, u32>(move _164, move _165, move _167, move _169) -> bb116;
-88: _150 = const (); goto 89;
-89: _173 = &(*_145); _175 = copy ((*_1).2: u64); _177 = &(*_5); _176 = Helpers::<'_>::nodes(move _177) => 90;
-90: _178 = AddWithOverflow(copy _175, copy _176); assert(!move (_178.1: bool), "attempt to compute `{} + {}`, which would overflow", move _175, move _176) -> [success: bb91, unwind: bb116];
-91: _174 = move (_178.0: u64); _172 = TimeManager::should_enter_endgame(move _173, move _174) => 92;
-92: switchInt(move _172) -> [0: bb95, otherwise: bb93];
-93: _180 = move _17; _181 = copy _109; _0 = Outcome::Endgame(move _180, move _181); drop(_180) => 94;
-94: goto 107;
-95: _171 = const (); _182 = move _17; _0 = Outcome::Done(move _182); drop(_182) => 96;
-96: goto 107;
-97: goto 98;
-98: _143 = const (); _185 = copy _7; _184 = should_stop_iteration(move _185) => 99;
-99: switchInt(move _184) -> [0: bb102, otherwise: bb100];
-100: _187 = move _17; _0 = Outcome::Done(move _187); drop(_187) => 101;
-101: goto 108;
-102: _183 = const (); _189 = copy _15; _188 = next_iteration_depth(move _189) => 103;
-103: _15 = move _188; _20 = const (); goto 7;
-104: _19 = const (); _193 = move _17; _0 = Outcome::Done(move _193); drop(_193) => 105;
-105: drop(_17) => 106;
-106: goto 111;
+1: _9 = copy ((*_1).10: u32); _11 = &(*_3); _13 = &(*((*_1).1: &search::root_move::RootMoves)); _12 = RootMoves::count(move _13) => 2;
+2: _10 = SearchTask::pv_count(move _11, move _12) => 3;
+3: _15 = copy _4; _14 = compute_start_depth(move _15) => 4;
+4: _17 = copy _10; _16 = CompletedState::new(move _17) => 5;
+5: goto 6;
+6: falseUnwind -> [real: bb7, unwind: bb115];
+7: _21 = copy _14; _22 = copy _4; _20 = Le(move _21, move _22); switchInt(move _20) -> [0: bb103, otherwise: bb8];
+8: _23 = const false; _24 = Option::<(Square, Score)>::None; _28 = copy _10; _27 = std::ops::Range::<usize> { start: const 0_usize, end: move _28 }; _26 = <std::ops::Range<usize> as IntoIterator>::into_iter(move _27) => 9;
+9: _29 = move _26; goto 10;
+10: falseUnwind -> [real: bb11, unwind: bb115];
+11: _33 = &mut _29; _32 = &mut (*_33); _31 = <std::ops::Range<usize> as Iterator>::next(move _32) => 12;
+12: _34 = discriminant(_31); switchInt(move _34) -> [0: bb14, 1: bb15, otherwise: bb13];
+13: FakeRead(ForMatchedPlace(None), _31); unreachable;
+14: goto 16;
+15: _36 = copy ((_31 as Some).0: usize); _38 = &(*((*_1).1: &search::root_move::RootMoves)); _39 = copy _36; _37 = RootMoves::set_pv_idx(move _38, move _39) => 17;
+16: _25 = const (); goto 49;
+17: _44 = &(*_1); _45 = copy _14; _43 = aspiration_window(move _44, move _45) => 18;
+18: _40 = copy (_43.0: score::Score); _41 = copy (_43.1: score::Score); _42 = copy (_43.2: score::Score); _49 = &mut (*_1); _50 = &(*_2); _51 = copy _14; _53 = &mut _40; _52 = &mut (*_53); _55 = &mut _41; _54 = &mut (*_55); _56 = copy _42; _57 = &(*_6); _48 = midgame::aspiration_search(move _49, move _50, move _51, move _52, move _54, move _56, move _57) => 19;
+19: _46 = copy (_48.0: score::Score); _47 = copy (_48.1: bool); _59 = &(*((*_1).1: &search::root_move::RootMoves)); _58 = RootMoves::sort_from_pv_idx(move _59) => 20;
+20: _64 = &(*_6); _63 = <Arc<threading::thread::Thread> as Deref>::deref(move _64) => 21;
+21: _62 = &(*_63); _61 = threading::thread::Thread::is_search_aborted(move _62) => 22;
+22: switchInt(move _61) -> [0: bb24, otherwise: bb23];
+23: _25 = const (); goto 48;
+24: _60 = const (); _67 = discriminant(((*_3).7: std::option::Option<std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>>)); switchInt(move _67) -> [1: bb25, otherwise: bb38];
+25: goto 26;
+26: _68 = &((((*_3).7: std::option::Option<std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>>) as Some).0: std::sync::Arc<dyn std::ops::Fn(search::progress::SearchProgress) + std::marker::Send + std::marker::Sync>); _70 = &(*((*_1).1: &search::root_move::RootMoves)); _69 = RootMoves::current_pv(move _70) => 27;
+27: _71 = discriminant(_69); switchInt(move _71) -> [1: bb28, otherwise: bb36];
+28: goto 29;
+29: _72 = move ((_69 as Some).0: search::root_move::RootMove); _74 = copy ((*_1).2: u64); _76 = &(*_5); _75 = Helpers::<'_>::nodes(move _76) => 30;
+30: _77 = AddWithOverflow(copy _74, copy _75); assert(!move (_77.1: bool), "attempt to compute `{} + {}`, which would overflow", move _74, move _75) -> [success: bb31, unwind: bb113];
+31: _73 = move (_77.0: u64); _81 = &(*_68); _80 = <Arc<dyn Fn(SearchProgress) + Send + Sync> as Deref>::deref(move _81) => 32;
+32: _79 = &(*_80); _84 = &(*_1); _86 = &_72; _85 = &(*_86); _87 = copy _14; _88 = copy _4; _89 = copy _46; _90 = copy _73; _83 = SearchProgress::from_iteration(move _84, move _85, move _87, move _88, move _89, move _90, const false) => 33;
+33: _82 = (move _83,); _78 = <dyn Fn(SearchProgress) + Send + Sync as Fn<(SearchProgress,)>>::call(move _79, move _82) => 34;
+34: drop(_83) => 35;
+35: _66 = const (); drop(_72) => 39;
+36: drop(_69) => 37;
+37: goto 38;
+38: _66 = const (); goto 41;
+39: drop(_69) => 40;
+40: goto 41;
+41: _91 = copy _47; _23 = move _91; _94 = &mut _16; _95 = &(*_1); _96 = copy _14; _93 = CompletedState::line_completed(move _94, move _95, move _96, const false) => 42;
+42: _97 = row_score; _92 = Option::<&RootMove>::map::<(Square, Score), row_score>(move _93, move _97) => 43;
+43: _24 = move _92; _101 = &(*_6); _100 = <Arc<threading::thread::Thread> as Deref>::deref(move _101) => 44;
+44: _99 = &(*_100); _98 = threading::thread::Thread::is_search_aborted(move _99) => 45;
+45: switchInt(move _98) -> [0: bb47, otherwise: bb46];
+46: _25 = const (); goto 48;
+47: _30 = const (); _19 = const (); goto 10;
+48: goto 49;
+49: _109 = discriminant(_24); switchInt(move _109) -> [1: bb53, otherwise: bb52];
+50: _106 = move _16; _0 = Outcome::Done(move _106); drop(_106) => 51;
+51: goto 108;
+52: _105 = copy _7; _104 = record_abort(move _105) => 50;
+53: goto 54;
+54: _107 = copy (((_24 as Some).0: (square::Square, score::Score)).0: square::Square); _108 = copy (((_24 as Some).0: (square::Square, score::Score)).1: score::Score); _111 = &(*((*_1).1: &search::root_move::RootMoves)); _110 = RootMoves::sort_all(move _111) => 55;
+55: _113 = discriminant(_7); switchInt(move _113) -> [1: bb56, otherwise: bb65];
+56: goto 57;
+57: _114 = copy ((_7 as Some).0: &search::time_control::TimeManager); _116 = copy ((*_3).6: bool); switchInt(move _116) -> [0: bb58, otherwise: bb61];
+58: _118 = copy _14; _117 = Ge(move _118, const search::aspiration::ASPIRATION_MIN_DEPTH); switchInt(move _117) -> [0: bb60, otherwise: bb59];
+59: _115 = copy _23; goto 62;
+60: goto 61;
+61: _115 = const false; goto 62;
+62: _120 = &(*_114); _121 = copy _107; _123 = copy _108; _122 = Score::to_disc_diff_f32(move _123) => 63;
+63: _124 = copy _14; _125 = copy _115; _119 = TimeManager::report_iteration(move _120, move _121, move _122, move _124, move _125) => 64;
+64: _112 = const (); goto 66;
+65: _112 = const (); goto 66;
+66: _129 = &(*((*_1).1: &search::root_move::RootMoves)); _128 = RootMoves::count(move _129) => 67;
+67: _127 = Eq(move _128, const 1_usize); switchInt(move _127) -> [0: bb73, otherwise: bb68];
+68: _131 = copy _7; _132 = deadline; _130 = Option::<&TimeManager>::is_some_and::<deadline>(move _131, move _132) => 69;
+69: switchInt(move _130) -> [0: bb72, otherwise: bb70];
+70: _134 = move _16; _0 = Outcome::Done(move _134); drop(_134) => 71;
+71: goto 107;
+72: goto 74;
+73: goto 74;
+74: _126 = const (); _139 = &(*_6); _138 = <Arc<threading::thread::Thread> as Deref>::deref(move _139) => 75;
+75: _137 = &(*_138); _136 = threading::thread::Thread::is_search_aborted(move _137) => 76;
+76: switchInt(move _136) -> [0: bb79, otherwise: bb77];
+77: _141 = move _16; _0 = Outcome::Done(move _141); drop(_141) => 78;
+78: goto 107;
+79: _135 = const (); _143 = discriminant(_7); switchInt(move _143) -> [1: bb80, otherwise: bb97];
+80: goto 81;
+81: _144 = copy ((_7 as Some).0: &search::time_control::TimeManager); _146 = copy _14; _147 = copy _4; _145 = Ge(move _146, move _147); switchInt(move _145) -> [0: bb96, otherwise: bb82];
+82: _150 = const true; switchInt(move _150) -> [0: bb87, otherwise: bb83];
+83: _153 = &_4; _154 = &_9; _152 = (move _153, move _154); _155 = copy (_152.0: &u32); _156 = copy (_152.1: &u32); _158 = copy (*_155); _159 = copy (*_156); _157 = Eq(move _158, move _159); switchInt(move _157) -> [0: bb85, otherwise: bb84];
+84: _151 = const (); _149 = const (); goto 88;
+85: _161 = core::panicking::AssertKind::Eq; _163 = move _161; _165 = &(*_155); _164 = &(*_165); _167 = &(*_156); _166 = &(*_167); _169 = Arguments::<'_>::from_str(const "time-controlled midgame searches always target all empties") => 86;
+86: _168 = Option::<Arguments<'_>>::Some(move _169); _162 = core::panicking::assert_failed::<u32, u32>(move _163, move _164, move _166, move _168) -> bb115;
+87: _149 = const (); goto 88;
+88: _172 = &(*_144); _174 = copy ((*_1).2: u64); _176 = &(*_5); _175 = Helpers::<'_>::nodes(move _176) => 89;
+89: _177 = AddWithOverflow(copy _174, copy _175); assert(!move (_177.1: bool), "attempt to compute `{} + {}`, which would overflow", move _174, move _175) -> [success: bb90, unwind: bb115];
+90: _173 = move (_177.0: u64); _171 = TimeManager::should_enter_endgame(move _172, move _173) => 91;
+91: switchInt(move _171) -> [0: bb94, otherwise: bb92];
+92: _179 = move _16; _180 = copy _108; _0 = Outcome::Endgame(move _179, move _180); drop(_179) => 93;
+93: goto 106;
+94: _170 = const (); _181 = move _16; _0 = Outcome::Done(move _181); drop(_181) => 95;
+95: goto 106;
+96: goto 97;
+97: _142 = const (); _184 = copy _7; _183 = should_stop_iteration(move _184) => 98;
+98: switchInt(move _183) -> [0: bb101, otherwise: bb99];
+99: _186 = move _16; _0 = Outcome::Done(move _186); drop(_186) => 100;
+100: goto 107;
+101: _182 = const (); _188 = copy _14; _187 = next_iteration_depth(move _188) => 102;
+102: _14 = move _187; _19 = const (); goto 6;
+103: _18 = const (); _192 = move _16; _0 = Outcome::Done(move _192); drop(_192) => 104;
+104: drop(_16) => 105;
+105: goto 110;
+106: goto 107;
 107: goto 108;
-108: goto 109;
-109: drop(_17) => 110;
-110: goto 111;
-111: return;
+108: drop(_16) => 109;
+109: goto 110;
+110: return;
 """,
     'search-midgame-iterate-{closure#0}': """
 0: _3 = copy ((*_2).0: square::Square); _4 = copy ((*_2).1: score::Score); _0 = (move _3, move _4); return;
@@ -229,70 +228,69 @@ BODIES = {
 7: _22 = const (); goto 8;
 8: _29 = &(*(_8.1: &search::root_move::RootMoves)); _28 = RootMoves::count(move _29) => 9;
 9: _27 = Eq(move _28, const 0_usize); switchInt(move _27) -> [0: bb11, otherwise: bb10];
-10: _0 = SearchResult::NoLegalMove; goto 72;
+10: _0 = SearchResult::NoLegalMove; goto 71;
 11: _26 = const (); _33 = &_4; _35 = Board::new() => 12;
 12: _34 = &_35; _32 = <Board as PartialEq>::eq(move _33, move _34) => 13;
 13: switchInt(move _32) -> [0: bb18, otherwise: bb14];
 14: _36 = copy (_1.6: bool); switchInt(move _36) -> [0: bb15, otherwise: bb19];
 15: _40 = &_4; _39 = &(*_40); _38 = random_move(move _39) => 16;
 16: _0 = SearchResult::new_random_move(move _38) => 17;
-17: goto 72;
+17: goto 71;
 18: goto 19;
-19: _31 = const (); _42 = &(_8.10: empty_list::EmptyList); _41 = EmptyList::count(move _42) => 20;
-20: _45 = copy _2; _44 = <u32 as Ord>::max(move _45, const 1_u32) => 21;
-21: _46 = copy _41; _43 = <u32 as Ord>::min(move _44, move _46) => 22;
-22: _51 = &(_1.10: std::sync::Arc<search::correction_history::CorrectionHistories>); _50 = <Arc<CorrectionHistories> as Deref>::deref(move _51) => 23;
-23: _49 = &(*_50); _55 = &(*_3); _54 = <Arc<threading::thread::Thread> as Deref>::deref(move _55) => 24;
-24: _53 = &(*_54); _52 = threading::thread::Thread::idx(move _53) => 25;
-25: _48 = CorrectionHistories::take(move _49, move _52) => 26;
-26: _47 = Option::<Box<CorrectionHistory>>::Some(move _48); drop(_48) => 27;
-27: drop((_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>)) => 28;
-28: (_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>) = move _47; drop(_47) => 30;
-30: _58 = &_1; _57 = &(*_58); _59 = copy _43; _56 = Helpers::<'_>::start(move _57, move _59) => 31;
-31: _62 = &mut _8; _61 = &mut (*_62); _64 = &_4; _63 = &(*_64); _66 = &_1; _65 = &(*_66); _67 = copy _43; _69 = &_56; _68 = &(*_69); _70 = &(*_3); _60 = iterate(move _61, move _63, move _65, move _67, move _68, move _70) => 32;
-32: _72 = move _56; _71 = Helpers::<'_>::stop(move _72) => 33;
-33: _75 = &mut (_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>); _74 = Option::<Box<CorrectionHistory>>::take(move _75) => 34;
-34: _76 = discriminant(_74); switchInt(move _76) -> [1: bb35, otherwise: bb41];
-35: goto 36;
-36: _77 = move ((_74 as Some).0: std::boxed::Box<search::correction_history::CorrectionHistory>); _81 = &(_1.10: std::sync::Arc<search::correction_history::CorrectionHistories>); _80 = <Arc<CorrectionHistories> as Deref>::deref(move _81) => 37;
-37: _79 = &(*_80); _85 = &(*_3); _84 = <Arc<threading::thread::Thread> as Deref>::deref(move _85) => 38;
-38: _83 = &(*_84); _82 = threading::thread::Thread::idx(move _83) => 39;
-39: _86 = move _77; _78 = CorrectionHistories::put(move _79, move _82, move _86) => 40;
-40: _73 = const (); drop(_77) => 43;
-41: drop(_74) => 42;
-42: _73 = const (); goto 45;
-43: drop(_74) => 44;
-44: goto 45;
-45: _88 = &mut _8; _90 = &(_71.0: search::counters::SearchCounters); _89 = &(*_90); _87 = SearchContext::<'_>::merge_counters(move _88, move _89) => 46;
-46: _91 = discriminant(_60); switchInt(move _91) -> [0: bb48, 1: bb49, otherwise: bb47];
-47: FakeRead(ForMatchedPlace(None), _60); unreachable;
-48: goto 50;
-49: _106 = move ((_60 as Endgame).0: search::result::CompletedState); _107 = copy ((_60 as Endgame).1: score::Score); _109 = &mut _8; _108 = &mut (*_109); _111 = &_1; _110 = &(*_111); _112 = &(*_3); _113 = copy _107; _114 = move _106; _115 = Selectivity::None; _0 = solve_root(move _108, move _110, move _112, move _113, move _114, const search::ENDGAME_TRACKING_MIN_SELECTIVITY, move _115) => 64;
-50: _92 = move ((_60 as Done).0: search::result::CompletedState); _94 = copy (_1.6: bool); switchInt(move _94) -> [0: bb51, otherwise: bb60];
-51: _96 = &(_1.8: std::option::Option<std::sync::Arc<search::time_control::TimeManager>>); _95 = Option::<Arc<TimeManager>>::is_some(move _96) => 52;
-52: switchInt(move _95) -> [0: bb59, otherwise: bb53];
-53: _99 = &mut (_92.1: std::option::Option<search::result::Iteration>); _98 = Option::<Iteration>::take(move _99) => 54;
-54: _100 = move (_71.1: std::vec::Vec<search::result::Iteration>); _97 = vote_best(move _98, move _100) => 55;
-55: drop((_92.1: std::option::Option<search::result::Iteration>)) => 56;
-56: (_92.1: std::option::Option<search::result::Iteration>) = move _97; drop(_97) => 58;
-58: _93 = const (); goto 61;
-59: goto 60;
-60: _93 = const (); goto 61;
-61: _101 = move _92; _103 = &_8; _102 = &(*_103); _105 = &_4; _104 = &(*_105); _0 = CompletedState::into_result(move _101, move _102, move _104) => 62;
-62: drop(_92) => 63;
-63: goto 66;
-64: drop(_106) => 65;
-65: goto 66;
-66: drop(_71) => 67;
-67: drop(_60) => 68;
-68: drop(_56) => 69;
-69: drop(_8) => 70;
-70: drop(_5) => 71;
-71: drop(_1) => 75;
-72: drop(_8) => 73;
-73: drop(_5) => 74;
-74: drop(_1) => 75;
-75: return;
+19: _31 = const (); _41 = copy (_8.10: u32); _44 = copy _2; _43 = <u32 as Ord>::max(move _44, const 1_u32) => 20;
+20: _45 = copy _41; _42 = <u32 as Ord>::min(move _43, move _45) => 21;
+21: _50 = &(_1.10: std::sync::Arc<search::correction_history::CorrectionHistories>); _49 = <Arc<CorrectionHistories> as Deref>::deref(move _50) => 22;
+22: _48 = &(*_49); _54 = &(*_3); _53 = <Arc<threading::thread::Thread> as Deref>::deref(move _54) => 23;
+23: _52 = &(*_53); _51 = threading::thread::Thread::idx(move _52) => 24;
+24: _47 = CorrectionHistories::take(move _48, move _51) => 25;
+25: _46 = Option::<Box<CorrectionHistory>>::Some(move _47); drop(_47) => 26;
+26: drop((_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>)) => 27;
+27: (_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>) = move _46; drop(_46) => 29;
+29: _57 = &_1; _56 = &(*_57); _58 = copy _42; _55 = Helpers::<'_>::start(move _56, move _58) => 30;
+30: _61 = &mut _8; _60 = &mut (*_61); _63 = &_4; _62 = &(*_63); _65 = &_1; _64 = &(*_65); _66 = copy _42; _68 = &_55; _67 = &(*_68); _69 = &(*_3); _59 = iterate(move _60, move _62, move _64, move _66, move _67, move _69) => 31;
+31: _71 = move _55; _70 = Helpers::<'_>::stop(move _71) => 32;
+32: _74 = &mut (_8.4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>); _73 = Option::<Box<CorrectionHistory>>::take(move _74) => 33;
+33: _75 = discriminant(_73); switchInt(move _75) -> [1: bb34, otherwise: bb40];
+34: goto 35;
+35: _76 = move ((_73 as Some).0: std::boxed::Box<search::correction_history::CorrectionHistory>); _80 = &(_1.10: std::sync::Arc<search::correction_history::CorrectionHistories>); _79 = <Arc<CorrectionHistories> as Deref>::deref(move _80) => 36;
+36: _78 = &(*_79); _84 = &(*_3); _83 = <Arc<threading::thread::Thread> as Deref>::deref(move _84) => 37;
+37: _82 = &(*_83); _81 = threading::thread::Thread::idx(move _82) => 38;
+38: _85 = move _76; _77 = CorrectionHistories::put(move _78, move _81, move _85) => 39;
+39: _72 = const (); drop(_76) => 42;
+40: drop(_73) => 41;
+41: _72 = const (); goto 44;
+42: drop(_73) => 43;
+43: goto 44;
+44: _87 = &mut _8; _89 = &(_70.0: search::counters::SearchCounters); _88 = &(*_89); _86 = SearchContext::<'_>::merge_counters(move _87, move _88) => 45;
+45: _90 = discriminant(_59); switchInt(move _90) -> [0: bb47, 1: bb48, otherwise: bb46];
+46: FakeRead(ForMatchedPlace(None), _59); unreachable;
+47: goto 49;
+48: _105 = move ((_59 as Endgame).0: search::result::CompletedState); _106 = copy ((_59 as Endgame).1: score::Score); _108 = &mut _8; _107 = &mut (*_108); _110 = &_1; _109 = &(*_110); _111 = &(*_3); _112 = copy _106; _113 = move _105; _114 = Selectivity::None; _0 = solve_root(move _107, move _109, move _111, move _112, move _113, const search::ENDGAME_TRACKING_MIN_SELECTIVITY, move _114) => 63;
+49: _91 = move ((_59 as Done).0: search::result::CompletedState); _93 = copy (_1.6: bool); switchInt(move _93) -> [0: bb50, otherwise: bb59];
+50: _95 = &(_1.8: std::option::Option<std::sync::Arc<search::time_control::TimeManager>>); _94 = Option::<Arc<TimeManager>>::is_some(move _95) => 51;
+51: switchInt(move _94) -> [0: bb58, otherwise: bb52];
+52: _98 = &mut (_91.1: std::option::Option<search::result::Iteration>); _97 = Option::<Iteration>::take(move _98) => 53;
+53: _99 = move (_70.1: std::vec::Vec<search::result::Iteration>); _96 = vote_best(move _97, move _99) => 54;
+54: drop((_91.1: std::option::Option<search::result::Iteration>)) => 55;
+55: (_91.1: std::option::Option<search::result::Iteration>) = move _96; drop(_96) => 57;
+57: _92 = const (); goto 60;
+58: goto 59;
+59: _92 = const (); goto 60;
+60: _100 = move _91; _102 = &_8; _101 = &(*_102); _104 = &_4; _103 = &(*_104); _0 = CompletedState::into_result(move _100, move _101, move _103) => 61;
+61: drop(_91) => 62;
+62: goto 65;
+63: drop(_105) => 64;
+64: goto 65;
+65: drop(_70) => 66;
+66: drop(_59) => 67;
+67: drop(_55) => 68;
+68: drop(_8) => 69;
+69: drop(_5) => 70;
+70: drop(_1) => 74;
+71: drop(_8) => 72;
+72: drop(_5) => 73;
+73: drop(_1) => 74;
+74: return;
 """,
     'search-root_move-{impl#1}-sort_all': """
 0: _4 = &((*_1).0: std::sync::Mutex<std::vec::Vec<search::root_move::RootMove>>); _3 = std::sync::Mutex::<Vec<RootMove>>::lock(move _4) => 1;
@@ -328,27 +326,27 @@ BOUNDARY_PREFIX = """
 4: _16 = copy _3; _15 = Eq(move _16, const 0_u32); switchInt(move _15) -> [0: bb8, otherwise: bb5];
 5: _19 = &mut (*_1); _18 = SearchContext::<'_>::clear_pv(move _19) => 6;
 6: _20 = &(*_1); _21 = &(*_2); _0 = <SS as SearchStrategy>::evaluate(move _20, move _21) => 7;
-7: goto 445;
+7: goto 443;
 8: _14 = const (); _23 = &mut (*_1); _22 = SearchContext::<'_>::prepare_pv(move _23) => 9;
-9: _12 = const (); goto 37;
-10: _25 = &((*_1).10: empty_list::EmptyList); _24 = EmptyList::count(move _25) => 11;
-11: _27 = const <SS as search::strategy::SearchStrategy>::IS_ENDGAME; switchInt(move _27) -> [0: bb12, otherwise: bb26];
-12: _29 = copy _3; _30 = copy _24; _28 = Ge(move _29, move _30); switchInt(move _28) -> [0: bb25, otherwise: bb13];
-13: _32 = copy _24; _31 = Le(move _32, const <search::strategy::EndGameStrategy as search::strategy::SearchStrategy>::DEPTH_TO_SHALLOW); switchInt(move _31) -> [0: bb24, otherwise: bb14];
-14: _35 = const true; switchInt(move _35) -> [0: bb21, otherwise: bb15];
-15: _40 = copy _5; _39 = Score::value(move _40) => 16;
-16: _38 = &_39; _44 = copy _4; _43 = Score::value(move _44) => 17;
-17: _45 = AddWithOverflow(copy _43, const 1_i32); assert(!move (_45.1: bool), "attempt to compute `{} + {}`, which would overflow", move _43, const 1_i32) -> [success: bb18, unwind: bb450];
-18: _42 = move (_45.0: i32); _41 = &_42; _37 = (move _38, move _41); _46 = copy (_37.0: &i32); _47 = copy (_37.1: &i32); _49 = copy (*_46); _50 = copy (*_47); _48 = Eq(move _49, move _50); switchInt(move _48) -> [0: bb20, otherwise: bb19];
-19: _36 = const (); _34 = const (); goto 22;
-20: _52 = core::panicking::AssertKind::Eq; _54 = move _52; _56 = &(*_46); _55 = &(*_56); _58 = &(*_47); _57 = &(*_58); _59 = Option::<Arguments<'_>>::None; _53 = core::panicking::assert_failed::<i32, i32>(move _54, move _55, move _57, move _59) -> bb450;
-21: _34 = const (); goto 22;
-22: _60 = &mut (*_1); _61 = &(*_2); _62 = copy _24; _63 = copy _4; _64 = copy _5; _65 = &(*_6); _0 = <EndGameStrategy as SearchStrategy>::shallow_search(move _60, move _61, move _62, move _63, move _64, move _65) => 23;
-23: goto 444;
-24: goto 26;
-25: goto 26;
-26: _26 = const (); _68 = copy _3; _67 = Le(move _68, const <SS as search::strategy::SearchStrategy>::DEPTH_TO_SHALLOW); switchInt(move _67) -> [0: bb28, otherwise: bb27];
-27: _70 = &mut (*_1); _71 = &(*_2); _72 = copy _3; _73 = copy _4; _74 = copy _5; _75 = &(*_6); _0 = <SS as SearchStrategy>::shallow_search(move _70, move _71, move _72, move _73, move _74, move _75) => 29;
+9: _12 = const (); goto 36;
+10: _24 = copy ((*_1).10: u32); _26 = const <SS as search::strategy::SearchStrategy>::IS_ENDGAME; switchInt(move _26) -> [0: bb11, otherwise: bb25];
+11: _28 = copy _3; _29 = copy _24; _27 = Ge(move _28, move _29); switchInt(move _27) -> [0: bb24, otherwise: bb12];
+12: _31 = copy _24; _30 = Le(move _31, const <search::strategy::EndGameStrategy as search::strategy::SearchStrategy>::DEPTH_TO_SHALLOW); switchInt(move _30) -> [0: bb23, otherwise: bb13];
+13: _34 = const true; switchInt(move _34) -> [0: bb20, otherwise: bb14];
+14: _39 = copy _5; _38 = Score::value(move _39) => 15;
+15: _37 = &_38; _43 = copy _4; _42 = Score::value(move _43) => 16;
+16: _44 = AddWithOverflow(copy _42, const 1_i32); assert(!move (_44.1: bool), "attempt to compute `{} + {}`, which would overflow", move _42, const 1_i32) -> [success: bb17, unwind: bb448];
+17: _41 = move (_44.0: i32); _40 = &_41; _36 = (move _37, move _40); _45 = copy (_36.0: &i32); _46 = copy (_36.1: &i32); _48 = copy (*_45); _49 = copy (*_46); _47 = Eq(move _48, move _49); switchInt(move _47) -> [0: bb19, otherwise: bb18];
+18: _35 = const (); _33 = const (); goto 21;
+19: _51 = core::panicking::AssertKind::Eq; _53 = move _51; _55 = &(*_45); _54 = &(*_55); _57 = &(*_46); _56 = &(*_57); _58 = Option::<Arguments<'_>>::None; _52 = core::panicking::assert_failed::<i32, i32>(move _53, move _54, move _56, move _58) -> bb448;
+20: _33 = const (); goto 21;
+21: _59 = &mut (*_1); _60 = &(*_2); _61 = copy _24; _62 = copy _4; _63 = copy _5; _64 = &(*_6); _0 = <EndGameStrategy as SearchStrategy>::shallow_search(move _59, move _60, move _61, move _62, move _63, move _64) => 22;
+22: goto 442;
+23: goto 25;
+24: goto 25;
+25: _25 = const (); _67 = copy _3; _66 = Le(move _67, const <SS as search::strategy::SearchStrategy>::DEPTH_TO_SHALLOW); switchInt(move _66) -> [0: bb27, otherwise: bb26];
+26: _69 = &mut (*_1); _70 = &(*_2); _71 = copy _3; _72 = copy _4; _73 = copy _5; _74 = &(*_6); _0 = <SS as SearchStrategy>::shallow_search(move _69, move _70, move _71, move _72, move _73, move _74) => 28;
+27: _65 = const (); _76 = &(*_2); _77 = copy _24; _79 = copy _4; _78 = Score::to_disc_diff(move _79) => 29;
 """
 
 # MidgameAspiration/Model.lean hard-codes the aspiration values, and the others are semantic.
@@ -421,27 +419,27 @@ def reject_mutants(dump, closures):
     caller = "search-midgame-search_root"
     retry = "search-aspiration-retry_midgame"
     mutants = [
-        (iterate, "_25 = Option::<(Square, Score)>::None;", "_25 = copy _93;"),
-        (iterate, "_40 = copy _37;", "_40 = const 1_usize;"),
-        (iterate, "RootMoves::sort_from_pv_idx(move _60)", "RootMoves::count(move _60)"),
-        (iterate, "move _97, const false)", "move _97, const true)"),
-        (iterate, "0: bb80, otherwise: bb78", "0: bb78, otherwise: bb80"),
-        (iterate, "_146 = Ge(move _147, move _148)", "_146 = Le(move _147, move _148)"),
-        (iterate, "0: bb95, otherwise: bb93", "0: bb93, otherwise: bb95"),
-        (iterate, "_181 = copy _109;", "_181 = copy _47;"),
+        (iterate, "_24 = Option::<(Square, Score)>::None;", "_24 = copy _92;"),
+        (iterate, "_39 = copy _36;", "_39 = const 1_usize;"),
+        (iterate, "RootMoves::sort_from_pv_idx(move _59)", "RootMoves::count(move _59)"),
+        (iterate, "move _96, const false)", "move _96, const true)"),
+        (iterate, "0: bb79, otherwise: bb77", "0: bb77, otherwise: bb79"),
+        (iterate, "_145 = Ge(move _146, move _147)", "_145 = Le(move _146, move _147)"),
+        (iterate, "0: bb94, otherwise: bb92", "0: bb92, otherwise: bb94"),
+        (iterate, "_180 = copy _108;", "_180 = copy _46;"),
         (iterate + "-{closure#0}", "((*_2).1: score::Score)", "((*_2).2: score::Score)"),
-        (caller, "_113 = copy _107;", "_113 = const score::Score::ZERO;"),
-        (caller, "_109 = &mut _8;", "_109 = &mut _99;"),
+        (caller, "_112 = copy _106;", "_112 = const score::Score::ZERO;"),
+        (caller, "_108 = &mut _8;", "_108 = &mut _98;"),
         ("search-root_move-{impl#1}-sort_all-{closure#0}", "((*_2).1: score::Score)", "((*_2).2: score::Score)"),
         ("search-midgame-next_iteration_depth", "AddWithOverflow(copy _4, const 2_u32)", "AddWithOverflow(copy _4, const 1_u32)"),
         ("search-midgame-aspiration_window-{closure#0}", "(_2.2: score::Score)", "(_2.1: score::Score)"),
         ("search-midgame-aspiration_search-{closure#0}", "search::<Root, MidGameStrategy>", "search::<PV, MidGameStrategy>"),
         (retry, "0: bb7, otherwise: bb6", "0: bb6, otherwise: bb7"),
         (retry, "div(move _28, const 2_i32)", "div(move _28, const 3_i32)"),
-        (PVS, "Ge(move _29, move _30)", "Gt(move _29, move _30)"),
-        (PVS, "Le(move _32, const <search::strategy::EndGameStrategy", "Lt(move _32, const <search::strategy::EndGameStrategy"),
-        (PVS, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _444)", "const true, move _444)"),
-        ("search-midgame-evaluate_shallow_with_tt", "const false, move _157)", "const true, move _157)"),
+        (PVS, "Ge(move _28, move _29)", "Gt(move _28, move _29)"),
+        (PVS, "Le(move _31, const <search::strategy::EndGameStrategy", "Lt(move _31, const <search::strategy::EndGameStrategy"),
+        (PVS, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _441)", "const true, move _441)"),
+        ("search-midgame-evaluate_shallow_with_tt", "const false, move _155)", "const true, move _155)"),
         (BOUNDARY, "const true, const false)", "const false, const false)"),
     ]
     for stem, old, new in mutants:

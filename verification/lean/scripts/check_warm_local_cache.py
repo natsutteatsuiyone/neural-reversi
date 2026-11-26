@@ -23,7 +23,7 @@ def instrument(src):
                         "super::serial_calls_fixture::observe(ctx, board, alpha_d, alpha, beta, prior_hit, score_d);\n        " + after)
     strategy.write_text(code)
     cache = src / "search/endgame/cache.rs"
-    point = "let entry = &mut self.table[slot.0];"
+    point = "let entry = unsafe { self.table.get_unchecked_mut(slot.0) };"
     cache.write_text(replace_once(cache.read_text(), point,
         "crate::search::serial_calls_fixture::stored(slot.0, board, alpha, score);\n        " + point))
 

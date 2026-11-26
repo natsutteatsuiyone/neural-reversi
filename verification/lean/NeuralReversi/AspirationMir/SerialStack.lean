@@ -217,7 +217,7 @@ private theorem observed (chain : Trials search s prior last) (v : Visit) (mem :
 
 private theorem steps (chain : Trials search s prior last) (query : Query)
     (seen : ∀ v ∈ prior ++ [last], v.call.Observed query) (m : Machine)
-    (pc : m.pc = 3) (idx : m.issued = s.index) (regs : m.regs = s.regs) :
+    (pc : m.pc = 2) (idx : m.issued = s.index) (regs : m.regs = s.regs) :
     Returns query (fun _ => false) m last.call.score last.call := by
   induction chain generalizing m with
   | @accept s k ans found stop =>
@@ -240,8 +240,8 @@ theorem Trials.returns (m : Machine) (pc : m.pc = 0) (chain : Trials search (fir
   | mk pc' regs idx old flag out =>
     change pc' = 0 at pc
     subst pc'
-    exact .next rfl (.next rfl (.next rfl (steps chain _ (observed chain)
-      ⟨3,{regs with delta := BitVec.ofInt 32 initialDelta},idx,old,flag,out⟩ rfl rfl rfl)))
+    exact .next rfl (.next rfl (steps chain _ (observed chain)
+      ⟨2,{regs with delta := BitVec.ofInt 32 initialDelta},idx,old,flag,out⟩ rfl rfl rfl))
 
 def PublicScoreContract : Prop :=
   ∀ mc fc (c : SerialScout.Config) (b : Position) (rows : List Row) (m : Machine)

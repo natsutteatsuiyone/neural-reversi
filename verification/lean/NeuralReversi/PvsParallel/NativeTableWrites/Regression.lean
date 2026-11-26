@@ -40,7 +40,7 @@ private def position : PvsBoardTree.Position := ⟨⟨0x84f88080808080,0x3077f7f
 private def input : Input :=
   let mask := Board.emptySquares position.val
   let empties : EndgameSearch.Cancellation.EmptyState :=
-    ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount position.val⟩
+    ⟨Empties.encode mask,Board.emptyCount position.val⟩
   ⟨position,empties,by
     simpa only [EndgameSearch.Cancellation.EmptyState.matches,empties,mask] using EndgameSearch.emptyState_initial position,
     ⟨0⟩,⟨1⟩,12,⟨2,by decide⟩,[],⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩,true,false,false,true,.other,false,false⟩

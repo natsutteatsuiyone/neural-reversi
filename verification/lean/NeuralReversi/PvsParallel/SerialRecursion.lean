@@ -150,7 +150,7 @@ structure RootInput where
 
 def rootReplies (c : SerialScout.Config) (inputs : Inputs mc fc) (path : List Call)
     (b : Position) (alpha beta : BitVec 32) : RootOwnerMir.Replies (GeneratedSquare mc b.val) :=
-  let s := ContextPathMir.leafState (ContextPathMir.start b)
+  let s := ContextPathMir.leafState b
   let here := ⟨b.val, true, false, alpha.toInt, beta.toInt⟩ :: path
   fun m pv => run c inputs here (play mc fc b m).val (s.count - 1) (s.remove m.val) pv (!pv)
 
@@ -178,9 +178,9 @@ theorem rootTrialContract_proven : RootTrialContract := by
   intro m pv lo hi w null
   have childFull := (ExactDepth.move_depth mc fc b _ m full).2.1
   rw [depth] at childFull
-  have placed := (EndgameSearch.emptyStatePlayContract_proven mc fc b m _ _ _ aligned).2.2.1
+  have placed := (EndgameSearch.emptyStatePlayContract_proven mc fc b m _ _ aligned).2.1
   obtain ⟨v, ran, replay, _⟩ := returns c inputs valid (⟨b.val, true, false, a.toInt, z.toInt⟩ :: path)
-    (play mc fc b m).val _ ((ContextPathMir.leafState (ContextPathMir.start b)).remove m.val) pv (!pv) lo hi
+    (play mc fc b m).val _ ((ContextPathMir.leafState b).remove m.val) pv (!pv) lo hi
     childFull placed w null
   exact ⟨v, ran, replay⟩
 

@@ -141,7 +141,7 @@ private theorem frame_agrees (target : TargetConfig) (bmi2 : Bool) (mc : X86Conf
   · rfl
   · let placed : State := { input with polls := input.polls.after, empties := input.empties.remove sq.val }
     have placedAligned : placed.empties.matches (play mc fc b sq).val :=
-      (emptyStatePlayContract_proven mc fc b sq _ _ _ aligned).2.2.1
+      (emptyStatePlayContract_proven mc fc b sq _ _ aligned).2.1
     have shallow := ShallowMir.agrees target bmi2 mc fc addr (play mc fc b sq).val placed.empties (-(a+1)) placed.history placedAligned safe sound
     have eq := same placed placedAligned sound
     cases small : decide (placed.empties.count.toNat ≤ 6) with
@@ -179,7 +179,7 @@ private theorem atRank (target : TargetConfig) (bmi2 paired : Bool) (mc : X86Con
       | false => simp
       | true =>
         have smaller := Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil ms, other⟩) b.property
-        have eq := ih _ smaller (pass b) rfl (-(a+1)) s (emptyState_pass b _ _ _ aligned) nextSafe sound
+        have eq := ih _ smaller (pass b) rfl (-(a+1)) s (emptyState_pass b _ _ aligned) nextSafe sound
         simp [eq]
         rfl
     | cons first rest =>

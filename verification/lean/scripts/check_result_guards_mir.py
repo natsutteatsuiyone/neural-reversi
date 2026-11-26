@@ -113,15 +113,14 @@ _12 = copy ((_4 as Some).0: transposition_table::TTEntryData); _16 = &_12; _15 =
 _14 = &_15; _18 = transposition_table::Bound::Exact; _17 = &_18; _13 = <transposition_table::Bound as PartialEq>::eq(move _14, move _17) => 7;
 switchInt(move _13) -> [0: bb10, otherwise: bb8];
 _20 = &_12; _0 = TTEntryData::score(move _20) => 9;
-goto 18;
+goto 17;
 goto 11;
-_3 = const (); _21 = EvalMode::Main; ((*_1).9: eval::EvalMode) = move _21; _25 = &((*_1).10: empty_list::EmptyList); _24 = EmptyList::count(move _25) => 12;
-_23 = Ge(move _24, const 20_u32); switchInt(move _23) -> [0: bb16, otherwise: bb13];
-_27 = &mut (*_1); _28 = &(*_2); _29 = <Score as Neg>::neg(const score::Score::INF) => 14;
-_0 = evaluate_depth2(move _27, move _28, move _29, const score::Score::INF) => 15;
-goto 18;
-_22 = const (); _30 = &(*_1); _31 = &(*_2); _0 = evaluate(move _30, move _31) => 17;
-goto 18;
+_3 = const (); _21 = EvalMode::Main; ((*_1).9: eval::EvalMode) = move _21; _24 = copy ((*_1).10: u32); _23 = Ge(move _24, const 20_u32); switchInt(move _23) -> [0: bb13, otherwise: bb12];
+_26 = &mut (*_1); _27 = &(*_2); _28 = <Score as Neg>::neg(const score::Score::INF) => 14;
+_22 = const (); _29 = &(*_1); _30 = &(*_2); _0 = evaluate(move _29, move _30) => 16;
+_0 = evaluate_depth2(move _26, move _27, move _28, const score::Score::INF) => 15;
+goto 17;
+goto 17;
 return;
 """,
     ADVANCE_GENERATION: """
@@ -414,14 +413,14 @@ _0 = SearchResult::NoLegalMove;
 _0 = solve_root(move _37, move _39, move _41, move _42, move _43, move _44, move _45) => 12;
 """),
     "search-endgame-solve_root": (r"_0", """
-_0 = CompletedState::into_result(move _147, move _148, move _149) => 87;
-_0 = CompletedState::into_result(move _158, move _159, move _160) => 94;
+_0 = CompletedState::into_result(move _146, move _147, move _148) => 86;
+_0 = CompletedState::into_result(move _157, move _158, move _159) => 93;
 """),
     "search-midgame-search_root": (r"_0", """
 _0 = SearchResult::NoLegalMove;
 _0 = SearchResult::new_random_move(move _38) => 17;
-_0 = solve_root(move _108, move _110, move _112, move _113, move _114, const search::ENDGAME_TRACKING_MIN_SELECTIVITY, move _115) => 64;
-_0 = CompletedState::into_result(move _101, move _102, move _104) => 62;
+_0 = solve_root(move _107, move _109, move _111, move _112, move _113, const search::ENDGAME_TRACKING_MIN_SELECTIVITY, move _114) => 63;
+_0 = CompletedState::into_result(move _100, move _101, move _103) => 61;
 """),
     "search-threading-thread-{impl#1}-main_thread_loop": (r"_(?:15|17|31|32|53|54|55)", """
 _15 = move ((((_11 as Ok).0: search::threading::pool::Message) as StartThinking).0: search::SearchTask);
@@ -509,10 +508,10 @@ def check_mutants(dump):
         (ESTIMATE, "TTEntryData::bound(move _16)", "TTEntryData::selectivity(move _16)"),
         (ESTIMATE, "EvalMode::Main;", "EvalMode::Small;"),
         (ESTIMATE, "const 20_u32", "const 19_u32"),
-        (ESTIMATE, "0: bb16, otherwise: bb13", "0: bb13, otherwise: bb16"),
-        (ESTIMATE, "_0 = evaluate_depth2(move _27, move _28, move _29, const score::Score::INF)",
-         "_0 = evaluate_depth2(move _27, move _28, move _29, move _29)"),
-        (ESTIMATE, "_0 = evaluate(move _30, move _31)", "_0 = evaluate_depth1(move _30, move _31)"),
+        (ESTIMATE, "0: bb13, otherwise: bb12", "0: bb12, otherwise: bb13"),
+        (ESTIMATE, "_0 = evaluate_depth2(move _26, move _27, move _28, const score::Score::INF)",
+         "_0 = evaluate_depth2(move _26, move _27, move _28, move _28)"),
+        (ESTIMATE, "_0 = evaluate(move _29, move _30)", "_0 = evaluate_depth1(move _29, move _30)"),
         (ADVANCE_GENERATION, "wrapping_add(move _4, const 1_u8)", "wrapping_add(move _4, const 2_u8)"),
         (ADVANCE_GENERATION, "BitAnd(move _3, const transposition_table::TTEntry::GENERATION_MASK)",
          "BitAnd(move _3, const 63_u8)"),

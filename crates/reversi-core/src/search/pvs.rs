@@ -51,7 +51,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
         }
         ctx.prepare_pv();
     } else {
-        let n_empties = ctx.empty_list.count();
+        let n_empties = ctx.n_empties;
         if !SS::IS_ENDGAME && depth >= n_empties && n_empties <= EndGameStrategy::DEPTH_TO_SHALLOW {
             debug_assert_eq!(beta.value(), alpha.value() + 1);
             return EndGameStrategy::shallow_search(ctx, board, n_empties, alpha, beta, thread);
@@ -88,7 +88,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     }
 
@@ -235,7 +235,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             thread,
             !cut_node,
         );
-        ctx.undo(sq);
+        ctx.undo();
 
         if thread.should_stop() {
             return Score::ZERO;
@@ -367,7 +367,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
         }
 
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         // Abort check
         if thread.should_stop() {
@@ -471,7 +471,7 @@ pub(super) fn search_split_point<NT: NodeType>(
                 -search::<PV, EndGameStrategy>(ctx, &next, depth - 1, -beta, -alpha, thread, false);
         }
 
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         let _guard = split_point.lock();
 
@@ -1067,7 +1067,7 @@ mod tests {
                     false,
                 );
                 assert_fail_soft(score, alpha, beta, exact);
-                assert_eq!(ctx.empty_list.count(), board.empty_count());
+                assert_eq!(ctx.n_empties, board.empty_count());
             }
         }
     }
@@ -1160,7 +1160,7 @@ mod tests {
             assert_eq!(stored.depth(), 1);
             assert_eq!(stored.bound(), child_bound);
             assert!(ctx.side_to_move == side);
-            assert_eq!(ctx.empty_list.count(), 1);
+            assert_eq!(ctx.n_empties, 1);
         }
     }
 

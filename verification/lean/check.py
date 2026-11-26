@@ -12,7 +12,7 @@ Steps:
    AuditOwnershipRegression.lean
 4. check_policy_lean_regression.py, in parallel with the following optional checks
 5. (Unless --lean-only) difftest/ prints cases from the Rust flip, move generation,
-   activation, timing, fixed endgame, game analysis, OBF, empty list, board hash, move storage and generation, ProbCut, PV, aspiration,
+   activation, timing, fixed endgame, game analysis, OBF, empties, board hash, move storage and generation, ProbCut, PV, aspiration,
    Lazy SMP, LMR, stop token, in-flight claims, time settings, score range, evaluation cache,
    TT saves and snapshots, aligned-buffer, Windows large-page calls, weight streams, pattern-feature, and search counter routines,
    plus generated pattern-table bytes.
@@ -150,7 +150,7 @@ def run_differential_checks() -> int:
         ("flip-scalar-cases", ([],)),
         *_cases("default", "move-cases", "activation-cases", "endgame-timing-cases",
                 "time-settings-cases", "fixed-endgame-cases"),
-        *_cases("board", "game-analysis-cases", "obf-cases", "empty-list-cases", "board-hash-cases",
+        *_cases("board", "game-analysis-cases", "obf-cases", "empties-cases", "board-hash-cases",
                 "move-storage-cases", "move-generation-cases", "tt-save-cases", "stability-cases"),
         *_cases("default", "endgame-probcut-cases", "midgame-probcut-cases", "pv-stack-cases",
                 "midgame-aspiration-cases", "endgame-aspiration-cases", "lazy-smp-cases",

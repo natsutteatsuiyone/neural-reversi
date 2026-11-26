@@ -21,7 +21,7 @@ def run (c : Config) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (b : Position) (s : EmptyState) (a z : Score) (past : List Store) : Option (Int × List Store) := do
   let disc := (toDiscDiff a).raw.toInt
   if s.count.toNat ≤ 6 then
-    let raw ← NonPvMir.sourceRun c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count a c.checked
+    let raw ← NonPvMir.sourceRun c.target c.bmi2 mc fc c.address past b s.mask s.count s.count a c.checked
     let after := if s.count.toNat ≤ 4 then past else
       (EndgameSearch.ShallowMir.run c.target c.bmi2 mc fc c.address b s disc past).history
     return (raw.raw.toInt, after)
@@ -44,9 +44,9 @@ theorem returns (c : Config) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipC
   have safe := EndgameSearch.ShallowMir.scoreThreshold a
   by_cases shallow : s.count.toNat ≤ 6
   · obtain ⟨raw, returned, replay, _⟩ := NonPvMir.scoreContract_proven Cutoffs.Execution
-      (fun _ => boundedReplay 0) c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count
+      (fun _ => boundedReplay 0) c.target c.bmi2 mc fc c.address past b s.mask s.count s.count
       a z c.checked aligned.1 aligned shallow (fun _ => cache) null
-    rw [← NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ aligned (fun _ => cache)] at returned
+    rw [← NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ aligned (fun _ => cache)] at returned
     by_cases fixed : s.count.toNat ≤ 4
     · exact ⟨_, _, by simp [run, shallow, fixed, returned], replay, cache, List.prefix_refl _⟩
     · let out := EndgameSearch.ShallowMir.run c.target c.bmi2 mc fc c.address b s disc past
@@ -80,9 +80,9 @@ theorem score_returns (c : Config) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs
   by_cases fixed : s.count.toNat ≤ 4
   · have shallow : s.count.toNat ≤ 6 := by omega
     obtain ⟨raw, answer, replay, _⟩ := NonPvMir.scoreContract_proven Cutoffs.Execution
-      (fun _ => boundedReplay 0) c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count
+      (fun _ => boundedReplay 0) c.target c.bmi2 mc fc c.address past b s.mask s.count s.count
       a z c.checked aligned.1 aligned shallow cache null
-    rw [← NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ aligned cache] at answer
+    rw [← NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ aligned cache] at answer
     exact ⟨_,past,by simp [run, shallow, fixed, answer],replay⟩
   · obtain ⟨raw,after,computed,sound,_⟩ := returns c mc fc b s a z past aligned size (cache (by omega)) null
     exact ⟨raw,after,computed,sound⟩

@@ -11,7 +11,8 @@ def render(dump, repo):
     calls = {block: function for block, function, _, _ in body.calls}
     selectors = {
         GET: "access",
-        "shallow_search": "shallow",
+        "shallow_search::<5>": "shallow5",
+        "shallow_search::<6>": "shallow6",
         "null_window_search::<" + THREAD + ">": "poll",
         "null_window_search::<IgnoreSplitPointCutoff>": "ignore",
     }
@@ -33,7 +34,7 @@ def render(dump, repo):
         "  | .failed => none",
         "  | .table _ => some []",
         f"  | .fixed _ => some [{first}]",
-        f"  | .shallow => some [{first},{sites['shallow']}]",
+        f"  | .shallow six => some [{first},if six then {sites['shallow6']} else {sites['shallow5']}]",
         f"  | .deep poll => some [{first},if poll then {sites['poll']} else {sites['ignore']}]",
         "",
         "end NeuralReversi.EndgameSearch.CacheHistory.NativeTrace",

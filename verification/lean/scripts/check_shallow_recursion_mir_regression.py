@@ -7,22 +7,31 @@ from mir_mutants import check_mir_regression, run_mir_regression_cli
 
 MUTATIONS = {
     "shallow_search": [
-        ("_53 = copy _30;", "_53 = copy _3;"), ("_65 = copy _3;", "_65 = copy _30;"),
-        ("move _94, move _95, move _96", "move _94, move _96, move _95"),
+        ("_97 = copy _75;", "_97 = copy _3;"),
+        ("_110 = copy _3;", "_110 = copy _75;"),
+        ("move _93, move _94, move _96", "move _93, move _96, move _94"),
         ("const 18374403900871474942_u64", "const 9187201950435737471_u64"),
-        ("_165 = LegalMoves::corners(", "_165 = LegalMoves::non_corners("),
-        ("_212 = &mut _97;", "_212 = &mut _3;"), ("_222 = copy _97;", "_222 = copy _3;"),
+        ("_208 = LegalMoves::corners(", "_208 = LegalMoves::non_corners("),
+        ("_192 = &mut _148;", "_192 = &mut _3;"),
+        ("_265 = copy _148;", "_265 = copy _3;"),
+        ("_199 = copy (_125.1: bitboard::Bitboard);", "_199 = copy _123;"),
+        ("_128 = copy _123;", "_128 = copy _149;"),
+        ("stability_cutoff(move _116, const EMPTIES, move _117)", "stability_cutoff(move _116, const 4_u32, move _117)"),
+        ("_100 = copy _6;", "_100 = copy _37;"),
     ],
     "shallow_search_moves": [
-        ("_28 = <DiscScore as PartialOrd>::ge(", "_28 = <DiscScore as PartialOrd>::lt("),
-        ("_37 = copy _5;", "_37 = copy _21;"), ("(*_6) = move _40;", "(*_6) = move _21;"),
+        ("_29 = <DiscScore as PartialOrd>::ge(", "_29 = <DiscScore as PartialOrd>::lt("),
+        ("_38 = copy _8;", "_38 = copy _21;"),
+        ("(*_6) = move _41;", "(*_6) = move _22;"),
+        ("_26 = copy _5;", "_26 = copy _4;"),
     ],
     "shallow_search_move": [
-        ("Eq(move _16, const 4_u32)", "Eq(move _16, const 5_u32)"),
-        ("_27 = copy _12;", "_27 = copy _4;"),
-        ("move _52, move _53, move _54, move _55", "move _53, move _52, move _54, move _55"),
-        ("_61 = copy _12;", "_61 = copy _4;"), ("_62 = copy _47;", "_62 = copy _12;"),
-        ("undo_endgame(move _74, move _75)", "update_endgame(move _74, move _75)"),
+        ("_27 = copy _9;", "_27 = copy (_4.2: score::DiscScore);"),
+        ("_51 = sort_last4(move _52, move _53)", "_51 = sort_last4(move _53, move _52)"),
+        ("_44 = copy (_4.1: bitboard::Bitboard);", "_44 = copy (_4.0: search::endgame::empties::Empties);"),
+        ("_12 = copy (_4.0: search::endgame::empties::Empties);", "_12 = copy (_4.1: bitboard::Bitboard);"),
+        ("_79 = copy _11;", "_79 = copy (_4.0: search::endgame::empties::Empties);"),
+        ("move _59, move _60, move _61, move _62", "move _60, move _59, move _61, move _62"),
     ],
 }
 

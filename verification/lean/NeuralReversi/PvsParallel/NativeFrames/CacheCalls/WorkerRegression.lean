@@ -16,19 +16,19 @@ private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
 
 private def input (board : Position) : Input :=
   let mask := Board.emptySquares board.val
-  let empty := EndgameSearch.Cancellation.EmptyState.mk
-    (EmptyListInit.newLinks mask) (EmptyListParity.fromEmpties mask) (Board.emptyCount board.val)
-  ⟨board,empty,EndgameSearch.emptyState_initial board,⟨BitVec.ofInt 32 (-768)⟩,⟨BitVec.ofInt 32 (-767)⟩,
+  let empty : EndgameSearch.Cancellation.EmptyState := ⟨Empties.encode mask,Board.emptyCount board.val⟩
+  ⟨board,empty,by
+    simpa only [EndgameSearch.Cancellation.EmptyState.matches,empty,mask] using EndgameSearch.emptyState_initial board,⟨BitVec.ofInt 32 (-768)⟩,⟨BitVec.ofInt 32 (-767)⟩,
     empty.count,Cutoffs.exactSelectivity,[],⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩,true,false,false,true,.other,false,false⟩
 
 private def left := input ⟨⟨17891997908486940929,49777857980438270⟩,rfl⟩
 private def right := input ⟨⟨432408240905326881,17942278238766247454⟩,rfl⟩
 
-private def invocation (w : Worker pool) (i : Input) (arm : i.arm = .shallow) : List Record × Block pool :=
-  let code := Routine.program .shallow pool i mc fc pool.empty arm
+private def invocation (w : Worker pool) (i : Input) (six : Bool) (arm : i.arm = .shallow six) : List Record × Block pool :=
+  let code := Routine.program (.shallow six) pool i mc fc pool.empty arm
   let push := fun t node => Event.entry t 0 node w.root none
   let start := [push 0 .active,push 1 .dispatch,push 2 .splitSearch,push 3 .pvs]
-  let events := start ++ ((Routine.shallow.calls w 1 3 i none code.forest).events id 4)
+  let events := start ++ (((Routine.shallow six).calls w 1 3 i none code.forest).events id 4)
   (events.map (Record.localCall w.ordinal),code.block w id (fun {_ _} h => h) 4 pool.empty (pool.fresh (mc:=mc) (fc:=fc)).1.shape)
 
 private def mixed : List Record → List Record → List Record
@@ -42,8 +42,8 @@ private def stores (audit : Audit) := audit.ops.filterMap fun op => match op.dat
   | _ => none
 
 private def replay (cut : Option Nat) (swap : Bool) := do
-  let (one,x) := invocation a left rfl
-  let (two,y) := invocation b right rfl
+  let (one,x) := invocation a left _ rfl
+  let (two,y) := invocation b right _ rfl
   let values := Block.registers [x,y] (fun _ _ => none)
   let read : Values := if swap then fun w => values (if w = a.ordinal then b.ordinal else a.ordinal) else values
   let args (w t : Nat) : Option Args := if t = 3 ∧ (w = a.ordinal ∨ w = b.ordinal) then

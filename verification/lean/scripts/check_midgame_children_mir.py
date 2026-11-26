@@ -92,29 +92,29 @@ def inspect_pvs(dump):
 
     # Graph treats function arguments as their value at this instruction. Check all
     # mutations to depth separately, including the branch selecting its sole decrement.
-    only_assignments(g, "_3", [155])
-    checked(g.cfg[155][0] == "_3 = move (_259.0: u32);" and g.val("_259") ==
+    only_assignments(g, "_3", [153])
+    checked(g.cfg[153][0] == "_3 = move (_257.0: u32);" and g.val("_257") ==
             ("SubWithOverflow", DEPTH, "const 1_u32"), "unexpected IIR depth")
     all_node = binding(body.source, "all_node")
     _, _, _, best = body.named("TTProbeResult::<'_>::best_move")
     g.roots.update({int(all_node[1:]): "all", int(best[1:]): "hint"})
     for pc, test, no, yes in [
-        (0, PV, 1, 2), (146, ENDING, 147, 159), (147, ROOT, 148, 159), (148, "all", 149, 159),
-        (150, ("Selectivity::is_enabled", FIELD(CTX, 7)), 158, 151),
-        (151, ("Ge", DEPTH, "const search::pvs::IIR_MIN_DEPTH"), 157, 152),
-        (153, ("Option::<Square>::is_none", "hint"), 156, 154),
-        (342, ("Gt", ("compute_lmr_reduction::<NT, SS>",), "const 0_u32"), 344, 343),
-        (347, ("Gt", ("compute_lmr_reduction::<NT, SS>",), "const 0_u32"), 358, 348)]:
+        (0, PV, 1, 2), (144, ENDING, 145, 157), (145, ROOT, 146, 157), (146, "all", 147, 157),
+        (148, ("Selectivity::is_enabled", FIELD(CTX, 7)), 156, 149),
+        (149, ("Ge", DEPTH, "const search::pvs::IIR_MIN_DEPTH"), 155, 150),
+        (151, ("Option::<Square>::is_none", "hint"), 154, 152),
+        (340, ("Gt", ("compute_lmr_reduction::<NT, SS>",), "const 0_u32"), 342, 341),
+        (345, ("Gt", ("compute_lmr_reduction::<NT, SS>",), "const 0_u32"), 356, 346)]:
         guard(g, pc, test, no, yes)
     typed = normal_blocks(body.source, {})
     checked(typed[1].startswith("_10 = copy _7; _8 = Not(move _10);") and
-            typed[2].startswith("_8 = const false;") and calls[roles["passChild"]][1][6] == "move _132" and
-            g.val("_132") == "all", "pass does not invert a non-PV cut flag")
+            typed[2].startswith("_8 = const false;") and calls[roles["passChild"]][1][6] == "move _131" and
+            g.val("_131") == "all", "pass does not invert a non-PV cut flag")
     scout_flag = calls[roles["scout"]][1][6]
-    checked(scout_flag == "move _607" and typed[343] == "_607 = const true; goto 345;" and
-            typed[344] == "_610 = copy _7; _607 = Not(move _610); goto 345;", "wrong reduced scout cut flag")
-    checked("<Score as PartialOrd>::gt(move _614, move _615)" in typed[348] and
-            "_614 = &_576; _615 = &_4;" in typed[348] and typed[349] == "switchInt(move _613) -> [0: bb357, otherwise: bb350];",
+    checked(scout_flag == "move _604" and typed[341] == "_604 = const true; goto 343;" and
+            typed[342] == "_607 = copy _7; _604 = Not(move _607); goto 343;", "wrong reduced scout cut flag")
+    checked("<Score as PartialOrd>::gt(move _611, move _612)" in typed[346] and
+            "_611 = &_573; _612 = &_4;" in typed[346] and typed[347] == "switchInt(move _610) -> [0: bb355, otherwise: bb348];",
             "full-depth retry must be gated by the reduced score and alpha")
 
     captured = unique(g.calls(), PROBE)
@@ -128,8 +128,8 @@ def inspect_pvs(dump):
     # same-board ProbCut verification. That child can already have changed this slot.
     threshold = ("<Score as Add>::add", BETA, "const search::pvs::TT_PROBCUT_MARGIN")
     compared = ("<Score as PartialOrd>::ge", ("TTEntryData::score", entry), threshold)
-    guard(g, 203, compared, 206, 204)
-    checked(g.val("_301") == threshold and "_0 = copy _301;" in g.cfg[205], "TT margin returns different word")
+    guard(g, 201, compared, 204, 202)
+    checked(g.val("_299") == threshold and "_0 = copy _299;" in g.cfg[203], "TT margin returns different word")
 
 
 def inspect_shallow(dump):
@@ -142,13 +142,13 @@ def inspect_shallow(dump):
     checked(fields(g, unique(calls, "TTEntryData::can_cut")[2], 0, 1, 2, 3, 4) ==
             (entry, BETA, DEPTH, "Selectivity::None", "const false"), "shallow TT eligibility")
     checked(fields(g, unique(calls, "TTEntryData::score")[2], 0) == (entry,), "shallow TT return")
-    guard(g, 32, ("TTEntryData::can_cut", entry, BETA, DEPTH, "Selectivity::None", "const false"), 35, 33)
+    guard(g, 31, ("TTEntryData::can_cut", entry, BETA, DEPTH, "Selectivity::None", "const false"), 34, 32)
     played = unique(calls, "Board::make_move_with_flipped")
     _, _, order = body.named("SearchContext::<'_>::update")[:3]
     flip, sq = fields(g, played[2], 1, 2)
     move = g.val(binding(body.source, "mv"))
     checked((flip, sq) == (FIELD(move, 0), FIELD(move, 2)) and fields(g, order, 0, 1, 2) == (CTX, sq, flip)
-            and g.val(unique(calls, "SearchContext::<'_>::undo")[2][1]) == sq, "unpaired child board")
+            and fields(g, unique(calls, "SearchContext::<'_>::undo")[2], 0) == (CTX,), "unpaired child board")
     next_board = ("Board::make_move_with_flipped", BOARD, flip, sq)
     passed = ("Board::switch_players", BOARD)
     depth_one, = [args for _, fn, args in calls if fn == "evaluate_depth1"]
@@ -160,18 +160,18 @@ def inspect_shallow(dump):
         negated(g, pc, dst)
     pc, _, _, dest = body.named("evaluate_depth1")
     negated(g, pc, dest)
-    guard(g, 58, ("Eq", DEPTH, "const 2_u32"), 64, 59)
+    guard(g, 57, ("Eq", DEPTH, "const 2_u32"), 63, 58)
 
     # Distinguish the saved alpha at node entry from the alpha raised on loop
     # backedges. The original probe slot and TT PV bit survive the recursion.
     original = binding(body.source, "org_alpha")
     best, hint, score = (binding(body.source, n, last=True) for n in ("best_score", "best_move", "score"))
     checked(g.val(original) == ALPHA and g.defs[original] == {"copy _4"}, "saved alpha mismatch")
-    for reg, pcs in [("_4", [77]), (original, [24]), (best, [46, 73, 75]), (hint, [47, 73, 77]), (score, [62, 68])]:
+    for reg, pcs in [("_4", [76]), (original, [23]), (best, [45, 72, 74]), (hint, [46, 72, 76]), (score, [61, 67])]:
         only_assignments(g, reg, pcs)
     g = Graph(dump, SHALLOW, 5, {int(r[1:]): v for r, v in [(original, "original"), (best, "best"), (hint, "hint"), (score, "word")]})
-    guard(g, 72, ("<Score as PartialOrd>::ge", "word", BETA), 74, 73)
-    guard(g, 76, ("<Score as PartialOrd>::gt", "word", ALPHA), 78, 77)
+    guard(g, 71, ("<Score as PartialOrd>::ge", "word", BETA), 73, 72)
+    guard(g, 75, ("<Score as PartialOrd>::gt", "word", ALPHA), 77, 76)
     _, _, store = unique(calls, STORE)
     tag = ("transposition_table::Bound::classify::<NonPV>", "best", "original", BETA)
     checked(fields(g, store, *range(9)) == (FIELD(CTX, 5), (SLOT, probe), BOARD, "best", tag, DEPTH, "hint",
@@ -181,13 +181,13 @@ def inspect_shallow(dump):
             "shallow store lost its entry PV bit")
     checked(normal_blocks(read(dump, SHALLOW + "-{closure#0}"), {}) == {
         0: "_3 = &_2; _0 = TTEntryData::is_pv(move _3) => 1;", 1: "return;"}, "wrong shallow entry flag")
-    for pc, updates in [(73, {best: "word", hint: ("Option::<Square>::Some", sq)}),
-                        (75, {best: ("<Score as Ord>::max", "best", "word")}),
-                        (77, {"_4": "word", hint: ("Option::<Square>::Some", sq)})]:
+    for pc, updates in [(72, {best: "word", hint: ("Option::<Square>::Some", sq)}),
+                        (74, {best: ("<Score as Ord>::max", "best", "word")}),
+                        (76, {"_4": "word", hint: ("Option::<Square>::Some", sq)})]:
         for dest, value in updates.items():
             op, = [op for op in g.cfg[pc] if op.startswith(dest + " = ")]
             checked(g.val(op.split(" = ",1)[1][:-1]) == value, "shallow loop accumulated wrong word or hint")
-    checked(g.cfg[85][0] == "_0 = copy " + best + ";", "shallow store and return disagree")
+    checked(g.cfg[84][0] == "_0 = copy " + best + ";", "shallow store and return disagree")
 
 
 def inspect_probcut(dump):
@@ -234,7 +234,7 @@ def inspect_masks(dump):
     checked(fields(g, unique(g.calls(), "evaluate_depth1")[2], 0, 1, 2, 3) ==
             (CTX, ("Board::switch_players", BOARD), neg("arg4"), neg("arg3")), "depth-one pass changed window")
     # The square loop returns to its iterator; exhaustion advances the mask.
-    checked(g.normal(51) == [29] and g.normal(35) == [19] and g.normal(29) == [30] and g.normal(19) == [20],
+    checked(g.normal(50) == [28] and g.normal(34) == [18] and g.normal(28) == [29] and g.normal(18) == [19],
             "mask and move loops do not resume their own iterators")
     return returned
 
@@ -277,15 +277,15 @@ def inspect_boundary(dump):
     pc, _, _, _ = body.named(PROBE)
     checked(pc not in body.reachable(0, stop_at={4}), "unguarded parallel TT probe")
     pc, _, _, _ = body.named(STORE)
-    checked(typed[62] == "_124 = discriminant(_9); switchInt(move _124) -> [1: bb63, otherwise: bb75];" and
-            pc not in body.reachable(0, stop_at={63}) and pc not in body.reachable(75), "unguarded boundary store")
+    checked(typed[66] == "_137 = discriminant(_9); switchInt(move _137) -> [1: bb67, otherwise: bb79];" and
+            pc not in body.reachable(0, stop_at={67}) and pc not in body.reachable(79), "unguarded boundary store")
     only_assignments(g, "_9", [16, 19])
     # Each ordinary midgame move resumes through a stop poll. Cancellation before
     # the parent store still retains whatever its already-returned child wrote.
     b = Body(dump, PVS)
     g = Graph(dump, PVS, 7)
     typed = normal_blocks(b.source, {})
-    for pc, passed, halted in [(251, 253, 252), (379, 381, 380)]:
+    for pc, passed, halted in [(249, 251, 250), (377, 379, 378)]:
         guard(g, pc, ("threading::thread::Thread::should_stop", THREAD), passed, halted)
         checked(typed[halted].startswith("_0 = const score::Score::ZERO;"), "abort returned a partial score")
         for n in b.reachable(halted):
@@ -321,15 +321,15 @@ def check(dump, repo):
 
 def reject_mutants(dump):
     mutations = [
-        (PVS, inspect_pvs, "Gt(move _609, const 0_u32)", "Gt(move _609, const 1_u32)"),
-        (PVS, inspect_pvs, "SubWithOverflow(copy _596, copy _599)", "SubWithOverflow(copy _596, const 0_u32)"),
-        (PVS, inspect_pvs, "_3 = move (_259.0: u32);", "_3 = copy _259;"),
-        (PVS, inspect_pvs, "_326 = &_301;", "_326 = &_5;"),
-        (PVS, inspect_boundary, "0: bb381, otherwise: bb380", "0: bb380, otherwise: bb381"),
-        (SHALLOW, inspect_shallow, "_97 = copy (_93.2: square::Square);", "_97 = copy (_93.1: square::Square);"),
-        (SHALLOW, inspect_shallow, "_152 = copy _41;", "_152 = copy _4;"),
-        (SHALLOW, inspect_shallow, "_146 = TTProbeResult::<'_>::slot(move _147)", "_146 = TTProbeResult::<'_>::other(move _147)"),
-        (SHALLOW, inspect_shallow, "_4 = move _143;", "_4 = copy _79;"),
+        (PVS, inspect_pvs, "Gt(move _606, const 0_u32)", "Gt(move _606, const 1_u32)"),
+        (PVS, inspect_pvs, "SubWithOverflow(copy _593, copy _596)", "SubWithOverflow(copy _593, const 0_u32)"),
+        (PVS, inspect_pvs, "_3 = move (_257.0: u32);", "_3 = copy _257;"),
+        (PVS, inspect_pvs, "_324 = &_299;", "_324 = &_5;"),
+        (PVS, inspect_boundary, "0: bb379, otherwise: bb378", "0: bb378, otherwise: bb379"),
+        (SHALLOW, inspect_shallow, "_96 = copy (_92.2: square::Square);", "_96 = copy (_92.1: square::Square);"),
+        (SHALLOW, inspect_shallow, "_150 = copy _40;", "_150 = copy _4;"),
+        (SHALLOW, inspect_shallow, "_144 = TTProbeResult::<'_>::slot(move _145)", "_144 = TTProbeResult::<'_>::other(move _145)"),
+        (SHALLOW, inspect_shallow, "_4 = move _141;", "_4 = copy _78;"),
         (PROBCUT, inspect_probcut, "_57 = copy _14;", "_57 = copy _3;"),
         (PROBCUT, inspect_probcut, "_62 = copy _52;", "_62 = Selectivity::None;"),
         (STRATEGY, inspect_boundary, "0: bb17, otherwise: bb5", "0: bb5, otherwise: bb17"),

@@ -8,7 +8,8 @@ mod engine {
     pub mod board;
     pub mod constants;
     pub mod disc;
-    pub mod empty_list;
+    #[path = "search/endgame/empties.rs"]
+    pub mod empties;
     #[allow(unused_imports)]
     pub mod flip;
     pub mod legal_moves;
@@ -45,8 +46,8 @@ mod move_list {
     include!(concat!(env!("OUT_DIR"), "/move_list_source.rs"));
 }
 
-#[path = "../empty_list_cases.rs"]
-mod empty_list_cases;
+#[path = "../empties_cases.rs"]
+mod empties_cases;
 #[path = "../move_generation_cases.rs"]
 mod move_generation_cases;
 #[path = "../move_storage_cases.rs"]
@@ -212,7 +213,7 @@ fn main() -> io::Result<()> {
     run_buffered(|out| match std::env::args().nth(1).as_deref() {
         Some("game-analysis-cases") => write_game_analysis_cases(out),
         Some("obf-cases") => obf_cases::write_cases(out),
-        Some("empty-list-cases") => empty_list_cases::write_cases(out),
+        Some("empties-cases") => empties_cases::write_cases(out),
         Some("board-hash-cases") => write_board_hash_cases(out),
         Some("move-storage-cases") => move_storage_cases::write_cases(out),
         Some("move-generation-cases") => move_generation_cases::write_cases(out),

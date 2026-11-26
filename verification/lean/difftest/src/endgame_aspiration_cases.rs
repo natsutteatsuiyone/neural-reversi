@@ -10,14 +10,6 @@ use crate::types::Depth;
 struct Board;
 struct EndGameStrategy;
 
-struct EmptyList;
-
-impl EmptyList {
-    fn count(&self) -> Depth {
-        20
-    }
-}
-
 struct Thread {
     aborted: AtomicBool,
 }
@@ -29,7 +21,7 @@ impl Thread {
 }
 
 struct SearchContext {
-    empty_list: EmptyList,
+    n_empties: Depth,
     value: Score,
     fail_soft: bool,
     abort_at: Option<usize>,
@@ -50,7 +42,7 @@ fn search<NT: NodeType, Strategy>(
         std::any::type_name::<Strategy>(),
         std::any::type_name::<EndGameStrategy>()
     );
-    assert_eq!(depth, ctx.empty_list.count());
+    assert_eq!(depth, ctx.n_empties);
     assert!(alpha < beta);
     assert!(ctx.trials.len() < 11);
     let aborted = ctx.abort_at == Some(ctx.trials.len());
@@ -75,7 +67,7 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
                 for fail_soft in [false, true] {
                     for abort_at in [None, Some(0), Some(1), Some(3)] {
                         let mut ctx = SearchContext {
-                            empty_list: EmptyList,
+                            n_empties: 20,
                             value: Score::from_raw(raw),
                             fail_soft,
                             abort_at,

@@ -24,7 +24,7 @@ def enter (fc : Cutoffs.FlipConfig) {b : Position} (s : State) : Argument mc b �
   | .forcedPass _ => ContextPathMir.passTurn s
 
 def leave (s : State) : Argument mc b → State
-  | .move m => ContextPathMir.restore s m.val
+  | .move _ => ContextPathMir.restore s
   | .forcedPass _ => ContextPathMir.unpass s
 
 def sameVisit (sc wide : Request) : Bool :=
@@ -38,7 +38,7 @@ structure Opened (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (call
     (arg : Argument mc caller.request.board) (s : State) : Prop where
   board : q.board = childBoard fc arg
   depth : q.depth = childDepth caller.request.depth arg
-  pushed : SerialExecution.push mc fc caller q = some ⟨q,leafState (enter fc s arg)⟩
+  pushed : SerialExecution.push mc fc caller q = some ⟨q,leafState (childBoard fc arg)⟩
 
 /-- A scout and wide re-search of one placed move use the same child context.
     The wide call starts from the state left by the scout's entire subtree. -/
@@ -47,20 +47,19 @@ inductive Walk (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) :
   | nil : Walk mc fc caller s [] s
   | single {caller : Frame} {m : GeneratedSquare mc caller.request.board.val}
       (opening : Opened mc fc caller q (.move m) s) (alone : retryNext q rest = false)
-      (inside : Walk mc fc ⟨q,leafState (enter fc s (.move m))⟩ (enter fc s (.move m)) children t)
+      (inside : Walk mc fc ⟨q,leafState (childBoard fc (.move m))⟩ (enter fc s (.move m)) children t)
       (more : Walk mc fc caller (leave t (.move m)) rest u) :
       Walk mc fc caller s (.node issue q word children :: rest) u
   | pair {caller : Frame} {m : GeneratedSquare mc caller.request.board.val}
       (scout : Opened mc fc caller q (.move m) s) (wide : Opened mc fc caller r (.move m) s)
       (same : sameVisit q r = true)
-      (first : Walk mc fc ⟨q,leafState (enter fc s (.move m))⟩ (enter fc s (.move m)) firstTree t)
-      (held : leafState t = leafState (enter fc s (.move m)))
-      (second : Walk mc fc ⟨r,leafState t⟩ t secondTree u)
+      (first : Walk mc fc ⟨q,leafState (childBoard fc (.move m))⟩ (enter fc s (.move m)) firstTree t)
+      (second : Walk mc fc ⟨r,leafState (childBoard fc (.move m))⟩ t secondTree u)
       (more : Walk mc fc caller (leave u (.move m)) rest v) :
       Walk mc fc caller s (.node i q w firstTree :: .node j r x secondTree :: rest) v
   | pass {caller : Frame} {forced : Board.ForcedPass mc caller.request.board.val}
       (opening : Opened mc fc caller q (.forcedPass forced) s)
-      (inside : Walk mc fc ⟨q,leafState (ContextPathMir.passTurn s)⟩ (ContextPathMir.passTurn s) children t)
+      (inside : Walk mc fc ⟨q,leafState (pass caller.request.board)⟩ (ContextPathMir.passTurn s) children t)
       (more : Walk mc fc caller (ContextPathMir.unpass t) rest u) :
       Walk mc fc caller s (.node i q w children :: rest) u
 
@@ -74,7 +73,7 @@ theorem Walk.calls (walk : Walk mc fc caller s forest t) : Calls mc fc caller.re
   induction walk with
   | nil => exact .done
   | single opening _ _ _ inner tail => exact .next (under (opening.board ▸ inner)) tail
-  | pair sc pv _ _ _ _ _ first second tail =>
+  | pair sc pv _ _ _ _ first second tail =>
     exact .next (under (.next (sc.board ▸ first) (pv.board ▸ second))) tail
   | pass opening _ _ inner tail =>
     rw [opening.board] at inner
@@ -86,22 +85,21 @@ private theorem enter_matches {b : Position} (arg : Argument mc b) (aligned : Ma
   | move m => exact (SearchContextState.placementContract_proven _ _ _ m _ aligned).2.1
   | forcedPass _ => exact (SearchContextState.passContract_proven _ _ aligned).1
 
-private theorem leaf_agrees (restored : Restored s t) : leafState t = leafState s :=
-  congrArg (fun e : SearchContextState.EmptyState => (⟨e.links,e.parity,e.count⟩ : EndgameSearch.Cancellation.EmptyState)) restored.empties
-
 /-- The accepted push determines the unique placed square or the legal turn switch. -/
-private theorem opened {caller : Frame} (projection : leafState s = caller.empties)
+private theorem opened {caller : Frame} (projection : leafState caller.request.board = caller.empties)
     (pushed : SerialExecution.push mc fc caller q = some child) :
-    ∃ arg : Argument mc caller.request.board, Opened mc fc caller q arg s ∧ child = ⟨q,leafState (enter fc s arg)⟩ := by
+    ∃ arg : Argument mc caller.request.board, Opened mc fc caller q arg s ∧ child = ⟨q,leafState (childBoard fc arg)⟩ := by
   obtain ⟨es, updated, rfl⟩ := Option.map_eq_some_iff.mp pushed
   have select {b next : Position} {d cd : ExactDepth.Depth} (edge : ExactDepth.RecursiveCall mc fc b d next cd)
-      (accepted : SerialChildState.nextState mc fc b d (leafState s) next cd = some es) :
-      ∃ arg : Argument mc b, next = childBoard fc arg ∧ cd = childDepth d arg ∧ es = leafState (enter fc s arg) := by
+      (accepted : SerialChildState.nextState mc fc b d (leafState b) next cd = some es) :
+      ∃ arg : Argument mc b, next = childBoard fc arg ∧ cd = childDepth d arg ∧ es = leafState (childBoard fc arg) := by
     cases edge with
     | ply m d =>
-      exact ⟨.move m, rfl,rfl, Option.some.inj (accepted.symm.trans (SerialChildState.nextState_play _ _ _ _ _ m))⟩
+      exact ⟨.move m, rfl,rfl, (Option.some.inj (accepted.symm.trans (SerialChildState.nextState_play _ _ _ _ _ m))).trans
+        (ContextPathMir.leafState_play mc fc b m)⟩
     | forcedPass d forced =>
-      exact ⟨.forcedPass forced, rfl,rfl, Option.some.inj (accepted.symm.trans (SerialChildState.nextState_pass _ _ _ _ _ forced))⟩
+      exact ⟨.forcedPass forced, rfl,rfl, (Option.some.inj (accepted.symm.trans (SerialChildState.nextState_pass _ _ _ _ _ forced))).trans
+        (ContextPathMir.leafState_pass b).symm⟩
   rw [← projection] at updated
   obtain ⟨arg, board, depth, rfl⟩ := select (SerialChildState.edge_of_nextState updated) updated
   exact ⟨arg,⟨board,depth,by simp [SerialExecution.push, ← projection, updated]⟩,rfl⟩
@@ -128,7 +126,7 @@ private theorem Opened.again {caller : Frame} {arg : Argument mc caller.request.
   exact congrArg (some ∘ Frame.mk r) stateEq
 
 private theorem weave {mc fc} {caller : Frame} (forest : List (Tree Request)) (children : Children mc fc caller forest)
-    (s : State) (projection : leafState s = caller.empties) (aligned : Matches s caller.request.board) :
+    (s : State) (projection : leafState caller.request.board = caller.empties) (aligned : Matches s caller.request.board) :
     ∃ t, Walk mc fc caller s forest t := by
   cases f : forest with
   | nil => exact ⟨_,.nil⟩
@@ -140,14 +138,14 @@ private theorem weave {mc fc} {caller : Frame} (forest : List (Tree Request)) (c
       | cons pushed below tail =>
         obtain ⟨arg, opening, rfl⟩ := opened projection pushed
         have childFit : Matches (enter fc s arg) q.board := opening.board ▸ enter_matches arg aligned
-        obtain ⟨t, down⟩ := weave sub below (enter fc s arg) rfl childFit
+        obtain ⟨t, down⟩ := weave sub below (enter fc s arg) (by rw [opening.board]) childFit
         cases arg with
         | forcedPass forced =>
           have atPass := down.calls
           rw [opening.board] at atPass
           have block : Calls mc fc caller.request.board s (ContextPathMir.unpass t) := .forcedPass forced atPass
           have back := block.restores aligned
-          obtain ⟨u, after⟩ := weave rest tail _ ((leaf_agrees back).trans projection) (back.agrees aligned)
+          obtain ⟨u, after⟩ := weave rest tail _ projection (back.agrees aligned)
           exact ⟨u,.pass opening down after⟩
         | move m =>
           by_cases paired : retryNext q rest = true
@@ -165,16 +163,15 @@ private theorem weave {mc fc} {caller : Frame} (forest : List (Tree Request)) (c
                   have wide := opening.again board depth
                   obtain rfl := Option.some.inj (accepted.symm.trans wide.pushed)
                   have restored := down.calls.restores childFit
-                  have held := leaf_agrees restored
-                  obtain ⟨u, searched⟩ := weave sub' inside t held (board ▸ restored.agrees childFit)
+                  obtain ⟨u, searched⟩ := weave sub' inside t (by rw [wide.board]) (board ▸ restored.agrees childFit)
                   have block : Calls mc fc caller.request.board s (leave u (.move m)) :=
                     under (.next (opening.board ▸ down.calls) (wide.board ▸ searched.calls))
                   have back := block.restores aligned
-                  obtain ⟨v, finished⟩ := weave end_ after _ ((leaf_agrees back).trans projection) (back.agrees aligned)
-                  exact ⟨v,.pair opening wide same down held (held.symm ▸ searched) finished⟩
+                  obtain ⟨v, finished⟩ := weave end_ after _ projection (back.agrees aligned)
+                  exact ⟨v,.pair opening wide same down searched finished⟩
           · have block : Calls mc fc caller.request.board s (leave t (.move m)) := under (opening.board ▸ down.calls)
             have back := block.restores aligned
-            obtain ⟨u, after⟩ := weave rest tail _ ((leaf_agrees back).trans projection) (back.agrees aligned)
+            obtain ⟨u, after⟩ := weave rest tail _ projection (back.agrees aligned)
             exact ⟨u,.single opening (Bool.eq_false_iff.mpr paired) down after⟩
 termination_by sizeOf forest
 decreasing_by all_goals simp_all +arith <;> omega
@@ -182,7 +179,7 @@ decreasing_by all_goals simp_all +arith <;> omega
 /-- The chronological recursive calls reconstruct one physical context path with
     a single update and undo for each scout/PV pair. -/
 theorem of_execution (ran : Executes body (SerialExecution.push mc fc) i caller code last word forest)
-    (s : State) (projection : leafState s = caller.empties) (aligned : Matches s caller.request.board) :
+    (s : State) (projection : leafState caller.request.board = caller.empties) (aligned : Matches s caller.request.board) :
     ∃ t, Walk mc fc caller s forest t ∧ Restored s t := by
   obtain ⟨t, walked⟩ := weave forest (issued ran) s projection aligned
   exact ⟨t, walked, walked.calls.restores aligned⟩

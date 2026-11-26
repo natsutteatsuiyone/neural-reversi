@@ -18,10 +18,10 @@ def Role.site : Role → Nat
   | .wide => 8
 
 def Role.block : Role → Nat
-  | .passChild => 60
-  | .presearch => 246
-  | .scout => 345
-  | .reducedRetry => 354
-  | .wide => 371
+  | .passChild => 59
+  | .presearch => 244
+  | .scout => 343
+  | .reducedRetry => 352
+  | .wide => 369
 
 end NeuralReversi.PvsParallel.NativeFrames.OwnerSites

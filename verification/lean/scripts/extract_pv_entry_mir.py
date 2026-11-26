@@ -24,8 +24,8 @@ def positive(body, traits, cut, mobile, opponent, wipes, to_owner=None):
             return env[m[1] or m[2] or m[3]]
         if s == "&(*((*_1).5: &transposition_table::TranspositionTable))":
             return "tt"
-        if s == "&((*_1).10: empty_list::EmptyList)":
-            return "emptyList"
+        if s == "copy ((*_1).10: u32)":
+            return "empties"
         if m := re.fullmatch(r"Eq\(move (_\d+), const 0_(usize|u32)\)", s):
             if m[2] == "usize":
                 checked(env[m[1]] == ("count", moves), "unexpected move count")
@@ -62,8 +62,8 @@ def positive(body, traits, cut, mobile, opponent, wipes, to_owner=None):
                     expected += [("beginPass", "ctx"), negB, negA, child, result, ("endPass", "ctx")]
                     name = "pass"
                 else:
-                    result = ("terminal", "board", ("empties", "emptyList"))
-                    expected += [("empties", "emptyList"), result]
+                    result = ("terminal", "board", "empties")
+                    expected += [result]
                     name = "terminal"
             else:
                 checked(wipes, "ordinary move unexpectedly returned")
@@ -85,7 +85,7 @@ def positive(body, traits, cut, mobile, opponent, wipes, to_owner=None):
                      "Board::switch_players": "switch", "Board::has_legal_moves": "mobile",
                      "SearchContext::<'_>::update_pass": "beginPass", "SearchContext::<'_>::undo_pass": "endPass",
                      "<Score as Neg>::neg": "neg", "search::<NT, SS>": "child", "MoveList::wipeout_move": "wipe",
-                     "Board::solve": "terminal", "EmptyList::count": "empties", "SearchContext::<'_>::update_pv": "updatePv"}
+                     "Board::solve": "terminal", "SearchContext::<'_>::update_pv": "updatePv"}
             checked(c[2] in names, f"unexpected PV call {c[2]}")
             call = (names[c[2]], *(operand(arg) for arg in c[3].split(", ")))
             calls.append(call)

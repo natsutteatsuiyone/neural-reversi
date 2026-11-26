@@ -217,7 +217,7 @@ import NeuralReversi.EndgamePass
 import NeuralReversi.ShallowMoveOrder
 import NeuralReversi.ShallowBoardTree
 import NeuralReversi.ShallowSearch
-import NeuralReversi.SortLastFour
+import NeuralReversi.Empties
 import NeuralReversi.ShallowCutoff
 import NeuralReversi.EndgameScoreWindow
 import NeuralReversi.MoveList.BestFirst
@@ -226,11 +226,6 @@ import NeuralReversi.MoveList.Ordering
 import NeuralReversi.MoveList.Wipeout
 import NeuralReversi.MoveList.Generation
 import NeuralReversi.MoveList.SmallGenerate
-import NeuralReversi.EmptyListParity
-import NeuralReversi.EmptyListLinks
-import NeuralReversi.EmptyListInit
-import NeuralReversi.EmptyListRemoval
-import NeuralReversi.EmptyListTraversal
 import NeuralReversi.Aspiration
 import NeuralReversi.CorrectionHistory
 
@@ -449,9 +444,9 @@ def entries : List Entry := [
 { id := "search.sort-last-four"
   functions := ["sort_last4"]
   status := "proven"
-  property := "NeuralReversi.SortLastFour.OrderContract"
-  theoremName := "NeuralReversi.SortLastFour.orderContract_proven"
-  notes := "Given the four remaining linked squares and their cached quadrant parity, all reads succeed and the returned sequence is their stable odd-quadrant-first partition." },
+  property := "NeuralReversi.Empties.SortLastFourContract"
+  theoremName := "NeuralReversi.Empties.sortLastFourContract_proven"
+  notes := "Given an empties mask holding exactly four squares and their odd-quadrant mask, the returned sequence is the stable odd-quadrant-first partition of the presorted order." },
 { id := "search.small-move-list-generation"
   functions := ["SmallMoveList::generate", "SmallMoveList::push", "SmallMove::new"]
   status := "proven"
@@ -959,48 +954,18 @@ def entries : List Entry := [
   property := "NeuralReversi.MidgameScoreRange.AspirationContract"
   theoremName := "NeuralReversi.MidgameScoreRange.aspirationContract_proven"
   notes := "The finite-return proof discharges the score premise of the sixteen-call bound when each completed Rust trial is matched to the recursive execution model." },
-{ id := "empty-list.removal-order"
-  functions := ["EmptyList::new", "EmptyList::remove", "EmptyList::restore"]
+{ id := "empties.presorted-scan"
+  functions := ["Empties::new", "Empties::without", "Empties::first"]
   status := "proven"
-  property := "NeuralReversi.EmptyListRemoval.RemovalContract"
-  theoremName := "NeuralReversi.EmptyListRemoval.removalContract_proven"
-  notes := "Any sequence of distinct initially empty squares can be unlinked. The remaining squares retain their initial order in both directions." },
-{ id := "empty-list.initial-links"
-  functions := ["EmptyList::new", "EmptyList::contains"]
+  property := "NeuralReversi.Empties.ScanContract"
+  theoremName := "NeuralReversi.Empties.scanContract_proven"
+  notes := "The constructor lists the empty squares in PRESORTED order. Removing an empty square keeps the mask aligned with the child's empties, and xoring the same bit back restores it." },
+{ id := "empties.odd-quadrants"
+  functions := ["odd_quadrants", "quadrant"]
   status := "proven"
-  property := "NeuralReversi.EmptyListInit.InitContract"
-  theoremName := "NeuralReversi.EmptyListInit.initContract_proven"
-  notes := "For every empty-square mask the constructor links the selected squares in PRESORTED order in both directions and closes the list at HEAD." },
-{ id := "empty-list.link-roundtrip"
-  functions := ["EmptyList::contains", "EmptyList::remove", "EmptyList::restore"]
-  status := "proven"
-  property := "NeuralReversi.EmptyListLinks.LinksContract"
-  theoremName := "NeuralReversi.EmptyListLinks.linksContract_proven"
-  notes := "Removing a linked square bypasses it in both directions. Restoring valid removals in reverse order recovers every link, including both fields of the head when the last square is removed." },
-{ id := "empty-list.quadrant-parity"
-  functions := ["EmptyList::new", "EmptyList::remove", "EmptyList::restore", "EmptyList::parity"]
-  status := "proven"
-  property := "NeuralReversi.EmptyListParity.ParityContract"
-  theoremName := "NeuralReversi.EmptyListParity.parityContract_proven"
-  notes := "The initial scan and successful square removals and restorations keep each quadrant bit equal to the parity of its empty-square count. The resulting byte is always below 16." },
-{ id := "empty-list.checked-successor"
-  functions := ["EmptyList::first", "EmptyList::next", "EmptyList::square_after"]
-  status := "proven"
-  property := "NeuralReversi.EmptyListTraversal.SuccessorContract"
-  theoremName := "NeuralReversi.EmptyListTraversal.successorContract_proven"
-  notes := "Any non-head link index is strictly below 64 (a valid Square discriminant for from_u8_unchecked), and walking first followed by fewer than count next steps on a valid chain never reaches the head sentinel." },
-{ id := "empty-list.restore-capacity"
-  functions := ["EmptyList::new", "EmptyList::restore"]
-  status := "proven"
-  property := "NeuralReversi.EmptyListTraversal.RestoreCapacityContract"
-  theoremName := "NeuralReversi.EmptyListTraversal.restoreCapacityContract_proven"
-  notes := "The presorted scan has at most 64 entries. After removing a member, its length is below the restore guard and adding the member restores the original count." },
-{ id := "empty-list.quadrant-id"
-  functions := ["get_quadrant_id", "EmptyList::first_and_quad_id", "EmptyList::next_and_quad_id"]
-  status := "proven"
-  property := "NeuralReversi.EmptyListTraversal.QuadrantContract"
-  theoremName := "NeuralReversi.EmptyListTraversal.quadrantContract_proven"
-  notes := "The 64-entry table maps each square to the one bit for its four-by-four quadrant." },
+  property := "NeuralReversi.Empties.QuadrantContract"
+  theoremName := "NeuralReversi.Empties.quadrantContract_proven"
+  notes := "quadrant selects the square's four-by-four block. odd_quadrants marks each block holding an odd number of empties, and removing an empty square toggles exactly its block." },
 { id := "endgame.shallow-move-partition"
   functions := ["shallow_search"]
   status := "proven"
@@ -1090,7 +1055,7 @@ def entries : List Entry := [
   status := "proven"
   property := "NeuralReversi.EndgameSearch.Direct.Mir.ScoreContract"
   theoremName := "NeuralReversi.EndgameSearch.Direct.Mir.scoreContract_proven"
-  notes := "The extracted full-depth dispatch for 0 to 4 empties reads the aligned empty list, calls the selected target solver, and converts its return to a sound raw-score bound at a unit window." },
+  notes := "The extracted full-depth dispatch for 0 to 4 empties reads the aligned empties mask, calls the selected target solver, and converts its return to a sound raw-score bound at a unit window." },
 { id := "endgame.direct-target-raw-window"
   functions := ["EndGameStrategy::shallow_search", "Score::from_disc_diff"]
   status := "proven"
@@ -1115,18 +1080,18 @@ def entries : List Entry := [
   property := "NeuralReversi.EndgameSearch.DeepOrderContract"
   theoremName := "NeuralReversi.EndgameSearch.deepOrderContract_proven"
   notes := "After the deep cutoffs decline on a board with at most twelve empties, either generation schedule produces the complete list within capacity. Ordered records have the model's actual child boards, legal replies, and the source ordering scores." },
-{ id := "endgame.context-empty-list"
-  functions := ["SearchContext::update_endgame", "SearchContext::undo_endgame", "EmptyList::remove", "EmptyList::restore"]
+{ id := "endgame.context-empties"
+  functions := ["SearchContext::update", "SearchContext::undo", "Empties::without"]
   status := "proven"
   property := "NeuralReversi.EndgameSearch.EmptyStatePlayContract"
   theoremName := "NeuralReversi.EndgameSearch.emptyStatePlayContract_proven"
-  notes := "A generated placement removes its square from the current empty-list links and updates the parity and the 32-bit count. The metadata matches the child board and undo recovers every field of the modeled list." },
+  notes := "A generated placement removes its square from the empties mask and decrements the 32-bit count. Both match the child board, and undo recovers the parent mask and count." },
 { id := "endgame.recursive-concrete-order"
   functions := ["endgame::null_window_search", "endgame::shallow_search", "sort_last4", "solve4"]
   status := "proven"
   property := "NeuralReversi.EndgameSearch.OrderedContract"
   theoremName := "NeuralReversi.EndgameSearch.orderedContract_proven"
-  notes := "Instantiates the recursive proof with the deep best-first order, shallow parity groups, and the four-empty list order. The proof establishes legal membership and the solver order internally. The completed result and every added cache write are sound." },
+  notes := "Instantiates the recursive proof with the deep best-first order, shallow parity groups, and the four-empty presorted order. The proof establishes legal membership and the solver order internally. The completed result and every added cache write are sound." },
 { id := "endgame.split-cutoff-store"
   functions := ["endgame::null_window_search", "EndGameCache::store"]
   status := "proven"
@@ -1134,11 +1099,11 @@ def entries : List Entry := [
   theoremName := "NeuralReversi.EndgameSearch.Cancellation.storeGateContract_proven"
   notes := "The final cutoff poll either appends the parent bound or returns with the history left by completed children. A cutoff does not append the parent-bound write." },
 { id := "endgame.split-cutoff-recursive"
-  functions := ["endgame::null_window_search", "endgame::search_move_nws_ec", "SearchContext::undo_endgame"]
+  functions := ["endgame::null_window_search", "endgame::search_move_nws_ec", "Empties::without"]
   status := "proven"
   property := "NeuralReversi.EndgameSearch.Cancellation.Contract"
   theoremName := "NeuralReversi.EndgameSearch.Cancellation.contract_proven"
-  notes := "For every stream of observed cutoff epochs and chain flags, recursive deep calls preserve the empty-list fields and retain only sound cache writes. The shallow search supplies a completed result and preserved list. A dummy zero can affect the move scan but cannot pass the final store check after cutoff." },
+  notes := "For every stream of observed cutoff epochs and chain flags, recursive deep calls preserve the empties mask and count and retain only sound cache writes. The shallow search supplies a completed result and preserved empties. A dummy zero can affect the move scan but cannot pass the final store check after cutoff." },
 { id := "endgame.split-cutoff-boundary"
   functions := ["EndGameStrategy::shallow_search", "search_split_point", "Thread::should_stop"]
   status := "proven"
@@ -1887,7 +1852,7 @@ def entries : List Entry := [
   status := "proven"
   property := "NeuralReversi.AspirationMir.SerialEntry.PublicScoreContract"
   theoremName := "NeuralReversi.AspirationMir.SerialEntry.publicScore"
-  notes := "On a mobile board with at most five empties the single-worker single-PV model constructs the initial rows and empty list, runs the five uninterrupted selectivity stages from a bounded evaluation, and publishes the flagged exact raw score." },
+  notes := "On a mobile board with at most five empties the single-worker single-PV model constructs the initial rows and empties, runs the five uninterrupted selectivity stages from a bounded evaluation, and publishes the flagged exact raw score." },
 { id := "search.endgame-serial-recursive-root-trial"
   functions := ["pvs::search", "endgame::shallow_search", "endgame::null_window_search"]
   status := "proven"
@@ -2315,11 +2280,11 @@ def entries : List Entry := [
   theoremName := "NeuralReversi.AspirationMir.SerialCache.Ladder.publication"
   notes := "From fresh or replayed worker tables, a bounded estimate and generated rows at a mobile root with at most thirteen empties, five single-PV stages carry their rows, windows and arrays. The final stage accepts its first trial and publishes exact disc minimax." },
 { id := "search.endgame-serial-specialized-leaf-restoration"
-  functions := ["EndGameStrategy::shallow_search", "update_endgame", "undo_endgame"]
+  functions := ["EndGameStrategy::shallow_search", "endgame::shallow_search", "Empties::without"]
   status := "proven"
   property := "NeuralReversi.EndgameSearch.SerialLeafRestore.Contract"
   theoremName := "NeuralReversi.EndgameSearch.SerialLeafRestore.contract_proven"
-  notes := "The five-to-twelve-empty search removes and restores each placement around its actual modeled child return. The final list equals the incoming list, including inactive links. The result also gives a sound bound and the updated cache history." },
+  notes := "The five-to-twelve-empty search passes each child the incoming empties without the placed square by value. The incoming empties state is returned unchanged. The result also gives a sound bound and the updated cache history." },
 { id := "search.endgame-serial-move-storage"
   functions := ["MoveList::fill_in_place", "pvs::search", "endgame::aspiration_search"]
   status := "proven"
@@ -2385,7 +2350,7 @@ def entries : List Entry := [
   status := "proven"
   property := "NeuralReversi.AspirationMir.SmallRoot.PublicScoreContract"
   theoremName := "NeuralReversi.AspirationMir.SmallRoot.publicScore"
-  notes := "For a legal single-PV root with up to five empties, aligned empty-list state, complete root rows and a valid initial window, the source-projected PV and scout returns, aspiration driver and public result agree with board minimax. Handles forced passes and arbitrary move-ordering keys." },
+  notes := "For a legal single-PV root with up to five empties, aligned empties state, complete root rows and a valid initial window, the source-projected PV and scout returns, aspiration driver and public result agree with board minimax. Handles forced passes and arbitrary move-ordering keys." },
 { id := "search.exact-root-wipeout-mir"
   functions := ["pvs::search", "endgame::aspiration_search"]
   status := "proven"
@@ -2615,7 +2580,7 @@ def entries : List Entry := [
   theoremName := "NeuralReversi.MidgameProbCut.reachContract_proven"
   notes := "Root indexing, free passes, legal placements, depth reductions, and positive verification calls preserve the ply-plus-depth budget. Nonroot ProbCut coordinates both fit the 60 by 60 table." },
 { id := "search.midgame-probcut-board-ply"
-  functions := ["EmptyList::ply", "SearchContext::update", "SearchContext::update_pass", "midgame::search_root"]
+  functions := ["SearchContext::ply", "SearchContext::update", "SearchContext::update_pass", "midgame::search_root"]
   status := "proven"
   property := "NeuralReversi.MidgameProbCut.BoardPlyContract"
   theoremName := "NeuralReversi.MidgameProbCut.boardPlyContract_proven"
@@ -3528,7 +3493,7 @@ def entries : List Entry := [
     status := "proven"
     property := "NeuralReversi.SearchContextState.InitialContract"
     theoremName := "NeuralReversi.SearchContextState.initialContract_proven"
-    notes := "On an admitted board, a fresh context initializes its empty list and current feature slot with a zero node counter. A seeded context satisfies the same invariant when the supplied features and empty state agree with that board." },
+    notes := "On an admitted board, a fresh context initializes its empty count and current feature slot with a zero node counter. A seeded context satisfies the same invariant when the supplied features and empty state agree with that board." },
   { id := "search.context-current-features"
     functions := ["SearchContext<'a>::pattern_feature", "SearchContext<'a>::evaluate_main_with_key"]
     status := "proven"
@@ -3540,19 +3505,13 @@ def entries : List Entry := [
     status := "proven"
     property := "NeuralReversi.SearchContextState.PlacementContract"
     theoremName := "NeuralReversi.SearchContextState.placementContract_proven"
-    notes := "A generated legal move advances to a valid successor ply, updates the feature pair and empty list, and counts one node. Undo restores the parent board invariant and preserves all feature slots except the successor scratch slot." },
+    notes := "A generated legal move advances to a valid successor ply, updates the feature pair and empty count, and counts one node. Undo restores the parent board invariant and preserves all feature slots except the successor scratch slot." },
   { id := "search.context-pass"
     functions := ["SearchContext<'a>::switch_players", "SearchContext<'a>::update_pass", "SearchContext<'a>::undo_pass"]
     status := "proven"
     property := "NeuralReversi.SearchContextState.PassContract"
     theoremName := "NeuralReversi.SearchContextState.passContract_proven"
-    notes := "A pass changes the active perspective without changing the feature slots, empty list, or ply. Undo restores the perspective and leaves the node counted." },
-  { id := "search.context-shallow"
-    functions := ["SearchContext<'a>::update_endgame", "SearchContext<'a>::undo_endgame", "SearchContext<'a>::ply"]
-    status := "proven"
-    property := "NeuralReversi.SearchContextState.ShallowContract"
-    theoremName := "NeuralReversi.SearchContextState.shallowContract_proven"
-    notes := "The shallow endgame update follows the child's empty list and advances ply while keeping both stored perspectives and the side selector. The inverse restores the empty state, and the move remains counted." },
+    notes := "A pass changes the active perspective without changing the feature slots, empty count, or ply. Undo restores the perspective and leaves the node counted." },
   { id := "search.context-split-copy"
     functions := ["SplitPointTask::new", "SearchContext<'a>::from_split_task"]
     status := "proven"

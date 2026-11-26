@@ -4,22 +4,25 @@ from extract_cache_owner import END, routing
 from extract_shallow_recursion_mir import verify_sites, Walker, NAMES, body, val, verify_sentinel
 from mir_common import blocks, checked
 from extract_header import ordinary
-from extract_shallow_recursion_mir import CTX, BOARD, CACHE, ALPHA, SQ, BETA, STATS, LGL, COUNT
+from extract_shallow_recursion_mir import CTX, BOARD, CACHE, ALPHA, SQ, BETA, STATS, LGL, EMPS
+
+COUNT = ("count", EMPS)
+NEXT = "next-empties"
 
 CUT = "cutoff"
 DEEP = ("deep-cache", CACHE)
 SHALLOW = ("shallow-cache", CACHE)
-ARGS = [CTX, BOARD, ALPHA, CACHE, CUT, LGL]
+ARGS = [CTX, BOARD, ALPHA, CACHE, CUT, LGL, EMPS]
 BETA_NODE = ("add", ALPHA, 1)
 NEG_BETA = ("neg", BETA_NODE)
 POLL = ("poll", CUT)
 HALTED = "stopped-score"
-DEEP_SIG = "(_1: &mut SearchContext<'_>, _2: &Board, _3: DiscScore, _4: &mut EndGameCaches, _5: &C, _6: LegalMoves) -> DiscScore {"
-CHILD_SIG = "(_1: &mut SearchContext<'_>, _2: &Board, _3: LegalMoves, _4: Square, _5: DiscScore, _6: &mut EndGameCaches, _7: &C) -> DiscScore {"
+DEEP_SIG = "(_1: &mut SearchContext<'_>, _2: &Board, _3: DiscScore, _4: &mut EndGameCaches, _5: &C, _6: LegalMoves, _7: Empties) -> DiscScore {"
+CHILD_SIG = "(_1: &mut SearchContext<'_>, _2: &Board, _3: LegalMoves, _4: Empties, _5: DiscScore, _6: &mut EndGameCaches, _7: &C) -> DiscScore {"
 
 class DeepWalker(Walker):
     names = dict(NAMES, **{
-        "<C as SplitPointCutoff>::occurred":"poll", "null_window_search::<C>":"deep",
+        "<C as SplitPointCutoff>::occurred":"poll", "null_window_search::<C>":"deep", "shallow_search::<6>":"shallow",
         "search_move_nws_ec::<C>":"deep-child", "EndGameCache::<Deep>::probe":"probe",
         "EndGameCache::<Deep>::slot":"slot", "EndGameCache::<Deep>::store":"write",
         "Board::opponent":"opponent","Board::player":"player","flip::flip":"flip",
@@ -49,20 +52,23 @@ class DeepWalker(Walker):
 
 
 def verify_child(cfg, sites):
+    count=("count",NEXT)
     for mode in ("stop","shallow","deep"):
         def decide(v):
-            checked(v==("Le",COUNT,"DEPTH_TO_SHALLOW_SEARCH"),"invalid routing condition")
+            # The shallow arm asserts that it hands exactly six empties to shallow_search::<6>.
+            if v==("eq",count,6):return True
+            checked(v==("Le",count,"DEPTH_TO_SHALLOW_SEARCH"),"invalid routing condition")
             return mode=="shallow"
         def call(c,raw,w):return mode=="stop" if c==POLL else c
-        w=DeepWalker(cfg,[CTX,BOARD,LGL,SQ,BETA,CACHE,CUT],decide,call)
+        w=DeepWalker(cfg,[CTX,BOARD,LGL,NEXT,BETA,CACHE,CUT],decide,call)
         answer=w.run()
         if mode=="stop":expected=[POLL];want=HALTED
         else:
             window=("neg",BETA)
-            sub=(("shallow",CTX,BOARD,window,SHALLOW,LGL) if mode=="shallow" else
-                 ("deep",CTX,BOARD,window,CACHE,CUT,LGL))
+            sub=(("shallow",CTX,BOARD,window,SHALLOW,LGL,NEXT) if mode=="shallow" else
+                 ("deep",CTX,BOARD,window,CACHE,CUT,LGL,NEXT))
             want=("neg",sub)
-            expected=[POLL,("remove",CTX,SQ),COUNT,window,sub,want,("restore",CTX,SQ)]
+            expected=[POLL,("nodes",CTX),count]+([count] if mode=="shallow" else [])+[window,sub,want]
         checked(answer==want and w.calls==expected,f"incorrect deep frame for {mode}")
         verify_sites(w, sites, {"stop": [], "shallow": [0], "deep": [1]}[mode])
 
@@ -73,7 +79,7 @@ def verify_node(cfg, sites):
     only=("only",LGL)
     sq=val(only);flips=("flip",sq,("player",BOARD),("opponent",BOARD))
     board=("place",BOARD,flips,sq)
-    one=("deep-child",CTX,board,("moves",board),sq,BETA_NODE,CACHE,CUT)
+    one=("deep-child",CTX,board,("moves",board),("without",EMPS,sq),BETA_NODE,CACHE,CUT)
     generated=("generate",("small-new",),BOARD,LGL)
     table=("generated",BOARD,LGL)
     rated=("rated",table)
@@ -83,8 +89,9 @@ def verify_node(cfg, sites):
     best_next=("best-next",best)
     bchild=("board-of",val(nxt));hash_next=("hash",bchild)
     probe_next=("probe",DEEP,("slot",DEEP,hash_next),bchild,NEG_BETA)
-    sub=("deep-child",CTX,("board-of",val(best_next)),("moves-of",val(best_next)),("square-of",val(best_next)),BETA_NODE,CACHE,CUT)
-    effects={"probe","stable","write","shallow","deep","child","group","deep-child","remove","restore","four","poll","nodes",
+    moved=("without",EMPS,("square-of",val(best_next)))
+    sub=("deep-child",CTX,("board-of",val(best_next)),("moves-of",val(best_next)),moved,BETA_NODE,CACHE,CUT)
+    effects={"probe","stable","write","shallow","deep","child","group","deep-child","without","four","poll","nodes",
              "stable-stat","small-new","generate","small-iter","small-into","evaluate","best-iter","best-into","small-next","best-next","drop"}
     pick=lambda w:[c for c in w.calls if c[0] in effects]
     for mode in ("terminal","pass","hit","stable","one-wipe","one-stop","one-ok","multi-wipe","etc","ordered"):
@@ -96,6 +103,7 @@ def verify_node(cfg, sites):
             raise ValueError(f"wrong node discriminant {v}")
         def call(c,raw,state):
             if c[0]=="same":checked(c==("same",LGL,LGL),"wrong legal-mask assertion");return True
+            if c[0]=="sameEmpties":checked(c==("sameEmpties",EMPS,("emptiesOf",BOARD)),"wrong empties assertion");return True
             if c[0]=="empty":
                 if c[1]==LGL:return mode in ("terminal","pass")
                 checked(c[1]==("moves",("pass",BOARD)),"invalid switched legal moves");return mode=="terminal"
@@ -109,22 +117,22 @@ def verify_node(cfg, sites):
                 state.env[raw[0][1]]=rated
             if c==POLL:return mode=="one-stop"
             return c
-        w=DeepWalker(cfg,ARGS,decide,call,stops=(60,84));out=w.run()
+        w=DeepWalker(cfg,ARGS,decide,call,stops=(68,92));out=w.run()
         if mode=="terminal":wanted=("terminal",BOARD,COUNT);expected=[]
         elif mode=="pass":
-            rec=("deep",CTX,("pass",BOARD),NEG_BETA,CACHE,CUT,("moves",("pass",BOARD)))
+            rec=("deep",CTX,("pass",BOARD),NEG_BETA,CACHE,CUT,("moves",("pass",BOARD)),EMPS)
             wanted=("neg",rec);expected=[("nodes",CTX),rec]
         elif mode=="hit":wanted=val(probe);expected=[probe]
         elif mode=="stable":wanted=val(stable);expected=[probe,stable,("stable-stat",STATS)]
         elif mode=="one-wipe":wanted=64;expected=[probe,stable]
         elif mode.startswith("one-"):
             wanted=HALTED if mode=="one-stop" else one
-            expected=[probe,stable,one,POLL]+([] if mode=="one-stop" else [("write",DEEP,own_slot,BOARD,ALPHA,one)])
+            expected=[probe,stable,("without",EMPS,sq),one,POLL]+([] if mode=="one-stop" else [("write",DEEP,own_slot,BOARD,ALPHA,one)])
         else:
             expected=[probe,stable,("small-new",),generated]
             if mode=="multi-wipe":wanted=64
-            elif mode=="etc":wanted=("back",60);expected += [("small-iter",table),inorder]
-            else:wanted=("back",84);expected += [("evaluate",table,CTX),("best-iter",rated),best]
+            elif mode=="etc":wanted=("back",68);expected += [("small-iter",table),inorder]
+            else:wanted=("back",92);expected += [("evaluate",table,CTX),("best-iter",rated),best]
         checked(out==wanted and pick(w)==expected,f"incorrect deep entry {mode}")
         sites_before_loop = {"terminal": [], "pass": [0], "one-stop": [1, 2, 3], "one-ok": [1, 2, 3, 4]}.get(mode, [1, 2])
         verify_sites(w, sites, sites_before_loop)
@@ -136,31 +144,31 @@ def verify_node(cfg, sites):
                 def visit(c,raw,w):
                     if c[0]=="le":checked(c==("le",val(probe_next),NEG_BETA),"wrong ETC acceptance bound");return path=="cut"
                     return call(c,raw,w)
-                w.call=visit;out=w.run(60)
+                w.call=visit;out=w.run(68)
                 if path=="exhausted":
-                    checked(out==("back",84) and w.calls==[nxt,("neg",127),("evaluate",table,CTX),("best-iter",rated),best] and w.env["_166"]==("neg",127),"incorrect ETC exhaust")
+                    checked(out==("back",92) and w.calls==[nxt,("neg",127),("evaluate",table,CTX),("best-iter",rated),best] and w.env["_194"]==("neg",127),"incorrect ETC exhaust")
                 else:
                     expected=[nxt,hash_next,("slot",DEEP,hash_next),NEG_BETA,probe_next]
                     if path!="miss":expected += [NEG_BETA,("le",val(probe_next),NEG_BETA)]
                     good=("neg",val(probe_next))
                     if path=="cut":expected.append(good)
-                    checked(w.calls==expected and out==(good if path=="cut" else ("back",60)) and w.env["_138"]==inorder and w.env["_124"]==table,"bad ETC iteration")
+                    checked(w.calls==expected and out==(good if path=="cut" else ("back",68)) and w.env["_166"]==inorder and w.env["_152"]==table,"bad ETC iteration")
                 verify_sites(w, sites, [] if path == "exhausted" else [5, 6])
         if mode=="ordered":
             base=w.env.copy()
-            checked(base["_166"]==("neg",127),"wrong initial best score")
+            checked(base["_194"]==("neg",127),"wrong initial best score")
             for path in ("continue","empty","empty-stop","cut","cut-stop"):
-                w.calls=[];w.call_blocks=[];w.env=base.copy();w.env["_166"]="prior"
+                w.calls=[];w.call_blocks=[];w.env=base.copy();w.env["_194"]="prior"
                 w.decide=lambda v:{best_next:not path.startswith("empty")}[v]
                 def visit(c,raw,w):
                     if c[0]=="ge":checked(c==("ge",sub,BETA_NODE),"incorrect score cutoff");return path.startswith("cut")
                     if c==POLL:return path.endswith("-stop")
                     return c
-                w.call=visit;out=w.run(84)
-                expected=[best_next]+([] if path.startswith("empty") else [sub,("ge",sub,BETA_NODE)])
+                w.call=visit;out=w.run(92)
+                expected=[best_next]+([] if path.startswith("empty") else [moved,sub,("ge",sub,BETA_NODE)])
                 if path=="continue":
                     mx=("max","prior",sub)
-                    checked(out==("back",84) and w.calls==expected+[mx] and w.env["_166"]==mx and w.env["_174"]==best,"incorrect ordered iteration")
+                    checked(out==("back",92) and w.calls==expected+[mx] and w.env["_194"]==mx and w.env["_202"]==best,"incorrect ordered iteration")
                 else:
                     result="prior" if path.startswith("empty") else sub
                     expected += [("drop",best),("drop",best),POLL]

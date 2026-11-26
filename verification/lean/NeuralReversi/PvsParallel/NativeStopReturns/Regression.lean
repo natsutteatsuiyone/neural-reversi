@@ -20,8 +20,8 @@ private def loads (t : Event) : Loads memory t := ⟨t.step-2,none,none,Nat.sub_
 
 private def enter (step site : Nat) : Record := .localCall 1 (.entry step site .pvs .none none)
 private def leave (step opening : Nat) (raw : ScoreRefresh.Score) : Record := .localCall 1 (.discarded step opening raw)
-private def inner : FrameEnd := ⟨1,6,12,[307,308,309,435,438,439,441,443,446,447],⟨0⟩⟩
-private def outer : FrameEnd := ⟨1,4,15,[60,61,62,63,442,443,446,447],⟨0⟩⟩
+private def inner : FrameEnd := ⟨1,6,12,[305,306,307,433,436,437,439,441,444,445],⟨0⟩⟩
+private def outer : FrameEnd := ⟨1,4,15,[59,60,61,62,440,441,444,445],⟨0⟩⟩
 private def halt : Trace memory := .stop inner ⟨1,10⟩ post (loads _)
 private def passTrace : Trace memory := .pass outer halt
 private def sources : Evidence memory := fun w first tail =>
@@ -36,7 +36,7 @@ example (e : ConcurrentReplay.Event) : normalize (nested passSite [.table e]) so
     some (nested passSite [.table e]).stream := by rfl
 
 private def drawn : Board.Board := ⟨0x5555555555555555,0xaaaaaaaaaaaaaaaa⟩
-private def solved : FrameEnd := ⟨1,1,4,[65,66,442,443,446,447],⟨0⟩⟩
+private def solved : FrameEnd := ⟨1,1,4,[63,64,440,441,444,445],⟨0⟩⟩
 private def ordinary : Inputs :=
   ⟨fun _ _ => some ⟨drawn,0,⟨-1⟩,⟨0⟩,true,Cutoffs.exactSelectivity,false,false,none⟩,
    fun _ _ => some 0,[enter 1 0,.localCall 1 (.leave 4 1 .pvs none (some ⟨0⟩))],true⟩
@@ -51,8 +51,7 @@ private def w : EndgameSearch.CacheHistory.NativeTrace.Worker pool := ⟨1,.work
 private def board : PvsBoardTree.Position := ⟨⟨0x84f88080808080,0x3077f7f7f7f7f⟩,rfl⟩
 private def input : EndgameSearch.CacheHistory.Input :=
   let mask := Board.emptySquares board.val
-  let empty := EndgameSearch.Cancellation.EmptyState.mk (EmptyListInit.newLinks mask)
-    (EmptyListParity.fromEmpties mask) (Board.emptyCount board.val)
+  let empty : EndgameSearch.Cancellation.EmptyState := ⟨Empties.encode mask, Board.emptyCount board.val⟩
   let vacant : TranspositionTable.ProbeRetry.RawAttempt :=
     ⟨fun slot => if slot = 0 then some ((0,0),TranspositionTable.Packing.zeroData) else none,0⟩
   ⟨board,empty,by
@@ -85,7 +84,7 @@ private def returnedLeaf (s : LeafSite) := (Trace.boundary ⟨1,3,20,boundaryPcs
   (leaf s) ⟨1,10⟩ cached (loads _)).decode leafInputs
 set_option maxRecDepth 8192 in
 #guard returnedLeaf (.recursive .deepChild 8 0) == some ⟨⟨0⟩,false⟩
-#guard returnedLeaf (.recursive .deep 7 46) == none
+#guard returnedLeaf (.recursive .deep 7 54) == none
 #guard returnedLeaf (.storeGuard boundaryPollPc ⟨4,nodesBeforePc,⟨1,5⟩,17⟩ ⟨4,nodesAfterPc,⟨1,13⟩,17⟩) == none
 -- Relative to the extracted threshold, so that tuning it needs no edit here.
 private def minNodes : BitVec 64 := BitVec.ofNat 64 DeepLeafMir.boundaryStoreMinNodes

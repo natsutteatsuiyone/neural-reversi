@@ -34,7 +34,7 @@ structure Input where
 def Input.state (i : Input) (past : List Store) : State := ⟨i.empties,past,i.polls⟩
 
 inductive Arm where
-  | failed | fixed (arm : Direct.Mir.Arm) | table (entry : EntryData) | shallow | deep (poll : Bool)
+  | failed | fixed (arm : Direct.Mir.Arm) | table (entry : EntryData) | shallow (six : Bool) | deep (poll : Bool)
 
 def Input.lookup (i : Input) : Option (Option EntryData) := do
   if i.depth.toNat = 12 ∧ i.parallel then
@@ -52,7 +52,7 @@ def Input.arm (i : Input) : Arm :=
   | some none =>
     match NonPvMir.dispatch i.empties.count.toNat with
     | some (.fixed f) => .fixed f
-    | some .shallow => .shallow
+    | some .shallow => .shallow (decide (i.empties.count.toNat = 6))
     | none => .deep i.active
 
 structure Output where
@@ -64,11 +64,11 @@ def Input.eval (i : Input) (mc : X86Config) (fc : FlipConfig) (address : Address
   | .table e => ⟨some e.score.toInt,past⟩
   | .fixed f =>
     let score : Option Score := do
-      let raw ← Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties.links i.empties.parity
+      let raw ← Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties
         i.checked (toDiscDiff i.alpha).raw
       (fromDiscDiff i.checked raw).toOption
     ⟨score.map (·.raw.toInt),past⟩
-  | .shallow =>
+  | .shallow _ =>
     let out := ShallowMir.run i.target i.bmi2 mc fc address i.board i.empties (toDiscDiff i.alpha).raw.toInt past
     ⟨((fromDiscDiff i.checked ⟨BitVec.ofInt 32 out.score⟩).toOption).map (·.raw.toInt),out.history⟩
   | .deep poll =>
@@ -137,14 +137,14 @@ private theorem largeArm (n : Nat) (large : 6 < n) : NonPvMir.dispatch n = none 
 
 theorem shallow_score (i : Input) (same : i.depth = i.empties.count) (short : i.empties.count.toNat ≤ 6) :
     (i.run mc fc addr past).score =
-      (NonPvMir.sourceRun i.target i.bmi2 mc fc addr past i.board i.empties.links i.empties.parity
+      (NonPvMir.sourceRun i.target i.bmi2 mc fc addr past i.board i.empties.mask
         i.depth i.empties.count i.alpha i.checked).map (·.raw.toInt) := by
   have noProbe : ¬ (i.depth.toNat = 12 ∧ i.parallel) := by rw [same]; omega
   have look : i.lookup = some none := by simp [Input.lookup,noProbe]
   obtain ⟨tag,branch⟩ := smallArm _ short
   change _ = ((if i.depth ≠ i.empties.count then none else (NonPvMir.dispatch i.empties.count.toNat).bind
     (fun | .fixed f => do
-             let raw ← Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties.links i.empties.parity
+             let raw ← Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties
                i.checked (toDiscDiff i.alpha).raw
              (fromDiscDiff i.checked raw).toOption
          | .shallow => (fromDiscDiff i.checked ⟨BitVec.ofInt 32

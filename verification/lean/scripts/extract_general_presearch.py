@@ -45,7 +45,7 @@ def verify(cfg, dump, traits, reach):
             expected.extend([("raw","beta"),("raw","alpha")])
             expected.extend([("player","board"),("opponent","board"),flip] if has_hint else [indexed])
             expected.extend([board,("deref","thread"),guard,("update","ctx",sq,flip),a1,("neg",a1),("neg","alpha"),ch,
-                             score,("undo","ctx",sq),("deref","thread"),("stop?",("deref","thread"))])
+                             score,("undo","ctx"),("deref","thread"),("stop?",("deref","thread"))])
             if not stopped:
                 expected.append(("gt",score,"alpha"))
                 if above:
@@ -93,14 +93,14 @@ def verify(cfg, dump, traits, reach):
             if m := re.fullmatch(r"(Eq|Gt|AddWithOverflow|SubWithOverflow)\(([^,]+), (.+)\)",s):
                 a,b = arg(m[2]),arg(m[3])
                 if m[1]=="Eq":
-                    if (m[2],m[3]) == ("move _356","move _357"):
+                    if (m[2],m[3]) == ("move _354","move _355"):
                         checked((a,b)==(("raw","beta"),("rawAlphaPlus1",)),"wrong debug window")
                         return True
-                    checked((m[2],m[3]) in (("move _338","const 1_usize"),("move _475","const 2_usize"))
+                    checked((m[2],m[3]) in (("move _336","const 1_usize"),("move _472","const 2_usize"))
                             and a==count,"unexpected count partition")
                     return a==b
                 if m[1]=="Gt":
-                    checked((m[2],m[3])==("move _460","const 1_usize") and a==count-int(use),"wrong residual partition")
+                    checked((m[2],m[3])==("move _457","const 1_usize") and a==count-int(use),"wrong residual partition")
                     return a>b
                 if m[1]=="AddWithOverflow":
                     checked((a,b)==(("raw","alpha"),1),"wrong null window assertion")
@@ -112,9 +112,9 @@ def verify(cfg, dump, traits, reach):
 
         def dest(n, unwind=None):
             if unwind is not None and cfg[int(unwind)].end.startswith("drop("):
-                checked(cfg[int(unwind)] == Block([], "drop(_388) -> [return: bb450, unwind terminate(cleanup)];",True)
-                        and env["_388"]==guard,"wrong cleanup claim")
-                unwind=450
+                checked(cfg[int(unwind)] == Block([], "drop(_386) -> [return: bb448, unwind terminate(cleanup)];",True)
+                        and env["_386"]==guard,"wrong cleanup claim")
+                unwind=448
             return normal_target(cfg,n,unwind)
         pc=start
         while pc not in visited:

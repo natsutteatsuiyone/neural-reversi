@@ -111,9 +111,9 @@ inductive Body (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (prior 
       (run : GeneralOwnerMir.scheduled mc fc b d alpha beta paired checked cut mem attempts rows
         (framePriority mc fc b mode tie) x.scout schedule (scoutSplit splits) = some v) :
       Body mc fc prior reads b false alpha.raw.toInt beta.raw.toInt v
-  | direct (alpha beta raw : Score) (aligned : EndgameSearch.EmptyStateMatches b nodes parity count)
+  | direct (alpha beta raw : Score) (aligned : EndgameSearch.EmptyStateMatches b mask count)
       (small : count.toNat ≤ 4)
-      (result : EndgameSearch.Direct.Mir.run target bmi2 b.val nodes parity count alpha checked = some raw) :
+      (result : EndgameSearch.Direct.Mir.run target bmi2 b.val ⟨mask,count⟩ alpha checked = some raw) :
       Body mc fc prior reads b false alpha.raw.toInt beta.raw.toInt raw.raw.toInt
   | boundary (p : EndgameSearch.CacheHistory.Pool) (timeline : EndgameSearch.CacheHistory.Timeline p) (worker atStep : Nat)
       (alpha beta : Score) (d : Depth) (state : EndgameSearch.Cancellation.State) (attempts : List RawAttempt)

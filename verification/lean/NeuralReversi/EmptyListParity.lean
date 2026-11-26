@@ -31,7 +31,7 @@ theorem scan_perm : presorted.Perm (List.finRange 64) := by
   apply List.perm_iff_count.mpr
   decide
 
-private def quadrant (sq : Square) : Nat := 2 * (sq.val / 8 / 4) + sq.val % 8 / 4
+def quadrant (sq : Square) : Nat := 2 * (sq.val / 8 / 4) + sq.val % 8 / 4
 
 private theorem id_spec : ∀ (sq : Square), (quadrantId sq).toNat < 16 ∧
     ∀ q : Fin 4, (quadrantId sq).getLsbD q.val = decide (quadrant sq = q.val) := by decide

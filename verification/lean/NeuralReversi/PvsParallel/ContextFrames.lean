@@ -15,7 +15,7 @@ def At.cacheInput (path : At mc fc root b d s) (fits : (Board.emptyCount root.va
     (alpha beta : Score) (attempts : List TranspositionTable.ProbeRetry.RawAttempt)
     (polls : Threading.SplitCutoff.Polling) (parallel active aborted checked : Bool)
     (target : Flip.Dispatch.TargetConfig) (bmi2 paired : Bool) : Input :=
-  ⟨b, leafState s, (path.frameInputs fits).1, alpha, beta, d, Cutoffs.exactSelectivity, attempts,
+  ⟨b, leafState b, (path.frameInputs fits).1, alpha, beta, d, Cutoffs.exactSelectivity, attempts,
     polls, parallel, active, aborted, checked, target, bmi2, paired⟩
 
 theorem At.rowOpened (path : At mc fc root b d s) (fits : (Board.emptyCount root.val).toNat ≤ 60)

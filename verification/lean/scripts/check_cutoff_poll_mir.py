@@ -108,7 +108,7 @@ def check(dump):
         [switch(14, 9, 8)], ["_0 = const true;", jump(14)],
         ["_13 = const ();", "_22 = &(*_8);", call("_21 = <Arc<SplitPoint> as Deref>::deref(move _22)", 10, 15)],
         ["_20 = &(*_21);", call("_19 = SplitPoint::task(move _20)", 11, 15)],
-        [typed_field(18, 19, 11, "std::option::Option<Arc<SplitPoint>>"), call("_17 = Option::<Arc<SplitPoint>>::as_ref(move _18)", 12, 15)],
+        [typed_field(18, 19, 10, "std::option::Option<Arc<SplitPoint>>"), call("_17 = Option::<Arc<SplitPoint>>::as_ref(move _18)", 12, 15)],
         ["_3 = move _17;", "_6 = const ();", jump(1)], ["_5 = const ();", "_0 = const false;", jump(14)], done, unwind])
 
 

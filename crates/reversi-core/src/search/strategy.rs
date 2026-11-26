@@ -150,11 +150,12 @@ impl SearchStrategy for EndGameStrategy {
 
         let nodes_before = ctx.n_nodes;
         let caches = thread.endgame_caches();
-        let n_empties = ctx.empty_list.count();
+        let empties = endgame::Empties::new(board);
+        let n_empties = empties.count();
         let score_d = if n_empties > endgame::DEPTH_TO_SHALLOW_SEARCH {
             let moves = board.legal_moves();
             if thread.has_active_split_point() {
-                endgame::null_window_search(ctx, board, alpha_d, caches, &**thread, moves)
+                endgame::null_window_search(ctx, board, alpha_d, caches, &**thread, moves, empties)
             } else {
                 endgame::null_window_search(
                     ctx,
@@ -163,28 +164,27 @@ impl SearchStrategy for EndGameStrategy {
                     caches,
                     &endgame::IgnoreSplitPointCutoff,
                     moves,
+                    empties,
                 )
             }
         } else {
             match n_empties {
                 0 => board.final_disc_diff(),
                 1 => {
-                    let sq = ctx.empty_list.first();
+                    let [sq] = empties.first();
                     endgame::solve1(ctx, board.player(), alpha_d, sq)
                 }
                 2 => {
-                    let sq1 = ctx.empty_list.first();
-                    let sq2 = ctx.empty_list.next(sq1);
+                    let [sq1, sq2] = empties.first();
                     endgame::solve2(ctx, board, alpha_d, sq1, sq2)
                 }
                 3 => {
-                    let sq1 = ctx.empty_list.first();
-                    let sq2 = ctx.empty_list.next(sq1);
-                    let sq3 = ctx.empty_list.next(sq2);
+                    let [sq1, sq2, sq3] = empties.first();
                     endgame::solve3(ctx, board, alpha_d, sq1, sq2, sq3)
                 }
                 4 => {
-                    let (sq1, sq2, sq3, sq4) = endgame::sort_last4(&ctx.empty_list);
+                    let odd_quadrants = endgame::odd_quadrants(board.empty_squares());
+                    let (sq1, sq2, sq3, sq4) = endgame::sort_last4(empties, odd_quadrants);
                     endgame::solve4(ctx, board, alpha_d, sq1, sq2, sq3, sq4)
                 }
                 5 => endgame::shallow_search::<5>(
@@ -193,6 +193,7 @@ impl SearchStrategy for EndGameStrategy {
                     alpha_d,
                     &mut caches.shallow,
                     board.legal_moves(),
+                    empties,
                 ),
                 _ => endgame::shallow_search::<6>(
                     ctx,
@@ -200,6 +201,7 @@ impl SearchStrategy for EndGameStrategy {
                     alpha_d,
                     &mut caches.shallow,
                     board.legal_moves(),
+                    empties,
                 ),
             }
         };

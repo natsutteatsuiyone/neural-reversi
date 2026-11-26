@@ -78,7 +78,7 @@ pub fn search_root(task: SearchTask, max_depth: Depth, thread: &Arc<Thread>) -> 
         return SearchResult::new_random_move(random_move(&board));
     }
 
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
 
     let max_depth = max_depth.max(1).min(n_empties);
     ctx.correction_history = Some(task.corrections.take(thread.idx()));
@@ -130,7 +130,7 @@ fn iterate(
     thread: &Arc<Thread>,
 ) -> Outcome {
     let time_manager = task.time_manager.as_deref();
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
     let pv_count = task.pv_count(ctx.root_moves.count());
 
     let mut depth = compute_start_depth(max_depth);
@@ -333,7 +333,7 @@ pub fn evaluate_shallow_with_tt(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     };
 
@@ -367,7 +367,7 @@ pub fn evaluate_shallow_with_tt(
         } else {
             -evaluate_shallow_with_tt(ctx, &next, depth - 1, -beta, -alpha)
         };
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         if score >= beta {
             best_score = score;
@@ -411,7 +411,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     };
 
@@ -429,7 +429,7 @@ pub fn evaluate_depth2(
 
         ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         if score >= beta {
             best_score = score;
@@ -453,7 +453,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     }
 
@@ -469,7 +469,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
 
             ctx.update(sq, flipped);
             let score = -evaluate(ctx, &next);
-            ctx.undo(sq);
+            ctx.undo();
 
             if score >= beta {
                 return score;
@@ -616,7 +616,7 @@ mod schedule_tests {
             );
             assert_eq!(ctx.n_nodes > before, depth >= 6);
             assert_eq!(ctx.selectivity, Selectivity::Mid);
-            assert_eq!(ctx.empty_list.count(), board.empty_count());
+            assert_eq!(ctx.n_empties, board.empty_count());
         }
     }
 
@@ -665,7 +665,7 @@ mod schedule_tests {
             if moves.is_empty() {
                 let next = board.switch_players();
                 if !next.has_legal_moves() {
-                    return board.solve(ctx.empty_list.count());
+                    return board.solve(ctx.n_empties);
                 }
                 ctx.update_pass();
                 let score = -exhaustive(ctx, &next, depth);
@@ -682,7 +682,7 @@ mod schedule_tests {
                     let next = board.make_move_with_flipped(flipped, square);
                     ctx.update(square, flipped);
                     let score = -exhaustive(ctx, &next, depth - 1);
-                    ctx.undo(square);
+                    ctx.undo();
                     score
                 })
                 .max()
@@ -724,7 +724,7 @@ mod schedule_tests {
                     let result = verify(&mut ctx, &board, beta - 1, beta);
                     assert_eq!(result >= beta, exact >= beta);
                 }
-                assert_eq!(ctx.empty_list.count(), board.empty_count());
+                assert_eq!(ctx.n_empties, board.empty_count());
                 assert!(ctx.side_to_move == side);
             }
         }

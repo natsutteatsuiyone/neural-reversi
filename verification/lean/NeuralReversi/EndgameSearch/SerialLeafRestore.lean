@@ -71,7 +71,9 @@ def shallowChild (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : Fl
     let next := (play mc fc b m).val
     (ShallowMir.child next (-beta) h placed.count.toNat (reader.shallow h next (-beta))
       ((EndgameStability.tryCutoff next.val 4 ⟨-beta⟩).map (·.value))
-      (fun _ => ShallowMir.four target bmi2 next placed (-beta)) (fun _ => (rec placed (-beta) h).1),placed)
+      (fun _ => ShallowMir.four target bmi2 next placed
+        (Empties.oddQuadrants (Board.emptySquares b.val) ^^^ Empties.quadrant m.val) (-beta))
+      (fun _ => (rec placed (-beta) h).1),placed)
   else
     let (r,t) := rec placed (-beta) h
     (⟨-r.score,r.history⟩,t)
@@ -120,7 +122,7 @@ def shallowWith (reader : Reader) (target : TargetConfig) (bmi2 : Bool) (mc : X8
     mobile b first rest a s h
       (reader.shallow h b a)
       ((EndgameStability.tryCutoff b.val s.count.toNat ⟨a⟩).map (·.value))
-      (ShallowMir.stages mc b (ShallowMir.parity s)) (fun m t h' =>
+      (ShallowMir.stages mc b) (fun m t h' =>
         shallowChild target bmi2 mc fc reader b t m (a+1) h' (shallowWith reader target bmi2 mc fc (play mc fc b m).val))
 termination_by Board.playRank mc b.val
 decreasing_by
@@ -139,7 +141,7 @@ theorem shallow_refines (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (
     simp only
     split
     next other =>
-      have same := shallow_refines target bmi2 mc fc addr (pass b) s (-(a+1)) h (emptyState_pass b _ _ _ aligned)
+      have same := shallow_refines target bmi2 mc fc addr (pass b) s (-(a+1)) h (emptyState_pass b _ _ aligned)
       unfold shallow at same
       rw [same]
     next => rfl
@@ -148,7 +150,7 @@ theorem shallow_refines (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (
     intro m h'
     apply shallowChild_eq _ _ _ _ _ _ _ _ _ _ _ _ aligned
     exact shallow_refines target bmi2 mc fc addr (play mc fc b m).val _ _ _
-      (emptyStatePlayContract_proven mc fc b m _ _ _ aligned).2.2.1
+      (emptyStatePlayContract_proven mc fc b m _ _ aligned).2.1
 termination_by Board.playRank mc b.val
 decreasing_by
   · exact Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil moves,by assumption⟩) b.property
@@ -178,7 +180,7 @@ private theorem deepChild_eq (target : TargetConfig) (bmi2 : Bool) (mc : X86Conf
       project ∧ out.state.empties = input.empties := by
   let placed := {input with polls := input.polls.after, empties := input.empties.remove m.val}
   have fits : placed.empties.matches (play mc fc b m).val :=
-    (emptyStatePlayContract_proven mc fc b m _ _ _ aligned).2.2.1
+    (emptyStatePlayContract_proven mc fc b m _ _ aligned).2.1
   have shallowEq := shallow_refines target bmi2 mc fc addr (play mc fc b m).val placed.empties (-beta) placed.history fits
   have ⟨deepEq,deepState⟩ := same placed fits
   have inv := ShallowMir.restore_after mc fc b input.empties m aligned
@@ -255,7 +257,7 @@ theorem deep_refines (target : TargetConfig) (bmi2 paired : Bool) (mc : X86Confi
     dsimp only
     split
     next other =>
-      obtain ⟨eq,kept⟩ := deep_refines target bmi2 paired mc fc addr (pass b) (-(a+1)) s (emptyState_pass b _ _ _ aligned)
+      obtain ⟨eq,kept⟩ := deep_refines target bmi2 paired mc fc addr (pass b) (-(a+1)) s (emptyState_pass b _ _ aligned)
       exact ⟨congrArg DeepRecursionMir.negate eq,kept⟩
     next => exact ⟨rfl,rfl⟩
   | cons first rest =>
@@ -292,7 +294,7 @@ def leafWith (reader : Reader) (c : Config) (mc : X86Config) (fc : FlipConfig) (
   let n := s.count.toNat
   let disc := (toDiscDiff a).raw.toInt
   if n ≤ 4 then
-    let raw ← sourceRun c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count a c.checked
+    let raw ← sourceRun c.target c.bmi2 mc fc c.address past b s.mask s.count s.count a c.checked
     return ((raw.raw.toInt,past),s)
   else if n ≤ 6 then
     let (r,t) := shallowWith reader c.target c.bmi2 mc fc b s disc past
@@ -314,7 +316,7 @@ local macro "unfoldLeaf" module:ident field:ident : tactic => do
 
 private theorem middle_score (c : Config) (mc : X86Config) (fc : FlipConfig) (b : Position) (s : EmptyState)
     (a : Score) (past : List Store) (lo : 4 < s.count.toNat) (hi : s.count.toNat ≤ 6) :
-    sourceRun c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count a c.checked =
+    sourceRun c.target c.bmi2 mc fc c.address past b s.mask s.count s.count a c.checked =
       (fromDiscDiff c.checked ⟨BitVec.ofInt 32
         (ShallowMir.run c.target c.bmi2 mc fc c.address b s (toDiscDiff a).raw.toInt past).score⟩).toOption := by
   have size : s.count.toNat = 5 ∨ s.count.toNat = 6 := by omega
@@ -341,7 +343,7 @@ theorem leaf_refines (c : Config) (mc : X86Config) (fc : FlipConfig) (b : Positi
   by_cases fixed : s.count.toNat ≤ 4
   · have small : s.count.toNat ≤ 6 := by omega
     simp only [leaf,leafWith,PvsParallel.SerialScout.run,small,fixed,ite_true]
-    cases sourceRun c.target c.bmi2 mc fc c.address past b s.links s.parity s.count s.count a c.checked <;> rfl
+    cases sourceRun c.target c.bmi2 mc fc c.address past b s.mask s.count s.count a c.checked <;> rfl
   by_cases small : s.count.toNat ≤ 6
   · have eq := shallow_refines c.target c.bmi2 mc fc c.address b s (toDiscDiff a).raw.toInt past aligned
     change shallowWith _ _ _ _ _ _ _ _ _ = _ at eq

@@ -106,7 +106,7 @@ pub fn search_root(task: SearchTask) -> SearchResult {
         };
     }
 
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
     if board == Board::new() && !multi_pv {
         // Handle opening position with random move
         let mv = random_move(&board);
@@ -201,7 +201,7 @@ fn search_root_midgame(board: Board, ctx: &mut SearchContext, level: Level) -> S
 
 /// Performs the root search for endgame positions.
 fn search_root_endgame(board: &Board, ctx: &mut SearchContext, level: Level) -> SearchResult {
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
     let score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth + 2 {
         Selectivity::Level2
@@ -331,7 +331,7 @@ fn search_root_endgame_multipv(
     ctx: &mut SearchContext,
     level: Level,
 ) -> SearchResult {
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
     let base_score = estimate_aspiration_base_score(ctx, board, n_empties);
     let final_selectivity = if n_empties > level.perfect_depth + 2 {
         Selectivity::Level2
@@ -441,7 +441,7 @@ pub fn evaluate_depth3<NT: NodeType>(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     }
 
@@ -474,7 +474,7 @@ pub fn evaluate_depth3<NT: NodeType>(
 
         ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth2(ctx, &next, -beta, -alpha);
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         if score > best_score {
             best_score = score;
@@ -518,7 +518,7 @@ pub fn evaluate_depth2(
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     }
 
@@ -537,7 +537,7 @@ pub fn evaluate_depth2(
 
         ctx.update(mv.sq, mv.flipped);
         let score = -evaluate_depth1(ctx, &next, -beta, -alpha);
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         if score > best_score {
             best_score = score;
@@ -564,7 +564,7 @@ pub fn evaluate_depth1(ctx: &mut SearchContext, board: &Board, alpha: Score, bet
             ctx.undo_pass();
             return score;
         } else {
-            return board.solve(ctx.empty_list.count());
+            return board.solve(ctx.n_empties);
         }
     }
 
@@ -602,7 +602,7 @@ fn search_move_in_evaluate_depth1(
 
     ctx.update(sq, flipped);
     let score = -evaluate(ctx, &next);
-    ctx.undo(sq);
+    ctx.undo();
 
     if score > *best_score {
         *best_score = score;

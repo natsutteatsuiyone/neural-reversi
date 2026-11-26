@@ -15,7 +15,7 @@ private abbrev fc : EndgameSearch.FlipConfig := ⟨false,false,false⟩
 
 private def empty (b : Position) : EmptyState :=
   let mask := Board.emptySquares b.val
-  ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount b.val⟩
+  ⟨Empties.encode mask,Board.emptyCount b.val⟩
 
 /-- Names each stored board by its key rather than its slot, which depends on the cache budget. -/
 private def stored (o : Op) : Option (EndgameTreeCache.Table × BitVec 64 × Int × Int) := do

@@ -106,9 +106,9 @@ theorem preserves (prior : Values) (reads : Lookups) (children : ∀ b p a z v, 
     have cache := (timeline.reads mc fc worker opening).1
     by_cases small : i.empties.count.toNat ≤ 6
     · have aligned := i.aligned
-      obtain ⟨s,ran,cert⟩ := NonPvMir.run_returns i.target i.bmi2 mc fc p.address hist i.board _ _ _ _
+      obtain ⟨s,ran,cert⟩ := NonPvMir.run_returns i.target i.bmi2 mc fc p.address hist i.board _ _ _
         i.alpha i.beta i.checked (count.trans aligned.1) aligned small (fun _ => cache) null
-      rw [EndgameSearch.CacheHistory.shallow_score i count small,NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ aligned (fun _ => cache),ran] at run
+      rw [EndgameSearch.CacheHistory.shallow_score i count small,NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ aligned (fun _ => cache),ran] at run
       cases run
       have answer := bound_sound _ window (cert.bound i.beta null)
       exact ⟨answer.lower,answer.upper⟩

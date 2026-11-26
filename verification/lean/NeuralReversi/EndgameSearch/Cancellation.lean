@@ -14,34 +14,24 @@ open ScoreRefresh (Score DiscScore fromDiscDiff toDiscDiff)
 
 open Threading.SplitCutoff (Polling after_latched occurred_latched)
 
-structure EmptyState where
-  links : EmptyListLinks.Links
-  parity : BitVec 8
-  count : BitVec 32
+/-- The `Empties` value carried down the endgame search. -/
+abbrev EmptyState := Empties.State
 
 def EmptyState.matches (state : EmptyState) (b : Position) : Prop :=
-  EmptyStateMatches b state.links state.parity state.count
+  EmptyStateMatches b state.mask state.count
 
-/-- Read the two neighboring indices at update time. The returned links retain
-    those indices when subsequent moves read the list. -/
-@[noinline] private def splice (state : EmptyState) (node : EmptyListLinks.Node) (next prev : EmptyListLinks.Index)
-    (sq : Bitboard.Square) (count : BitVec 32) : EmptyState :=
-  ⟨EmptyListLinks.writePrev (EmptyListLinks.writeNext state.links node.prev next) node.next prev,
-    EmptyListParity.toggle state.parity sq,count⟩
+/-- `Empties::without` for the child of a move. -/
+def EmptyState.remove (state : EmptyState) (sq : Bitboard.Square) : EmptyState := state.without sq
 
-def EmptyState.remove (state : EmptyState) (sq : Bitboard.Square) : EmptyState :=
-  let node := state.links (EmptyListLinks.slot sq)
-  splice state node node.next node.prev sq (state.count - 1)
-
+/-- The caller's own `Empties`, which a child search receives only by value. -/
 def EmptyState.restore (state : EmptyState) (sq : Bitboard.Square) : EmptyState :=
-  let slot := EmptyListLinks.slot sq
-  splice state (state.links slot) slot slot sq (state.count + 1)
+  ⟨state.mask ^^^ Empties.bit sq, state.count + 1⟩
 
 theorem EmptyState.remove_eq (s : EmptyState) (sq : Bitboard.Square) :
-    s.remove sq = ⟨EmptyListLinks.remove s.links sq,EmptyListParity.toggle s.parity sq,s.count-1⟩ := rfl
+    s.remove sq = ⟨s.mask ^^^ Empties.bit sq, s.count - 1⟩ := rfl
 
 theorem EmptyState.restore_eq (s : EmptyState) (sq : Bitboard.Square) :
-    s.restore sq = ⟨EmptyListLinks.restore s.links sq,EmptyListParity.toggle s.parity sq,s.count+1⟩ := rfl
+    s.restore sq = ⟨s.mask ^^^ Empties.bit sq, s.count + 1⟩ := rfl
 
 structure State where
   empties : EmptyState
@@ -179,8 +169,8 @@ private theorem moveFrame_valid (mc : X86Config) (fc : FlipConfig) (b : Position
   split
   · rename_i cut
     exact ⟨rfl, sound, ⟨[], by simp [State.afterPoll]⟩, cut⟩
-  · obtain ⟨_, _, childAligned, _, _, links, parity, count⟩ :=
-      emptyStatePlayContract_proven mc fc b sq _ _ _ aligned
+  · obtain ⟨_, childAligned, _, mask, count⟩ :=
+      emptyStatePlayContract_proven mc fc b sq _ _ aligned
     let placed := { state.afterPoll with empties := state.empties.remove sq.val }
     let result := (call placed).negate
     have next : placed.empties.matches (play mc fc b sq).val := childAligned
@@ -189,7 +179,7 @@ private theorem moveFrame_valid (mc : X86Config) (fc : FlipConfig) (b : Position
     refine ⟨?_, after, grew, ?_⟩
     · change result.state.empties.restore sq.val = state.empties
       rw [restored]
-      simp only [placed, EmptyState.remove_eq, EmptyState.restore_eq, links, parity, count]
+      simp only [placed, EmptyState.remove_eq, EmptyState.restore_eq, mask, count]
     · change ScoreValid alpha (-discValue mc fc (play mc fc b sq).val.val)
         { result.state with empties := result.state.empties.restore sq.val } result.score
       change ScoreValid alpha (-discValue mc fc (play mc fc b sq).val.val) result.state result.score at bounds
@@ -281,7 +271,7 @@ theorem run_valid (mc : X86Config) (fc : FlipConfig) (opts : Options mc)
       have eq : discValue mc fc b.val = -discValue mc fc (pass b).val := by omega
       rw [eq]
       exact negated (run_valid mc fc opts correct (pass b) (-(alpha + 1)) state
-        (emptyState_pass b _ _ _ aligned) sound childWindow)
+        (emptyState_pass b _ _ aligned) sound childWindow)
     next unavailable =>
       have no : Board.hasLegalMoves mc (pass b).val = false := Bool.eq_false_iff.mpr unavailable
       have scaled := EndgameTreeCache.scaled_discValue mc fc b

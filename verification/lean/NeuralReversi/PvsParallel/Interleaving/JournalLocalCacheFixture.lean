@@ -15,7 +15,7 @@ private def node : PvsBoardTree.Position := ⟨⟨0x004602466a1283ff,0x3f317db99
 private def query (b : PvsBoardTree.Position) (alpha : Int) (level : TranspositionTable.Selectivity := 1) : Input :=
   let mask := Board.emptySquares b.val
   let empty : EndgameSearch.Cancellation.EmptyState :=
-    ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount b.val⟩
+    ⟨Empties.encode mask,Board.emptyCount b.val⟩
   ⟨b,empty,EndgameSearch.emptyState_initial b,⟨BitVec.ofInt 32 alpha⟩,⟨BitVec.ofInt 32 (alpha+1)⟩,
     empty.count,level,[],⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩,false,false,false,true,.other,false,false⟩
 

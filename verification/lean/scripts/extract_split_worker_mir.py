@@ -29,7 +29,7 @@ def render(dump, repo, *, fields=False):
         body = re.search(r"pub struct "+name+r" \{([^}]+)\}", rust)[1]
         return re.findall(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(\w+)\s*:",body,re.M)
     task = field_names("search/threading/split_point.rs", "SplitPointTask")
-    checked((task[0],task[8],task[9]) == ("board","depth","beta"), "task field map")
+    checked((task[0],task[7],task[8]) == ("board","depth","beta"), "task field map")
     move = field_names("move_list.rs","Move")
     checked((move[0],move[2]) == ("flipped","sq"), "move field map")
     cfg = blocks(text)
@@ -54,7 +54,7 @@ def render(dump, repo, *, fields=False):
                 if m := re.fullmatch(r"(?:copy |move |&mut |&)?\(\*(_\d+)\)", s):
                     return env[m[1]]
                 if m := re.fullmatch(r"(?:move |copy )\(\(\*(_\d+)\)\.(\d+): [^()]+\)", s):
-                    return {("task","0"):"board", ("task","8"):"i.depth", ("task","9"):"i.beta",
+                    return {("task","0"):"board", ("task","7"):"i.depth", ("task","8"):"i.beta",
                             ("mv","0"):"flips", ("mv","2"):"sq"}[(env[m[1]],m[2])]
                 if m := re.fullmatch(r"(?:move |copy )\((_\d+)\.(\d+): [^()]+\)", s):
                     return env[m[1]][int(m[2])]
@@ -97,7 +97,7 @@ def render(dump, repo, *, fields=False):
                     "Board::make_move_with_flipped": (["board","flips","sq"],"child"),
                     "claim_child::<EndGameStrategy>": (["thread","child","i.depth"],"claim"),
                     "SearchContext::<'_>::update": (["ctx","sq","flips"],"updated"),
-                    "SearchContext::<'_>::undo": (["ctx","sq"],"undone"),
+                    "SearchContext::<'_>::undo": (["ctx"],"undone"),
                     "SplitPointState::best_score": (["sp"],"s.best"),
                     "SearchContext::<'_>::update_pv": (["ctx","sq"],"unit"),
                     "SearchContext::<'_>::pv": (["ctx"],"pvline"),
@@ -296,11 +296,11 @@ def check_child_mutants(dump, repo):
 
 def check_guard_mutants(dump, repo):
     cases = [
-        ("stopped guard", "drop(_96) -> [return: bb102", "drop(_29) -> [return: bb102"),
-        ("cutoff guard", "drop(_96) -> [return: bb99", "drop(_29) -> [return: bb99"),
-        ("next ticket guard", "drop(_96) -> [return: bb96", "drop(_29) -> [return: bb96"),
-        ("early unlock", "_134 = SplitPointState::set_best_score(move _135, move _136) -> [return: bb64",
-         "drop(_96) -> [return: bb64"),
+        ("stopped guard", "drop(_95) -> [return: bb102", "drop(_29) -> [return: bb102"),
+        ("cutoff guard", "drop(_95) -> [return: bb99", "drop(_29) -> [return: bb99"),
+        ("next ticket guard", "drop(_95) -> [return: bb96", "drop(_29) -> [return: bb96"),
+        ("early unlock", "_133 = SplitPointState::set_best_score(move _134, move _135) -> [return: bb64",
+         "drop(_95) -> [return: bb64"),
     ]
     return check_mutations(dump, repo, cases)
 

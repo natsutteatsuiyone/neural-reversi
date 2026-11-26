@@ -17,7 +17,7 @@ FIELDS = {
     ("ctx", "2", "u64"): "nodes",
     ("ctx", "7", "probcut::Selectivity"): "sel",
     ("ctx", "9", "eval::EvalMode"): "mode",
-    ("ctx", "10", "empty_list::EmptyList"): "empty",
+    ("ctx", "10", "u32"): "empty",
 }
 ITER_PV = "<std::ops::Range<usize> as Iterator>::next"
 ITER_SEL = "<Enumerate<std::array::IntoIter<Selectivity, 5>> as Iterator>::next"
@@ -33,7 +33,8 @@ def execute(cfg, names, start, stops, options):
     env = {"_1": ("ref", "ctx"), "_2": ("ref", "task"), "_3": ("ref", "arc"), "_4": "base",
            "_5": "completed", "_6": "minimum", "_7": "last"}
     env.update({v: v for v in ("ctx", "task", "board", "arc", "optionalTime", "roots", "nodes",
-                               "mode", "empty", "timer", "thread", "callback", "progress")})
+                               "mode", "timer", "thread", "callback", "progress")})
+    env["empty"] = "depth"
     env["sel"] = "level"
     before = {"board": ("ref", "board"), "n_empties": "depth", "time_manager": "time" if timer else "none",
               "endgame_clock": "clock" if timer else "none", "pv_count": "count", "alpha": "alpha", "beta": "beta"}
@@ -112,7 +113,6 @@ def execute(cfg, names, start, stops, options):
         externals = {
             "Option::<Arc<TimeManager>>::as_deref": (["optionalTime"],"time" if timer else "none"),
             "TimeManager::set_endgame_mode": (["timer",1],"unit"),
-            "EmptyList::count": (["empty"],"depth"),
             "CompletedState::begin_phase": (["completed"],"unit"),
             "RootMoves::count": (["roots"],"rootCount"),
             "SearchTask::pv_count": (["task","rootCount"],"count"),

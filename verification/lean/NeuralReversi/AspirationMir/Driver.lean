@@ -87,13 +87,13 @@ inductive Returns (query : Query) (abort : Nat → Bool) : Machine → Word → 
 private def Invariant (query : Query) (m : Machine) : Prop :=
   let fresh := m.last.Observed query ∧ m.regs.alpha = m.last.alpha ∧ m.regs.beta = m.last.beta
   match m.pc with
-  | 0 | 1 | 2 | 3 | 10 | 12 => True
-  | 4 | 5 | 8 => fresh
-  | 6 => fresh ∧ m.flag = false
-  | 7 => False
-  | 9 => m.flag = false → m.last.Accepted query
-  | 11 => m.last.Accepted query
-  | 13 => m.last.Accepted query ∧ m.out = m.last.score
+  | 0 | 1 | 2 | 9 | 11 => True
+  | 3 | 4 | 7 => fresh
+  | 5 => fresh ∧ m.flag = false
+  | 6 => False
+  | 8 => m.flag = false → m.last.Accepted query
+  | 10 => m.last.Accepted query
+  | 12 => m.last.Accepted query ∧ m.out = m.last.score
   | _ => False
 
 private def Safe (query : Query) : Action → Prop
@@ -104,16 +104,16 @@ private theorem step_safe (m : Machine) (inv : Invariant query m)
     (h : execute query (fun _ => false) m = some action) : Safe query action := by
   obtain ⟨pc, regs, issued, last, flag, out⟩ := m
   match pc with
-  | 0 | 1 | 2 | 3 | 4 | 5 | 7 | 10 | 11 | 12 | 13 =>
+  | 0 | 1 | 2 | 3 | 4 | 6 | 9 | 10 | 11 | 12 =>
     simp [execute, driverCode] at h
     subst action
     simp [Safe, Invariant, Call.Observed] at inv ⊢ <;> assumption
-  | 6 =>
+  | 5 =>
     obtain ⟨fresh, rfl⟩ := inv
     simp [execute, driverCode] at h
     subst action
     exact fresh
-  | 8 =>
+  | 7 =>
     cases result : applyWiden regs last.score with
     | none => simp [execute, driverCode, result] at h
     | some p =>
@@ -126,11 +126,11 @@ private theorem step_safe (m : Machine) (inv : Invariant query m)
       obtain ⟨low, high⟩ := widen_false result
       obtain ⟨observed, a, b⟩ := inv
       exact ⟨observed, a ▸ low, b ▸ high⟩
-  | 9 =>
+  | 8 =>
     cases flag <;> simp [execute, driverCode] at h <;> subst action
     · exact inv rfl
     · trivial
-  | _ + 14 => contradiction
+  | _ + 13 => contradiction
 
 theorem returned_inside (run : Returns query (fun _ => false) m score last) (entry : m.pc = 0) :
     last.Accepted query ∧ score = last.score := by

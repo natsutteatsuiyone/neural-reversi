@@ -75,7 +75,7 @@ impl MoveList {
         // Midgame LMR reads `Move::value` as a score, so the fast path must stay
         // strictly below the depth at which reductions start.
         let use_fast = if SS::IS_ENDGAME {
-            depth < ENDGAME_MIN_SORT_DEPTH[ctx.empty_list.count() as usize]
+            depth < ENDGAME_MIN_SORT_DEPTH[ctx.n_empties as usize]
         } else {
             depth < crate::search::LMR_MIN_DEPTH
         };
@@ -168,7 +168,7 @@ impl MoveList {
                 } else {
                     shallow_search_score(ctx, &next, sort_depth).value()
                 };
-                ctx.undo(mv.sq);
+                ctx.undo();
 
                 if SS::IS_ENDGAME {
                     mv.value +=

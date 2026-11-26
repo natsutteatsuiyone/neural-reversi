@@ -15,7 +15,7 @@ open SerialExecution (Frame Inputs ReadFacts body push)
 
 def context (b : Position) (a z : BitVec 32) : Frame :=
   let state := ContextPathMir.start b
-  ⟨⟨b, ContextPathMir.rootDepth state, true, false, a.toInt, z.toInt⟩, ContextPathMir.leafState state⟩
+  ⟨⟨b, ContextPathMir.rootDepth state, true, false, a.toInt, z.toInt⟩, ContextPathMir.leafState b⟩
 
 def attempt (c : SerialScout.Config) (inputs : Inputs mc fc) (opening : Nat) (b : Position)
     (root : SerialRecursion.RootInput) (initial : List Row) (idx : Nat) (a z : BitVec 32) :

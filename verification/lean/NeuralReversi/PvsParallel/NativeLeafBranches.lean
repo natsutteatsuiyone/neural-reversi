@@ -34,9 +34,9 @@ def result (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (address : 
     (i : Input) (history : List Store) : Arm → Option Returned
   | .failed => none
   | .table entry => some ⟨.entry entry.score,true⟩
-  | .fixed f => (EndgameSearch.Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties.links i.empties.parity
+  | .fixed f => (EndgameSearch.Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties
       i.checked (toDiscDiff i.alpha).raw).map (fun raw => ⟨.disc raw,true⟩)
-  | .shallow =>
+  | .shallow _ =>
     let r := ShallowMir.run i.target i.bmi2 mc fc address i.board i.empties (toDiscDiff i.alpha).raw.toInt history
     some ⟨.disc ⟨BitVec.ofInt 32 r.score⟩,true⟩
   | .deep active =>
@@ -53,14 +53,14 @@ theorem accepted (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (addr
   | table e => exact congrArg some (BitVec.toInt_signExtend_of_le (by decide : 16 ≤ 32))
   | fixed f =>
     simp only [result,Input.eval]
-    cases h : EndgameSearch.Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties.links i.empties.parity i.checked
+    cases h : EndgameSearch.Direct.Mir.discResult f i.target i.bmi2 i.board.val i.empties i.checked
         (toDiscDiff i.alpha).raw with
     | none => rfl
     | some raw =>
       change ((fromDiscDiff i.checked raw).toOption.bind (fun s => some s.raw.toInt)) =
         (fromDiscDiff i.checked raw).toOption.map (fun s => s.raw.toInt)
       cases h' : (fromDiscDiff i.checked raw).toOption <;> rfl
-  | shallow =>
+  | shallow _ =>
     let raw : DiscScore := ⟨BitVec.ofInt 32 (ShallowMir.run i.target i.bmi2 mc fc addr i.board i.empties
       (toDiscDiff i.alpha).raw.toInt past).score⟩
     change ((fromDiscDiff i.checked raw).toOption.bind (fun s => some s.raw.toInt)) =
@@ -128,7 +128,7 @@ def operand (regs : Registers) (worker : Nat) (args : BoundaryRegisters) (sites 
   | .fixed _ => do
     let [access] := sites | none
     if access.site != 0 || access.callee != .access then none else args.beforeScale.map Operand.disc
-  | .shallow | .deep _ => do
+  | .shallow _ | .deep _ => do
     let [access,child] := sites | none
     if access.site != 0 || access.callee != .access then none else
     let disc ← regs.callee worker child.closed

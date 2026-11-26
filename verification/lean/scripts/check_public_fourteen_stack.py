@@ -45,7 +45,7 @@ def instrument(src):
         s = replace_once(s, prefix, prefix + f'\n if SS::IS_ENDGAME {{ eprintln!("MODE {mode}"); }}')
     search = "let use_cached_child_eval ="
     s = replace_once(s, search, 'if SS::IS_ENDGAME { eprintln!("MODE search"); }\n        ' + search)
-    mark = "ctx.undo(mv.sq);"
+    mark = "ctx.undo();"
     s = replace_once(s, mark, mark + '\n if SS::IS_ENDGAME { eprintln!("EST {} {}", mv.sq.index(), mv.value); }')
     ordering.write_text(s)
     end = src / "search/endgame.rs"
@@ -191,7 +191,7 @@ def main():
         with raw.open() as stream:
             operands, expected = normalize(stream, bounds, frame_events)
         path = artifacts / "operands.txt"
-        path.write_text("\n".join(operands)+"\n")
+        path.write_text("\n".join(operands)+"\n", newline="\n")
         (artifacts / "expected.txt").write_text("\n".join(row for rows in expected.values() for row in rows)+"\n")
         print(operands[0], dict(Counter(row.split()[0] for row in operands)), {k:len(v) for k,v in expected.items()})
         if args.capture_only:

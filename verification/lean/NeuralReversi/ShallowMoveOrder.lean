@@ -61,7 +61,7 @@ theorem neighbors_exact (empties : Bits) (sq : Fin 64) :
     _ ↔ ∃ cell ∈ cells, adjacent cell sq = true := by rw [← same]; exact neighbors_union cells sq
     _ ↔ _ := by simp [HasEmptyNeighbor, cells]
 
-private def quadrantMask (parity : Fin 16) : Bits :=
+def quadrantMask (parity : Fin 16) : Bits :=
   let table : Vector Bits 16 := #v[
     0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
     0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
@@ -69,10 +69,10 @@ private def quadrantMask (parity : Fin 16) : Bits :=
     0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF]
   table[parity]
 
-private def quadrant (sq : Fin 64) : Nat :=
+def quadrant (sq : Fin 64) : Nat :=
   2 * (sq.val / 8 / 4) + sq.val % 8 / 4
 
-private theorem quadrantMask_bit : ∀ (parity : Fin 16) (sq : Fin 64),
+theorem quadrantMask_bit : ∀ (parity : Fin 16) (sq : Fin 64),
     (quadrantMask parity).getLsbD sq.val = parity.val.testBit (quadrant sq) := by decide
 
 def groups (moves : LegalMoves.Raw) (empties : Bits) (parity : Fin 16) : List LegalMoves.Raw :=

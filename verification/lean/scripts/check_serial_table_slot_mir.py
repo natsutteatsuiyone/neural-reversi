@@ -29,25 +29,25 @@ SET_PV_IDX = "search-root_move-{impl#1}-set_pv_idx"
 
 # All normal successors from classify to return, including both correction-history arms.
 FINAL_OWNER = """
-415: _702 = copy _333; _703 = copy _11; _704 = copy _5; _701 = transposition_table::Bound::classify::<NT>(move _702, move _703, move _704) => 417;
-417: _706 = discriminant(_260); switchInt(move _706) -> [1: bb418, otherwise: bb424];
+413: _698 = copy _331; _699 = copy _11; _700 = copy _5; _697 = transposition_table::Bound::classify::<NT>(move _698, move _699, move _700) => 415;
+415: _702 = discriminant(_258); switchInt(move _702) -> [1: bb416, otherwise: bb422];
+416: goto 417;
+417: _703 = copy ((_258 as Some).0: score::Score); _704 = &mut ((*_1).4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>); _705 = discriminant((*_704)); switchInt(move _705) -> [1: bb418, otherwise: bb421];
 418: goto 419;
-419: _707 = copy ((_260 as Some).0: score::Score); _708 = &mut ((*_1).4: std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>); _709 = discriminant((*_708)); switchInt(move _709) -> [1: bb420, otherwise: bb423];
-420: goto 421;
-421: _710 = &mut (((*_708) as Some).0: std::boxed::Box<search::correction_history::CorrectionHistory>); _712 = &mut (*(*_710)); _713 = &(*_2); _714 = copy _707; _715 = copy _333; _716 = copy _701; _717 = copy _3; _711 = CorrectionHistory::update(move _712, move _713, move _714, move _715, move _716, move _717) => 422;
-422: _705 = const (); goto 425;
-423: goto 424;
-424: _705 = const (); goto 425;
-425: _719 = const <NT as search::node_type::NodeType>::ROOT_NODE; switchInt(move _719) -> [0: bb429, otherwise: bb426];
-426: _722 = &(*((*_1).1: &search::root_move::RootMoves)); _721 = RootMoves::pv_idx(move _722) => 427;
-427: _720 = Eq(move _721, const 0_usize); switchInt(move _720) -> [0: bb432, otherwise: bb428];
-428: goto 429;
-429: _724 = &(*((*_1).5: &transposition_table::TranspositionTable)); _726 = &_179; _725 = TTProbeResult::<'_>::slot(move _726) => 430;
-430: _727 = &(*_2); _728 = copy _333; _729 = copy _701; _730 = copy _3; _731 = copy _332; _732 = copy ((*_1).7: probcut::Selectivity); _733 = copy _187; _723 = TranspositionTable::store(move _724, move _725, move _727, move _728, move _729, move _730, move _731, move _732, const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _733) => 431;
-431: _718 = const (); goto 433;
-432: _718 = const (); goto 433;
-433: _0 = copy _333; goto 447;
-447: return;
+419: _706 = &mut (((*_704) as Some).0: std::boxed::Box<search::correction_history::CorrectionHistory>); _708 = &mut (*(*_706)); _709 = &(*_2); _710 = copy _703; _711 = copy _331; _712 = copy _697; _713 = copy _3; _707 = CorrectionHistory::update(move _708, move _709, move _710, move _711, move _712, move _713) => 420;
+420: _701 = const (); goto 423;
+421: goto 422;
+422: _701 = const (); goto 423;
+423: _715 = const <NT as search::node_type::NodeType>::ROOT_NODE; switchInt(move _715) -> [0: bb427, otherwise: bb424];
+424: _718 = &(*((*_1).1: &search::root_move::RootMoves)); _717 = RootMoves::pv_idx(move _718) => 425;
+425: _716 = Eq(move _717, const 0_usize); switchInt(move _716) -> [0: bb430, otherwise: bb426];
+426: goto 427;
+427: _720 = &(*((*_1).5: &transposition_table::TranspositionTable)); _722 = &_177; _721 = TTProbeResult::<'_>::slot(move _722) => 428;
+428: _723 = &(*_2); _724 = copy _331; _725 = copy _697; _726 = copy _3; _727 = copy _330; _728 = copy ((*_1).7: probcut::Selectivity); _729 = copy _185; _719 = TranspositionTable::store(move _720, move _721, move _723, move _724, move _725, move _726, move _727, move _728, const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _729) => 429;
+429: _714 = const (); goto 431;
+430: _714 = const (); goto 431;
+431: _0 = copy _331; goto 445;
+445: return;
 """
 
 PV_ACCESS = {
@@ -64,8 +64,8 @@ PV_ACCESS = {
 
 def final_owner(dump, g, body):
     checked("fn " + body.signature + " {" == SIGNATURE, "changed PVS inputs")
-    expected = {"alpha": "_4", "beta": "_5", "org_alpha": "_11", "best_score": "_333",
-                "best_move": "_332", "tt_pv": "_187", "tt_probe_result": "_179"}
+    expected = {"alpha": "_4", "beta": "_5", "org_alpha": "_11", "best_score": "_331",
+                "best_move": "_330", "tt_pv": "_185", "tt_probe_result": "_177"}
     checked(all(binding(body.source, name) == reg for name, reg in expected.items()), "changed PVS locals")
     # Save alpha before any update. No path may revisit this assignment with a narrowed window.
     before = body.reachable(0, stop_at={3})
@@ -79,7 +79,7 @@ def final_owner(dump, g, body):
                 checked(use and use[1] not in ("_5", "_11"), "changed saved alpha or entry beta")
 
     compare(PVS, normal_blocks(body.source, {}), FINAL_OWNER, prefix=True)
-    checked(430 not in body.reachable(0, stop_at={415}) and 415 in body.reachable(0),
+    checked(428 not in body.reachable(0, stop_at={413}) and 413 in body.reachable(0),
             "final store reachable without its bound classification")
     for name, expected_body in PV_ACCESS.items():
         compare(name, normal_blocks(read(dump, name), {}), expected_body)
@@ -145,15 +145,15 @@ def check(dump):
     verify(dump)
     text = {stem: (dump / ("reversi_core." + stem + PASS)).read_text() for stem in (PVS, ETC, ACCESS, PV_IDX, SET_PV_IDX)}
     mutations = [
-        (PVS, r"(_726 = )&_179;", r"\g<1>&mut _179;"),
-        (PVS, r"_726 = &_179;", "_991 = TranspositionTable::probe(copy _724, copy _2, copy _87) "
-         "-> [return: bb992, unwind: bb450];\n    }\n\n    bb992: {\n        _726 = &_991;"),
-        (PVS, r"(_591 = search::<NonPV, SS>[^\n]+?return: )bb\d+", r"\g<1>bb97"),
-        (PVS, r"0: bb432, otherwise: bb428", "0: bb428, otherwise: bb432"),
-        (PVS, r"_728 = copy _333;", "_728 = copy _4;"),
-        (PVS, r"_703 = copy _11;", "_703 = copy _4;"),
-        (PVS, r"Eq\(move _721, const 0_usize\)", "Eq(const 0_usize, const 0_usize)"),
-        (PVS, r"_0 = copy _333;(?=\s+StorageDead\(_701\);)", "_0 = copy _4;"),
+        (PVS, r"(_722 = )&_177;", r"\g<1>&mut _177;"),
+        (PVS, r"_722 = &_177;", "_991 = TranspositionTable::probe(copy _720, copy _2, copy _86) "
+         "-> [return: bb992, unwind: bb448];\n    }\n\n    bb992: {\n        _722 = &_991;"),
+        (PVS, r"(_588 = search::<NonPV, SS>[^\n]+?return: )bb\d+", r"\g<1>bb95"),
+        (PVS, r"0: bb430, otherwise: bb426", "0: bb426, otherwise: bb430"),
+        (PVS, r"_724 = copy _331;", "_724 = copy _4;"),
+        (PVS, r"_699 = copy _11;", "_699 = copy _4;"),
+        (PVS, r"Eq\(move _717, const 0_usize\)", "Eq(const 0_usize, const 0_usize)"),
+        (PVS, r"_0 = copy _331;(?=\s+StorageDead\(_697\);)", "_0 = copy _4;"),
         (PV_IDX, r"Ordering::Relaxed;", "Ordering::Acquire;"),
         (SET_PV_IDX, r"_5 = copy _2;", "_5 = const 0_usize;"),
         (ETC, r"_73 = &\(\*_2\);", "_73 = &_24;"),

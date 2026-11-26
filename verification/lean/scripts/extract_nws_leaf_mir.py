@@ -110,11 +110,12 @@ class Inputs:
                     answer = ("score", entry)
                     return answer, [*calls, answer]
             calls.append(slot)
-        calls.extend([worker, caches, ("count", "empties"), moves, worker, ("active", worker)])
+        empties = ("emptiesOf", "board")
+        calls.extend([worker, caches, empties, ("count", empties), moves, worker, ("active", worker)])
         if self.active:
             calls.append(worker)
         raw = ("activeNws" if self.active else "ignoreNws", "ctx", "board", alpha, caches,
-               worker if self.active else "ignore", moves)
+               worker if self.active else "ignore", moves, empties)
         score = ("scaled", raw)
         calls.extend([raw, score])
         if at_table and self.enough_nodes:

@@ -60,14 +60,16 @@ def instrument(path):
     ):
         start = 'if tracing { eprintln!(' + event + '); super::context::watch_serial_context(true); }'
         serial = replace_once(serial, anchor, start + '\n        ' + anchor)
-    for undo in ("ctx.undo_pass();", "ctx.undo(sq);", "ctx.undo(mv.sq);"):
-        stop = 'if tracing { super::context::watch_serial_context(false); eprintln!("RET {} {}", score.value(), ctx.serial_snapshot()); }'
-        serial = replace_once(serial, undo, undo + '\n        ' + stop)
+    stop = 'if tracing { super::context::watch_serial_context(false); eprintln!("RET {} {}", score.value(), ctx.serial_snapshot()); }'
+    serial = replace_once(serial, "ctx.undo_pass();", "ctx.undo_pass();" + '\n        ' + stop)
+    # The pre-split loop and the owner loop each undo once.
+    require(serial.count("ctx.undo();") == 2, "expected two serial undo sites")
+    serial = serial.replace("ctx.undo();", "ctx.undo();" + '\n        ' + stop)
     # This negative control reopens a move between scout and wide. Both children
-    # still see identical correct links, but the parent ran two physical updates.
+    # still see identical correct contexts, but the parent ran two physical updates.
     wide = "score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha, thread, false);"
     reopen = """if tracing && move_count > 1 && std::env::var_os("REVERSI_TRACE_REOPEN").is_some() {
-                ctx.undo(mv.sq);
+                ctx.undo();
                 ctx.update(mv.sq, mv.flipped);
             }
             """
@@ -76,27 +78,12 @@ def instrument(path):
                     + active + "\n" + serial + "pub(super) fn search_split_point" + after)
 
 
-def instrument_empty_list(src):
-    # Accessors read the Rust fields directly, including head and unlinked slots.
-    with (src / "empty_list.rs").open("a") as out:
-        out.write("""
-impl EmptyList {
-    pub(crate) fn serial_links(&self) -> impl Iterator<Item = (u8,u8)> + '_ {
-        self.nodes.iter().map(|node| (node.next, node.prev))
-    }
-    pub(crate) fn serial_corrupt_inactive(&mut self) {
-        // A1 is occupied at the first fixture root. Preserve every live link.
-        if self.nodes[0].prev == HEAD && self.nodes[0].next == HEAD && self.nodes[HEAD as usize].next != 0 {
-            self.nodes[0].next = 0;
-        }
-    }
-}
-""")
+def instrument_context(src):
     context = src / "search/context.rs"
     code = context.read_text()
-    for method in ("update", "undo", "update_pass", "undo_pass", "update_endgame", "undo_endgame"):
+    for method in ("update", "undo", "update_pass", "undo_pass"):
         signature = re.compile(rf"    pub fn {method}\([^{{]*?\) \{{.*?^    \}}", re.M | re.S)
-        square = "-1" if method.endswith("_pass") else "sq.index() as i32"
+        square = "sq.index() as i32" if method == "update" else "-1"
         note = f'        self.serial_change("{method}", {square}, before);\n    }}'
         code, hits = signature.subn(
             lambda m: m[0][:-5].replace("{", "{\n        let before = self.serial_before();", 1) + note, code)
@@ -121,7 +108,7 @@ def capture(folder, target, extra_instrument=None, *, fixture=None, serial_trace
     src = core / "src"
     if serial_trace:
         instrument(src / "search/pvs.rs")
-        instrument_empty_list(src)
+        instrument_context(src)
     if extra_instrument is not None:
         extra_instrument(src)
     shutil.copy(fixture or FIXTURES / "fixtures.rs", src / "search/serial_calls_fixture.rs")
@@ -140,7 +127,6 @@ def capture(folder, target, extra_instrument=None, *, fixture=None, serial_trace
 
 def run_engine(binary, folder, mutant=None):
     env = os.environ.copy()
-    env.pop("REVERSI_TRACE_MUTATE_INACTIVE", None)
     env.pop("REVERSI_TRACE_REOPEN", None)
     if mutant:
         env[mutant] = "1"
@@ -177,13 +163,15 @@ def segments(raw):
         elif event == "SEG":
             frame = stack[-1]
             role, alpha, beta, first, square, snapshot = args
-            require(snapshot == frame.entry, "parent changed its empty list before update")
+            require(snapshot == frame.entry, "parent changed its context before update")
             require(not frame.segment and role in ("pass", "pre", "owner"), f"unexpected segment: {line}")
             frame.segment = [role, *frame.request[:5], first, square, alpha, beta]
         elif event == "CTX":
             method, square, prior, snapshot = args
             frame = stack[-1]
-            require(frame.segment and square == frame.segment[7], "wrong square at context operation")
+            # undo takes no square; the segment pairs it with its update.
+            require(frame.segment and (method == "undo" or square == frame.segment[7]),
+                    "wrong square at context operation")
             suffix = "_pass" if frame.segment[0] == "pass" else ""
             if method == "update" + suffix:
                 require(not frame.active and not frame.children, "duplicate update in one segment")
@@ -193,12 +181,12 @@ def segments(raw):
                 require(method == "undo" + suffix and frame.active and frame.children and not frame.restored,
                         "unexpected operation between child issue and undo")
                 require(prior == frame.active, "undo read a different child state")
-                require(snapshot == frame.entry, "undo changed an empty-list slot or context field")
+                require(snapshot == frame.entry, "undo changed a context field")
                 frame.restored = snapshot
         elif event == "EXIT":
             word, snapshot = args
             frame = stack.pop()
-            require(not frame.segment and snapshot == frame.entry, "child returned a different empty-list image")
+            require(not frame.segment and snapshot == frame.entry, "child returned a different context")
             scores.append(" ".join([*frame.request[:2], *frame.request[-2:], word]))
             stats["fail-high"] += int(word) >= int(frame.request[-1])
             stats["fail-low"] += int(word) <= int(frame.request[-2])
@@ -239,20 +227,19 @@ if __name__ == "__main__":
                        cwd=REPO, check=True)
         subprocess.run([str(oracle)], input="\n".join(scores) + "\n", text=True, check=True)
         transcript = folder / "segments.txt"
-        transcript.write_text("\n".join(rows) + "\n")
+        transcript.write_text("\n".join(rows) + "\n", newline="\n")
         driver = folder / "Replay.lean"
         driver.write_text("import NeuralReversi.PvsParallel.SerialCalls.TraceReplay\n"
                           "def main := NeuralReversi.PvsParallel.SerialCalls.TraceReplay.run\n")
         subprocess.run(["lake", "env", "lean", "--run", str(driver), str(transcript)],
                        cwd=LEAN, check=True)
-        physical_trace = folder / "empty-lists.txt"
-        physical_trace.write_text("\n".join(physical) + "\n")
+        physical_trace = folder / "contexts.txt"
+        physical_trace.write_text("\n".join(physical) + "\n", newline="\n")
         driver.write_text("import NeuralReversi.PvsParallel.SerialCalls.TraceReplay.Context\n"
                           "def main := NeuralReversi.PvsParallel.SerialCalls.TraceReplay.Context.run\n")
         subprocess.run(["lake", "env", "lean", "--run", str(driver), str(physical_trace)],
                        cwd=LEAN, check=True)
         for fault, expected in (
-            ("REVERSI_TRACE_MUTATE_INACTIVE", "undo changed an empty-list slot or context field"),
             ("REVERSI_TRACE_REOPEN", "duplicate update in one segment"),
         ):
             altered = run_engine(binary, folder, mutant=fault)
@@ -267,5 +254,5 @@ if __name__ == "__main__":
                 require(str(err) == expected, f"unexpected mutant failure: {err}")
             else:
                 raise ValueError(f"accepted native mutation {fault}")
-        print("Rejected corruption of an inactive link and duplicate update before wide re-search.")
+        print("Rejected a duplicate update before wide re-search.")
         print(" ".join(f"{key}={value}" for key, value in counts.items()))

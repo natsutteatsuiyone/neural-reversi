@@ -139,7 +139,7 @@ def run(cfg, case, traits, frame=None):
         "claim_child::<SS>": (["thread", "played", "depth"], "claim"),
         UPDATE: (["ctx", "sq", "flips"], "unit"),
         CHILD: (["ctx", "played", "childDepth", "negBeta", "negAlpha", "arc", 0], "child"),
-        UNDO: (["ctx", "sq"], "unit"),
+        UNDO: (["ctx"], "unit"),
         STOP: (["thread"], 0),
         "TTProbeResult::<'_>::slot": (["probe"], "slot"),
         "RootMoves::pv_idx": (["roots"], 0 if first_line else "positiveIndex"),

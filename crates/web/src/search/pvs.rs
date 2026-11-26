@@ -25,7 +25,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
     let org_alpha = alpha;
     let mut best_move = None;
     let mut best_score = -Score::INF;
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
 
     if NT::PV_NODE {
         if depth == 0 {
@@ -127,7 +127,7 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
             score = -search::<PV, SS>(ctx, &next, depth - 1, -beta, -alpha);
         }
 
-        ctx.undo(mv.sq);
+        ctx.undo();
 
         if NT::ROOT_NODE {
             ctx.update_root_move(mv.sq, score, move_count, alpha);

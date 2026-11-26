@@ -56,10 +56,10 @@ theorem nextState_matches (edge : RecursiveCall mc fc b depth next childDepth)
   cases edge with
   | ply move depth =>
     exact ⟨state.remove move.val, nextState_play mc fc _ depth state move,
-      (EndgameSearch.emptyStatePlayContract_proven mc fc _ move _ _ _ aligned).2.2.1⟩
+      (EndgameSearch.emptyStatePlayContract_proven mc fc _ move _ _ aligned).2.1⟩
   | forcedPass depth forced =>
     exact ⟨state, nextState_pass mc fc b depth state forced,
-      EndgameSearch.emptyState_pass b _ _ _ aligned⟩
+      EndgameSearch.emptyState_pass b _ _ aligned⟩
 
 theorem edge_of_nextState {mc : X86Config} {fc : FlipConfig} {b next : Position} {d cd : Depth}
     (accepted : nextState mc fc b d s next cd = some t) : RecursiveCall mc fc b d next cd := by

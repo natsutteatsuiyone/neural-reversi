@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn recursive_search_preserves_bounds_in_both_caches() {
-        use super::super::{EndGameCaches, IgnoreSplitPointCutoff, null_window_search};
+        use super::super::{Empties, EndGameCaches, IgnoreSplitPointCutoff, null_window_search};
         use crate::eval::Eval;
         use crate::probcut::Selectivity;
         use crate::search::context::SearchContext;
@@ -262,13 +262,13 @@ mod tests {
                     &mut caches,
                     &IgnoreSplitPointCutoff,
                     board.legal_moves(),
+                    Empties::new(&board),
                 );
                 assert!(if result <= alpha {
                     exact <= result
                 } else {
                     result <= exact
                 });
-                assert_eq!(ctx.empty_list.count(), target);
                 saw_deep |= assert_stored_bounds(&caches.ec, &mut exact_cache);
                 saw_shallow |= assert_stored_bounds(&caches.shallow, &mut exact_cache);
             }

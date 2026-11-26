@@ -528,9 +528,9 @@ inductive Body (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (prior 
       (run : GeneralOwnerMir.scheduled mc fc b d alpha beta paired checked cut mem attempts rows
         (framePriority mc fc b mode tie) x.scout schedule (scoutSplit splits) = some v) :
       Body mc fc prior reads b false alpha.raw.toInt beta.raw.toInt v
-  | direct (alpha beta raw : Score) (aligned : EndgameSearch.EmptyStateMatches b nodes parity count)
+  | direct (alpha beta raw : Score) (aligned : EndgameSearch.EmptyStateMatches b mask count)
       (small : count.toNat ≤ 4)
-      (result : EndgameSearch.Direct.Mir.run target bmi2 b.val nodes parity count alpha checked = some raw) :
+      (result : EndgameSearch.Direct.Mir.run target bmi2 b.val ⟨mask,count⟩ alpha checked = some raw) :
       Body mc fc prior reads b false alpha.raw.toInt beta.raw.toInt raw.raw.toInt
   | boundary (p : EndgameSearch.CacheHistory.Pool) (timeline : EndgameSearch.CacheHistory.Timeline p) (worker atStep : Nat)
       (alpha beta : Score) (d : Depth) (state : EndgameSearch.Cancellation.State) (attempts : List RawAttempt)
@@ -579,7 +579,7 @@ theorem preserves : CausalTable.Preserves mc fc (Body mc fc) := by
       (scout mc fc b d alpha beta paired checked cut mem attempts rows x mode tie schedule splits full wide
         window (narrow rfl) priorOK probed run)
   | direct a z raw aligned small result =>
-    obtain ⟨s,ran,bound⟩ := EndgameSearch.Direct.Mir.scoreContract_proven _ _ mc fc b _ _ _ a z _ aligned small (narrow rfl)
+    obtain ⟨s,ran,bound⟩ := EndgameSearch.Direct.Mir.scoreContract_proven _ _ mc fc b _ _ a z _ aligned small (narrow rfl)
     cases Option.some.inj (ran.symm.trans result)
     exact bound_sound _ window bound
   | boundary p timeline worker atStep a z d state attempts history aligned parent result =>

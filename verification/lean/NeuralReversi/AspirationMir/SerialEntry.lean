@@ -15,12 +15,11 @@ open RootMoveStorage (Row)
 
 /-- The PVS empty-list view of the initial search context. -/
 def emptyState (board : Position) : EmptyState :=
-  let initial := (SearchContextState.init board).empties
-  ⟨initial.links, initial.parity, initial.count⟩
+  ⟨Empties.encode (Board.emptySquares board.val), Board.emptyCount board.val⟩
 
-private theorem emptyState_matches (board : Position) (small : (Board.emptyCount board.val).toNat ≤ 5) :
+private theorem emptyState_matches (board : Position) (_small : (Board.emptyCount board.val).toNat ≤ 5) :
     (emptyState board).matches board :=
-  (SearchContextState.initialContract_proven.1 board (by omega)).1.1.1
+  EndgameSearch.emptyState_initial board
 
 theorem started_small (c : SmallPv.Config mc) (board : Position)
     (small : (Board.emptyCount board.val).toNat ≤ 5) (legal : legalSquares mc board.val ≠ []) :

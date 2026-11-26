@@ -7,11 +7,11 @@ from mir_mutants import check_mir_regression, run_mir_regression_cli
 
 MUTATIONS = {
     (IMPL + "evaluate_moves", PASS): [
-        ("move _24, move _25)", "move _24, move _24)"),
-        ("otherwise: bb6", "otherwise: bb10"),
+        ("move _23, move _24)", "move _23, move _23)"),
+        ("otherwise: bb5", "otherwise: bb9"),
         ("_8 = Lt(move _10, move _11);", "_8 = Le(move _10, move _11);"),
         ("copy _12[_13]", "copy _12[0 of 64]"),
-        ("0: bb8, otherwise: bb6", "0: bb6, otherwise: bb8"),
+        ("0: bb7, otherwise: bb5", "0: bb5, otherwise: bb7"),
     ],
     (IMPL + "evaluate_moves_fast", PASS): [
         ("1: bb12, otherwise: bb1", "1: bb1, otherwise: bb12"),
@@ -24,9 +24,9 @@ MUTATIONS = {
         ("((*_46).1: i32) = Neg(move _58);", "((*_46).1: i32) = copy _58;"),
         ("((*_81).1: i32) = const move_list::ordering::TT_MOVE_VALUE;", "((*_81).1: i32) = const 0_i32;"),
         ("_102 = <Score as Neg>::neg(", "_102 = <Score as Ord>::max("),
-        ("AddWithOverflow(copy ((*_81).1: i32), copy _117)", "SubWithOverflow(copy ((*_81).1: i32), copy _117)"),
-        ("_125 = copy (_126.1: bitboard::Bitboard);", "_125 = copy (_126.0: bitboard::Bitboard);"),
-        ("_141 = SubWithOverflow(", "_141 = AddWithOverflow("),
+        ("AddWithOverflow(copy ((*_81).1: i32), copy _116)", "SubWithOverflow(copy ((*_81).1: i32), copy _116)"),
+        ("_124 = copy (_125.1: bitboard::Bitboard);", "_124 = copy (_125.0: bitboard::Bitboard);"),
+        ("_140 = SubWithOverflow(", "_140 = AddWithOverflow("),
         ("0: bb64, 1: bb65", "0: bb65, 1: bb64"),
     ],
     (PRE + "fast_move_value", PASS): [
@@ -41,8 +41,8 @@ MUTATIONS = {
     ],
     ("eval-network_small-{impl#2}-evaluate", PASS): [("move _47, move _48, move _49", "move _47, move _49, move _48")],
     ("search-correction_history-{impl#1}-correct", PASS): [("_0 = <Score as Ord>::clamp", "_0 = <Score as Ord>::max")],
-    ("search-midgame-evaluate_depth1", PASS): [("_0 = copy _80;", "_0 = copy _4;")],
-    ("search-midgame-evaluate_depth2", PASS): [("_0 = copy _49;", "_0 = copy _4;")],
+    ("search-midgame-evaluate_depth1", PASS): [("_0 = copy _79;", "_0 = copy _4;")],
+    ("search-midgame-evaluate_depth2", PASS): [("_0 = copy _48;", "_0 = copy _4;")],
 }
 
 

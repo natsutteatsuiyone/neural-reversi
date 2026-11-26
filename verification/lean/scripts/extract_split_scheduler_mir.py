@@ -130,7 +130,7 @@ def render(dump, repo):
     sp_file='search/threading/split_point.rs'
     fields(sp_file,'SplitPoint',{1:'state'})
     fields(sp_file,'SplitPointState',{2:'best_score',6:'helpers_mask'})
-    fields(sp_file,'SplitPointTask',{10:'node_type'})
+    fields(sp_file,'SplitPointTask',{9:'node_type'})
     fields('util/bitset.rs','AtomicBitSet',{0:'data'})
     node=(src/'search/node_type.rs').read_text(encoding='utf-8')
     for trait, pv, root in [('NonPV','false','false'),('PV','true','false'),('Root','true','true')]:
@@ -185,7 +185,7 @@ def render(dump, repo):
         d.call(f'search_split_point::<{typ}>',['ctx','task','moves','thread','slot'],typ)
     term=d.cfg[0][-1]
     m=re.fullmatch(r'switchInt\(move (_\d+)\) -> \[0: bb(\d+), 1: bb(\d+), 2: bb(\d+), otherwise: bb(\d+)\];',term)
-    checked(m and d.val(m[1])==('discriminant',fld('task',10)),'node-type discriminant')
+    checked(m and d.val(m[1])==('discriminant',fld('task',9)),'node-type discriminant')
     modes=[d.paths(int(j)) for j in m.groups()[1:]]
     checked(all(len(p)==1 and len(next(iter(p)))==1 for p in modes[:3]) and not modes[3],'dispatch paths')
     n=max(h.cfg)+1

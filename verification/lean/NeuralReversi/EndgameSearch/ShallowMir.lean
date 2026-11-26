@@ -68,19 +68,30 @@ theorem groups_flatten (b : Position) (sub : Move → List Store → Result) (al
     cases stage b (alpha + 1) sub ms best history <;> simp [ih]
 
 theorem masks_model (moves : LegalMoves.Raw) (bits : Bitboard.Bits) (p : Fin 16) :
-    masks moves bits p = ShallowMoveOrder.groups moves bits p := by rfl
+    masks moves bits (ShallowMoveOrder.quadrantMask p) = ShallowMoveOrder.groups moves bits p := by rfl
 
-def stages (mc : X86Config) (b : Position) (p : Fin 16) : List (List (GeneratedSquare mc b.val)) :=
-  (masks ⟨Board.getMoves mc b.val⟩ (Board.emptySquares b.val) p).map fun group =>
+private def stagesFor (mc : X86Config) (b : Position) (odd : Bitboard.Bits) :
+    List (List (GeneratedSquare mc b.val)) :=
+  (masks ⟨Board.getMoves mc b.val⟩ (Board.emptySquares b.val) odd).map fun group =>
     (legalSquares mc b.val).filter fun m => group.bits.getLsbD m.val.val
 
-theorem stages_order (mc : X86Config) (b : Position) (p : Fin 16) :
-    (stages mc b p).flatten = shallowOrder mc b p := by rfl
+private theorem stagesFor_order (mc : X86Config) (b : Position) (p : Fin 16) :
+    (stagesFor mc b (ShallowMoveOrder.quadrantMask p)).flatten = shallowOrder mc b p := by rfl
+
+/-- The move groups of `shallow_search`, split by `odd_quadrants(board.empty_squares())`. -/
+def stages (mc : X86Config) (b : Position) : List (List (GeneratedSquare mc b.val)) :=
+  stagesFor mc b (Empties.oddQuadrants (Board.emptySquares b.val))
+
+theorem stages_order (mc : X86Config) (b : Position) :
+    (stages mc b).flatten = shallowOrder mc b (boardParity b.val) := by
+  unfold stages
+  rw [oddQuadrants_board]
+  exact stagesFor_order mc b _
 
 theorem singleton_order (mc : X86Config) (b : Position) (m : GeneratedSquare mc b.val) (p : Fin 16)
     (single : legalSquares mc b.val = [m]) : shallowOrder mc b p = [m] := by
-  rw [← stages_order]
-  simp only [stages, masks_model, ShallowMoveOrder.groups, single, List.map_cons, List.map_nil, List.flatten_cons,
+  rw [← stagesFor_order]
+  simp only [stagesFor, masks_model, ShallowMoveOrder.groups, single, List.map_cons, List.map_nil, List.flatten_cons,
     List.flatten_nil, List.filter_cons, List.filter_nil]
   generalize mask : ShallowMoveOrder.neighbors (Board.emptySquares b.val) = adjacent
   simp only [LegalMoves.bitand, LegalMoves.andNot, LegalMoves.nonCorners, LegalMoves.corners,
@@ -88,48 +99,43 @@ theorem singleton_order (mc : X86Config) (b : Position) (m : GeneratedSquare mc 
     Bool.true_and, m.property]
   repeat' first | split | simp_all
 
-def four (target : TargetConfig) (bmi2 : Bool) (b : Position) (s : EmptyState) (alpha : Int) : Int :=
-  ((Direct.Mir.discResult .solve4 target bmi2 b.val s.links s.parity false (BitVec.ofInt 32 alpha)).map
-    (fun disc => disc.raw.toInt)).getD 0
+def four (target : TargetConfig) (bmi2 : Bool) (b : Position) (s : EmptyState) (odd : Bitboard.Bits) (alpha : Int) :
+    Int :=
+  ((Direct.Mir.solveFour target bmi2 b.val s odd (BitVec.ofInt 32 alpha)).map (fun disc => disc.raw.toInt)).getD 0
 
 theorem four_score (target : TargetConfig) (bmi2 : Bool) (b : Position) (s : EmptyState) (a : Int)
     (aligned : s.matches b) (n : (Board.emptyCount b.val).toNat = 4) :
-    four target bmi2 b s a = (Solve34.target4Run target bmi2 (linkedFourOrder b n).val (BitVec.ofInt 32 a)).score.toInt := by
-  have slots := linkedFourOrder_reads b n s.links s.parity _ aligned.2.1 aligned.2.2 (List.Perm.refl _)
-  let arg := (linkedFourOrder b n).val
-  have board := (linkedFourOrder b n).property
-  unfold four Direct.Mir.discResult
+    four target bmi2 b s (Empties.oddQuadrants (Board.emptySquares b.val)) a =
+      (Solve34.target4Run target bmi2 (presortedFourOrder b n).val (BitVec.ofInt 32 a)).score.toInt := by
+  have slots := presortedFourOrder_reads b n s aligned.2
+  let arg := (presortedFourOrder b n).val
+  have board := (presortedFourOrder b n).property
+  unfold four Direct.Mir.solveFour
   simp only [slots]
   have recover := (directDef% args_recover) arg
-  change (directDef% args?) (linkedFourOrder b n).val.asBoard 4 (linkedFourOrder b n).val.squares = _ at recover
+  change (directDef% args?) (presortedFourOrder b n).val.asBoard 4 (presortedFourOrder b n).val.squares = _ at recover
   rw [board] at recover
   simp [recover, arg]
-
-def parity (s : EmptyState) : Fin 16 := ⟨s.parity.toNat % 16, Nat.mod_lt _ (by decide)⟩
-
-theorem parity_matches (b : Position) (s : EmptyState) (aligned : s.matches b) : parity s = boardParity b.val := by
-  have same := boardParity_eq_reachable b.val _ s.parity aligned.2.2 (List.Perm.refl _)
-  apply Fin.ext
-  simp [parity, same, Nat.mod_eq_of_lt (boardParity b.val).isLt]
 
 def executeChild (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig) (addr : Address)
     (b : Position) (s : EmptyState) (m : GeneratedSquare mc b.val) (beta : Int) (h : List Store)
     (rec : EmptyState → Int → List Store → Result) : Result :=
   let n := (play mc fc b m).val
   let placed := s.remove m.val
+  let odd := Empties.oddQuadrants (Board.emptySquares b.val) ^^^ Empties.quadrant m.val
   let a := -beta
   child n a h placed.count.toNat
     (EndgameCache.probe (entryFor addr h .shallow n.val) n.val a)
     ((EndgameStability.tryCutoff n.val 4 ⟨a⟩).map (·.value))
-    (fun _ => four target bmi2 n placed a) (fun _ => rec placed a h)
+    (fun _ => four target bmi2 n placed odd a) (fun _ => rec placed a h)
 
 theorem restore_after (mc : X86Config) (fc : FlipConfig) (b : Position) (s : EmptyState) (m : GeneratedSquare mc b.val)
     (aligned : s.matches b) : (s.remove m.val).restore m.val = s := by
-  obtain ⟨_, _, _, _, _, restored, toggle, count⟩ :=
-    emptyStatePlayContract_proven mc fc b m s.links s.parity s.count aligned
+  obtain ⟨_, _, _, restored, count⟩ :=
+    emptyStatePlayContract_proven mc fc b m s.mask s.count aligned
   cases s
-  simp [EmptyState.restore_eq, EmptyState.remove_eq] at restored toggle count ⊢
-  exact ⟨restored, toggle, count⟩
+  simp only [EmptyState.restore_eq, EmptyState.remove_eq] at restored count ⊢
+  rw [restored, count]
 
 private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig) (addr : Address)
     (b : Position) (s : EmptyState) (m : GeneratedSquare mc b.val) (a : Int) (h : List Store)
@@ -141,7 +147,7 @@ private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Confi
       (fun tier a' h' => EndgameSearch.run mc fc (orderedOptions target bmi2 mc fc addr) tier (play mc fc b m).val a' h') := by
   let n := (play mc fc b m).val
   have placed : (s.remove m.val).matches n :=
-    (emptyStatePlayContract_proven mc fc b m s.links s.parity s.count aligned).2.2.1
+    (emptyStatePlayContract_proven mc fc b m s.mask s.count aligned).2.1
   simp only [executeChild, child]
   rw [placed.1]
   by_cases count : (Board.emptyCount n.val).toNat = 4
@@ -159,6 +165,7 @@ private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Confi
       | some v => rfl
       | none =>
         have fixed := four_score target bmi2 n (s.remove m.val) (-(a + 1)) placed count
+        rw [← oddQuadrants_play mc fc b m] at fixed
         dsimp [n] at fixed
         simp only [fixed, Option.map_none, count, ↓reduceDIte]
         rfl
@@ -182,7 +189,7 @@ def run (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig)
     node b (first :: rest) a h false 0 (fun _ => ⟨0, h⟩)
       (EndgameCache.probe (entryFor addr h .shallow b.val) b.val a)
       ((EndgameStability.tryCutoff b.val s.count.toNat ⟨a⟩).map (·.value))
-      (stages mc b (parity s)) (fun m h' => executeChild target bmi2 mc fc addr b s m (a + 1) h'
+      (stages mc b) (fun m h' => executeChild target bmi2 mc fc addr b s m (a + 1) h'
         (fun s' a' stores => run target bmi2 mc fc addr (play mc fc b m).val s' a' stores))
 termination_by Board.playRank mc b.val
 decreasing_by
@@ -224,7 +231,7 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
       | false => simp
       | true =>
         have smaller := Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil moves, other⟩) b.property
-        have passed := ih _ smaller (pass b) rfl s (-(a + 1)) h (emptyState_pass b _ _ _ aligned) nextSafe sound
+        have passed := ih _ smaller (pass b) rfl s (-(a + 1)) h (emptyState_pass b _ _ aligned) nextSafe sound
         simp [passed]
         rfl
     | cons first rest =>
@@ -238,7 +245,7 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
           EndgameCache.SearchRange (spec m input).score ∧ EndgameTreeCache.soundHistory mc fc (spec m input).history := by
         let n := (play mc fc b m).val
         have placed : (s.remove m.val).matches n :=
-          (emptyStatePlayContract_proven mc fc b m s.links s.parity s.count aligned).2.2.1
+          (emptyStatePlayContract_proven mc fc b m s.mask s.count aligned).2.1
         refine ⟨child_model target bmi2 mc fc addr b s m a input aligned _ (ih _ (play mc fc b m).property n rfl
           (s.remove m.val) (-(a+1)) input placed nextSafe prior), ?_⟩
         have correct := orderedOptions_correct target bmi2 mc fc addr
@@ -256,9 +263,9 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
         | some v => rfl
         | none =>
           simp only [Option.map_none, reduceCtorEq, ↓reduceIte]
-          change (if rest.isEmpty then write b a (sub first h) else groups b a sub (stages mc b (parity s)) (-127) h) =
+          change (if rest.isEmpty then write b a (sub first h) else groups b a sub (stages mc b) (-127) h) =
             write b a ((searchDef% scan) spec a (shallowOrder mc b (boardParity b.val)) (-127) h)
-          rw [← scan_model, parity_matches b s aligned]
+          rw [← scan_model]
           cases rest with
           | nil =>
             have single := singleton_order mc b first (boardParity b.val) moves

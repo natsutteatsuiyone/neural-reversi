@@ -25,7 +25,7 @@ private theorem lookup_sites (w : Worker p) (site owner : Nat) (i : Input) (stam
       [⟨w.ordinal,clock (n+4),clock (n+5),t,.slot⟩,⟨w.ordinal,clock (n+6),clock (n+7),t,.probe⟩] := by
   unfold lookupStream boundary
   cases t <;> first
-    | (change i.arm = .shallow at arm; rw [arm])
+    | (obtain ⟨six,arm⟩ := arm; rw [arm]; cases six)
     | (obtain ⟨poll,arm⟩ := arm; rw [arm]; cases poll)
   all_goals simp [plan,deepLookup,shallowLookup,Forest.calls,Invocations.Calls.events,Invocations.Calls.count,
     Invocations.Exit.node,Invocations.Exit.score,Invocations.Exit.event,NativeFrameCache.project,Event.edge?,
@@ -96,7 +96,7 @@ private theorem lookup_finish (w : Worker p) (i : Input) (t : Table) (arm : recu
     finishIndex w i deepLookup shallowLookup n = n+9 := by
   unfold finishIndex
   cases t <;> first
-    | (change i.arm = .shallow at arm; rw [arm])
+    | (obtain ⟨six,arm⟩ := arm; rw [arm]; cases six)
     | (obtain ⟨poll,arm⟩ := arm; rw [arm]; cases poll)
   all_goals rfl
 
@@ -129,7 +129,7 @@ theorem hit_at_caller (w : Worker p) (site owner : Nat)
   have finish := lookup_finish w i t branch n
   have dispatched : i.arm ≠ .failed := by
     cases t with
-    | shallow => change i.arm = .shallow at branch; simp [branch]
+    | shallow => obtain ⟨_,arm⟩ := branch; simp [arm]
     | deep => obtain ⟨poll,arm⟩ := branch; simp [arm]
   obtain ⟨out,v,ran,_,_,_,visits,worker,opened,closed,scored,frame,input⟩ :=
     boundary_visit w site owner edge i dispatched stamp deepLookup shallowLookup clock time n

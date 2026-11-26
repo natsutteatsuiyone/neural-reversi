@@ -18,7 +18,7 @@ private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
 private def input (b : Position) (active hit : Bool) : Input :=
   let mask := Board.emptySquares b.val
   let empty : EndgameSearch.Cancellation.EmptyState :=
-    ⟨EmptyListInit.newLinks mask,EmptyListParity.fromEmpties mask,Board.emptyCount b.val⟩
+    ⟨Empties.encode mask,Board.emptyCount b.val⟩
   let entry : TranspositionTable.EntryData := ⟨512,0,3,12,5,0,1⟩
   let attempts : List TranspositionTable.ProbeRetry.RawAttempt :=
     if hit then [⟨fun _ => some (Cutoffs.key b,entry),0⟩] else []

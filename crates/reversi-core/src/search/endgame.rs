@@ -3,6 +3,7 @@
 //! Reference: <https://github.com/abulmo/edax-reversi/blob/14f048c05ddfa385b6bf954a9c2905bbe677e9d3/src/endgame.c>
 
 mod cache;
+mod empties;
 mod small_move_list;
 mod solve;
 
@@ -31,6 +32,8 @@ use crate::transposition_table::Bound;
 use crate::types::Depth;
 
 use self::cache::{CacheSlot, Deep, EndGameCache, Shallow};
+#[doc(hidden)]
+pub use self::empties::{Empties, odd_quadrants, quadrant};
 use self::small_move_list::SmallMoveList;
 pub(super) use self::solve::{solve1, solve2, solve3, solve4, sort_last4};
 
@@ -150,7 +153,7 @@ pub(super) fn solve_root(
     }
     let endgame_clock = time_manager.map(TimeManager::endgame_clock);
 
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
     completed.begin_phase();
 
     // Configure for endgame search
@@ -249,7 +252,7 @@ fn estimate_aspiration_base_score(ctx: &mut SearchContext, board: &Board) -> Sco
     }
 
     ctx.eval_mode = EvalMode::Main;
-    if ctx.empty_list.count() >= 20 {
+    if ctx.n_empties >= 20 {
         return midgame::evaluate_depth2(ctx, board, -Score::INF, Score::INF);
     }
 
@@ -285,7 +288,7 @@ fn aspiration_search(
     thread: &Arc<Thread>,
 ) -> Score {
     let mut delta = ASPIRATION_DELTA;
-    let n_empties = ctx.empty_list.count();
+    let n_empties = ctx.n_empties;
 
     loop {
         let score =
@@ -370,7 +373,7 @@ impl SplitPointCutoff for Thread {
 /// Null window search using the endgame cache
 /// (`DEPTH_TO_SHALLOW_SEARCH + 1..=DEPTH_TO_NWS` empties).
 ///
-/// `moves` must be the legal moves of `board`.
+/// `moves` must be the legal moves of `board` and `empties` its empty squares.
 pub(super) fn null_window_search<C: SplitPointCutoff>(
     ctx: &mut SearchContext,
     board: &Board,
@@ -378,9 +381,11 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
     caches: &mut EndGameCaches,
     cutoff: &C,
     moves: LegalMoves,
+    empties: Empties,
 ) -> DiscScore {
     debug_assert_eq!(moves, board.legal_moves());
-    let n_empties = ctx.empty_list.count();
+    debug_assert_eq!(empties, Empties::new(board));
+    let n_empties = empties.count();
     let beta = alpha + 1;
 
     if moves.is_empty() {
@@ -390,7 +395,7 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
             return board.solve_disc_diff(n_empties);
         }
         ctx.increment_nodes();
-        return -null_window_search(ctx, &next, -beta, caches, cutoff, next_moves);
+        return -null_window_search(ctx, &next, -beta, caches, cutoff, next_moves, empties);
     }
 
     let cache_idx = caches.ec.slot(board.hash());
@@ -409,7 +414,9 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
             return DISC_SCORE_MAX;
         }
         let next = board.make_move_with_flipped(flipped, sq);
-        let score = search_move_nws_ec(ctx, &next, next.legal_moves(), sq, beta, caches, cutoff);
+        let next_moves = next.legal_moves();
+        let next_empties = empties.without(sq);
+        let score = search_move_nws_ec(ctx, &next, next_moves, next_empties, beta, caches, cutoff);
         if cutoff.occurred() {
             return SPLIT_CUTOFF_SCORE;
         }
@@ -438,7 +445,16 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
     let mut best_score = -DISC_SCORE_INF;
     move_list.evaluate_moves(ctx);
     for mv in move_list.best_first_iter() {
-        let score = search_move_nws_ec(ctx, &mv.next, mv.next_moves, mv.sq, beta, caches, cutoff);
+        let next_empties = empties.without(mv.sq);
+        let score = search_move_nws_ec(
+            ctx,
+            &mv.next,
+            mv.next_moves,
+            next_empties,
+            beta,
+            caches,
+            cutoff,
+        );
 
         if score >= beta {
             best_score = score;
@@ -458,13 +474,14 @@ pub(super) fn null_window_search<C: SplitPointCutoff>(
 
 /// Searches a move with null window, dispatching to shallow or EC search based on depth.
 ///
-/// `next_moves` must be the legal moves of `next`.
+/// `next_moves` must be the legal moves of `next` and `next_empties` its
+/// empty squares.
 #[inline(always)]
 fn search_move_nws_ec<C: SplitPointCutoff>(
     ctx: &mut SearchContext,
     next: &Board,
     next_moves: LegalMoves,
-    sq: Square,
+    next_empties: Empties,
     beta: DiscScore,
     caches: &mut EndGameCaches,
     cutoff: &C,
@@ -473,31 +490,38 @@ fn search_move_nws_ec<C: SplitPointCutoff>(
         return SPLIT_CUTOFF_SCORE;
     }
 
-    ctx.update_endgame(sq);
-    let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-        debug_assert_eq!(ctx.empty_list.count(), 6);
-        -shallow_search::<6>(ctx, next, -beta, &mut caches.shallow, next_moves)
+    ctx.increment_nodes();
+    if next_empties.count() <= DEPTH_TO_SHALLOW_SEARCH {
+        debug_assert_eq!(next_empties.count(), 6);
+        -shallow_search::<6>(
+            ctx,
+            next,
+            -beta,
+            &mut caches.shallow,
+            next_moves,
+            next_empties,
+        )
     } else {
-        -null_window_search(ctx, next, -beta, caches, cutoff, next_moves)
-    };
-    ctx.undo_endgame(sq);
-    score
+        -null_window_search(ctx, next, -beta, caches, cutoff, next_moves, next_empties)
+    }
 }
 
 /// Null window search for positions with `EMPTIES` (5 or 6) empty squares.
 ///
 /// Orders moves by isolated empties, quadrant parity, and corner priority.
 ///
-/// `moves` must be the legal moves of `board`.
+/// `moves` must be the legal moves of `board` and `empties` its empty squares.
 pub(super) fn shallow_search<const EMPTIES: u32>(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: DiscScore,
     sc: &mut EndGameCache<Shallow>,
     moves: LegalMoves,
+    empties: Empties,
 ) -> DiscScore {
     const { assert!(EMPTIES == 5 || EMPTIES == 6) };
-    debug_assert_eq!(ctx.empty_list.count(), EMPTIES);
+    debug_assert_eq!(empties.count(), EMPTIES);
+    debug_assert_eq!(empties, Empties::new(board));
     debug_assert_eq!(moves, board.legal_moves());
     let beta = alpha + 1;
 
@@ -508,7 +532,7 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
             return board.solve_disc_diff(EMPTIES);
         }
         ctx.increment_nodes();
-        return -shallow_search::<EMPTIES>(ctx, &next, -beta, sc, next_moves);
+        return -shallow_search::<EMPTIES>(ctx, &next, -beta, sc, next_moves, empties);
     }
 
     let cache_idx = sc.slot(board.hash());
@@ -521,29 +545,27 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
         return score;
     }
 
+    let empty_squares = board.empty_squares();
+    let node = ShallowNode {
+        empties,
+        odd_quadrants: odd_quadrants(empty_squares),
+        beta,
+    };
+
     if let Some(sq) = moves.only_move() {
-        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, beta, sc);
+        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, node, sc);
         sc.store(cache_idx, board, alpha, score);
         return score;
     }
 
     let mut best_score = -DISC_SCORE_INF;
 
-    // Split moves by quadrant parity: odd-empty quadrants first
-    #[rustfmt::skip]
-    const QUADRANT_MASK: [u64; 16] = [
-        0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
-        0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
-        0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
-        0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
-    ];
-
     // An empty square with no empty neighbor is a one-square region: search it
     // before the quadrant-parity groups.
-    let empties = board.empty_squares().bits();
+    let empty_bits = empty_squares.bits();
     let horizontal =
-        ((empties << 1) & 0xFEFE_FEFE_FEFE_FEFE) | ((empties >> 1) & 0x7F7F_7F7F_7F7F_7F7F);
-    let row = empties | horizontal;
+        ((empty_bits << 1) & 0xFEFE_FEFE_FEFE_FEFE) | ((empty_bits >> 1) & 0x7F7F_7F7F_7F7F_7F7F);
+    let row = empty_bits | horizontal;
     let isolated_moves = moves & !Bitboard::new(horizontal | (row << 8) | (row >> 8));
     let moves = moves.and_not(isolated_moves.bitboard());
 
@@ -552,23 +574,22 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
         board,
         isolated_moves,
         cache_idx,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
         return score;
     }
 
-    let quadrant_mask = Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
-    let odd_moves = moves & quadrant_mask;
-    let even_moves = moves & !quadrant_mask;
+    let odd_moves = moves & node.odd_quadrants;
+    let even_moves = moves & !node.odd_quadrants;
 
     if let Some(score) = shallow_search_moves::<EMPTIES>(
         ctx,
         board,
         odd_moves.corners(),
         cache_idx,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -580,7 +601,7 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
         board,
         odd_moves.non_corners(),
         cache_idx,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -592,7 +613,7 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
         board,
         even_moves.corners(),
         cache_idx,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -604,7 +625,7 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
         board,
         even_moves.non_corners(),
         cache_idx,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -616,6 +637,17 @@ pub(super) fn shallow_search<const EMPTIES: u32>(
     best_score
 }
 
+/// A [`shallow_search`] node as its moves see it.
+#[derive(Clone, Copy)]
+struct ShallowNode {
+    /// Empty squares of the node.
+    empties: Empties,
+    /// [`odd_quadrants`] of the node.
+    odd_quadrants: Bitboard,
+    /// Upper bound of the node's null window.
+    beta: DiscScore,
+}
+
 /// Searches all moves in a bitboard subset for shallow search, returning on beta cutoff.
 #[inline(always)]
 fn shallow_search_moves<const EMPTIES: u32>(
@@ -623,12 +655,13 @@ fn shallow_search_moves<const EMPTIES: u32>(
     board: &Board,
     moves: LegalMoves,
     cache_idx: CacheSlot<Shallow>,
-    beta: DiscScore,
+    node: ShallowNode,
     best_score: &mut DiscScore,
     sc: &mut EndGameCache<Shallow>,
 ) -> Option<DiscScore> {
+    let beta = node.beta;
     for sq in moves.iter() {
-        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, beta, sc);
+        let score = shallow_search_move::<EMPTIES>(ctx, board, sq, node, sc);
 
         if score >= beta {
             sc.store(cache_idx, board, beta - 1, score);
@@ -646,13 +679,14 @@ fn shallow_search_move<const EMPTIES: u32>(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
-    beta: DiscScore,
+    node: ShallowNode,
     sc: &mut EndGameCache<Shallow>,
 ) -> DiscScore {
     let next = board.make_move(sq);
-    let next_alpha = -beta;
+    let next_alpha = -node.beta;
+    let next_empties = node.empties.without(sq);
+    ctx.increment_nodes();
     if EMPTIES == 5 {
-        ctx.increment_nodes();
         let next_cache_idx = sc.slot(next.hash());
         if let Some(score) = sc.probe(next_cache_idx, &next, next_alpha) {
             return -score;
@@ -661,17 +695,13 @@ fn shallow_search_move<const EMPTIES: u32>(
             ctx.stats.increment_stability_cut();
             return -score;
         }
-        ctx.empty_list.remove(sq);
-        let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
+        let next_odd_quadrants = node.odd_quadrants ^ quadrant(sq);
+        let (sq1, sq2, sq3, sq4) = sort_last4(next_empties, next_odd_quadrants);
         let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
-        ctx.empty_list.restore(sq);
         sc.store(next_cache_idx, &next, next_alpha, score);
         -score
     } else {
-        ctx.update_endgame(sq);
-        let score = -shallow_search::<5>(ctx, &next, next_alpha, sc, next.legal_moves());
-        ctx.undo_endgame(sq);
-        score
+        -shallow_search::<5>(ctx, &next, next_alpha, sc, next.legal_moves(), next_empties)
     }
 }
 
@@ -771,7 +801,6 @@ mod tests {
         let root_moves = RootMoves::new(&board);
         let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
         let mut caches = EndGameCaches::for_thread_count(1);
-        let original_empty_count = ctx.empty_list.count();
 
         let score = null_window_search(
             &mut ctx,
@@ -780,10 +809,10 @@ mod tests {
             &mut caches,
             &CutoffOccurred,
             board.legal_moves(),
+            Empties::new(&board),
         );
 
         assert_eq!(score, SPLIT_CUTOFF_SCORE);
-        assert_eq!(ctx.empty_list.count(), original_empty_count);
         let cache_idx = caches.ec.slot(board.hash());
         assert!(
             caches
@@ -794,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn split_point_cutoff_restores_played_squares_and_preserves_completed_child_bound() {
+    fn split_point_cutoff_preserves_completed_child_bound() {
         use std::cell::Cell;
 
         struct CutoffAfter(Cell<usize>);
@@ -823,7 +852,6 @@ mod tests {
         let root_moves = RootMoves::new(&board);
         let mut ctx = SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
         let mut caches = EndGameCaches::for_thread_count(1);
-        let original = ctx.empty_list.clone();
         let moves = board.legal_moves();
         assert!(moves.count() > 1);
         let alpha = DiscScore::new(0);
@@ -834,16 +862,8 @@ mod tests {
             &mut caches,
             &CutoffAfter(Cell::new(2)),
             moves,
+            Empties::new(&board),
         );
-        assert_eq!(ctx.empty_list.count(), original.count());
-        assert_eq!(ctx.empty_list.parity(), original.parity());
-        let mut square = original.first();
-        assert_eq!(ctx.empty_list.first(), square);
-        for _ in 1..original.count() {
-            let next = original.next(square);
-            assert_eq!(ctx.empty_list.next(square), next);
-            square = next;
-        }
 
         let slot = caches.ec.slot(board.hash());
         assert_eq!(caches.ec.probe(slot, &board, alpha), None);
@@ -1103,7 +1123,7 @@ mod tests {
         let (root_moves, task, mut completed) =
             solve_fallback_fixture(&pool, true, abort_on_report(&pool, &abort_at));
         let mut ctx = fallback_context(&task, &root_moves);
-        let depth = ctx.empty_list.count();
+        let depth = ctx.n_empties;
         let midgame_score = Score::from_disc_diff(DiscScore::new(4));
         let pv = [None; crate::constants::MAX_PLY];
         assert_eq!(ctx.selectivity, Selectivity::None);

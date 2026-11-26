@@ -25,30 +25,27 @@ WIDENER_SIGNATURE = "fn widen_aspiration_window(_1: Score, _2: &mut Score, _3: &
 
 
 # The output instruction represents all the listed operand preparations and the call.
-# A local live across blocks keeps its MIR register (_6 delta, _7 depth, _11 score,
-# _19 abort flag, _21 dereferenced thread, _25 widen flag).
+# A local live across blocks keeps its MIR register (_6 delta, _7 depth, _10 score,
+# _18 abort flag, _20 dereferenced thread, _24 widen flag).
+PREPARE = ["_6 = const search::endgame::ASPIRATION_DELTA;", "_7 = copy ((*_1).10: u32);"]
 CALLS = {
-    "EmptyList::count": (
-        "prepare", ["_6 = const search::endgame::ASPIRATION_DELTA;", "_8 = &((*_1).10: empty_list::EmptyList);"],
-        "_7", "move _8"
-    ),
     "search::<Root, EndGameStrategy>": (
-        "query", ["_12 = &mut (*_1);", "_13 = &(*_2);", "_14 = copy _7;", "_15 = copy (*_3);",
-                  "_16 = copy (*_4);", "_17 = &(*_5);"],
-        "_11", "move _12, move _13, move _14, move _15, move _16, move _17, const false"
+        "query", ["_11 = &mut (*_1);", "_12 = &(*_2);", "_13 = copy _7;", "_14 = copy (*_3);",
+                  "_15 = copy (*_4);", "_16 = &(*_5);"],
+        "_10", "move _11, move _12, move _13, move _14, move _15, move _16, const false"
     ),
     "<Arc<threading::thread::Thread> as Deref>::deref": (
-        "go", ["_22 = &(*_5);"], "_21", "move _22"
+        "go", ["_21 = &(*_5);"], "_20", "move _21"
     ),
     "threading::thread::Thread::is_search_aborted": (
-        "poll", ["_20 = &(*_21);"], "_19", "move _20"
+        "poll", ["_19 = &(*_20);"], "_18", "move _19"
     ),
     "widen_aspiration_window": (
-        "widen", ["_26 = copy _11;", "_27 = &mut (*_3);", "_28 = &mut (*_4);", "_29 = copy _6;"],
-        "_25", "move _26, move _27, move _28, move _29"
+        "widen", ["_25 = copy _10;", "_26 = &mut (*_3);", "_27 = &mut (*_4);", "_28 = copy _6;"],
+        "_24", "move _25, move _26, move _27, move _28"
     ),
     "<Score as AddAssign>::add_assign": (
-        "double", ["_32 = &mut _6;", "_33 = copy _6;"], "_31", "move _32, move _33"
+        "double", ["_31 = &mut _6;", "_32 = copy _6;"], "_30", "move _31, move _32"
     ),
 }
 
@@ -66,16 +63,16 @@ def driver(body):
             name, assignments, output, operands = CALLS[m[2]]
             checked((s, m[1], m[3]) == (assignments, output, operands), f"bb{bb}: {m[2]} data flow differs")
             op = f".{name} {normal_target(body, m[4], m[5])}"
-        elif m := re.fullmatch(r"switchInt\(move (_19|_25)\) -> \[0: bb(\d+), otherwise: bb(\d+)\];", t):
+        elif m := re.fullmatch(r"switchInt\(move (_18|_24)\) -> \[0: bb(\d+), otherwise: bb(\d+)\];", t):
             checked(not s, f"bb{bb}: unexpected branch assignments")
-            name = "branchAbort" if m[1] == "_19" else "branchWiden"
+            name = "branchAbort" if m[1] == "_18" else "branchWiden"
             op = f".{name} {normal_target(body, m[2])} {normal_target(body, m[3])}"
         elif m := re.fullmatch(r"falseUnwind -> \[real: bb(\d+), unwind: bb(\d+)\];", t):
             checked(not s, f"bb{bb}: unexpected loop entry")
             op = f".go {normal_target(body, m[1], m[2])}"
         elif m := re.fullmatch(r"goto -> bb(\d+);", t):
-            checked(s in ([], ["_0 = copy _11;"]), f"bb{bb}: unknown data transfer {s}")
-            name = "saveScore" if s else "go"
+            checked(s in ([], ["_0 = copy _10;"], PREPARE), f"bb{bb}: unknown data transfer {s}")
+            name = "prepare" if s == PREPARE else "saveScore" if s else "go"
             op = f".{name} {normal_target(body, m[1])}"
         else:
             checked(not s and t == "return;", f"bb{bb}: unknown terminal {t}")

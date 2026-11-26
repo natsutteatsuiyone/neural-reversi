@@ -63,7 +63,7 @@ def render(dump):
     tasknew=(dump/('reversi_core.search-threading-split_point-{impl#3}-new'+SUFFIX)).read_text(encoding='utf8')
     rec=re.search(r'_0 = SplitPointTask \{ ([^}]+) \};',tasknew)
     fields=rec[1].split(', ')
-    parent,value=fields[11].split(': ')
+    parent,value=fields[10].split(': ')
     checked(parent=='parent_split_point' and re.search(re.escape(value.split()[-1])+r' = move _2;',tasknew),'task parent field')
     for fn in ['active_split_point','active_split_point_mut']:
         checked(Body(dump,fn,['u']).val('_0')==('SyncUnsafeCell::<Option<Arc<SplitPoint>>>::get',field('u',17)),fn)
@@ -87,7 +87,7 @@ def render(dump):
     f=Body(dump,'finalize_split_point',['u','s'])
     f.call('Atomic::<bool>::store',[field('u',19),'const true',RELEASE],'wake')
     f.call('Atomic::<usize>::fetch_sub',[field('u',15),'const 1_usize',RELEASE],'down')
-    writes(f,writable,field(task,11),'restore')
+    writes(f,writable,field(task,10),'restore')
     f.call('SplitPoint::clear_task',['s'],'clear')
     checked(f.projection()==['wake','down','restore','clear'],'owner return')
     b=Body(dump,'book_into',['u','s','state'])

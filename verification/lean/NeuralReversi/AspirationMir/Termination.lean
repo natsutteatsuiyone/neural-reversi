@@ -148,33 +148,33 @@ def currentCall (query : Query) (m : Machine) : Call :=
   ⟨m.issued, m.regs.alpha, m.regs.beta, query m.issued m.regs.alpha m.regs.beta⟩
 
 private def afterPoll (query : Query) (m : Machine) : Machine :=
-  { m with pc := 8, issued := m.issued + 1, last := currentCall query m, flag := false }
+  { m with pc := 7, issued := m.issued + 1, last := currentCall query m, flag := false }
 
 def nextTrial (query : Query) (m : Machine) (after : WindowRegs) : Machine :=
-  { afterPoll query m with pc := 3, regs := doubled after, flag := true }
+  { afterPoll query m with pc := 2, regs := doubled after, flag := true }
 
-private theorem reach_widen (entry : m.pc = 3)
+private theorem reach_widen (entry : m.pc = 2)
     (rest : Returns query (fun _ => false) (afterPoll query m) score last) :
     Returns query (fun _ => false) m score last := by
   obtain ⟨pc,regs,i,old,flag,out⟩ := m
-  change pc = 3 at entry
+  change pc = 2 at entry
   subst pc
   exact .next rfl (.next rfl (.next rfl (.next rfl rest)))
 
-theorem retry (entry : m.pc = 3)
+theorem retry (entry : m.pc = 2)
     (step : applyWiden m.regs (currentCall query m).score = some (after, true))
     (rest : Returns query (fun _ => false) (nextTrial query m after) score last) :
     Returns query (fun _ => false) m score last := by
   apply reach_widen entry
-  refine .next (m' := {afterPoll query m with pc := 9, regs := after, flag := true}) ?_ ?_
+  refine .next (m' := {afterPoll query m with pc := 8, regs := after, flag := true}) ?_ ?_
   · simp [execute, afterPoll, driverCode, step]
   · exact .next rfl (.next rfl (.next rfl (.next rfl rest)))
 
-theorem accept (entry : m.pc = 3)
+theorem accept (entry : m.pc = 2)
     (step : applyWiden m.regs (currentCall query m).score = some (m.regs, false)) :
     Returns query (fun _ => false) m (currentCall query m).score (currentCall query m) := by
   apply reach_widen entry
-  refine .next (m' := {afterPoll query m with pc := 9, flag := false}) ?_ ?_
+  refine .next (m' := {afterPoll query m with pc := 8, flag := false}) ?_ ?_
   · simp [execute, afterPoll, driverCode, step]
   · exact .next rfl (.next rfl (.done rfl))
 
@@ -184,7 +184,7 @@ def FiniteQueries (query : Query) : Prop :=
     -32767 < (query i a b).toInt ∧ (query i a b).toInt < 32767
 
 private theorem loop_complete (finite : FiniteQueries query) (fuel : Nat) (ready : Ready n m.regs)
-    (entry : m.pc = 3) (index : m.issued = start + n) (remaining : n + fuel = 11) :
+    (entry : m.pc = 2) (index : m.issued = start + n) (remaining : n + fuel = 11) :
     ∃ score last, Returns query (fun _ => false) m score last ∧
       start ≤ last.index ∧ last.index ≤ start + 11 ∧ Aspiration.Window last.alpha.toInt last.beta.toInt := by
   induction fuel generalizing n m with
@@ -227,10 +227,10 @@ theorem completes_in_twelve (finite : FiniteQueries query) (m : Machine) (entry 
   obtain ⟨pc,regs,i,old,flag,out⟩ := m
   change pc = 0 at entry
   subst pc
-  let m' : Machine := ⟨3, {regs with delta := BitVec.ofInt 32 initialDelta}, i, old, flag, out⟩
+  let m' : Machine := ⟨2, {regs with delta := BitVec.ofInt 32 initialDelta}, i, old, flag, out⟩
   have ready : Ready 0 m'.regs := ⟨initial, by decide, rfl, by omega, by omega, by omega⟩
   obtain ⟨score,last,steps,properties⟩ := loop_complete finite 11 (start := i) ready rfl rfl rfl
-  exact ⟨score,last,.next rfl (.next rfl (.next rfl steps)),properties⟩
+  exact ⟨score,last,.next rfl (.next rfl steps),properties⟩
 
 private theorem same_return (one : Returns query abort m score last)
     (two : Returns query abort m other otherLast) : score = other ∧ last = otherLast := by

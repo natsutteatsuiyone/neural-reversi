@@ -358,27 +358,27 @@ private def checkObfCase (line : String) : Except String Unit := do
   unless (String.intercalate "|" observed) == predicted do
     throw s!"OBF disagrees on {repr text}: Rust returned {String.intercalate "|" observed}, Lean returned {predicted}"
 
-private def emptyListOutput (order : List Square.Square) : String :=
-  let quadrant := EmptyListParity.quadrantId
-  let parity := order.foldl EmptyListParity.toggle 0#8
-  String.intercalate " " ([toString order.length, toString parity.toNat] ++
-    order.map (fun square => s!"{square.val}:{(quadrant square).toNat}"))
+private def emptiesOutput (s : Empties.State) : String :=
+  String.intercalate " " (toString s.count.toNat :: (Empties.squares s.mask).map (fun sq => toString sq.val))
 
-private def checkEmptyListCase (line : String) : Except String Unit := do
-  let input :: snapshots := line.trimAscii.toString.splitOn "|" | throw "missing empty list input"
-  let [empty, removed] := input.splitOn " " | throw s!"malformed empty list input: {input}"
+private def checkEmptiesCase (line : String) : Except String Unit := do
+  let input :: observed := line.trimAscii.toString.splitOn "|" | throw "missing empties input"
+  let [empty, removed] := input.splitOn " " | throw s!"malformed empties input: {input}"
   let bits ← parseU64 "empty mask" empty
   let n ← parseNat "removed square" removed
-  let order := EmptyListParity.presorted.filter (fun sq => bits.getLsbD sq.val)
-  let initial := emptyListOutput order
+  let state : Empties.State := ⟨Empties.encode bits, BitVec.ofNat 32 (Empties.squares (Empties.encode bits)).length⟩
+  let odd := Empties.oddQuadrants bits
+  let initial := [emptiesOutput state, toString odd.toNat]
   let expected ← if fits : n < 64 then do
     let sq : Square.Square := ⟨n, fits⟩
-    unless order.contains sq do throw s!"removed square not in initial empty list: {input}"
-    pure [initial, emptyListOutput (order.erase sq), initial]
-  else if n == 64 && order.isEmpty then pure [initial]
-  else throw s!"invalid empty-list action: {input}"
-  unless snapshots == expected do
-    throw s!"empty list differs for {input}: Lean returned {String.intercalate "|" expected}"
+    unless bits.getLsbD n do throw s!"removed square is not empty: {input}"
+    let child := bits &&& ~~~Bitboard.squareMask sq
+    pure (initial ++ [emptiesOutput (state.without sq), toString (odd ^^^ Empties.quadrant sq).toNat,
+      toString (Empties.oddQuadrants child).toNat])
+  else if n == 64 && bits == 0 then pure initial
+  else throw s!"invalid empties action: {input}"
+  unless observed == expected do
+    throw s!"empties differ for {input}: Lean returned {String.intercalate "|" expected}"
 
 private def counterSnapshotOutput (enabled : Bool) (s : SearchCounters.Snapshot) : String :=
   let stats := if enabled then (List.finRange 10).map (fun i => (s.stats i).toNat) else []
@@ -1096,7 +1096,7 @@ private def caseCommands : List (String × (String → IO UInt32)) := [
     (fun _ => checkFixedEndgameCase)),
   ("game-analysis-cases", runCaseFile "game analysis" checkGameAnalysisCase),
   ("obf-cases", runCaseFile "OBF" checkObfCase),
-  ("empty-list-cases", runCaseFile "empty list" checkEmptyListCase),
+  ("empties-cases", runCaseFile "empties" checkEmptiesCase),
   ("search-counter-cases", runCaseFile "search counter" checkCounterCase),
   ("board-hash-cases", runCaseFile "board hash" checkBoardHashCase),
   ("move-storage-cases", runCaseFile "move storage" checkMoveStorageCase),

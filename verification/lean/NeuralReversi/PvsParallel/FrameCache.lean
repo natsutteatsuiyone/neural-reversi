@@ -56,7 +56,7 @@ theorem CacheSite.scored {p : Pool} {trace : Timeline p} {log : Log mc fc}
   by_cases short : i.empties.count.toNat ≤ 6
   · have returns := EndgameSearch.CacheHistory.shallow_score (mc:=mc) (fc:=fc) (addr:=p.address) (past:=past) i same short
     have source := returns.symm.trans score
-    change (NonPvMir.sourceRun _ _ _ _ _ _ i.board _ _ i.depth _ i.alpha _).map _ = _ at source
+    change (NonPvMir.sourceRun _ _ _ _ _ _ i.board _ i.depth _ i.alpha _).map _ = _ at source
     rw [site.board,site.atDepth,site.alpha] at source
     exact .leaf i.target i.bmi2 i.checked p.address (i.state past) site.nonPv aligned short (fun _ => valid) source
   · have large : 6 < i.empties.count.toNat := by omega

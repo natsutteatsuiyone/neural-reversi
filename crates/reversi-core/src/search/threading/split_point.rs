@@ -5,7 +5,6 @@ use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
 use crate::board::Board;
 use crate::constants::MAX_PLY;
-use crate::empty_list::EmptyList;
 use crate::eval::Eval;
 use crate::eval::EvalMode;
 use crate::eval::pattern_feature::PatternFeature;
@@ -209,9 +208,6 @@ pub struct SplitPointTask {
 
     shared: SharedSearchPointers,
 
-    /// List of empty squares for move generation optimization.
-    pub empty_list: EmptyList,
-
     /// Pre-computed player pattern feature at the split point ply.
     pub p_feature: PatternFeature,
 
@@ -250,7 +246,6 @@ impl SplitPointTask {
                 root_moves: NonNull::from(ctx.root_moves),
                 eval: NonNull::from(ctx.eval),
             },
-            empty_list: ctx.empty_list.clone(),
             p_feature: *ctx.pattern_features.p_feature(ply),
             o_feature: *ctx.pattern_features.o_feature(ply),
             depth: req.depth,

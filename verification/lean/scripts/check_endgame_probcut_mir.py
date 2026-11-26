@@ -27,7 +27,7 @@ DEPTH = "const <SS as search::strategy::SearchStrategy>::MIN_PROBCUT_DEPTH"
 
 
 def trace(g, guards, start=0, resume=None):
-    events, result, seen = [], None, set()
+    events, result, seen, local = [], None, set(), {}
     pc = start
     while pc != resume:
         checked(pc not in seen, "unexpected cycle in finite decision")
@@ -36,9 +36,12 @@ def trace(g, guards, start=0, resume=None):
         for op in ops:
             lhs, _, rhs = op.removesuffix(";").partition(" = ")
             if lhs == "((*_1).9: eval::EvalMode)":
-                events.append(("mode", g.val(rhs)))
+                source = rhs.removeprefix("move ")
+                events.append(("mode", local[source] if source in local else g.val(rhs)))
             else:
                 checked(REG.fullmatch(lhs), f"unexpected decision effect: {op}")
+                if re.fullmatch(r"EvalMode::\w+", rhs):
+                    local[lhs] = rhs
                 if lhs == "_0":
                     result = g.val(rhs)
         if end == "return;":
@@ -64,17 +67,17 @@ def trace(g, guards, start=0, resume=None):
 
 
 def decisions(dump):
-    g = Graph(dump, PVS, 7, {270:"static"})
+    g = Graph(dump, PVS, 7, {268:"static"})
     callers = [pc for pc,fn,_ in g.calls() if fn == "<SS as SearchStrategy>::try_probcut"]
     reachable = Body(dump, PVS).reachable(0)
-    entrances = {target for pc in reachable if pc not in range(169,180)
-                 for target in g.normal(pc) if target in range(169,180)}
-    checked(callers == [172] and entrances == {169}, "ProbCut bypasses its node/depth gate")
+    entrances = {target for pc in reachable if pc not in range(167,178)
+                 for target in g.normal(pc) if target in range(167,178)}
+    checked(callers == [170] and entrances == {167}, "ProbCut bypasses its node/depth gate")
     gate = ("Ge", depth, DEPTH)
     delegated = ("<SS as SearchStrategy>::try_probcut", ctx, board, depth, "arg5", "arg7", "static", "arg6")
     for pv, deep, positive in product((False, True), repeat=3):
         guards = {PV:pv, gate:deep, ("discriminant", delegated):positive}
-        calls, out = trace(g, guards, 169, 180)
+        calls, out = trace(g, guards, 167, 178)
         expected = [("SearchStats::increment_probcut_attempt", field(12)), delegated] if deep and not pv else []
         won = bool(expected) and positive
         if won:
@@ -84,9 +87,12 @@ def decisions(dump):
     g = Graph(dump, WRAP, 5)
     enabled = ("Selectivity::is_enabled", field(7))
     decision = ("probcut_decision", ctx, board, depth, beta, cut)
-    for active in (False, True):
-        expected = [enabled, ("mode", "EvalMode::Main"), decision, ("mode", "EvalMode::Small")] if active else [enabled]
-        checked(trace(g, {enabled:active}) == (expected, decision if active else NO), "changed enabled/disabled dispatch")
+    small = ("uses_small_network", depth)
+    for active, screen in product((False, True), repeat=2):
+        mode = ("mode", "EvalMode::Small" if screen else "EvalMode::Main")
+        expected = [enabled, small, mode, decision, ("mode", "EvalMode::Small")] if active else [enabled]
+        checked(trace(g, {enabled:active, small:screen}) == (expected, decision if active else NO),
+                "changed enabled/disabled dispatch or screening network")
     g = Graph(dump, DEC, 5)
     ev = ("evaluate", ctx, board)
     window = ("endgame_probcut_window", depth, field(7), cut, beta, ev)
@@ -130,7 +136,7 @@ RECIPIENTS["shallow_search_score"] = (ORDER, 0)
 RECIPIENTS[C+"prefetch_eval_cache"] = (CTX+"prefetch_eval_cache", 0)
 FIELDS = {0:"eval::pattern_feature::PatternFeatures", 2:"u64",
           4:"std::option::Option<std::boxed::Box<search::correction_history::CorrectionHistory>>",
-          6:"&eval::Eval", 8:"search::side_to_move::SideToMove", 9:"eval::EvalMode", 10:"empty_list::EmptyList"}
+          6:"&eval::Eval", 8:"search::side_to_move::SideToMove", 9:"eval::EvalMode", 10:"u32"}
 
 
 def frontier(dump):
@@ -269,8 +275,9 @@ def check(dump, repo=REPO):
     groups = [
         (DEC, "_34 = copy _4;", "_34 = copy _15;", decisions),
         (DEC, "<Score as PartialOrd>::lt", "<Score as PartialOrd>::le", decisions),
-        (WRAP, "_17 = EvalMode::Small;", "_17 = EvalMode::Main;", decisions),
-        (PVS, "Ge(move _278,", "Gt(move _278,", decisions),
+        (WRAP, "_19 = EvalMode::Small;", "_19 = EvalMode::Main;", decisions),
+        (WRAP, "_10 = EvalMode::Small;", "_10 = EvalMode::Main;", decisions),
+        (PVS, "Ge(move _276,", "Gt(move _276,", decisions),
         (ORDER, "_11 = evaluate_depth2(", "_11 = evaluate_shallow_with_tt(", decisions),
         (MG+"evaluate_depth1", "    bb0: {", "    bb0: {\n        ((*_1).7: probcut::Selectivity) = Selectivity::None;", frontier),
         (MG+"evaluate_depth2", " = evaluate_depth1(", " = evaluate_shallow_with_tt(", frontier),

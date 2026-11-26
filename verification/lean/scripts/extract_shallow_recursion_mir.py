@@ -8,7 +8,8 @@ from extract_cache_owner import END, routing
 
 def body(dump, name, sig):
     text=(dump/f"reversi_core.search-endgame-{name}.{PASS}.after.mir").read_text(encoding="utf-8")
-    checked(text.splitlines()[:3]==[f"// MIR for `search::endgame::{name}` after {PASS}","",f"fn {name}{sig}"],
+    lines=text.splitlines()
+    checked(lines[0]==f"// MIR for `search::endgame::{name}` after {PASS}" and f"fn {name}{sig}" in lines,
             f"unexpected recursive leaf {name}")
     raw=blocks(text)
     cfg={}
@@ -18,26 +19,31 @@ def body(dump, name, sig):
     return cfg
 
 
-SHALLOW="(_1: &mut SearchContext<'_>, _2: &Board, _3: DiscScore, _4: &mut EndGameCache<Shallow>, _5: LegalMoves) -> DiscScore {"
-MOVE="(_1: &mut SearchContext<'_>, _2: &Board, _3: Square, _4: DiscScore, _5: &mut EndGameCache<Shallow>) -> DiscScore {"
-GROUP="(_1: &mut SearchContext<'_>, _2: &Board, _3: LegalMoves, _4: CacheSlot<Shallow>, _5: DiscScore, _6: &mut DiscScore, _7: &mut EndGameCache<Shallow>) -> Option<DiscScore> {"
-NAMES = {"Board::legal_moves":"moves","<LegalMoves as PartialEq>::eq":"same","EmptyList::count":"count",
+SHALLOW="(_1: &mut SearchContext<'_>, _2: &Board, _3: DiscScore, _4: &mut EndGameCache<Shallow>, _5: LegalMoves, _6: Empties) -> DiscScore {"
+MOVE="(_1: &mut SearchContext<'_>, _2: &Board, _3: Square, _4: ShallowNode, _5: &mut EndGameCache<Shallow>) -> DiscScore {"
+GROUP="(_1: &mut SearchContext<'_>, _2: &Board, _3: LegalMoves, _4: CacheSlot<Shallow>, _5: ShallowNode, _6: &mut DiscScore, _7: &mut EndGameCache<Shallow>) -> Option<DiscScore> {"
+NAMES = {"Board::legal_moves":"moves","<LegalMoves as PartialEq>::eq":"same","Empties::count":"count",
+         "Empties::new":"emptiesOf","<Empties as PartialEq>::eq":"sameEmpties","odd_quadrants":"odd",
+         "Empties::without":"without","quadrant":"quadrant","<Bitboard as BitXor>::bitxor":"xor",
+         "shallow_search::<EMPTIES>":"shallow","shallow_search::<5>":"shallow",
+         "shallow_search_move::<EMPTIES>":"child","shallow_search_moves::<EMPTIES>":"group",
          "<DiscScore as Add<i32>>::add":"add","<DiscScore as Sub<i32>>::sub":"sub","<DiscScore as Neg>::neg":"neg",
          "LegalMoves::is_empty":"empty","Board::switch_players":"pass","Board::solve_disc_diff":"terminal",
-         "SearchContext::<'_>::increment_nodes":"nodes","shallow_search":"shallow","Board::hash":"hash",
+         "SearchContext::<'_>::increment_nodes":"nodes","Board::hash":"hash",
          "EndGameCache::<Shallow>::slot":"slot","EndGameCache::<Shallow>::probe":"probe","EndGameCache::<Shallow>::store":"write",
          "stability_cutoff":"stable","SearchStats::increment_stability_cut":"stable-stat","LegalMoves::only_move":"only",
-         "shallow_search_move":"child","Board::empty_squares":"blanks","Bitboard::bits":"bits","Bitboard::new":"bitboard",
+         "Board::empty_squares":"blanks","Bitboard::bits":"bits","Bitboard::new":"bitboard",
          "<Bitboard as Not>::not":"not","<LegalMoves as BitAnd<Bitboard>>::bitand":"and","LegalMoves::bitboard":"as-bits",
-         "LegalMoves::and_not":"andNot","shallow_search_moves":"group","EmptyList::parity":"parity",
+         "LegalMoves::and_not":"andNot",
          "LegalMoves::corners":"corners","LegalMoves::non_corners":"nonCorners","Board::make_move":"play",
-         "SearchContext::<'_>::update_endgame":"remove","SearchContext::<'_>::undo_endgame":"restore","sort_last4":"sorted",
+         "sort_last4":"sorted",
          "solve4":"four","LegalMoves::iter":"iter","<BitboardIterator as IntoIterator>::into_iter":"into",
          "<BitboardIterator as Iterator>::next":"next","<DiscScore as PartialOrd>::ge":"ge","<DiscScore as Ord>::max":"max"}
 CTX,BOARD,CACHE,ALPHA,SQ,BETA="ctx","board","cache","alpha","square","beta"
-CELLS,STATS="cells","stats"
+EMPS,STATS,EMPTIES="empties","stats","EMPTIES"
 LGL=("moves",BOARD)
-COUNT=("count",CELLS)
+ODD=("odd",("blanks",BOARD))
+COUNT=("count",EMPS)
 INF,UNIT=127,"unit"
 def val(v): return ("payload",v)
 def ptr(key): return ("ref",key)
@@ -57,16 +63,21 @@ class Walker:
         if m:=re.fullmatch(r"(?:copy|move) \(\*(_\d+)\)",s):return self.deref(e[m[1]])
         if m:=re.fullmatch(r"&(?:mut )?\(\*(_\d+)\)",s):return e[m[1]]
         if m:=re.fullmatch(r"&(?:mut )?(_\d+)",s):return ptr(m[1])
-        if m:=re.fullmatch(r"(?:copy|move) \((_\d+)\.(\d+): (?:square::Square|&legal_moves::LegalMoves)\)",s):
-            v=e[m[1]];return ("field",v,int(m[2])) if isinstance(v,tuple) and v[0]=="sorted" else v[int(m[2])]
+        if m:=re.fullmatch(r"(?:copy|move) \((_\d+)\.(\d+): [^()]+\)",s):
+            v=e[m[1]];i=int(m[2])
+            if isinstance(v,tuple) and v[0]=="sorted":return ("field",v,i)
+            if isinstance(v,tuple) and v[0]=="node":return v[i+1]
+            return v[i]
         if m:=re.fullmatch(r"copy \(\((_\d+) as Some\)\.0: (?:score::DiscScore|square::Square)\)",s):
             return val(e[m[1]])
         if m:=re.fullmatch(r"const (\d+)_(?:i32|u32|usize|u64)(?: as u32 \(IntToInt\))?",s): return int(m[1])
-        Known={"const true":True,"const ()":UNIT,"const score::DISC_SCORE_INF":INF,
-                   "&((*_1).10: empty_list::EmptyList)":CELLS,"&mut ((*_1).12: search::counters::SearchStats)":STATS,
-                   "const search::endgame::shallow_search::QUADRANT_MASK":"mask","Option::<DiscScore>::None":"none"}
+        Known={"const true":True,"const ()":UNIT,"const score::DISC_SCORE_INF":INF,"const EMPTIES":EMPTIES,
+                   "const search::endgame::shallow_search::<EMPTIES>::{constant#0}":UNIT,
+                   "&mut ((*_1).12: search::counters::SearchStats)":STATS,"Option::<DiscScore>::None":"none"}
         if s in Known:return Known[s]
         if m:=re.fullmatch(r"Option::<DiscScore>::Some\((.+)\)",s):return ("some",self.read(m[1]))
+        if m:=re.fullmatch(r"ShallowNode \{ empties: (.+), odd_quadrants: (.+), beta: (.+) \}",s):
+            return ("node",self.read(m[1]),self.read(m[2]),self.read(m[3]))
         if m:=re.fullmatch(r"discriminant\((_\d+)\)",s):return self.decide(e[m[1]])
         if m:=re.fullmatch(r"\(move (_\d+), move (_\d+)\)",s):return (e[m[1]],e[m[2]])
         if m:=re.fullmatch(r"move (_\d+) as usize \(IntToInt\)",s):return e[m[1]]
@@ -74,8 +85,7 @@ class Walker:
         if m:=re.fullmatch(r"(Eq|Lt|Shl|Shr|BitAnd|BitOr)\((.+), (.+)\)",s):
             a,b=self.read(m[2]),self.read(m[3])
             if m[1]=="Lt":
-                if isinstance(a,int):return a<b
-                checked((a,b)==(("parity",CELLS),16),"invalid parity index");return True
+                checked(isinstance(a,int),"invalid shift bound");return a<b
             if m[1]=="Eq":return self.decide(("eq",a,b))
             return (m[1],a,b)
         raise ValueError("unsupported recursive MIR operand "+s)
@@ -123,8 +133,8 @@ def groups():
     row=("BitOr",bits,horizontal)
     adjacent=("BitOr",("BitOr",horizontal,("Shl",row,8)),("Shr",row,8))
     isolated=("and",LGL,("not",("bitboard",adjacent)))
-    rest=("andNot",LGL,("as-bits",isolated));parity=("bitboard",("index","mask",("parity",CELLS)))
-    odd=("and",rest,parity);even=("and",rest,("not",parity))
+    rest=("andNot",LGL,("as-bits",isolated))
+    odd=("and",rest,ODD);even=("and",rest,("not",ODD))
     return [isolated,("corners",odd),("nonCorners",odd),("corners",even),("nonCorners",even)]
 
 
@@ -134,9 +144,9 @@ def verify_sites(walker, sites, expected):
 
 
 def verify_node(cfg, sites):
-    local=("slot",CACHE,("hash",BOARD)); probe=("probe",CACHE,local,BOARD,ALPHA); stable=("stable",BOARD,COUNT,ALPHA)
-    one=("only",LGL);beta=("add",ALPHA,1); neg=("neg",beta)
-    important={"shallow","child","write","probe","stable","nodes","stable-stat","group","remove","restore","four","drop"}
+    local=("slot",CACHE,("hash",BOARD)); probe=("probe",CACHE,local,BOARD,ALPHA); stable=("stable",BOARD,EMPTIES,ALPHA)
+    one=("only",LGL);beta=("add",ALPHA,1); neg=("neg",beta); node=("node",EMPS,ODD,beta)
+    important={"shallow","child","write","probe","stable","nodes","stable-stat","group","drop"}
     for mode in ["terminal","pass","cached","stable","only",*range(6)]:
         events=[]
         def decide(v):
@@ -144,11 +154,15 @@ def verify_node(cfg, sites):
             if v==stable:return mode=="stable"
             if v==one:return mode=="only"
             if v[0]=="group":return mode==groups().index(v[3])
+            # Debug assertions: the instantiation matches the empties it receives.
+            if v==("eq",("count",EMPS),EMPTIES):return True
             raise ValueError(f"unexpected shallow option {v}")
         def call(c,raw,state):
             fn=c[0]
             if fn=="same":
                 checked(c==("same",LGL,LGL),"debug legal move argument");return True
+            if fn=="sameEmpties":
+                checked(c==("sameEmpties",EMPS,("emptiesOf",BOARD)),"debug empties argument");return True
             if fn=="empty":
                 if c[1]==LGL:return mode in ("terminal","pass")
                 checked(c[1]==("moves",("pass",BOARD)),"wrong pass mask");return mode=="terminal"
@@ -157,25 +171,25 @@ def verify_node(cfg, sites):
                 state.env[raw[5][1]]=("bestAfter",c[3])
             if fn in important:events.append(c)
             return c
-        w=Walker(cfg,[CTX,BOARD,ALPHA,CACHE,LGL],decide,call);actual=w.run()
-        if mode=="terminal":wanted=("terminal",BOARD,COUNT);expected=[]
+        w=Walker(cfg,[CTX,BOARD,ALPHA,CACHE,LGL,EMPS],decide,call);actual=w.run()
+        if mode=="terminal":wanted=("terminal",BOARD,EMPTIES);expected=[]
         elif mode=="pass":
-            sub=("shallow",CTX,("pass",BOARD),neg,CACHE,("moves",("pass",BOARD)));wanted=("neg",sub);expected=[("nodes",CTX),sub]
+            sub=("shallow",CTX,("pass",BOARD),neg,CACHE,("moves",("pass",BOARD)),EMPS);wanted=("neg",sub);expected=[("nodes",CTX),sub]
         elif mode=="cached":wanted=val(probe);expected=[probe]
         elif mode=="stable":wanted=val(stable);expected=[probe,stable,("stable-stat",STATS)]
         elif mode=="only":
-            wanted=("child",CTX,BOARD,val(one),beta,CACHE)
+            wanted=("child",CTX,BOARD,val(one),node,CACHE)
             expected=[probe,stable,wanted,("write",CACHE,local,BOARD,ALPHA,wanted)]
         else:
             expected=[probe,stable];best=("neg",INF)
             for i,g in enumerate(groups()):
-                group=("group",CTX,BOARD,g,local,beta,best,CACHE)
+                group=("group",CTX,BOARD,g,local,node,best,CACHE)
                 expected.append(group)
                 if i==mode:wanted=val(group);break
                 best=("bestAfter",g)
             else:
                 wanted=best;expected.append(("write",CACHE,local,BOARD,ALPHA,best))
-        checked(actual==wanted and events==expected,f"wrong shallow node calls / writes: {mode}")
+        checked(actual==wanted and events==expected,f"wrong shallow node calls / writes: {mode}: {actual} {events}")
         if isinstance(mode, int):
             ordinals = [1, 2, *range(5, 5 + min(mode + 1, 5))]
             if mode == 5:
@@ -188,14 +202,16 @@ def verify_node(cfg, sites):
 def verify_child(cfg, sites):
     board=("play",BOARD,SQ); alpha=("neg",BETA); slot=("slot",CACHE,("hash",board))
     probe=("probe",CACHE,slot,board,alpha);stable=("stable",board,4,alpha)
-    important={"remove","restore","shallow","stable","probe","four","sorted","stable-stat","write","play","child","group","nodes","drop"}
+    removed=("without",EMPS,SQ)
+    important={"without","shallow","stable","probe","four","sorted","stable-stat","write","play","child","group","nodes",
+               "drop","quadrant","xor"}
     for mode in ("recur","cached","stable","four"):
-        def decide(v):return {("eq",COUNT,4):mode!="recur",probe:mode=="cached",stable:mode=="stable"}[v]
-        w=Walker(cfg,[CTX,BOARD,SQ,BETA,CACHE],decide,lambda c,_,s:c)
+        def decide(v):return {("eq",EMPTIES,5):mode!="recur",probe:mode=="cached",stable:mode=="stable"}[v]
+        w=Walker(cfg,[CTX,BOARD,SQ,("node",EMPS,ODD,BETA),CACHE],decide,lambda c,_,s:c)
         result=w.run()
-        calls=[board,("remove",CTX,SQ)]
+        calls=[board,removed,("nodes",CTX)]
         if mode=="recur":
-            child=("shallow",CTX,board,alpha,CACHE,("moves",board));calls.append(child)
+            child=("shallow",CTX,board,alpha,CACHE,("moves",board),removed);calls.append(child)
         else:
             calls.append(probe)
             if mode=="cached":child=val(probe)
@@ -203,26 +219,26 @@ def verify_child(cfg, sites):
                 calls.append(stable)
                 if mode=="stable":child=val(stable);calls.append(("stable-stat",STATS))
                 else:
-                    ordered=("sorted",CELLS)
+                    flip=("quadrant",SQ);odd=("xor",ODD,flip);ordered=("sorted",removed,odd)
                     child=("four",CTX,board,alpha,*(("field",ordered,i) for i in range(4)))
-                    calls.extend([ordered,child,("write",CACHE,slot,board,alpha,child)])
-        calls.append(("restore",CTX,SQ))
+                    calls.extend([flip,odd,ordered,child,("write",CACHE,slot,board,alpha,child)])
         checked(result==("neg",child) and [c for c in w.calls if c[0] in important]==calls,
-                f"wrong shallow child score, restore or cache publication: {mode}")
+                f"wrong shallow child score, empties or cache publication: {mode}: {[c for c in w.calls if c[0] in important]}")
         verify_sites(w, sites, {"recur": [3], "cached": [0, 1], "stable": [0, 1], "four": [0, 1, 2]}[mode])
 
 
 def verify_group(cfg, sites):
     iterator=("into",("iter","group")); nxt=("next",iterator)
     for mode in ("empty","cut","continue"):
-        sub=("child",CTX,BOARD,val(nxt),BETA,CACHE)
+        node=("node",EMPS,ODD,BETA)
+        sub=("child",CTX,BOARD,val(nxt),node,CACHE)
         def call(c,_,s):
             if c[0]=="ge":
                 checked(c==("ge",sub,BETA),"incorrect group cutoff");return mode=="cut"
             return c
         def decide(v):
             checked(v==nxt,"invalid iterator discriminant");return mode!="empty"
-        w=Walker(cfg,[CTX,BOARD,"group","slot",BETA,ptr("prior"),CACHE],decide,call,stops=(3,))
+        w=Walker(cfg,[CTX,BOARD,"group","slot",node,ptr("prior"),CACHE],decide,call,stops=(3,))
         w.env["prior"]="acc"
         checked(w.run()==("back",3) and w.calls==[("iter","group"),iterator],"incorrect iterator acquisition")
         w.calls=[];result=w.run(3)
@@ -234,7 +250,7 @@ def verify_group(cfg, sites):
                     w.calls==[nxt,sub,("ge",sub,BETA),diff,("write",CACHE,"slot",BOARD,diff,sub)],"wrong early cutoff publication")
         else:
             mx=("max","acc",sub)
-            checked(result==("back",3) and w.env["prior"]==mx and w.env["_12"]==iterator and
+            checked(result==("back",3) and w.env["prior"]==mx and w.env["_13"]==iterator and
                     w.calls==[nxt,sub,("ge",sub,BETA),mx],"unexpected loop state on next square")
         verify_sites(w, sites, {"empty": [], "cut": [0, 1], "continue": [0]}[mode])
 
@@ -254,19 +270,6 @@ def verify(dump,repo):
     ):
         sites = {pc: ordinal for ordinal, (pc, _, _) in enumerate(routing(dump, END + name))}
         verify_path(body(dump, name, sig), sites)
-    t=(dump/"reversi_core.search-endgame-shallow_search-QUADRANT_MASK.built.after.mir").read_text(encoding="utf-8")
-    form=(r"// MIR for `search::endgame::shallow_search::QUADRANT_MASK` after built\s+const QUADRANT_MASK: \[u64; 16\] = \{\s+"
-          r"let mut _0: \[u64; 16\];\s+bb0: \{\s+_0 = \[(.+)\];\s+return;\s*\}\s*\}\s*")
-    data=re.fullmatch(form,t)
-    checked(data,"unknown quadrant initializer")
-    values=[]
-    for literal in data[1].split(", "):
-        if literal=="const u64::MAX":
-            values.append(2**64-1)
-            continue
-        m=re.fullmatch(r"const (\d+)_u64",literal);checked(m,"invalid quadrant field");values.append(int(m[1]))
-    checked(len(values)==16,"wrong quadrant count")
-    quad=", ".join(f"0x{n:016x}" for n in values)
     return f"""import NeuralReversi.EndgameSearch.FourOrder
 
 namespace NeuralReversi.EndgameSearch.ShallowMir
@@ -274,13 +277,12 @@ namespace NeuralReversi.EndgameSearch.ShallowMir
 open EndgameTreeCache (Store)
 open PvsBoardTree (Position)
 
-def masks (moves : LegalMoves.Raw) (empties : Bitboard.Bits) (parity : Fin 16) : List LegalMoves.Raw :=
-  let table : Vector Bitboard.Bits 16 := #v[{quad}]
+def masks (moves : LegalMoves.Raw) (empties oddQuadrants : Bitboard.Bits) : List LegalMoves.Raw :=
   let neighbors := ShallowMoveOrder.neighbors empties
   let isolated := LegalMoves.bitand moves (~~~neighbors)
   let rest := LegalMoves.andNot moves isolated.bits
-  let odd := LegalMoves.bitand rest table[parity]
-  let even := LegalMoves.bitand rest (~~~table[parity])
+  let odd := LegalMoves.bitand rest oddQuadrants
+  let even := LegalMoves.bitand rest (~~~oddQuadrants)
   [isolated, LegalMoves.corners odd, LegalMoves.nonCorners odd, LegalMoves.corners even, LegalMoves.nonCorners even]
 
 def write (b : Position) (alpha : Int) (r : Result) : Result :=

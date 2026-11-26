@@ -19,7 +19,7 @@ def check(dump, repo):
         (WORKER + "dispatch_search", "::<Root>(move _20, move _21, move _22, move _23", "::<Root>(move _20, move _21, move _22, move _99"),
         ("search-endgame-null_window_search", "((*_4).0: search::endgame::cache::EndGameCache", "((*_4).1: search::endgame::cache::EndGameCache"),
         ("search-endgame-search_move_nws_ec", "((*_6).1: search::endgame::cache::EndGameCache", "((*_6).0: search::endgame::cache::EndGameCache"),
-        ("search-endgame-search_move_nws_ec", "_25 = &mut ((*_6).1:", "_333 = copy _6 as *mut () (PtrToPtr);\n        _25 = &mut ((*_6).1:"),
+        ("search-endgame-search_move_nws_ec", "_46 = &mut ((*_6).1:", "_333 = copy _6 as *mut () (PtrToPtr);\n        _46 = &mut ((*_6).1:"),
         (EXECUTE, "ThreadPool::start_thinking(move _10, move _13", "ThreadPool::start_thinking(move _10, move _99"),
         (POOL + "start_thinking", "_48 = move _12;", "_48 = move _99;"),
         (WORKER + "main_thread_loop", "search::search_root(move _32, move _33)", "search::search_root(move _99, move _33)"),

@@ -1,5 +1,6 @@
 import NeuralReversi.EndgameSearch.SourceFour
 import NeuralReversi.EmptyListParity
+import NeuralReversi.Empties
 import NeuralReversi.MoveList.BestFirst
 import NeuralReversi.MoveList.SmallGenerate
 import NeuralReversi.ShallowMoveOrder
@@ -137,6 +138,31 @@ theorem boardParity_eq_reachable (b : Board.Board) (cells : List Bitboard.Square
   congr 1
   rw [EmptyListParity.parity_of_perm state same,
     EmptyListParity.parity_of_perm (.initial (Board.emptySquares b)) (List.Perm.refl _)]
+
+private theorem quadrant_agrees : ∀ sq : Bitboard.Square,
+    EmptyListParity.quadrant sq = (Empties.quad sq).val ∧ ShallowMoveOrder.quadrant sq = (Empties.quad sq).val := by
+  decide
+
+/-- `odd_quadrants(board.empty_squares())` selects the quadrants that `boardParity` marks odd. -/
+theorem oddQuadrants_board (b : Board.Board) :
+    Empties.oddQuadrants (Board.emptySquares b) = ShallowMoveOrder.quadrantMask (boardParity b) := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro j hj
+  let sq : Bitboard.Square := ⟨j, hj⟩
+  have parity := (EmptyListParity.parityContract_proven _ _ (.initial (Board.emptySquares b))).2 (Empties.quad sq)
+  have mask := ShallowMoveOrder.quadrantMask_bit (boardParity b) sq
+  have odd := Empties.oddQuadrants_spec (Board.emptySquares b) sq
+  change (Empties.oddQuadrants (Board.emptySquares b)).getLsbD sq.val =
+    (ShallowMoveOrder.quadrantMask (boardParity b)).getLsbD sq.val
+  rw [odd, mask, (quadrant_agrees sq).2]
+  change _ = (EmptyListParity.fromEmpties (Board.emptySquares b)).toNat.testBit (Empties.quad sq).val
+  rw [BitVec.testBit_toNat, parity, List.countP_filter]
+  have same : ∀ k : Bitboard.Square, (EmptyListParity.quadrant k == (Empties.quad sq).val) = (Empties.quad k == Empties.quad sq) := by
+    intro k
+    rw [(quadrant_agrees k).1]
+    cases h : Empties.quad k == Empties.quad sq <;> simp_all [Fin.ext_iff]
+  simp only [same, Bool.and_comm]
+  cases (List.countP (fun k => Empties.quad k == Empties.quad sq && (Board.emptySquares b).getLsbD k.val) (List.finRange 64) % 2 == 1) <;> rfl
 
 def orderedMoves (mc : X86Config) (fc : FlipConfig) (b : Position) :
     Table → List (GeneratedSquare mc b.val)

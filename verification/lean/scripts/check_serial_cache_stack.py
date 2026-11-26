@@ -142,7 +142,7 @@ def main():
 
         expected, key_queries, bounds, loads, warm = run_native({})
         keys = folder / "keys.txt"
-        keys.write_text("\n".join(key_queries) + "\n")
+        keys.write_text("\n".join(key_queries) + "\n", newline="\n")
         # Build a native Lean executable against the current project's local artifacts.
         runner = folder / "runner"
         runner.mkdir()

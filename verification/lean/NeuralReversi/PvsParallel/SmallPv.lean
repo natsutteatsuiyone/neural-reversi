@@ -23,7 +23,7 @@ structure Config (mc : X86Config) where
 private def raw (a : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 a⟩
 
 def scout (c : Config mc) (b : Position) (s : EmptyState) (a : Int) : Option Int :=
-  (NonPvMir.run c.target c.bmi2 mc c.fc (fun _ _ => 0) [] b s.links s.parity s.count s.count
+  (NonPvMir.run c.target c.bmi2 mc c.fc (fun _ _ => 0) [] b s.mask s.count s.count
     (raw a) c.checked).map (fun score => score.raw.toInt)
 
 theorem scout_returns (c : Config mc) (b : Position) (s : EmptyState) (a z : Int)
@@ -34,7 +34,7 @@ theorem scout_returns (c : Config mc) (b : Position) (s : EmptyState) (a z : Int
   have zv : (raw z).raw.toInt = z := BitVec.toInt_ofInt_eq_self (by decide)
     (by have := w.ordered; have := w.lower; omega) (by have := w.upper; omega)
   obtain ⟨score, value, trace, _⟩ := NonPvMir.scoreContract_proven Cutoffs.Execution
-    (fun _ => boundedReplay 0) c.target c.bmi2 mc c.fc (fun _ _ => 0) [] b s.links s.parity s.count s.count
+    (fun _ => boundedReplay 0) c.target c.bmi2 mc c.fc (fun _ _ => 0) [] b s.mask s.count s.count
     (raw a) (raw z) c.checked aligned.1 aligned (by omega) (by simp [EndgameTreeCache.soundHistory])
     (by rwa [av, zv])
   refine ⟨score.raw.toInt, by simp [scout, value], ?_⟩
@@ -108,7 +108,7 @@ private theorem fuel_returns (c : Config mc)
           boundedReplay fuel (build mc c.fc (pass b)) true (-z) (-a) score := by
       have smaller := Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil stuck, mobile⟩) b.property
       change Board.playRank mc (pass b).val < Board.playRank mc b.val at smaller
-      exact ih (pass b) s _ _ (EndgameSearch.emptyState_pass b _ _ _ aligned) small (by omega)
+      exact ih (pass b) s _ _ (EndgameSearch.emptyState_pass b _ _ aligned) small (by omega)
         (PvsMoveLoop.reflectedWindow w)
     cases exit : leaf with
     | some score =>
@@ -136,8 +136,8 @@ private theorem fuel_returns (c : Config mc)
             boundedReplay fuel (build mc c.fc (play mc c.fc b m).val) pv lo hi (search m pv lo hi) := by
           let next := play mc c.fc b m
           let state := s.remove m.val
-          obtain ⟨positive, _, child, _, _, _, _, _⟩ :=
-            EndgameSearch.emptyStatePlayContract_proven mc c.fc b m _ _ _ aligned
+          obtain ⟨positive, child, _, _, _⟩ :=
+            EndgameSearch.emptyStatePlayContract_proven mc c.fc b m _ _ aligned
           have fitted : state.matches next.val := child
           have size : state.count.toNat ≤ 4 := by
             change (s.count - 1).toNat ≤ 4
@@ -189,7 +189,7 @@ theorem child_sound (c : Config mc) (perm : ∀ b a z, (c.order b a z).Perm (leg
       SoundResult (minimax mc c.fc (play mc c.fc b m).val) lo hi score := by
   let next := (play mc c.fc b m).val
   let state := s.remove m.val
-  have ⟨positive, _, fit, _, _, _, _, _⟩ := EndgameSearch.emptyStatePlayContract_proven mc c.fc b m _ _ _ aligned
+  have ⟨positive, fit, _, _, _⟩ := EndgameSearch.emptyStatePlayContract_proven mc c.fc b m _ _ aligned
   have aligned' : state.matches next := fit
   have small : state.count.toNat ≤ 4 := by
     change (s.count - 1).toNat ≤ 4

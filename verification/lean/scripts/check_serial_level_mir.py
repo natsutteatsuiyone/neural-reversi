@@ -68,8 +68,9 @@ LEAVES = ("null_window_search", "search_move_nws_ec", "shallow_search", "shallow
           "shallow_search_moves", "small_move_list-{impl#1}-evaluate_moves")
 CTX = "SearchContext::<'_>::"
 RECIPIENTS = {name: 0 for name in ("null_window_search::<C>", "search_move_nws_ec::<C>",
-                                    "shallow_search", "shallow_search_move", "shallow_search_moves", "solve4",
-                                    CTX + "increment_nodes", CTX + "update_endgame", CTX + "undo_endgame")}
+                                    "shallow_search::<5>", "shallow_search::<6>", "shallow_search::<EMPTIES>",
+                                    "shallow_search_move::<EMPTIES>", "shallow_search_moves::<EMPTIES>", "solve4",
+                                    CTX + "increment_nodes")}
 RECIPIENTS["SmallMoveList::evaluate_moves"] = 1
 BORROW = re.compile(r"(_\d+) = &(?:mut )?\(\*(_\d+)\);")
 
@@ -89,8 +90,7 @@ def leaf(cfg, ctx):
             checked(len(refs) == 1 and call[3].split(", ")[RECIPIENTS[call[2]]] == "move " + refs[0],
                     f"unverified shallow solver context recipient: {op}")
         else:
-            permitted = {f"&((*{refs[0]}).10: empty_list::EmptyList)",
-                         f"&mut ((*{refs[0]}).12: search::counters::SearchStats)"}
+            permitted = {f"&mut ((*{refs[0]}).12: search::counters::SearchStats)"}
             lhs, _, rhs = op.removesuffix(";").partition(" = ")
             checked(REG.fullmatch(lhs) and len(refs) == 1 and rhs in permitted,
                     f"unverified shallow solver context use: {op}")
@@ -130,7 +130,7 @@ def check(dump, repo=REPO):
             return
         raise ValueError("accepted " + description)
 
-    for pc, guard in ((105, "PV_NODE"), (146, "IS_ENDGAME"), (169, "PV_NODE")):
+    for pc, guard in ((103, "PV_NODE"), (144, "IS_ENDGAME"), (167, "PV_NODE")):
         old = graph.cfg[pc]
         checked(guard in old[0], f"missing {guard} mutation anchor at bb{pc}")
         graph.cfg[pc] = [old[0].split(" = ")[0] + " = const false;", *old[1:]]

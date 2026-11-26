@@ -28,49 +28,42 @@ mod solve1_tables;
 
 use crate::bitboard::Bitboard;
 use crate::board::Board;
-use crate::empty_list::EmptyList;
 use crate::flip;
 use crate::score::DISC_SCORE_INF;
 use crate::score::DiscScore;
 use crate::search::context::SearchContext;
+use crate::search::endgame::empties::Empties;
 use crate::square::Square;
 
 /// Sorts the last four empty squares so that odd-parity quadrants are searched first.
 ///
-/// Nearly half of all four-empty positions (~48% measured on hard-20) have
-/// all-even quadrant counts and keep the presorted order, so that case is
-/// checked from `parity` alone before any quadrant lookup.
+/// `odd_quadrants` must be [`odd_quadrants`](super::odd_quadrants) of the four
+/// squares in `empties`.
 #[inline(always)]
-pub(in crate::search) fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
-    let parity = empty_list.parity();
+pub(in crate::search) fn sort_last4(
+    empties: Empties,
+    odd_quadrants: Bitboard,
+) -> (Square, Square, Square, Square) {
+    let [sq1, sq2, sq3, sq4] = empties.first();
 
-    if parity == 0 {
-        let sq1 = empty_list.first();
-        let sq2 = empty_list.next(sq1);
-        let sq3 = empty_list.next(sq2);
-        let sq4 = empty_list.next(sq3);
+    if odd_quadrants.is_empty() {
         return (sq1, sq2, sq3, sq4);
     }
 
-    let (sq1, quad_id1) = empty_list.first_and_quad_id();
-    let (sq2, quad_id2) = empty_list.next_and_quad_id(sq1);
-    let (sq3, quad_id3) = empty_list.next_and_quad_id(sq2);
-    let sq4 = empty_list.next(sq3);
-
-    if parity & quad_id1 == 0 {
-        if parity & quad_id2 != 0 {
-            if parity & quad_id3 != 0 {
+    if !odd_quadrants.contains(sq1) {
+        if odd_quadrants.contains(sq2) {
+            if odd_quadrants.contains(sq3) {
                 (sq2, sq3, sq1, sq4)
             } else {
                 (sq2, sq4, sq1, sq3)
             }
-        } else if parity & quad_id3 != 0 {
+        } else if odd_quadrants.contains(sq3) {
             (sq3, sq4, sq1, sq2)
         } else {
             (sq1, sq2, sq3, sq4)
         }
-    } else if parity & quad_id2 == 0 {
-        if parity & quad_id3 != 0 {
+    } else if !odd_quadrants.contains(sq2) {
+        if odd_quadrants.contains(sq3) {
             (sq1, sq3, sq2, sq4)
         } else {
             (sq1, sq4, sq2, sq3)
@@ -946,8 +939,13 @@ mod tests {
         ];
         for (empties, expected) in cases {
             let empty_bits = empties.iter().fold(0u64, |bits, sq| bits | 1 << sq.index());
-            let empty_list = EmptyList::new(&Board::from_bitboards(!empty_bits, 0u64));
-            assert_eq!(sort_last4(&empty_list), expected, "{empties:?}");
+            let board = Board::from_bitboards(!empty_bits, 0u64);
+            let odd_quadrants = super::super::odd_quadrants(board.empty_squares());
+            assert_eq!(
+                sort_last4(Empties::new(&board), odd_quadrants),
+                expected,
+                "{empties:?}"
+            );
         }
     }
 }

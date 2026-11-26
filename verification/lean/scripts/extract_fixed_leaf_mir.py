@@ -41,19 +41,26 @@ def read_body(dump, repo):
     return candidates[0]
 
 
+EMPTIES = ("emptiesOf", "board")
+
 # Each supported call is a leaf in the extracted path. Receivers and arguments
 # are symbolic terms. This preserves the actual argument order at every use.
 CALLS = {
     "Score::to_disc_diff": "discAlpha",
     "<Arc<threading::thread::Thread> as Deref>::deref": "worker",
     "threading::thread::Thread::endgame_caches": "caches",
-    "EmptyList::count": "count",
+    "Empties::new": "emptiesOf",
+    "Empties::count": "count",
+    "Board::empty_squares": "emptySquares",
+    "odd_quadrants": "odd",
     "Board::final_disc_diff": "terminal",
     "Board::player": "player",
     "Board::legal_moves": "legalMoves",
-    "shallow_search": "shallow",
-    "EmptyList::first": "first",
-    "EmptyList::next": "next",
+    "shallow_search::<5>": "shallow5",
+    "shallow_search::<6>": "shallow6",
+    "Empties::first::<1>": "first",
+    "Empties::first::<2>": "first",
+    "Empties::first::<3>": "first",
     "sort_last4": "sort4",
     "solve::solve1": "solve1",
     "solve2": "solve2",
@@ -80,16 +87,17 @@ def path_result(body, count, nws_depth, shallow_depth, extra=None):
             return local(m[1])
         if m := re.fullmatch(r"&(?:mut )?\(\*(_\d+)\)", source):
             return local(m[1])
-        if source == "&((*_1).10: empty_list::EmptyList)":
-            return "empties"
         if source == "copy ((*_1).2: u64)":
             return "nodes"
         if m := re.fullmatch(r"&mut \(\(\*(_\d+)\)\.1: search::endgame::cache::EndGameCache<search::endgame::cache::Shallow>\)", source):
             checked(local(m[1]) == ("caches", ("worker", "thread")), "unexpected cache owner")
             return ("shallowCache", local(m[1]))
         if m := re.fullmatch(r"copy \((_\d+)\.([0-3]): square::Square\)", source):
-            checked(local(m[1]) == ("sort4", "empties"), "unexpected tuple projection")
+            checked(local(m[1])[0] == "sort4", "unexpected tuple projection")
             return ("sorted", int(m[2]))
+        if m := re.fullmatch(r"copy (_\d+)\[(\d+) of (\d+)\]", source):
+            checked(local(m[1]) == ("first", EMPTIES) and int(m[3]) == count, "unexpected first-squares projection")
+            return ("square", int(m[2]))
         if source == "Option::<TTSlot<'_>>::None":
             return "none"
         if m := re.fullmatch(r"discriminant\((_\d+)\)", source):
@@ -123,7 +131,7 @@ def path_result(body, count, nws_depth, shallow_depth, extra=None):
             checked(name is not None, f"unexpected call at bb{bb}: {m[2]}")
             call = (name, *(get(arg) for arg in m[3].split(", ")))
             observed.append(call)
-            env[m[1]] = (count if call == ("count", "empties") else
+            env[m[1]] = (count if call == ("count", EMPTIES) else
                          extra.response(call) if extra is not None else call)
             bb = normal_target(body, m[4], m[5])
         elif m := re.fullmatch(r"goto -> bb(\d+);|falseEdge -> \[real: bb(\d+), imaginary: bb\d+\];", term):
@@ -145,24 +153,20 @@ def path_result(body, count, nws_depth, shallow_depth, extra=None):
 def expected(count):
     alpha = ("discAlpha", "alpha")
     worker = ("worker", "thread")
-    calls = [alpha, worker, ("caches", worker), ("count", "empties")]
+    calls = [alpha, worker, ("caches", worker), EMPTIES, ("count", EMPTIES)]
     if count == 0:
         result = ("terminal", "board")
     elif count in (5, 6):
         moves = ("legalMoves", "board")
         calls.append(moves)
-        result = ("shallow", "ctx", "board", alpha, ("shallowCache", ("caches", worker)), moves)
+        result = (f"shallow{count}", "ctx", "board", alpha, ("shallowCache", ("caches", worker)), moves, EMPTIES)
     elif count == 4:
-        calls.append(("sort4", "empties"))
+        odd = ("odd", ("emptySquares", "board"))
+        calls.extend([("emptySquares", "board"), odd, ("sort4", EMPTIES, odd)])
         result = ("solve4", "ctx", "board", alpha, *(("sorted", i) for i in range(4)))
     else:
-        sq = ("first", "empties")
-        squares = [sq]
-        calls.append(sq)
-        for _ in range(1, count):
-            sq = ("next", "empties", sq)
-            squares.append(sq)
-            calls.append(sq)
+        calls.append(("first", EMPTIES))
+        squares = [("square", i) for i in range(count)]
         board = "board"
         if count == 1:
             board = ("player", "board")

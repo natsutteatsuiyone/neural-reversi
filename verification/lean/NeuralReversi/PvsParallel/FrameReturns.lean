@@ -172,7 +172,7 @@ inductive ScoreStep (log : Log mc fc) (endian : Bool) (f : Frame) (depth : Trans
       (s : EndgameSearch.Cancellation.State) :
       f.pv = false → s.empties.matches f.position → s.empties.count.toNat ≤ 6 →
       (5 ≤ s.empties.count.toNat → EndgameTreeCache.soundHistory mc fc s.history) →
-      (NonPvMir.sourceRun target bmi2 mc fc address s.history f.position s.empties.links s.empties.parity depth
+      (NonPvMir.sourceRun target bmi2 mc fc address s.history f.position s.empties.mask depth
         s.empties.count a checked).map (·.raw.toInt) = some f.score → ScoreStep log endian f depth a z
   | deepLeaf (target : Flip.Dispatch.TargetConfig) (bmi2 paired : Bool) (address : EndgameTreeCache.Address)
       (s : EndgameSearch.Cancellation.State) (attempts : List TranspositionTable.ProbeRetry.RawAttempt)
@@ -221,9 +221,9 @@ theorem ScoreStep.valid (log : Log mc fc) (f : Frame) (source : ScoreStep log en
   rw [lo, hi] at window null ⊢
   cases source with
   | leaf target bmi2 checked address s tag aligned size cache result =>
-    rw [NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ aligned cache] at result
+    rw [NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ aligned cache] at result
     obtain ⟨v, same, valid, _⟩ := NonPvMir.scoreContract_proven (CausalReplay.PrefixExitFrom mc fc (Samples log endian f))
-      (Children log f) target bmi2 mc fc address s.history f.position s.empties.links s.empties.parity depth
+      (Children log f) target bmi2 mc fc address s.history f.position s.empties.mask depth
       s.empties.count a z checked full aligned size cache (null tag)
     rw [same] at result
     simpa only [tag, Option.map_some, Option.some.injEq] using

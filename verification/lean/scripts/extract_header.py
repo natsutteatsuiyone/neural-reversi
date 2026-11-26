@@ -133,7 +133,7 @@ def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=
         "<Score as Add<i32>>::add": (["alpha", 1], "alphaPlusOne"),
         SCOUT: (["ctx", "played", "childDepth", "negAlphaPlusOne", "negAlpha", "thread", int(not cut)], "scout"),
         PVS: (["ctx", "played", "childDepth", "negBeta", "negAlpha", "thread", 0], "pv"),
-        "SearchContext::<'_>::undo": (["ctx", "sq"], "undo"),
+        "SearchContext::<'_>::undo": (["ctx"], "undo"),
         "threading::thread::Thread::split": (["thread", "ctx", "request"], "split"),
         "transposition_table::Bound::classify::<NT>": (["best_score", "org_alpha", "beta"], "done"),
     }

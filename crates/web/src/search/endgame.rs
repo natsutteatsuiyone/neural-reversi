@@ -2,29 +2,20 @@ mod cache;
 
 use std::cell::RefCell;
 
+use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
-use reversi_core::empty_list::EmptyList;
 use reversi_core::legal_moves::LegalMoves;
 use reversi_core::score::DiscScore;
 use reversi_core::score::{DISC_SCORE_INF, DISC_SCORE_MAX};
-use reversi_core::search::solve_last1;
+use reversi_core::search::{Empties, odd_quadrants, quadrant, solve_last1};
 use reversi_core::square::Square;
 use reversi_core::types::Depth;
-use reversi_core::{bitboard, flip, stability};
+use reversi_core::{flip, stability};
 
 use crate::move_list::{MoveList, evaluate_moves_fast};
 use crate::search::context::SearchContext;
 
 use self::cache::{CacheIndex, EndGameCache};
-
-/// Quadrant masks for move ordering in shallow search.
-#[rustfmt::skip]
-const QUADRANT_MASK: [u64; 16] = [
-    0x0000000000000000, 0x000000000F0F0F0F, 0x00000000F0F0F0F0, 0x00000000FFFFFFFF,
-    0x0F0F0F0F00000000, 0x0F0F0F0F0F0F0F0F, 0x0F0F0F0FF0F0F0F0, 0x0F0F0F0FFFFFFFFF,
-    0xF0F0F0F000000000, 0xF0F0F0F00F0F0F0F, 0xF0F0F0F0F0F0F0F0, 0xF0F0F0F0FFFFFFFF,
-    0xFFFFFFFF00000000, 0xFFFFFFFF0F0F0F0F, 0xFFFFFFFFF0F0F0F0, 0xFFFFFFFFFFFFFFFF
-];
 
 /// Depth threshold for switching from PVS to null-window endgame search.
 pub const DEPTH_TO_NWS: Depth = 11;
@@ -55,49 +46,52 @@ thread_local! {
 
 /// Dispatches to the optimal solver based on empty square count.
 pub fn null_window_search(ctx: &mut SearchContext, board: &Board, alpha: DiscScore) -> DiscScore {
-    let n_empties = ctx.empty_list.count();
+    let empties = Empties::new(board);
+    let n_empties = empties.count();
 
     if n_empties > DEPTH_TO_SHALLOW_SEARCH {
         return ENDGAME_CACHES.with_borrow_mut(|caches| {
-            null_window_search_with_ec(ctx, board, alpha, &mut caches.ec, &mut caches.shallow)
+            let (ec, sc) = (&mut caches.ec, &mut caches.shallow);
+            null_window_search_with_ec(ctx, board, alpha, ec, sc, empties)
         });
     }
 
     match n_empties {
         0 => board.final_disc_diff(),
         1 => {
-            let sq = ctx.empty_list.first();
+            let [sq] = empties.first();
             solve1(ctx, board, alpha, sq)
         }
         2 => {
-            let sq1 = ctx.empty_list.first();
-            let sq2 = ctx.empty_list.next(sq1);
+            let [sq1, sq2] = empties.first();
             solve2(ctx, board, alpha, sq1, sq2)
         }
         3 => {
-            let sq1 = ctx.empty_list.first();
-            let sq2 = ctx.empty_list.next(sq1);
-            let sq3 = ctx.empty_list.next(sq2);
+            let [sq1, sq2, sq3] = empties.first();
             solve3(ctx, board, alpha, sq1, sq2, sq3)
         }
         4 => {
-            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
+            let (sq1, sq2, sq3, sq4) = sort_last4(empties, odd_quadrants(board.empty_squares()));
             solve4(ctx, board, alpha, sq1, sq2, sq3, sq4)
         }
-        _ => ENDGAME_CACHES
-            .with_borrow_mut(|caches| shallow_search(ctx, board, alpha, &mut caches.shallow)),
+        _ => ENDGAME_CACHES.with_borrow_mut(|caches| {
+            shallow_search(ctx, board, alpha, &mut caches.shallow, empties)
+        }),
     }
 }
 
 /// Performs a null window search with endgame cache probing.
+///
+/// `empties` must be the empty squares of `board`.
 fn null_window_search_with_ec(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: DiscScore,
     ec: &mut EndGameCache,
     sc: &mut EndGameCache,
+    empties: Empties,
 ) -> DiscScore {
-    let n_empties = ctx.empty_list.count();
+    let n_empties = empties.count();
     let beta = alpha + 1;
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
@@ -116,7 +110,7 @@ fn null_window_search_with_ec(
     if moves.is_empty() {
         let next = board.switch_players();
         if next.has_legal_moves() {
-            return -null_window_search_with_ec(ctx, &next, -beta, ec, sc);
+            return -null_window_search_with_ec(ctx, &next, -beta, ec, sc, empties);
         } else {
             return board.solve_disc_diff(n_empties);
         }
@@ -129,7 +123,7 @@ fn null_window_search_with_ec(
         }
 
         let next = board.make_move_with_flipped(flipped, sq);
-        let score = search_move_nws_ec(ctx, &next, sq, beta, ec, sc);
+        let score = search_move_nws_ec(ctx, &next, empties.without(sq), beta, ec, sc);
         ec.store(cache_idx, hash_key, score, beta);
         return score;
     }
@@ -144,7 +138,7 @@ fn null_window_search_with_ec(
     evaluate_moves_fast(&mut move_list, ctx, board, None);
     for mv in move_list.best_first_iter() {
         let next = board.make_move_with_flipped(mv.flipped, mv.sq);
-        let score = search_move_nws_ec(ctx, &next, mv.sq, beta, ec, sc);
+        let score = search_move_nws_ec(ctx, &next, empties.without(mv.sq), beta, ec, sc);
 
         if score > best_score {
             best_score = score;
@@ -160,33 +154,36 @@ fn null_window_search_with_ec(
 }
 
 /// Searches a move with null window, dispatching to shallow or EC search based on depth.
+///
+/// `next_empties` must be the empty squares of `next`.
 #[inline(always)]
 fn search_move_nws_ec(
     ctx: &mut SearchContext,
     next: &Board,
-    sq: Square,
+    next_empties: Empties,
     beta: DiscScore,
     ec: &mut EndGameCache,
     sc: &mut EndGameCache,
 ) -> DiscScore {
-    ctx.update_endgame(sq);
-    let score = if ctx.empty_list.count() <= DEPTH_TO_SHALLOW_SEARCH {
-        -shallow_search(ctx, next, -beta, sc)
+    ctx.increment_nodes();
+    if next_empties.count() <= DEPTH_TO_SHALLOW_SEARCH {
+        -shallow_search(ctx, next, -beta, sc, next_empties)
     } else {
-        -null_window_search_with_ec(ctx, next, -beta, ec, sc)
-    };
-    ctx.undo_endgame(sq);
-    score
+        -null_window_search_with_ec(ctx, next, -beta, ec, sc, next_empties)
+    }
 }
 
 /// Performs a null window search optimized for shallow endgame positions.
+///
+/// `empties` must be the empty squares of `board`.
 fn shallow_search(
     ctx: &mut SearchContext,
     board: &Board,
     alpha: DiscScore,
     sc: &mut EndGameCache,
+    empties: Empties,
 ) -> DiscScore {
-    let n_empties = ctx.empty_list.count();
+    let n_empties = empties.count();
     let beta = alpha + 1;
 
     if let Some(score) = stability::stability_cutoff(board, n_empties, alpha) {
@@ -198,7 +195,7 @@ fn shallow_search(
         ctx.increment_nodes();
         let next = board.switch_players();
         if next.has_legal_moves() {
-            return -shallow_search(ctx, &next, -beta, sc);
+            return -shallow_search(ctx, &next, -beta, sc, empties);
         } else {
             return board.solve_disc_diff(n_empties);
         }
@@ -218,16 +215,20 @@ fn shallow_search(
     let mut best_score = -DISC_SCORE_INF;
 
     // Split moves by quadrant parity: odd-empty quadrants first
-    let quadrant_mask = bitboard::Bitboard::new(QUADRANT_MASK[ctx.empty_list.parity() as usize]);
-    let odd_moves = moves & quadrant_mask;
-    let even_moves = moves & !quadrant_mask;
+    let node = ShallowNode {
+        empties,
+        odd_quadrants: odd_quadrants(board.empty_squares()),
+        beta,
+    };
+    let odd_moves = moves & node.odd_quadrants;
+    let even_moves = moves & !node.odd_quadrants;
 
     if let Some(score) = shallow_search_moves(
         ctx,
         board,
         odd_moves.corners(),
         cache_slot,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -239,7 +240,7 @@ fn shallow_search(
         board,
         odd_moves.non_corners(),
         cache_slot,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -251,7 +252,7 @@ fn shallow_search(
         board,
         even_moves.corners(),
         cache_slot,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -263,7 +264,7 @@ fn shallow_search(
         board,
         even_moves.non_corners(),
         cache_slot,
-        beta,
+        node,
         &mut best_score,
         sc,
     ) {
@@ -275,19 +276,31 @@ fn shallow_search(
     best_score
 }
 
+/// A [`shallow_search`] node as its moves see it.
+#[derive(Clone, Copy)]
+struct ShallowNode {
+    /// Empty squares of the node.
+    empties: Empties,
+    /// [`odd_quadrants`] of the node.
+    odd_quadrants: Bitboard,
+    /// Upper bound of the node's null window.
+    beta: DiscScore,
+}
+
 /// Evaluates a single move in shallow search.
 #[inline(always)]
 fn shallow_search_move(
     ctx: &mut SearchContext,
     board: &Board,
     sq: Square,
-    beta: DiscScore,
+    node: ShallowNode,
     sc: &mut EndGameCache,
 ) -> DiscScore {
     let next = board.make_move(sq);
-    ctx.update_endgame(sq);
-    let next_alpha = -beta;
-    let score = if ctx.empty_list.count() == 4 {
+    ctx.increment_nodes();
+    let next_alpha = -node.beta;
+    let next_empties = node.empties.without(sq);
+    if next_empties.count() == 4 {
         let next_hash_key = next.hash();
         let next_cache_idx = sc.index(next_hash_key);
         if let Some(entry) = sc.probe(next_cache_idx, next_hash_key)
@@ -297,16 +310,15 @@ fn shallow_search_move(
         } else if let Some(score) = stability::stability_cutoff(&next, 4, next_alpha) {
             -score
         } else {
-            let (sq1, sq2, sq3, sq4) = sort_last4(&ctx.empty_list);
+            let next_odd_quadrants = node.odd_quadrants ^ quadrant(sq);
+            let (sq1, sq2, sq3, sq4) = sort_last4(next_empties, next_odd_quadrants);
             let score = solve4(ctx, &next, next_alpha, sq1, sq2, sq3, sq4);
             sc.store(next_cache_idx, next_hash_key, score, next_alpha + 1);
             -score
         }
     } else {
-        -shallow_search(ctx, &next, -beta, sc)
-    };
-    ctx.undo_endgame(sq);
-    score
+        -shallow_search(ctx, &next, next_alpha, sc, next_empties)
+    }
 }
 
 /// Searches all moves in a bitboard, returning [`Some`] with the score on a beta cutoff.
@@ -316,12 +328,13 @@ fn shallow_search_moves(
     board: &Board,
     moves: LegalMoves,
     cache_slot: CacheSlot,
-    beta: DiscScore,
+    node: ShallowNode,
     best_score: &mut DiscScore,
     sc: &mut EndGameCache,
 ) -> Option<DiscScore> {
+    let beta = node.beta;
     for sq in moves.iter() {
-        let score = shallow_search_move(ctx, board, sq, beta, sc);
+        let score = shallow_search_move(ctx, board, sq, node, sc);
 
         if score > *best_score {
             *best_score = score;
@@ -337,39 +350,29 @@ fn shallow_search_moves(
 
 /// Sorts the last four empty squares so that odd-parity quadrants are searched first.
 ///
-/// When every quadrant has even parity, preserves the presorted order without
-/// looking up any quadrant IDs.
+/// `odd_quadrants` must be [`odd_quadrants`] of the four squares in `empties`.
 #[inline(always)]
-fn sort_last4(empty_list: &EmptyList) -> (Square, Square, Square, Square) {
-    let parity = empty_list.parity();
+fn sort_last4(empties: Empties, odd_quadrants: Bitboard) -> (Square, Square, Square, Square) {
+    let [sq1, sq2, sq3, sq4] = empties.first();
 
-    if parity == 0 {
-        let sq1 = empty_list.first();
-        let sq2 = empty_list.next(sq1);
-        let sq3 = empty_list.next(sq2);
-        let sq4 = empty_list.next(sq3);
+    if odd_quadrants.is_empty() {
         return (sq1, sq2, sq3, sq4);
     }
 
-    let (sq1, quad_id1) = empty_list.first_and_quad_id();
-    let (sq2, quad_id2) = empty_list.next_and_quad_id(sq1);
-    let (sq3, quad_id3) = empty_list.next_and_quad_id(sq2);
-    let sq4 = empty_list.next(sq3);
-
-    if parity & quad_id1 == 0 {
-        if parity & quad_id2 != 0 {
-            if parity & quad_id3 != 0 {
+    if !odd_quadrants.contains(sq1) {
+        if odd_quadrants.contains(sq2) {
+            if odd_quadrants.contains(sq3) {
                 (sq2, sq3, sq1, sq4)
             } else {
                 (sq2, sq4, sq1, sq3)
             }
-        } else if parity & quad_id3 != 0 {
+        } else if odd_quadrants.contains(sq3) {
             (sq3, sq4, sq1, sq2)
         } else {
             (sq1, sq2, sq3, sq4)
         }
-    } else if parity & quad_id2 == 0 {
-        if parity & quad_id3 != 0 {
+    } else if !odd_quadrants.contains(sq2) {
+        if odd_quadrants.contains(sq3) {
             (sq1, sq3, sq2, sq4)
         } else {
             (sq1, sq4, sq2, sq3)
@@ -575,7 +578,6 @@ fn solve1(ctx: &mut SearchContext, board: &Board, alpha: DiscScore, sq: Square) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use reversi_core::empty_list::EmptyList as TestEmptyList;
 
     #[test]
     fn sort_last4_puts_odd_quadrants_first() {
@@ -595,8 +597,13 @@ mod tests {
         ];
         for (empties, expected) in cases {
             let empty_bits = empties.iter().fold(0u64, |bits, sq| bits | 1 << sq.index());
-            let empty_list = TestEmptyList::new(&Board::from_bitboards(!empty_bits, 0u64));
-            assert_eq!(sort_last4(&empty_list), expected, "{empties:?}");
+            let board = Board::from_bitboards(!empty_bits, 0u64);
+            let odd_quadrants = odd_quadrants(board.empty_squares());
+            assert_eq!(
+                sort_last4(Empties::new(&board), odd_quadrants),
+                expected,
+                "{empties:?}"
+            );
         }
     }
 }

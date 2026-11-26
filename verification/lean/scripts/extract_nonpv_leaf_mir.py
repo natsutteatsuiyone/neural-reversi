@@ -87,8 +87,9 @@ def follow_pvs(body, params, n, cut, pv=False):
             key = m[1] or m[2]
             checked(key in env, f"undefined local {key}")
             return env[key]
-        if expr == "&((*_1).10: empty_list::EmptyList)":
-            return "empties"
+        if expr == "copy ((*_1).10: u32)":
+            calls.append(("count", "empties"))
+            return n
         if m := re.fullmatch(r"Not\((.+)\)", expr):
             arg = operand(m[1])
             checked(type(arg) is bool, "non-boolean Negation")
@@ -122,12 +123,12 @@ def follow_pvs(body, params, n, cut, pv=False):
             checked(type(v) is bool, "non-boolean PVS branch")
             pc = normal_target(body, m[3] if v else m[2])
         elif m := split_call(t):
-            names = {"EmptyList::count": "count", "<SS as SearchStrategy>::shallow_search": "shallow_search",
+            names = {"<SS as SearchStrategy>::shallow_search": "shallow_search",
                      "SearchContext::<'_>::clear_pv": "clear_pv", "<SS as SearchStrategy>::evaluate": "evaluate"}
             checked(m[2] in names, f"unexpected PVS call {m[2]} at bb{pc}")
             call = (names[m[2]], *(operand(arg) for arg in m[3].split(", ")))
             calls.append(call)
-            env[m[1]] = n if call == ("count", "empties") else call
+            env[m[1]] = call
             pc = normal_target(body, m[4], m[5])
         else:
             raise ValueError(f"unexpected PVS terminator bb{pc}: {t}")
@@ -178,7 +179,7 @@ def verify(dump, repo):
         actual = path_result(fixed, n, limit, shallow)
         checked(actual == expected(n), f"PVS leaf result or arguments differ at {n} empty squares")
         leaf = actual[0][1][0]
-        arms.append(".shallow" if leaf == "shallow" else ".fixed ." + leaf)
+        arms.append(".shallow" if leaf in ("shallow5", "shallow6") else ".fixed ." + leaf)
     return "\n".join(["import NeuralReversi.EndgameSearch.Direct.Mir.Program", "import NeuralReversi.ScoreRefresh.BoardBridge", "",
                       "namespace NeuralReversi.PvsParallel.NonPvMir", "",
                       "def pvZeroScore (checked : Bool) (board : Board.Board) : Except String ScoreRefresh.Score :=",

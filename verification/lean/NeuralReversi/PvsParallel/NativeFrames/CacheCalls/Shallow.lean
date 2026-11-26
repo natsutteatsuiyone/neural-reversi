@@ -42,7 +42,8 @@ def child (p : Pool) (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc 
     · exact .done
     · split
       · exact .done
-      · let value := EndgameSearch.ShallowMir.four target bmi2 n placed threshold
+      · let odd := Empties.oddQuadrants (Board.emptySquares b.val) ^^^ Empties.quadrant m.val
+        let value := EndgameSearch.ShallowMir.four target bmi2 n placed odd threshold
         exact .access 2 (.store .shallow n.val threshold value (switched safe)) .forward
           (by simp only [Access.node]; decide) .done
   · exact .call 3 .shallow .forward (by decide) rfl (issued ()) .done
@@ -90,11 +91,11 @@ decreasing_by
   · exact (play mc fc b m).property
 
 def boundaryProgram (p : Pool) (i : Input) (mc : X86Config) (fc : FlipConfig) (s : EndgameSearch.CacheHistory.Local)
-    (arm : i.arm = .shallow) : Program .shallow s.history (i.run mc fc p.address s.history).history := by
+    (arm : i.arm = .shallow six) : Program .shallow s.history (i.run mc fc p.address s.history).history := by
   simp only [Input.run,arm,Input.eval]
   exact program p i.target i.bmi2 mc fc i.board i.empties _ (EndgameSearch.ShallowMir.scoreThreshold i.alpha) s.history
 
-theorem audited (p : Pool) (i : Input) (arm : i.arm = .shallow) (g : Good mc fc p.width p.sizes p.key s) :
+theorem audited (p : Pool) (i : Input) (arm : i.arm = .shallow six) (g : Good mc fc p.width p.sizes p.key s) :
     let ops := ((boundaryProgram p i mc fc s arm).accesses.map Access.instruction)
     let actual := EndgameSearch.CacheHistory.Payloads.observeRun p s g.shape ops
     EndgameSearch.CacheHistory.Payloads.check p true s (i.run mc fc p.address s.history).history actual =

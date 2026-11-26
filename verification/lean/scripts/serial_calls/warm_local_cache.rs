@@ -39,24 +39,34 @@ fn replay(
 ) -> DiscScore {
     let mut independent =
         SearchContext::new(board, ctx.selectivity, ctx.root_moves, ctx.tt, ctx.eval);
-    independent.empty_list = ctx.empty_list.clone();
-    if ctx.empty_list.count() > endgame::DEPTH_TO_SHALLOW_SEARCH {
-        endgame::null_window_search(
+    independent.n_empties = ctx.n_empties;
+    let empties = endgame::Empties::new(board);
+    match empties.count() {
+        5 => endgame::shallow_search::<5>(
+            &mut independent,
+            board,
+            alpha,
+            &mut cache.shallow,
+            board.legal_moves(),
+            empties,
+        ),
+        6 => endgame::shallow_search::<6>(
+            &mut independent,
+            board,
+            alpha,
+            &mut cache.shallow,
+            board.legal_moves(),
+            empties,
+        ),
+        _ => endgame::null_window_search(
             &mut independent,
             board,
             alpha,
             cache,
             &endgame::IgnoreSplitPointCutoff,
             board.legal_moves(),
-        )
-    } else {
-        endgame::shallow_search(
-            &mut independent,
-            board,
-            alpha,
-            &mut cache.shallow,
-            board.legal_moves(),
-        )
+            empties,
+        ),
     }
 }
 
@@ -69,16 +79,16 @@ pub(super) fn observe(
     hit: Option<DiscScore>,
     native: DiscScore,
 ) {
-    if ctx.empty_list.count() <= 4 {
+    if ctx.n_empties <= 4 {
         return;
     }
-    assert!(ctx.empty_list.count() < 12);
+    assert!(ctx.n_empties < 12);
     println!(
         "{} {} {} {} {} {} {} {}",
         SECOND.load(Ordering::Relaxed) as u8,
         board.player().bits(),
         board.opponent().bits(),
-        ctx.empty_list.count(),
+        ctx.n_empties,
         raw_alpha.value(),
         raw_beta.value(),
         ctx.selectivity as u8,
@@ -95,7 +105,7 @@ pub(super) fn observe(
         if visit == 1 {
             assert_eq!(board.player().bits(), 0x004602466a1283ff);
             assert_eq!(board.opponent().bits(), 0x3f317db995ed7c00);
-            assert_eq!(ctx.empty_list.count(), 5);
+            assert_eq!(ctx.n_empties, 5);
             assert_eq!(alpha.value(), -1);
             assert_eq!(hit, Some(native));
             assert_eq!((native.value(), cold.value()), (2, 0));

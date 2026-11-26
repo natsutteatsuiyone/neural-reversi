@@ -97,17 +97,16 @@ inductive Attempts (c : SerialScout.Config) (b : Position) (inputs : Nat → Ser
 private theorem carry {mc fc} (c : SerialScout.Config) (b : Position) (inputs : Nat → SerialExecution.Inputs mc fc)
     (roots : Nat → Word → Word → SerialRecursion.RootInput) (visits : List Visit)
     (seen : ∀ v ∈ visits, SerialStack.Projected c b inputs roots v) (s : SearchContextState.State)
-    (matchesRoot : SearchContextState.Matches s b) (raw : leafState s = leafState (ContextPathMir.start b)) :
+    (matchesRoot : SearchContextState.Matches s b) :
     ∃ t, Attempts c b inputs roots s visits t ∧ ContextPathMir.Calls mc fc b s t := by
   induction visits generalizing s with
   | nil => exact ⟨s,.nil,.done⟩
   | cons v rest ih =>
     obtain ⟨forest,observed⟩ := seen v List.mem_cons_self
-    obtain ⟨t,walk,restored⟩ := SerialPhysicalContext.of_execution observed.1 s raw matchesRoot
-    have same : leafState t = leafState s := by simp [leafState, restored.empties]
-    obtain ⟨u,more,later⟩ := ih (fun w h => seen w (.tail _ h)) t (restored.agrees matchesRoot) (same.trans raw)
+    obtain ⟨t,walk,restored⟩ := SerialPhysicalContext.of_execution observed.1 s rfl matchesRoot
+    obtain ⟨u,more,later⟩ := ih (fun w h => seen w (.tail _ h)) t (restored.agrees matchesRoot)
     have full : ExactDepth.Full b (ContextPathMir.rootDepth (ContextPathMir.start b)) := ContextPathMir.At.initial.full (mc := mc) (fc := fc)
-    have aligned : (leafState (ContextPathMir.start b)).matches b := by rw [ContextPathMir.start_eq]; exact EndgameSearch.emptyState_initial b
+    have aligned : (leafState b).matches b := EndgameSearch.emptyState_initial b
     exact ⟨u,.cons observed (SerialPhysicalContext.root_groups observed.2.2.1) walk (frames c _ observed.1 aligned full) more,.next walk.calls later⟩
 
 def PublicationContract : Prop :=
@@ -132,7 +131,7 @@ theorem publication : PublicationContract := by
   have aligned : SearchContextState.Matches (ContextPathMir.start b) b := by
     rw [ContextPathMir.start_eq]
     exact (SearchContextState.initialContract_proven.1 b fits).1
-  obtain ⟨t,attempts,path⟩ := carry c b inputs roots (prior ++ [last]) seen _ aligned rfl
+  obtain ⟨t,attempts,path⟩ := carry c b inputs roots (prior ++ [last]) seen _ aligned
   exact ⟨prior,last,result,t,ran,attempts,path.restores aligned,published,score⟩
 
 end NeuralReversi.AspirationMir.SerialContext

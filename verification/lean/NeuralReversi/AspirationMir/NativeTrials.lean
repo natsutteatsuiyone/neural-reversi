@@ -114,29 +114,29 @@ structure Result (c : Capture pool) (b : Position) (w line : Nat) (ts : List Tri
 
 private def remaining (n : Nat) (m : Machine) : Nat :=
   (n - m.issued) * 15 + match m.pc with
-  | 0 => 3 | 1 => 2 | 2 => 1 | 3 => 0 | 4 => 9 | 5 => 8 | 6 => 7 | 7 => 1
-  | 8 => 6 | 9 => 5 | 10 => 4 | 11 => 1 | 12 => 2 | _ => 0
+  | 0 => 2 | 1 => 1 | 2 => 0 | 3 => 9 | 4 => 8 | 5 => 7 | 6 => 1
+  | 7 => 6 | 8 => 5 | 9 => 4 | 10 => 1 | 11 => 2 | _ => 0
 
 private theorem decreases (m next : Machine) (safe : permit c b w idx ts m = true)
     (edge : execute (rootQuery c b w idx (stamp ts)) (fun _ => false) m = some (.step next)) :
     remaining ts.length next < remaining ts.length m := by
   match pc : m.pc with
-  | 0 | 1 | 2 | 4 | 5 | 7 | 10 | 11 | 12 =>
+  | 0 | 1 | 3 | 4 | 6 | 9 | 10 | 11 =>
     simp [execute,driverCode,pc] at edge
     subst next
     simp [remaining,pc]
-  | 3 =>
-    obtain ⟨_,_,slot,_,_⟩ := checked_query (by simp [pc,driverCode] : driverCode[m.pc]? = some (.query 4)) safe
+  | 2 =>
+    obtain ⟨_,_,slot,_,_⟩ := checked_query (by simp [pc,driverCode] : driverCode[m.pc]? = some (.query 3)) safe
     have bound := (List.getElem?_eq_some_iff.mp slot).1
     simp [execute,driverCode,pc] at edge
     subst next
     simp [remaining,pc]
     omega
-  | 6 | 9 =>
+  | 5 | 8 =>
     simp [execute,driverCode,pc] at edge
     subst next
     cases m.flag <;> simp [remaining,pc]
-  | 8 =>
+  | 7 =>
     simp only [execute,driverCode,pc] at edge
     cases h : applyWiden m.regs m.last.score with
     | none => simp [h] at edge
@@ -144,8 +144,8 @@ private theorem decreases (m next : Machine) (safe : permit c b w idx ts m = tru
       simp [h] at edge
       subst next
       simp [remaining,pc]
-  | 13 | 14 => simp [execute,driverCode,pc] at edge
-  | n+15 => simp [execute,driverCode,pc] at edge
+  | 12 | 13 => simp [execute,driverCode,pc] at edge
+  | n+14 => simp [execute,driverCode,pc] at edge
 
 def run (c : Capture pool) (b : Position) (w line : Nat) (ts : List Trial) (m : Machine) :
     Option (Result c b w line ts m) := do

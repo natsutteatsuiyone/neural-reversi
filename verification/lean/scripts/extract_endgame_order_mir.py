@@ -209,7 +209,7 @@ def eval_sources(d):
             for v in block:
                 if isinstance(v,tuple) and v[0]=="Board::solve":
                     counts=aliases(ds,v[1].split(", ")[1])
-                    checked(counts[0]=="EmptyList::count","terminal used an unaligned count")
+                    checked(counts=="copy ((*_1).10: u32)","terminal used an unaligned count")
     simple={"evaluate","evaluate_depth1","evaluate_depth2"}
     checked(producer_graph(d,PRE+"shallow_search_score",simple)==simple|{neg},"shallow scoring source")
     direct={"Board::final_score","SearchContext::<'_>::evaluate_main_with_key","Eval::evaluate_small"}
@@ -372,17 +372,16 @@ def endgame_sort_depths(dump):
     constant = "move_list::ordering::<impl move_list::MoveList>::evaluate_moves::ENDGAME_MIN_SORT_DEPTH"
     expected = {
         0: ["_9 = const <SS as search::strategy::SearchStrategy>::IS_ENDGAME;",
-            "switchInt(move _9) -> [0: bb4, otherwise: bb1];"],
-        1: ["_10 = copy _4;", f"_12 = const {constant};", "_15 = &((*_2).10: empty_list::EmptyList);",
-            "_14 = EmptyList::count(move _15) -> [return: bb2, unwind: bb11];"],
-        2: ["_13 = move _14 as usize (IntToInt);", "_16 = Lt(copy _13, const 64_usize);",
-            'assert(move _16, "index out of bounds: the length is {} but the index is {}", const 64_usize, copy _13) '
-            '-> [success: bb3, unwind: bb11];'],
-        3: ["_11 = copy _12[_13];", "_8 = Lt(move _10, move _11);", "goto -> bb5;"],
-        5: ["_19 = copy _8;", "switchInt(move _19) -> [0: bb8, otherwise: bb6];"],
+            "switchInt(move _9) -> [0: bb3, otherwise: bb1];"],
+        1: ["_10 = copy _4;", f"_12 = const {constant};", "_14 = copy ((*_2).10: u32);",
+            "_13 = move _14 as usize (IntToInt);", "_15 = Lt(copy _13, const 64_usize);",
+            'assert(move _15, "index out of bounds: the length is {} but the index is {}", const 64_usize, copy _13) '
+            '-> [success: bb2, unwind: bb10];'],
+        2: ["_11 = copy _12[_13];", "_8 = Lt(move _10, move _11);", "goto -> bb4;"],
+        4: ["_18 = copy _8;", "switchInt(move _18) -> [0: bb7, otherwise: bb5];"],
     }
     checked(all(cfg[pc] == ops for pc, ops in expected.items()), "endgame ordering depth dispatch")
-    for pc, method in [(6, "evaluate_moves_fast"), (8, "evaluate_moves_by_search::<NT, SS>")]:
+    for pc, method in [(5, "evaluate_moves_fast"), (7, "evaluate_moves_by_search::<NT, SS>")]:
         checked(split_call(cfg[pc][-1])[2] == f"ordering::<impl MoveList>::{method}", "wrong ordering arm")
     raw = code(dump, name + "-ENDGAME_MIN_SORT_DEPTH", "built")
     row = re.fullmatch(r"_0 = \[(.*)\];", raw[0][0])

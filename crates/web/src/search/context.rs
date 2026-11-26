@@ -5,7 +5,7 @@ use std::rc::Rc;
 use reversi_core::{
     bitboard::Bitboard,
     board::Board,
-    empty_list::EmptyList,
+    constants::INITIAL_EMPTY_COUNT,
     eval::pattern_feature::{PatternFeature, PatternFeatures},
     score::Score,
     search::side_to_move::SideToMove,
@@ -28,8 +28,9 @@ pub struct SearchContext {
     pub side_to_move: SideToMove,
     /// Selectivity level.
     pub selectivity: Selectivity,
-    /// List of empty squares, optimized for quick access.
-    pub empty_list: EmptyList,
+    /// Number of empty squares. The null-window endgame search does not update
+    /// it while it runs.
+    pub n_empties: u32,
     /// Transposition table for storing search results.
     pub tt: Rc<TranspositionTable>,
     /// Neural network evaluator.
@@ -54,14 +55,14 @@ impl SearchContext {
         eval: Rc<Eval>,
         progress_callback: Option<Function>,
     ) -> Self {
-        let empty_list = EmptyList::new(board);
-        let ply = empty_list.ply();
+        let n_empties = board.empty_count();
+        let ply = INITIAL_EMPTY_COUNT - n_empties as usize;
 
         SearchContext {
             n_nodes: 0,
             side_to_move: SideToMove::Player,
             selectivity,
-            empty_list,
+            n_empties,
             tt,
             eval,
             root_moves: Self::create_root_moves(board),
@@ -84,27 +85,14 @@ impl SearchContext {
         self.pattern_features
             .update(sq, flipped, self.ply(), self.side_to_move);
         self.switch_players();
-        self.empty_list.remove(sq);
+        self.n_empties -= 1;
     }
 
     /// Undoes a midgame move.
     #[inline]
-    pub fn undo(&mut self, sq: Square) {
-        self.empty_list.restore(sq);
+    pub fn undo(&mut self) {
+        self.n_empties += 1;
         self.switch_players();
-    }
-
-    /// Updates state after making an endgame move (skips pattern feature update).
-    #[inline]
-    pub fn update_endgame(&mut self, sq: Square) {
-        self.increment_nodes();
-        self.empty_list.remove(sq);
-    }
-
-    /// Undoes an endgame move.
-    #[inline]
-    pub fn undo_endgame(&mut self, sq: Square) {
-        self.empty_list.restore(sq);
     }
 
     /// Updates state for a pass move.
@@ -123,7 +111,7 @@ impl SearchContext {
     /// Returns the current ply (number of moves played from the opening).
     #[inline]
     pub fn ply(&self) -> usize {
-        self.empty_list.ply()
+        INITIAL_EMPTY_COUNT - self.n_empties as usize
     }
 
     /// Increments the node counter.

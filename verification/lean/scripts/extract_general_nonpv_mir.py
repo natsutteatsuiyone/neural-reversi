@@ -51,21 +51,19 @@ def prefetch_loop(cfg):
     # The iterator may contain any number of moves. Its back edge changes only the
     # iterator and temporaries, and each normal iteration prefetches one child hash.
     code = {
-        83: ["_161 = &_92;", "_160 = MoveList::iter(move _161) -> [return: bb84, unwind: bb450];"],
-        84: ["_159 = <std::slice::Iter<'_, move_list::Move> as IntoIterator>::into_iter(move _160) -> [return: bb85, unwind: bb450];"],
-        85: ["PlaceMention(_159);","_162 = move _159;","goto -> bb86;"],
-        86: ["falseUnwind -> [real: bb87, unwind: bb450];"],
-        87: ["_167 = &mut _162;","_166 = &mut (*_167);","_165 = <std::slice::Iter<'_, move_list::Move> as Iterator>::next(move _166) -> [return: bb88, unwind: bb450];"],
-        88: ["PlaceMention(_165);","_168 = discriminant(_165);","switchInt(move _168) -> [0: bb90, 1: bb91, otherwise: bb89];"],
-        89: ["FakeRead(ForMatchedPlace(None), _165);","unreachable;"],
-        90: ["falseEdge -> [real: bb92, imaginary: bb91];"],
-        91: ["_170 = copy ((_165 as Some).0: &move_list::Move);","_172 = &(*_2);",
-             "_173 = copy ((*_170).0: bitboard::Bitboard);","_174 = copy ((*_170).2: square::Square);",
-             "_171 = Board::make_move_with_flipped(move _172, move _173, move _174) -> [return: bb93, unwind: bb450];"],
-        92: ["goto -> bb97;"],
-        93: ["_176 = &(*((*_1).5: &transposition_table::TranspositionTable));","_178 = &_171;","_177 = Board::hash(move _178) -> [return: bb94, unwind: bb450];"],
-        94: ["_175 = TranspositionTable::prefetch(move _176, move _177) -> [return: bb95, unwind: bb450];"],
-        95: ["goto -> bb86;"],
+        81: ["_159 = &_91;","_158 = MoveList::iter(move _159) -> [return: bb82, unwind: bb448];"],
+        82: ["_157 = <std::slice::Iter<'_, move_list::Move> as IntoIterator>::into_iter(move _158) -> [return: bb83, unwind: bb448];"],
+        83: ["PlaceMention(_157);","_160 = move _157;","goto -> bb84;"],
+        84: ["falseUnwind -> [real: bb85, unwind: bb448];"],
+        85: ["_165 = &mut _160;","_164 = &mut (*_165);","_163 = <std::slice::Iter<'_, move_list::Move> as Iterator>::next(move _164) -> [return: bb86, unwind: bb448];"],
+        86: ["PlaceMention(_163);","_166 = discriminant(_163);","switchInt(move _166) -> [0: bb88, 1: bb89, otherwise: bb87];"],
+        87: ["FakeRead(ForMatchedPlace(None), _163);","unreachable;"],
+        88: ["falseEdge -> [real: bb90, imaginary: bb89];"],
+        89: ["_168 = copy ((_163 as Some).0: &move_list::Move);","_170 = &(*_2);","_171 = copy ((*_168).0: bitboard::Bitboard);","_172 = copy ((*_168).2: square::Square);","_169 = Board::make_move_with_flipped(move _170, move _171, move _172) -> [return: bb91, unwind: bb448];"],
+        90: ["goto -> bb95;"],
+        91: ["_174 = &(*((*_1).5: &transposition_table::TranspositionTable));","_176 = &_169;","_175 = Board::hash(move _176) -> [return: bb92, unwind: bb448];"],
+        92: ["_173 = TranspositionTable::prefetch(move _174, move _175) -> [return: bb93, unwind: bb448];"],
+        93: ["goto -> bb84;"],
     }
     for pc, expected in code.items():
         b = cfg[pc]
@@ -85,9 +83,9 @@ def auxiliary(dump,repo):
         "fn search::endgame::try_probcut(_1: &mut SearchContext<'_>, _2: &Board, _3: u32, _4: Score, _5: bool) -> Option<Score> {" in source.splitlines(),
         "wrong ProbCut implementation")
     ast=blocks(source)
-    expected={0:["_8 = copy ((*_1).7: probcut::Selectivity);","_7 = Selectivity::is_enabled(move _8) -> [return: bb1, unwind: bb6];"],
+    expected={0:["_8 = copy ((*_1).7: probcut::Selectivity);","_7 = Selectivity::is_enabled(move _8) -> [return: bb1, unwind: bb10];"],
               1:["switchInt(move _7) -> [0: bb3, otherwise: bb2];"],
-              3:["_0 = Option::<Score>::None;","goto -> bb5;"],5:["return;"]}
+              3:["_0 = Option::<Score>::None;","goto -> bb9;"],9:["return;"]}
     checked(all(ordinary(ast[n])==ops for n,ops in expected.items()),"exact ProbCut is live")
     enable=forwarding_body(repo,dump,"probcut","impl Selectivity {","is_enabled","(_1: Selectivity) -> bool {")
     checked(at(enable,0)==["_2 = &_1;","_4 = Selectivity::None;","_3 = &_4;",
@@ -116,7 +114,9 @@ def walk(cfg, traits, flags, resume=None):
         if s in traits: return traits[s]
         if m := re.fullmatch(r"copy (_\d+)|move (_\d+)|&(?:mut )?\(\*(_\d+)\)|&(_\d+)",s):
             return env[next(x for x in m.groups() if x is not None)]
-        fields = {"&((*_1).10: empty_list::EmptyList)":"list", "&mut ((*_1).12: search::counters::SearchStats)":"stats",
+        if s == "copy ((*_1).10: u32)":
+            events.append(("empties","list")); return "empties"
+        fields = {"&mut ((*_1).12: search::counters::SearchStats)":"stats",
                   "&(*((*_1).5: &transposition_table::TranspositionTable))":"tt", "copy ((*_1).7: probcut::Selectivity)":"exact"}
         if s in fields: return fields[s]
         if m := re.fullmatch(r"Not\((.+)\)",s):
@@ -139,11 +139,11 @@ def walk(cfg, traits, flags, resume=None):
     pc,visited=0,set()
     while pc not in visited:
         visited.add(pc)
-        if pc==83:
-            checked((env["_92"],env["_2"],env["_1"])==(gen,"board","ctx"),"prefetch uses changed state")
+        if pc==81:
+            checked((env["_91"],env["_2"],env["_1"])==(gen,"board","ctx"),"prefetch uses changed state")
             events.append(("prefetchChildren",gen))
-            pc=97
-        if pc==146:
+            pc=95
+        if pc==144:
             outcome="owner"
             break
         b=cfg[pc]
@@ -157,7 +157,7 @@ def walk(cfg, traits, flags, resume=None):
             outcome=env["_0"];break
         if c:=split_call(term):
             args=tuple(arg(a) for a in c[3].split(", "))
-            names={"EmptyList::count":"empties","Board::final_disc_diff":"terminal","Score::to_disc_diff":"disc",
+            names={"Board::final_disc_diff":"terminal","Score::to_disc_diff":"disc",
                    "stability_cutoff":"stability","SearchStats::increment_stability_cut":"stableStat","Score::from_disc_diff":"scaled",
                    "Board::hash":"hash","TranspositionTable::prefetch":"prefetch","MoveList::new":"new","MoveList::count":"count",
                    "Board::switch_players":"switch","Board::has_legal_moves":"mobile","SearchContext::<'_>::update_pass":"beginPass",
@@ -172,8 +172,7 @@ def walk(cfg, traits, flags, resume=None):
             else:
                 checked(c[2] in names,f"unexpected NonPV call {c[2]}")
                 call=(names[c[2]],*args)
-                if call==("empties","list"): v="empties"
-                elif call==("mobile",swap): v=flags.other
+                if call==("mobile",swap): v=flags.other
                 elif call==("canCut",entry,"beta","depth","exact",True): v=flags.cut_tt
                 else: v=call
             events.append(call);env[c[1]]=v

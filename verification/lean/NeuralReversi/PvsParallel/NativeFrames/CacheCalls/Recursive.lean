@@ -11,16 +11,16 @@ open Invocations (Calls)
 open NativeFrameCache (EdgeEvent)
 
 inductive Routine where
-  | shallow | deep (poll : Bool)
+  | shallow (six : Bool) | deep (poll : Bool)
 
-def Routine.node : Routine → Node | .shallow => .shallow | .deep _ => .deep
-def Routine.arm : Routine → Arm | .shallow => .shallow | .deep poll => .deep poll
+def Routine.node : Routine → Node | .shallow _ => .shallow | .deep _ => .deep
+def Routine.arm : Routine → Arm | .shallow six => .shallow six | .deep poll => .deep poll
 
 def Routine.deepTree (r : Routine) : Forest r.node → Forest .deep :=
-  match r with | .shallow => fun _ => .nil | .deep _ => id
+  match r with | .shallow _ => fun _ => .nil | .deep _ => id
 
 def Routine.shallowTree (r : Routine) : Forest r.node → Forest .shallow :=
-  match r with | .shallow => id | .deep _ => fun _ => .nil
+  match r with | .shallow _ => id | .deep _ => fun _ => .nil
 
 def Routine.calls (r : Routine) (w : Worker p) (site owner : Nat) (i : Input) (stamp : Option Nat)
     (f : Forest r.node) := boundary w site owner i stamp (r.deepTree f) (r.shallowTree f)
@@ -35,6 +35,7 @@ private theorem finish (r : Routine) (w : Worker p) (i : Input) (branch : i.arm 
   rw [branch]
   cases r
   case' deep poll => cases poll
+  case' shallow six => cases six
   all_goals dsimp only [Routine.node] at *
   all_goals simp [plan,Routine.deepTree,Routine.shallowTree,Routine.arm,Forest.calls,Calls.count,Invocations.Exit.score]
   all_goals omega
@@ -56,6 +57,7 @@ theorem Routine.sites (r : Routine) (w : Worker p) (site owner : Nat) (i : Input
   rw [branch]
   cases r
   case' deep poll => cases poll
+  case' shallow six => cases six
   all_goals
     dsimp only [Routine.node] at *
     simp only [arm,deepTree,shallowTree,id_eq,plan,Forest.calls,Calls.events,Invocations.Exit.score,

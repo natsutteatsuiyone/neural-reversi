@@ -19,8 +19,9 @@ def decode(dump):
         found = re.findall(r"^\s*debug " + name + r" => (_\d+);$", source, re.M)
         checked(found, f"missing PVS binding {name}")
         places[name] = found[-1]
-    start, = [pc for pc, block in cfg.items() if ">::undo(" in block.end and
-              any(f"copy ({places['mv']}.2: square::Square)" in s for s in block.statements)]
+    # The loop's two child-search arms join at its undo; the presearch undo follows one negation.
+    joins = {pc: sum(f"bb{pc}" in re.findall(r"bb\d+", b.end) for b in cfg.values() if not b.cleanup) for pc in cfg}
+    start, = [pc for pc, block in cfg.items() if ">::undo(" in block.end and joins[pc] >= 2]
     return cfg, places, start
 
 
@@ -98,7 +99,7 @@ def post_step(cfg, places, traits, start, bits, internal=False):
                 return finish(True)
             else:
                 expected, result, effect = {
-                    "SearchContext::<'_>::undo": (["ctx", "sq"], "unit", "undo"),
+                    "SearchContext::<'_>::undo": (["ctx"], "unit", "undo"),
                     "SearchContext::<'_>::update_pv": (["ctx", "sq"], "unit", "pv"),
                     "<Arc<threading::thread::Thread> as Deref>::deref": (["thread"], "worker", None),
                     "threading::thread::Thread::should_stop": (["worker"], False, "poll"),

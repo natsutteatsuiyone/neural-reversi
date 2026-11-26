@@ -73,7 +73,7 @@ def check(dump):
     original = sources["solve::solve1"]
     borrow = next(m for line in original.splitlines() if (m := REB.fullmatch(line.strip())) and m[2] == "_1")
     counter_write = "((*_1).2: u64) = move (_2.0: u64);"
-    bad_store = "(((*{ref}).10: empty_list::EmptyList).1: u32) = const 0_u32;"
+    bad_store = "((*{ref}).10: u32) = const 0_u32;"
     mutations = [
         (original, INCREMENT, "SearchContext::<'_>::clear_empties", False),
         (original, borrow[0], bad_store.format(ref="_1") + "\n        " + borrow[0], False),

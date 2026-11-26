@@ -60,15 +60,6 @@ private def applyObserved (prior : Memory layout) (slot : layout.Index) (proposa
 private theorem applyObserved_eq (prior : Memory layout) (slot proposal lvl) :
     applyObserved prior slot proposal lvl = prior.apply slot proposal lvl := by dsimp only [applyObserved]; split <;> rfl
 
-@[noinline] private def arrayLinks (xs : Vector EmptyListLinks.Node 65) : EmptyListLinks.Links := fun i => xs[i]
-
-private def compact (ctx : SerialExecution.Frame) : SerialExecution.Frame :=
-  {ctx with empties := {ctx.empties with links := arrayLinks (Vector.ofFn ctx.empties.links)}}
-
-private theorem compact_eq (ctx : SerialExecution.Frame) : compact ctx = ctx := by
-  cases ctx with
-  | mk req e => cases e; simp [compact]; funext i; simp [arrayLinks]
-
 @[noinline] private def tables (deep shallow : Array EndgameCache.Entry) : EndgameSearch.CacheState.Cells
   | .deep => deep
   | .shallow => shallow
@@ -83,10 +74,10 @@ private theorem physical_eq (m : Memory layout) : physical m = m := by
   cases t <;> rfl
 
 private def leaf (base : SerialExecution.Inputs mc fc) (i : Nat) (ctx : SerialExecution.Frame) (m : Memory layout) :=
-  (Stack.run pool c base i (compact ctx) m).map fun (k,w,next) => (k,w,physical next)
+  (Stack.run pool c base i ctx m).map fun (k,w,next) => (k,w,physical next)
 
 private theorem leaf_eq (base i ctx m) : leaf base i ctx m = Stack.run pool c base i ctx m := by
-  simp only [leaf,compact_eq,physical_eq]
+  simp only [leaf,physical_eq]
   cases Stack.run pool c base i ctx m <;> rfl
 
 private def tracedFuel (offset : Nat) (base : SerialExecution.Inputs mc fc) (lvl : TranspositionTable.Selectivity)

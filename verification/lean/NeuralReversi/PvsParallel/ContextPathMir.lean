@@ -8,16 +8,25 @@ open PvsBoardTree (Position GeneratedSquare play pass)
 open SearchContextState (State Matches ply)
 open Bitboard.Moves (X86Config)
 
-theorem start_eq (root : Position) : start root = SearchContextState.init root := by
-  let bits := Board.emptySquares root.val
-  have perm := EmptyListParity.scan_perm.filter (fun sq => bits.getLsbD sq.val)
-  have size := perm.length_eq.trans (Solve34.EmptyBoard.ofBoard root.val root.property).length_eq
-  have word : BitVec.ofNat 32 (EmptyListParity.presorted.filter (fun sq => bits.getLsbD sq.val)).length =
-      Board.emptyCount root.val := by rw [size]; simp
-  unfold start SearchContextState.init
-  change SearchContextState.withFeatures ⟨_, _, BitVec.ofNat 32 (EmptyListParity.presorted.filter (fun sq => bits.getLsbD sq.val)).length⟩ _ _ = _
-  rw [word]
-  rfl
+theorem start_eq (root : Position) : start root = SearchContextState.init root := rfl
+
+/-- The `Empties` a child builds from its board is the parent's after `without`. -/
+theorem leafState_play (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position) (m : GeneratedSquare mc b.val) :
+    (leafState b).remove m.val = leafState (play mc fc b m).val := by
+  obtain ⟨_, ⟨count, encoded⟩, _, _, _⟩ :=
+    EndgameSearch.emptyStatePlayContract_proven mc fc b m _ _ (EndgameSearch.emptyState_initial b)
+  change (⟨_, _⟩ : Empties.State) = ⟨_, _⟩
+  congr 1
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  exact (encoded ⟨i, hi⟩).trans (Empties.encodes_encode _ ⟨i, hi⟩).symm
+
+theorem leafState_pass (b : Position) : leafState (pass b) = leafState b := by
+  have empties : Board.emptySquares (pass b).val = Board.emptySquares b.val := by
+    change ~~~(b.val.opponent ||| b.val.player) = ~~~(b.val.player ||| b.val.opponent)
+    rw [BitVec.or_comm]
+  have count : Board.emptyCount (pass b).val = Board.emptyCount b.val := Board.switchPlayers_emptyCount b.val
+  simp only [leafState, empties, count]
 
 private def flips (fc : Flip.Dispatch.X86Config) (b : Position) (sq : Bitboard.Square) :=
   Flip.Dispatch.resultValue fc sq b.val.player b.val.opponent
@@ -41,7 +50,7 @@ inductive Calls (mc : X86Config) (fc : Flip.Dispatch.X86Config) :
   | next : Calls mc fc b s t → Calls mc fc b t u → Calls mc fc b s u
   | move {b : Position} {s t : State} (m : GeneratedSquare mc b.val) :
       Calls mc fc (play mc fc b m).val (place s m.val (flips fc b m.val)) t →
-      Calls mc fc b s (restore t m.val)
+      Calls mc fc b s (restore t)
   | forcedPass {b : Position} {s t : State} (forced : Board.ForcedPass mc b.val) :
       Calls mc fc (pass b) (passTurn s) t → Calls mc fc b s (unpass t)
   | split : Calls mc fc b (splitCopy s) t → Calls mc fc b s s
@@ -59,7 +68,7 @@ theorem Calls.restores (calls : Calls mc fc b s t) (initial : Matches s b) : Res
       SearchContextState.placementContract_proven mc fc board move s initial
     have h := ih child
     refine ⟨?_, ?_, ?_⟩
-    · change SearchContextState.restore t.empties move.val = s.empties
+    · change SearchContextState.restore t.empties = s.empties
       rw [h.empties]
       exact oldEmpty
     · change (!t.opponentTurn) = s.opponentTurn
@@ -125,18 +134,18 @@ theorem At.invariant (path : At mc fc root b d s) (fits : (Board.emptyCount root
   | worker _ ih => exact ⟨(SearchContextState.splitContract_proven _ _ ih.1).1, ih.2⟩
 
 theorem At.frameInputs (path : At mc fc root b d s) (fits : (Board.emptyCount root.val).toNat ≤ 60) :
-    (leafState s).matches b ∧ ExactDepth.Full b d ∧ d = (leafState s).count ∧
+    (leafState b).matches b ∧ ExactDepth.Full b d ∧ d = (leafState b).count ∧
     ply s + d.toNat = 60 ∧ (∀ lane, SearchContextState.current s lane = (SearchContextState.rebuild b.val lane).1) := by
   obtain ⟨aligned, full⟩ := path.invariant fits
-  have eq := full.trans aligned.1.1.1.symm
-  refine ⟨aligned.1.1, full, eq, ?_, SearchContextState.currentContract_proven s b aligned⟩
+  refine ⟨EndgameSearch.emptyState_initial b, full, full, ?_, SearchContextState.currentContract_proven s b aligned⟩
+  have eq := full.trans aligned.1.1.symm
   rw [eq, ply]
   have bound := aligned.1.2
   omega
 
 theorem At.fromOpening (path : At mc fc root b d s)
     (played : Board.CheckedPlacementTrace Board.newBoard placements root.val) :
-    (leafState s).matches b ∧ ExactDepth.Full b d := by
+    (leafState b).matches b ∧ ExactDepth.Full b d := by
   have bound := (Board.checkedPlacementTrace_initial_bound played).2.1
   have inputs := path.frameInputs (by omega)
   exact ⟨inputs.1, inputs.2.1⟩
@@ -144,17 +153,17 @@ theorem At.fromOpening (path : At mc fc root b d s)
 theorem At.shallowSource (path : At mc fc root b d s) (fits : (Board.emptyCount root.val).toNat ≤ 60)
     (target : Flip.Dispatch.TargetConfig) (bmi2 : Bool) (address : EndgameTreeCache.Address)
     (history : List EndgameTreeCache.Store) (alpha : ScoreRefresh.Score) (checked : Bool)
-    (cache : 5 ≤ s.empties.count.toNat → EndgameTreeCache.soundHistory mc fc history) :
-    NonPvMir.sourceRun target bmi2 mc fc address history b s.empties.links s.empties.parity d s.empties.count alpha checked =
-      NonPvMir.run target bmi2 mc fc address history b s.empties.links s.empties.parity d s.empties.count alpha checked :=
-  NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ (path.frameInputs fits).1 cache
+    (cache : 5 ≤ (leafState b).count.toNat → EndgameTreeCache.soundHistory mc fc history) :
+    NonPvMir.sourceRun target bmi2 mc fc address history b (leafState b).mask d (leafState b).count alpha checked =
+      NonPvMir.run target bmi2 mc fc address history b (leafState b).mask d (leafState b).count alpha checked :=
+  NonPvMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ (path.frameInputs fits).1 cache
 
 theorem At.deepSource (path : At mc fc root b d s) (fits : (Board.emptyCount root.val).toNat ≤ 60)
     (target : Flip.Dispatch.TargetConfig) (bmi2 paired : Bool) (address : EndgameTreeCache.Address)
     (history : List EndgameTreeCache.Store) (polls : Threading.SplitCutoff.Polling)
     (alpha beta : ScoreRefresh.Score) (attempts : List TranspositionTable.ProbeRetry.RawAttempt)
     (parallel active checked aborted : Bool) (cache : EndgameTreeCache.soundHistory mc fc history) :
-    let initial : EndgameSearch.Cancellation.State := ⟨leafState s, history, polls⟩
+    let initial : EndgameSearch.Cancellation.State := ⟨leafState b, history, polls⟩
     DeepLeafMir.sourceRun target bmi2 paired mc fc address b alpha beta d initial attempts parallel active checked aborted =
       DeepLeafMir.run target bmi2 mc fc address b alpha beta d initial attempts parallel active checked aborted :=
   DeepLeafMir.sourceRun_eq _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (path.frameInputs fits).1 cache

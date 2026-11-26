@@ -46,6 +46,7 @@ def transfers : List Edge := [
   ⟨.boundary, 1, .deep, .borrowPair⟩,
   ⟨.boundary, 2, .deep, .borrowPair⟩,
   ⟨.boundary, 3, .shallow, .borrowShallow⟩,
+  ⟨.boundary, 4, .shallow, .borrowShallow⟩,
   ⟨.deep, 0, .deep, .forward⟩,
   ⟨.deep, 1, .deepSlot, .deepField⟩,
   ⟨.deep, 2, .deepProbe, .deepField⟩,
