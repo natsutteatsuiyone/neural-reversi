@@ -1,0 +1,172 @@
+import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+import NeuralReversi.Threading.SplitReturn.Observation
+
+namespace NeuralReversi.PvsParallel.Interleaving.NativeAncestorStop
+open Threading
+open CutoffVisibility
+open AtomicWord (Event SequencedBefore)
+
+set_option maxRecDepth 16384
+set_option maxHeartbeats 8000000
+
+private def clear : FlagWrite := ⟨⟨WORKER,CLEAR⟩,false⟩
+private def marked : FlagWrite := ⟨⟨WRITER,SWAP⟩,true⟩
+private def reused : FlagWrite := ⟨⟨WORKER,AFTER⟩,false⟩
+private def sampled : Event := ⟨WORKER,READ⟩
+
+/-- The reader itself cleared this physical flag for the current generation and
+    next cleared it for reuse. Coherence bounds its source on both sides. -/
+private theorem source {hist : History} (co : Coherent hist) (r : FlagRead hist.flags)
+    (recorded : r ∈ hist.flagReads) (site : r.event = sampled) (yes : r.value = true)
+    (past future : List FlagWrite)
+    (order : hist.flags r.slot = past ++ (clear :: marked :: reused :: future)) :
+    (hist.flags r.slot).get r.source = marked := by
+  let era : StopSchedule.Flags hist r.slot := ⟨past,clear.event,[marked.event],reused :: future,order⟩
+  have m : (hist.flags r.slot)[past.length+1]? = some marked := by
+    rw [order,List.getElem?_append_right (by omega)]; simp
+  have f : (hist.flags r.slot)[past.length+2]? = some reused := by
+    rw [order,List.getElem?_append_right (by omega)]; simp
+  have bounds : FlagSegment.Bracket hist r era := by
+    constructor
+    · apply HappensBefore.sequenced
+      rw [site]
+      exact And.intro rfl (by change CLEAR < READ; decide)
+    · intro i index
+      change i.val = past.length+2 at index
+      have which := (List.getElem?_eq_some_iff.mp (index ▸ f : (hist.flags r.slot)[i.val]? = some reused)).2
+      apply HappensBefore.sequenced
+      rw [site,List.get_eq_getElem,which]
+      exact And.intro rfl (by decide)
+  obtain ⟨k,rank,_⟩ := (FlagSegment.identifies hist r era co recorded bounds).2 yes
+  have zero : k.val = 0 := by have small : k.val < 1 := k.isLt; omega
+  change r.source.val = past.length+1+k.val at rank
+  rw [zero,Nat.add_zero] at rank
+  have atRank := (congrArg (fun n => (hist.flags r.slot)[n]?) rank).trans m
+  exact (List.getElem?_eq_some_iff.mp atRank).2
+
+private def older : List FlagWrite := OLDER
+private def words (slot : Nat) : List FlagWrite :=
+  if slot == FLAG then older ++ [clear,marked,reused] else []
+private def actual : FlagRead words := ⟨FLAG,sampled,⟨PICK,by decide⟩⟩
+private def hist : History := ⟨[],words,[],[actual],fun _ _ => False⟩
+private theorem localOrder (edge : HappensBefore hist a b) : SequencedBefore a b := by
+  induction edge with
+  | sequenced edge => exact edge
+  | synchronized head _ _ _ _ => exact Fin.elim0 head
+  | other h => exact h.elim
+  | trans _ _ x y => exact ⟨x.1.trans y.1,Nat.lt_trans x.2 y.2⟩
+
+-- The observed flag slice has a concrete coherent realization; the identity
+-- theorem above also allows arbitrary modifications outside the bounded era.
+private theorem consistent : Coherent hist where
+  epochReadRead _ mem := by cases mem
+  flagWriteRead r mem w h := by
+    have eq : r = actual := List.mem_singleton.mp mem
+    subst r
+    have lt := localOrder h
+    exact (by decide +kernel : ∀ n : Fin (words FLAG).length,
+      ((words FLAG).get n).event.step < READ → n.val ≤ PICK) w lt.2
+  flagReadWrite r mem w h := by
+    have eq : r = actual := List.mem_singleton.mp mem
+    subst r
+    have lt := localOrder h
+    exact (by decide +kernel : ∀ n : Fin (words FLAG).length,
+      READ < ((words FLAG).get n).event.step → PICK < n.val) w lt.2
+
+private theorem identified : (words FLAG).get actual.source = marked :=
+  source (hist := hist) consistent actual (List.mem_singleton.mpr rfl) rfl rfl older [] rfl
+
+private def scan (tail : List Nat) : SplitReturn.Observation.AncestorScan hist where
+  event := ⟨WORKER,POLL⟩
+  chain := FLAG :: tail
+  reads := [actual]
+  walk := .found actual tail rfl
+  afterStart := by
+    intro r inside
+    rcases List.mem_singleton.mp inside with rfl
+    exact ⟨List.mem_singleton.mpr rfl,rfl,by decide⟩
+
+private def slot : Nat → Nat → Option Nat
+TASKMAP
+  | _,_ => none
+
+private def tasks (rf : Event) : Joint.Tape Unit := TASKOPS
+private def childGeneration : TaskAncestry.Generation := ⟨CHILDFLAG,⟨WORKER,MARK⟩⟩
+private def parentGeneration : TaskAncestry.Generation := ⟨PARENTFLAG,⟨WORKER,BANKEVENT⟩⟩
+
+private def ancestry (rf : Event) (target : TaskAncestry.Generation) := (show Option Unit from do
+  let j ← TaskAncestry.capture slot (tasks rf)
+  let w ← TaskAncestry.window j childGeneration ⟨VOTER,VOTETIME⟩ ⟨WORKER,POLL⟩
+  let ss := w.parents.map TaskAncestry.Generation.slot
+  guard (ss == TASKPATH && (scan ss.tail).chain == ss && w.parents == EXPECTEDPATH)
+  guard (w.view.reset == some VOTERESET && w.owner.reset == some POSTRESET)
+  let era ← FlagSegment.recover hist j parentGeneration
+  guard (era.clear == clear.event && era.marks == [marked.event])
+  let read ← TaskAncestry.source j w.owner actual
+  guard (read.generation == target)
+  guard (TaskAncestry.checkedScan j w.owner (scan ss.tail))
+  let observed ← CutoffPollReplay.ownerScan hist j ⟨WORKER,POLL⟩
+  guard (observed.chain == ss && observed.reads.map (·.event) == [actual.event] && observed.stopped)
+  let _ ← FlagSegment.published (h := hist) [] era.clear actual.event
+  return ()) |>.isSome
+
+-- RF is recovered from the two actual same-worker clears and write coherence.
+-- It is not chosen by comparing native timestamps from different workers.
+private theorem interpreted : ancestry ((words FLAG).get actual.source).event parentGeneration = true := by
+  rw [identified]
+  decide +kernel
+example : ancestry ⟨OLDWORKER,OLD⟩ parentGeneration = false := by decide +kernel
+example : ancestry marked.event ⟨PARENTFLAG,⟨WORKER,LATERBANK⟩⟩ = false := by decide +kernel
+example : ancestry marked.event childGeneration = false := by decide +kernel
+
+private def b : PvsBoardTree.Position := ⟨⟨PLAYER,OPPONENT⟩,by unfold Board.wellFormed; decide⟩
+private def args : NativeFrames.Args := ⟨b.val,DEPTH,⟨BitVec.ofInt 32 (ALPHA)⟩,⟨BitVec.ofInt 32 (BETA)⟩,
+  true,LEVEL,PV,CUT,none⟩
+private def es : Joint.Tape Unit :=
+  [.engine (.localCall WORKER (.entry OPENED 0 .pvs .none none) (some args)),
+   .engine (.localCall WORKER (.entry CALL 5 .split .none none) none),
+   .splitWord WORKER MARK (.mark BANK),.splitWord WORKER LOAD (.result BANK (BitVec.ofInt 32 (RAW))),
+   .engine (.localCall WORKER (.leave LEAVE CALL .split none none) none),
+   .engine (.localCall WORKER (.scored CHOSEN ⟨BitVec.ofInt 32 (VALUE)⟩) none),
+   .engine (.localCall WORKER (.leave RETURNED OPENED .pvs none (some ⟨BitVec.ofInt 32 (NORMAL)⟩)) none)]
+
+private def owner (stopped : Bool) := (show Option Unit from do
+  let frames ← CallReturns.captureTimed (es.map Joint.Event.frameSample)
+  let [row] := frames.allRows | none
+  guard (row.score == NORMAL && row.returned == some (es.length-1))
+  let sc : CallReturns.Scope := ⟨frames.allRows,row.id,row.chosen,frames.calls⟩
+  guard (JournalHelpers.ownerWindow es sc b false PV CUT LEVEL DEPTH (BETA) BANK
+    ⟨WORKER,MARK⟩ ⟨WORKER,LOAD⟩ (RAW) stopped)
+  return ()) |>.isSome
+
+-- Compare the actual pointers held at creation, restore, scan and reporting.
+-- The mark and completion refer to different slots; the positive load inspected the ancestor.
+private def sameCut (gen slot flag sw tick : Nat) :=
+  decide (CHILDGEN = RESTOREGEN ∧ CHILDADDR = RESTORECHILD ∧ CHILDADDR ≠ PARENT ∧
+    CHILDPARENT = RESTORED ∧ RESTORED = ACTIVE ∧ ACTIVE = SCANNED ∧ SCANNED = PARENT ∧
+    slot = PARENT ∧ flag = PARENTFLAG ∧ flag = FLAG ∧ PARENTFLAG ≠ CHILDFLAG ∧
+    gen = PARENTGEN ∧ gen = CURRENTGEN ∧ gen ≠ NEXTGEN ∧ NEXTGEN = AFTERGEN ∧
+    CUTADDR = PARENT ∧ CUTFLAG = flag ∧ CUTWORKER = sw ∧ sw = WRITER ∧ sw ≠ WORKER ∧
+    CUTSQUARE = REPORTSQUARE ∧ CUTSQUARE = RETURNSQUARE ∧ -(CHILDVALUE : Int) = CUTSCORE ∧
+    (STRICTBEFORE : Int) < STRICTAFTER ∧ (STRICTAFTER : Int) = CUTSCORE ∧
+    ((CUTSCORE : Int) ≥ CUTBETA ∨ (CUTSCORE : Int) ≥ 16384) ∧
+    REMOTECHILD < STRICTSTORE ∧ STRICTSTORE < CUTTICK ∧ CUTTICK < tick ∧
+    RESTORESTEP < LOAD ∧ LEAVE < POLL ∧ READ < LATCH ∧ LATCH < STOP ∧ STOP < CHOSEN ∧
+    ((words FLAG).get actual.source).event = ⟨sw,tick⟩ ∧ ((words FLAG).get actual.source).value = true)
+
+example : sameCut PARENTGEN PARENT PARENTFLAG WRITER SWAP = true := by decide +kernel
+example : (older[0]?.map FlagWrite.value) = some true ∧
+    (older[0]?.map FlagWrite.event) = some ⟨OLDWORKER,OLD⟩ ∧
+    ((words FLAG).get actual.source).event ≠ ⟨OLDWORKER,OLD⟩ := by decide +kernel
+example : sameCut NEXTGEN PARENT PARENTFLAG WRITER SWAP = false := by decide +kernel
+example : sameCut CHILDGEN CHILDADDR CHILDFLAG WRITER SWAP = false := by decide +kernel
+example (tail : List Nat) : (scan tail).stopped = STOPPED ∧ FLAGVALUE = true ∧
+    SplitReturn.checked (scan tail).stopped (RAW) = none ∧ owner (scan tail).stopped = true :=
+  ⟨rfl,rfl,rfl,by change owner true = true; decide +kernel⟩
+example : RAW ≠ (0 : Int) ∧ owner false = false := by decide +kernel
+
+#print axioms source
+#print axioms interpreted
+
+end NeuralReversi.PvsParallel.Interleaving.NativeAncestorStop

@@ -7,6 +7,7 @@ CONSTANTS
     Moves,
     Budget,
     MaxThr,
+    MaxUnwinds,
     Mutant
 
 Threads == 0..(N - 1)
@@ -42,6 +43,9 @@ variables
     thinking = TRUE,
     aborted = FALSE,
     budget = Budget,
+    failed = [t \in Threads |-> FALSE],
+    unwinding = [t \in Threads |-> FALSE],
+    unwindsLeft = MaxUnwinds,
     observedReading = [t \in Threads |-> {}],
     cutoffBumpPending = [s \in SPs |-> FALSE];
 
@@ -51,6 +55,7 @@ define
 
     CanJoin(t, sp) ==
         /\ Mutant = "can_join_ignores_searching" \/ ~searching[t]
+        /\ Mutant = "unwind_can_join_ignores_failed" \/ ~failed[t]
         /\ IF splitPointsSize[t] = 0 THEN TRUE ELSE Owner(sp) \in helpersMask[Deepest(t)]
 
     CanSplit(t) ==
@@ -87,7 +92,7 @@ define
 
     BookingMatchesThread ==
         \A t \in Threads, sp \in SPs :
-            (t \in helpersMask[sp] /\ sp \notin UsedBy(t))
+            (t \in helpersMask[sp] /\ sp \notin UsedBy(t) /\ ~failed[t])
                 => active[t] = sp /\ searching[t]
 
     ActiveChainAlive ==
@@ -114,6 +119,8 @@ define
         \A sp \in SPs : sp \notin Chain(parent[sp])
 
     SplitBudgetRespected == budget >= 0
+
+    UnwindBudgetRespected == unwindsLeft >= 0
 end define;
 
 macro ResetCutoffCache(t) begin
@@ -126,6 +133,38 @@ macro BookInto(t, sp) begin
     active[t] := sp;
     searching[t] := TRUE;
 end macro;
+
+macro FinalizeSplit(sp) begin
+    assert ~searching[self];
+    searching[self] := TRUE;
+    splitPointsSize[self] := splitPointsSize[self] - 1;
+    active[self] := parent[sp];
+end macro;
+
+procedure AbandonActiveSplit()
+variables usp = NONE;
+begin
+UA_Detach:
+    failed[self] := TRUE;
+    usp := active[self];
+    if Mutant # "unwind_keeps_active" then
+        active[self] := NONE;
+    end if;
+    ResetCutoffCache(self);
+    searching[self] := FALSE;
+UA_Release:
+    if usp # NONE then
+        await spLock[usp] = FREE;
+        if Owner(usp) # self then
+            aborted := TRUE;
+        end if;
+        allHelpersSearching[usp] := FALSE;
+        if Mutant # "unwind_skips_helper_bit_reset" then
+            helpersMask[usp] := helpersMask[usp] \ {self};
+        end if;
+    end if;
+    return;
+end procedure;
 
 procedure Split()
 variables nsp = NONE, i = 0;
@@ -165,12 +204,24 @@ SP_Unlock:
         spLock[nsp] := FREE;
     end if;
 SP_Wait:
-    call IdleLoop(nsp);
+    either
+        call IdleLoop(nsp);
+    or
+        await unwindsLeft > 0;
+        unwindsLeft := unwindsLeft - 1;
+        unwinding[self] := TRUE;
+    end either;
 SP_Finalize:
-    assert ~searching[self];
-    searching[self] := TRUE;
-    splitPointsSize[self] := splitPointsSize[self] - 1;
-    active[self] := parent[nsp];
+    if unwinding[self] then
+        call AbandonActiveSplit();
+SP_UnwindDrain:
+        if Mutant # "unwind_clears_slot_before_helpers_leave" then
+            await helpersMask[nsp] = {};
+        end if;
+        FinalizeSplit(nsp);
+    else
+        FinalizeSplit(nsp);
+    end if;
 SP_Clear:
     if Mutant # "finalize_skips_clear" then
         task[nsp] := FALSE;
@@ -189,7 +240,9 @@ IL_Top:
         return;
     end if;
 IL_Inner:
-    if searching[self] then
+    if unwinding[self] then
+        return;
+    elsif searching[self] then
         call SearchActive();
         goto IL_Inner;
     end if;
@@ -213,8 +266,15 @@ SA_ReadTask:
 SA_Search:
     call SearchSP(sa);
 SA_Lock:
-    await spLock[sa] = FREE;
-    spLock[sa] := self;
+    if unwinding[self] then
+        observedReading[self] := {u \in observedReading[self] : u[1] # sa};
+        call AbandonActiveSplit();
+SA_UnwindReturn:
+        return;
+    else
+        await spLock[sa] = FREE;
+        spLock[sa] := self;
+    end if;
 SA_Detach:
     if Mutant # "leave_keeps_active" then
         active[self] := NONE;
@@ -256,9 +316,16 @@ SS_Child:
         await CanSplit(self) /\ budget > 0;
         budget := budget - 1;
         call Split();
+    or
+        await unwindsLeft > 0;
+        unwindsLeft := unwindsLeft - 1;
+        unwinding[self] := TRUE;
+        return;
     end either;
 SS_CheckEpoch:
-    if ~chainCut[self] /\ epoch # seenEpoch[self] then
+    if unwinding[self] then
+        return;
+    elsif ~chainCut[self] /\ epoch # seenEpoch[self] then
         obsEpoch := epoch;
         goto SS_WalkChain;
     else
@@ -337,7 +404,7 @@ M_Start:
     searching[0] := TRUE;
 M_Root:
     either
-        await CanSplit(0) /\ budget > 0;
+        await ~unwinding[0] /\ CanSplit(0) /\ budget > 0;
         budget := budget - 1;
         call Split();
         goto M_Root;

@@ -192,14 +192,15 @@ theorem resultContract_proven : ResultContract := by
       rw [rows] at good
       exact ⟨good best (by simp), good⟩
   | none =>
-    by_cases hit : ∃ move, cached = some move ∧
+    by_cases hit : ∃ move, cached = some move ∧ move.bound = .exact ∧
         Bitboard.Moves.LegalMove board.val.player board.val.opponent move.square.val
-    · obtain ⟨move, same, legal⟩ := hit
-      rw [resolver.2.1 move same legal] at found
+    · obtain ⟨move, same, exactBound, legal⟩ := hit
+      rw [resolver.2.1 move same exactBound legal] at found
       cases Option.some.inj found
       exact ⟨one_move_valid ((Board.getMoves_exact mc board.val _).mpr legal) _, by simp [RowsValid, SearchFallback.fromCache]⟩
-    · have miss : ∀ move, cached = some move → ¬ Bitboard.Moves.LegalMove board.val.player board.val.opponent move.square.val :=
-        fun move same legal => hit ⟨move, same, legal⟩
+    · have miss : ∀ move, cached = some move →
+          ¬(move.bound = .exact ∧ Bitboard.Moves.LegalMove board.val.player board.val.opponent move.square.val) :=
+        fun move same ⟨exactBound, legal⟩ => hit ⟨move, same, exactBound, legal⟩
       obtain ⟨legal, _, _, line, alternatives, _, _, _⟩ := (resolver.2.2 miss).2 result found
       refine ⟨?_, by simp [RowsValid, alternatives]⟩
       have shaped (row : Row) (same : row.pv = [row.square]) :

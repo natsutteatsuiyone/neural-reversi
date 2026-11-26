@@ -1,4 +1,8 @@
-#[allow(dead_code)]
+use std::io::{self, Write};
+
+use flip_scalar_difftest::csv;
+
+#[allow(dead_code, clippy::enum_variant_names)]
 #[path = "../../../../../crates/reversi-core/src"]
 mod engine {
     pub mod bitboard;
@@ -48,10 +52,7 @@ fn random(state: &mut u64) -> u64 {
 }
 
 fn lanes(feature: &PatternFeature) -> String {
-    (0..NUM_PATTERN_FEATURES)
-        .map(|i| feature[i].to_string())
-        .collect::<Vec<_>>()
-        .join(",")
+    csv((0..NUM_PATTERN_FEATURES).map(|i| feature[i]))
 }
 
 fn mover(side: usize) -> SideToMove {
@@ -62,14 +63,12 @@ fn mover(side: usize) -> SideToMove {
     }
 }
 
-fn main() {
+fn write_cases(out: &mut impl Write) -> io::Result<()> {
     for (index, pattern) in EVAL_F2X.iter().enumerate() {
-        let squares = pattern.squares[..pattern.n_square]
+        let squares = csv(pattern.squares[..pattern.n_square]
             .iter()
-            .map(|sq| sq.index().to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        println!("geometry {index} {squares}");
+            .map(|sq| sq.index()));
+        writeln!(out, "geometry {index} {squares}")?;
     }
 
     let mut state = 0x94D0_49BB_1331_11EB;
@@ -101,13 +100,14 @@ fn main() {
                 ply,
                 mover(side),
             );
-            println!(
+            writeln!(
+                out,
                 "board {p} {o} {sq} {flips} {side} {ply} {} {} {} {}",
                 lanes(features.p_feature(ply)),
                 lanes(features.o_feature(ply)),
                 lanes(features.p_feature(ply + 1)),
                 lanes(features.o_feature(ply + 1)),
-            );
+            )?;
         }
     }
 
@@ -131,10 +131,43 @@ fn main() {
         );
         assert_eq!(lanes(features.p_feature(ply)), p);
         assert_eq!(lanes(features.o_feature(ply)), o);
-        println!(
+        writeln!(
+            out,
             "raw {sq} {flips} {side} {ply} {p} {o} {} {}",
             lanes(features.p_feature(ply + 1)),
             lanes(features.o_feature(ply + 1)),
-        );
+        )?;
+    }
+    Ok(())
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> io::Result<()> {
+    flip_scalar_difftest::run_buffered(write_cases)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}
+
+#[cfg(target_arch = "wasm32")]
+mod wasm {
+    use std::sync::OnceLock;
+
+    fn cases() -> &'static [u8] {
+        static CASES: OnceLock<Vec<u8>> = OnceLock::new();
+        CASES.get_or_init(|| {
+            let mut out = Vec::new();
+            super::write_cases(&mut out).expect("writing to Vec cannot fail");
+            out
+        })
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fixture_ptr() -> *const u8 {
+        cases().as_ptr()
+    }
+
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fixture_len() -> usize {
+        cases().len()
     }
 }

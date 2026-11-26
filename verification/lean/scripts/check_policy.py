@@ -218,14 +218,25 @@ def strip_comments_and_strings(text: str) -> str:
     return "".join(result)
 
 
+def lean_files() -> list[tuple[Path, Path]]:
+    files: list[tuple[Path, Path]] = [
+        (path, path.relative_to(LEAN_ROOT))
+        for path in sorted(LEAN_ROOT.rglob("*.lean"))
+        if ".lake" not in path.relative_to(LEAN_ROOT).parts
+    ]
+    witness_root = LEAN_ROOT.parent / "tla" / "lean-witnesses"
+    if witness_root.is_dir():
+        files.extend(
+            (path, path.relative_to(LEAN_ROOT.parent))
+            for path in sorted(witness_root.rglob("*.lean"))
+        )
+    return files
+
+
 def main() -> None:
     failures = []
-    files = sorted(
-        path for path in LEAN_ROOT.rglob("*.lean")
-        if ".lake" not in path.relative_to(LEAN_ROOT).parts
-    )
-    for path in files:
-        relative = path.relative_to(LEAN_ROOT)
+    files = lean_files()
+    for path, relative in files:
         try:
             code = strip_comments_and_strings(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, PolicySyntaxError) as error:

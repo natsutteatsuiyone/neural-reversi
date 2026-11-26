@@ -13,10 +13,14 @@ structure State where
   alpha : Int
   best : Int
 
+abbrev choosesMove (state : State) (score : Int) : Prop :=
+  state.best < score ∧ state.alpha < score
+
+abbrev raisesAlpha (pv : Bool) (beta : Int) (state : State) (score : Int) : Prop :=
+  state.best < score ∧ state.alpha < score ∧ pv = true ∧ score < beta
+
 def publish (pv : Bool) (beta : Int) (state : State) (score : Int) : State :=
-  ⟨if state.best < score ∧ state.alpha < score ∧ pv = true ∧ score < beta
-      then score else state.alpha,
-    max state.best score⟩
+  ⟨if raisesAlpha pv beta state score then score else state.alpha, max state.best score⟩
 
 def scan (pv : Bool) (beta : Int) (initial : State) (reports : List Int) : State :=
   reports.foldl (publish pv beta) initial
@@ -57,34 +61,22 @@ theorem stateContract_proven : StateContract := by
     intro notPv
     exact (fixed notPv).trans (by simp [publish, notPv])
 
-inductive AfterAcquire (history : History) (acquire : Event) : Event → Prop
-  | own : SequencedBefore acquire write → AfterAcquire history acquire write
-  | later : SequencedBefore acquire release → SpinLock.Handoff history release next →
-      SequencedBefore next write → AfterAcquire history acquire write
-
-private theorem AfterAcquire.orders (order : AfterAcquire history acquire write) :
-    HappensBefore history acquire write := by
-  cases order with
-  | own seq => exact .sequenced seq
-  | later before handoff after =>
-    exact .trans (.sequenced before) (.trans handoff.orders (.sequenced after))
-
 structure AlphaRead (history : History) {writes : List Write} (load : Read writes)
     (first last : Fin writes.length) where
   published : SplitPublication.PublishedThrough history (writes.get first).event load.event
   acquire : Event
   beforeAcquire : SequencedBefore load.event acquire
   afterAcquire : ∀ i : Fin writes.length, i.val = last.val + 1 →
-    AfterAcquire history acquire (writes.get i).event
+    HappensBefore history acquire (writes.get i).event
   writeRead : ∀ i : Fin writes.length, HappensBefore history (writes.get i).event load.event →
     i.val ≤ load.source.val
   readWrite : ∀ i : Fin writes.length, HappensBefore history load.event (writes.get i).event →
     load.source.val < i.val
 
-private theorem AlphaRead.window (read : AlphaRead history load first last) :
+theorem AlphaRead.window (read : AlphaRead history load first last) :
     ReadWindow load (HappensBefore history) first last.val :=
   ⟨SplitPublication.initializationContract_proven _ _ _ read.published,
-    fun i next => .trans (.sequenced read.beforeAcquire) (read.afterAcquire i next).orders,
+    fun i next => .trans (.sequenced read.beforeAcquire) (read.afterAcquire i next),
     read.writeRead, read.readWrite⟩
 
 def Matches (writes : List Write) (first last : Fin writes.length) (pv : Bool) (beta : Int)
@@ -121,7 +113,7 @@ def reSearch (pv : Bool) (alpha scout : Int) : Bool :=
 def selectReport (pv : Bool) (index : Nat) (alpha fresh scout wide : Int) : Report :=
   if reSearch pv alpha scout then ⟨index, fresh, -wide⟩ else ⟨index, alpha, -scout⟩
 
-private theorem childReport {value scout wide alpha fresh beta limit : Int} {pv : Bool}
+theorem childReport {value scout wide alpha fresh beta limit : Int} {pv : Bool}
     (index : Nat) (window : Window alpha beta) (ordered : alpha ≤ limit)
     (null : pv = false → beta = alpha + 1)
     (freshWindow : reSearch pv alpha scout = true → Window fresh beta ∧ fresh ≤ limit)

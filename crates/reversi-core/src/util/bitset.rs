@@ -17,39 +17,39 @@ impl AtomicBitSet {
         }
     }
 
-    /// Returns the number of bits currently set.
+    /// Counts the bits set in one relaxed load.
     #[inline(always)]
     pub fn count(&self) -> u32 {
         self.data.load(Ordering::Relaxed).count_ones()
     }
 
-    /// Sets the bit at the specified index.
+    /// Sets the bit at `index`, which must be less than 64.
     #[inline(always)]
     pub fn set(&self, index: usize) {
         debug_assert!(index < 64);
         self.data.fetch_or(1 << index, Ordering::Relaxed);
     }
 
-    /// Clears the bit at the specified index.
+    /// Clears the bit at `index` with release ordering. The index must be less than 64.
     #[inline(always)]
     pub fn reset(&self, index: usize) {
         debug_assert!(index < 64);
         self.data.fetch_and(!(1 << index), Ordering::Release);
     }
 
-    /// Tests whether the bit at the specified index is set.
+    /// Tests the bit at `index` with a relaxed load. The index must be less than 64.
     #[inline(always)]
     pub fn test(&self, index: usize) -> bool {
         (self.data.load(Ordering::Relaxed) >> index) & 1 != 0
     }
 
-    /// Checks whether all bits are clear.
+    /// Checks whether an acquire load sees all bits clear.
     #[inline(always)]
     pub fn none(&self) -> bool {
         self.data.load(Ordering::Acquire) == 0
     }
 
-    /// Clears all bits.
+    /// Clears all bits with a relaxed store, ending any release sequence on the bitset.
     #[inline(always)]
     pub fn clear(&self) {
         self.data.store(0, Ordering::Relaxed);

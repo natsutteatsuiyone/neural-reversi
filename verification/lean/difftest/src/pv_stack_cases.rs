@@ -1,14 +1,13 @@
 use std::io::{self, Write};
 
+use flip_scalar_difftest::csv;
+
 use crate::constants::MAX_PLY;
 use crate::search_stack::SearchStack;
 use crate::square::Square;
 
 fn encode(row: &[Option<Square>; MAX_PLY]) -> String {
-    row.iter()
-        .map(|entry| entry.map_or(64, |square| square.index()).to_string())
-        .collect::<Vec<_>>()
-        .join(",")
+    csv(row.iter().map(|entry| entry.map_or(64, Square::index)))
 }
 
 pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
@@ -59,6 +58,35 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
             encode(stack.pv(ply)),
             encode(next),
         )?;
+    }
+
+    for ply in 0..MAX_PLY - 1 {
+        for length in [0, MAX_PLY / 2, MAX_PLY] {
+            let child = std::array::from_fn(|i| if i < length { old[i] } else { None });
+            let mut stack = SearchStack::new();
+            for row in 0..MAX_PLY {
+                assert_eq!(*stack.pv(row), empty);
+                stack.set_pv(row, &old);
+            }
+            stack.set_pv(ply + 1, &child);
+            stack.update_pv(Square::A1, ply);
+            // A depth-zero sibling clears the child row and returns no continuation.
+            stack.clear_pv(ply + 1);
+            stack.update_pv(selected, ply);
+            for row in 0..MAX_PLY {
+                if row != ply && row != ply + 1 {
+                    assert_eq!(*stack.pv(row), old, "unrelated row {row} changed");
+                }
+            }
+            writeln!(
+                out,
+                "b {ply} {selected_index} {} {} {} {}",
+                encode(&old),
+                encode(&child),
+                encode(stack.pv(ply)),
+                encode(stack.pv(ply + 1)),
+            )?;
+        }
     }
     Ok(())
 }

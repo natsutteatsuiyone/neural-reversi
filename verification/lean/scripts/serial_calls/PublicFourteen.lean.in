@@ -1,0 +1,189 @@
+import NeuralReversi.AspirationMir.SerialTable.FullLadder
+
+open NeuralReversi NeuralReversi.PvsParallel
+open NeuralReversi.PvsParallel.SerialTable
+namespace PublicFourteen
+
+private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def pool : EndgameSearch.CacheHistory.Pool := ⟨1,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
+private def layout : SerialTable.Layout := ⟨16,by decide,false⟩
+private def c : SerialScout.Config := ⟨.aarch64 true false,false,false,true,pool.address⟩
+private def board : PvsBoardTree.Position := ⟨⟨0x3778d008b0488010,0x00062ef64f367d4c⟩,by unfold Board.wellFormed; decide⟩
+
+private structure Operands where
+  modes : List (Nat × String) := []
+  estimates : List ((Nat × Nat) × Int) := []
+  scores : List (Nat × (Int × Option Int)) := []
+
+private def parse (s : String) : Option (Int × Operands) := do
+  let cfg :: rows := s.splitOn "\n" | none
+  let ["CONFIG","3997173405027172368","1740485286067532","1","16","116508","7281",score] := cfg.splitOn " " | none
+  let seed ← score.toInt?
+  let inputs ← rows.foldlM (init := ({} : Operands)) fun inputs row => do
+    match row.splitOn " " with
+    | [""] => return inputs
+    | ["MODE",i,mode] => return {inputs with modes := (← i.toNat?,mode)::inputs.modes}
+    | ["EST",i,sq,v] => return {inputs with estimates := ((← i.toNat?,← sq.toNat?),← v.toInt?)::inputs.estimates}
+    | ["PC",i,v,checked] => return {inputs with scores := (← i.toNat?,← v.toInt?,checked.toInt?)::inputs.scores}
+    | _ => none
+  return (seed,inputs)
+
+private def args (op : Operands) (offset : Nat) : SerialExecution.Inputs mc fc := fun i _ =>
+  let mode := fun (sq : Bitboard.Square) => match op.modes.lookup (offset+i) with
+    | some "search" => .search (.cacheHit (BitVec.ofInt 16 ((op.estimates.lookup (offset+i,sq.val)).getD 0)))
+    | some "skip" => .skip
+    | _ => .fast
+  ⟨fun _ => none,[],[],[],[],mode,fun m => ⟨63-m.val.val,by omega⟩⟩
+
+private def screen (op : Operands) (offset : Nat) : WeakStack.Screen := fun i _ =>
+  let x := (op.scores.lookup (offset+i)).getD (0,none)
+  ⟨BitVec.ofInt 32 x.1,fun _ _ => BitVec.ofInt 32 (x.2.getD 0)⟩
+
+private def root : SerialRecursion.RootInput :=
+  ⟨fun _ => 0,fun records => ⟨records,.refl _⟩,fun _ => []⟩
+
+private def mark (i : Nat) (ctx : SerialExecution.Frame) (out : Option (Stack.Output layout Int)) :=
+  let q := ctx.request
+  let val := match out with | some (_,v,next) => s!"{v} {next.cache.history.length}" | none => "NONE"
+  dbgTrace s!"ROW {i} {q.board.val.player.toNat} {q.board.val.opponent.toNat} {q.depth.toNat} {q.pv.toNat} {q.cut.toNat} {q.alpha} {q.beta} {val}" (fun _ => out)
+
+private theorem mark_eq (i ctx out) : mark i ctx out = out := rfl
+
+private def applyObserved (prior : Memory layout) (slot : layout.Index) (proposal : Option SerialTable.Writes.Proposal)
+    (lvl : TranspositionTable.Selectivity) :=
+  let after := prior.apply slot proposal lvl
+  let cell := after.tt.image.get slot
+  if cell.seq == (prior.tt.image.get slot).seq then after else
+    dbgTrace s!"PUBLISH {slot.val} {cell.seq.toNat} {cell.player.toNat} {cell.opponent.toNat} {cell.data.toNat}" fun _ => after
+
+private theorem applyObserved_eq (prior : Memory layout) (slot proposal lvl) :
+    applyObserved prior slot proposal lvl = prior.apply slot proposal lvl := by dsimp only [applyObserved]; split <;> rfl
+
+@[noinline] private def arrayLinks (xs : Vector EmptyListLinks.Node 65) : EmptyListLinks.Links := fun i => xs[i]
+
+private def compact (ctx : SerialExecution.Frame) : SerialExecution.Frame :=
+  {ctx with empties := {ctx.empties with links := arrayLinks (Vector.ofFn ctx.empties.links)}}
+
+private theorem compact_eq (ctx : SerialExecution.Frame) : compact ctx = ctx := by
+  cases ctx with
+  | mk req e => cases e; simp [compact]; funext i; simp [arrayLinks]
+
+@[noinline] private def tables (deep shallow : Array EndgameCache.Entry) : EndgameSearch.CacheState.Cells
+  | .deep => deep
+  | .shallow => shallow
+
+private def physical (m : Memory layout) : Memory layout :=
+  {m with cache := {m.cache with cells := tables (m.cache.cells .deep) (m.cache.cells .shallow)}}
+
+private theorem physical_eq (m : Memory layout) : physical m = m := by
+  obtain ⟨tt,sup,⟨h,cells⟩⟩ := m
+  simp [physical]
+  funext t
+  cases t <;> rfl
+
+private def leaf (base : SerialExecution.Inputs mc fc) (i : Nat) (ctx : SerialExecution.Frame) (m : Memory layout) :=
+  (Stack.run pool c base i (compact ctx) m).map fun (k,w,next) => (k,w,physical next)
+
+private theorem leaf_eq (base i ctx m) : leaf base i ctx m = Stack.run pool c base i ctx m := by
+  simp only [leaf,compact_eq,physical_eq]
+  cases Stack.run pool c base i ctx m <;> rfl
+
+private def tracedFuel (offset : Nat) (base : SerialExecution.Inputs mc fc) (lvl : TranspositionTable.Selectivity)
+    (eval : WeakStack.Screen) : Nat → Stack.Child layout
+  | 0, _,_,_ => none
+  | n+1,i,ctx,m => mark (offset+i) ctx <|
+    if ctx.request.pv = false ∧ ctx.request.depth.toNat ≤ 12 then leaf base i ctx m
+    else do
+      let slot := m.tt.image.slot ctx.request.board
+      let body := if lvl.val = 5 then SerialTable.Execution.body c (m.inputs c base) i ctx
+        else WeakStack.body m c base lvl eval i ctx
+      let (k,out,after) ← Stack.interpret (mc := mc) (fc := fc) (tracedFuel offset base lvl eval n) i ctx m body
+      return (k,out.score,applyObserved after slot out.store lvl)
+
+private theorem weak_eq (offset base lvl eval) (weak : lvl.val ≠ 5) (fuel : Nat) :
+    tracedFuel offset base lvl eval fuel = WeakStack.runFuel pool c base lvl eval fuel := by
+  induction fuel with
+  | zero => rfl
+  | succ n ih =>
+    funext i ctx m
+    dsimp only [tracedFuel,WeakStack.runFuel]
+    simp only [ih,applyObserved_eq,ite_eq_right weak,leaf_eq]
+    rfl
+
+private theorem exact_eq (offset base eval) (fuel : Nat) :
+    tracedFuel offset base Cutoffs.exactSelectivity eval fuel = Stack.runFuel pool c base fuel := by
+  induction fuel with
+  | zero => rfl
+  | succ n ih =>
+    funext i ctx m
+    dsimp only [tracedFuel,Stack.runFuel]
+    simp only [ih,applyObserved_eq,leaf_eq,show Cutoffs.exactSelectivity.val = 5 from rfl,ite_true]
+    rw [mark_eq]
+    by_cases leaf : ctx.request.pv = false ∧ ctx.request.depth.toNat ≤ 12
+    · rw [ite_eq_left leaf,ite_eq_left leaf]
+      unfold Stack.run
+      rw [Stack.runFuel,ite_eq_left leaf]
+    · rw [ite_eq_right leaf,ite_eq_right leaf]
+
+private def tracedTrial (offset : Nat) (op : Operands) (lvl : TranspositionTable.Selectivity)
+    (s : AspirationMir.SerialStack.State) (m : Memory layout) := do
+  let base := args op offset
+  let evaluate := screen op offset
+  let ctx := SerialRootExecution.context board s.regs.alpha s.regs.beta
+  let slot := m.tt.image.slot board
+  let code := SerialTable.Root.frame mc fc board ctx.request.depth c.paired (base s.opening ctx).memory s.rows 0
+    (SerialTable.Trial.ordering m base board root s) s.regs.alpha s.regs.beta
+  let descend := fun i (ctx : SerialExecution.Frame) =>
+    tracedFuel offset base lvl evaluate (Board.playRank mc ctx.request.board.val + 1) i ctx
+  let (k,out,after) ← Stack.interpret (mc := mc) (fc := fc) descend s.opening ctx m code
+  return (k,out.answer,applyObserved after slot out.proposal lvl)
+
+private theorem trial_weak (offset op lvl) (weak : lvl.val ≠ 5) :
+    tracedTrial offset op lvl = SerialTable.WeakTrial.trial pool c board (args op offset) root lvl (screen op offset) := by
+  funext s m
+  simp only [tracedTrial,weak_eq _ _ _ _ weak,applyObserved_eq]
+  rfl
+
+private theorem trial_exact (offset op) :
+    tracedTrial offset op Cutoffs.exactSelectivity = SerialTable.Trial.trial pool c board (args op offset) root := by
+  funext s m
+  simp only [tracedTrial,exact_eq,applyObserved_eq]
+  rfl
+
+private def run (path : String) : IO Unit := do
+  let some (raw,op) := parse (← IO.FS.readFile path) | throw (IO.userError "malformed operands")
+  let mut memory := Memory.empty layout 1 pool
+  let base := AspirationMir.SerialTable.InitialEstimate.estimate memory.tt.image mc fc (fun _ => raw) board
+  let mut machine := AspirationMir.SerialEntry.firstMachine base
+  let some initial := AspirationMir.NativeRootBirth.started mc fc board c.paired (fun _ => none) | throw (IO.userError "root rows")
+  let mut rows := initial
+  let mut offset := 0
+  for level in OuterMir.ladder do
+    let state := AspirationMir.SerialStack.first machine rows
+    let lvl : TranspositionTable.Selectivity := ⟨level%6,Nat.mod_lt _ (by decide)⟩
+    let some (prior,last) := AspirationMir.SerialCache.run (tracedTrial offset op lvl) 12 state memory
+      | throw (IO.userError s!"rung {level}")
+    for v in prior++[last] do
+      IO.println s!"ROOT {level} {offset+v.state.opening} {offset+v.closing+1} {v.state.regs.alpha.toInt} {v.state.regs.beta.toInt} {v.answer.value} {v.after.cache.history.length}"
+      for i in [:v.after.tt.image.slots.size] do
+        let some cell := v.after.tt.image.slots[i]? | throw (IO.userError "missing slot")
+        IO.println s!"TTC {i} {cell.seq.toNat} {cell.player.toNat} {cell.opponent.toNat} {cell.data.toNat}"
+      for e in v.after.cache.history.drop v.before.cache.history.length do
+        let kind := match e.table with | .deep => "Deep" | .shallow => "Shallow"
+        IO.println s!"STORE {kind} {e.write.board.player.toNat} {e.write.board.opponent.toNat} {e.write.alpha} {e.write.score}"
+    IO.println s!"RUNG {level} {last.answer.value}"
+    offset := offset + last.closing + 1
+    let next := AspirationMir.SerialTable.SelectiveLadder.successor last
+    memory := next.memory
+    rows := next.rows
+    machine := next.machine
+  let sorting : PublicationMir.SliceSort := ⟨_,MoveList.Ordering.sortByKeyDesc_perm,MoveList.Ordering.sortByKeyDesc_sorted⟩
+  let some result := OuterMir.finish 1 5 sorting rows 14 0 none (fun _ => .noLegalMove) | throw (IO.userError "publication")
+  let some score := PublicationMir.ExactScore.scoreIfExact result | throw (IO.userError "exact score")
+  IO.println s!"PUBLIC {score}"
+end PublicFourteen
+
+def main (args : List String) : IO Unit := do
+  let [p] := args | throw (IO.userError "expected operands file")
+  PublicFourteen.run p

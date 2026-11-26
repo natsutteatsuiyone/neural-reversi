@@ -1,4 +1,4 @@
-import NeuralReversi.Threading.SplitWindow
+import NeuralReversi.Threading.SplitWindow.Stores
 import NeuralReversi.Threading.SplitReturn.Observation
 
 namespace NeuralReversi.Threading.SplitReturn
@@ -71,7 +71,7 @@ structure Dispatches (history : History) (wait : Event) (actions : List Action)
     Loop len last (work worker).tickets (work worker).reports (work worker).departure
   cut : ∀ worker, Released actions worker → (work worker).departure = .cutoff → localCutoff
   cancelled : ∀ worker, Released actions worker → (work worker).departure = .cancelled →
-    Observation.ExternalStop history check wait
+    localCutoff ∨ Observation.ExternalStop history check wait
 
 private theorem participant_finished
     (retirement : Retirement history mask activation)
@@ -131,7 +131,7 @@ theorem coverageContract_proven : CoverageContract := by
       | cutoff => exact False.elim (marked (runs.cut worker released reason))
       | cancelled =>
         have stopped := Observation.cancellationGateContract_proven history check retirement.read.event
-          (runs.cancelled worker released reason)
+          ((runs.cancelled worker released reason).resolve_left marked)
         cases accepts.symm.trans stopped
     have completed (worker : Worker) (released : Released activation.actions worker) :=
       (runs.finished worker released).completed (exhausted worker released)
@@ -163,7 +163,7 @@ theorem stateAfter_append (pv : Bool) (beta : Int) (initial : SplitWindow.State)
       stateAfter pv beta (stateAfter pv beta initial earlier) later := by
   simp [stateAfter, SplitWindow.scan, List.foldl_append]
 
-private theorem mergeRemaining (pv : Bool) (original beta : Int) (initial : SplitWindow.State)
+theorem mergeRemaining (pv : Bool) (original beta : Int) (initial : SplitWindow.State)
     (value : Nat → Int) (reports earlier remaining : List Report)
     (window : Window initial.alpha beta) (capped : initial.alpha ≤ max original initial.best)
     (steps : ReportSteps pv beta initial value reports)
@@ -188,6 +188,19 @@ private theorem mergeRemaining (pv : Bool) (original beta : Int) (initial : Spli
 def checked (stop : Bool) (score : Int) : Option Int :=
   if stop then none else some score
 
+def OwnerBestContract : Prop :=
+  ∀ (history : History) (writes : List Write) (load : Read writes) (last : Fin writes.length)
+    {mask : List Write} {activation : Activation mask} (retirement : Retirement history mask activation)
+    pv beta initial (reports : List Report),
+    Observation.ScoreRead history retirement load last →
+    SplitWindow.BestStoreWindow writes last initial.best (reports.map Report.score) →
+    signed32At writes load.source = (stateAfter pv beta initial reports).best
+
+theorem ownerBestContract_proven : OwnerBestContract := by
+  intro history writes load last mask activation retirement pv beta initial reports read stores
+  exact (Observation.scoreReadContract_proven history writes load last retirement read).2.trans
+    (SplitWindow.bestStoreContract_proven writes last pv beta initial (reports.map Report.score) stores)
+
 def ReturnedScoreContract : Prop :=
   ∀ (history : History) (mask : List Write) (activation : Activation mask)
     (retirement : Retirement history mask activation)
@@ -205,18 +218,18 @@ def ReturnedScoreContract : Prop :=
     (∀ report ∈ reports, report.index ∈ slots start.toNat len) →
     Dispatches history retirement.read.event activation.actions activation.owner len last
       (issued.map BitVec.toNat) reports check (LocalCutoff pv beta initial reports) →
-    Observation.ScoreRead history load lastScore retirement.read.event →
-    signed32At writes lastScore = (stateAfter pv beta initial reports).best →
+    Observation.ScoreRead history retirement load lastScore →
+    SplitWindow.BestStoreWindow writes lastScore initial.best (reports.map Report.score) →
     checked check.stopped (signed32At writes load.source) = some returned →
     Bound (nodeValue value start.toNat len prefixValue) original beta returned
 
 theorem returnedScoreContract_proven : ReturnedScoreContract := by
   intro history mask activation retirement w len start last issued pv check original beta
     prefixValue initial value reports writes load lastScore returned capacity claims window capped narrow
-    seed cap caps steps valid runs read stored result
-  have observed :=
-    (Observation.scoreReadContract_proven history writes load lastScore retirement.read.event read).2
-  rw [observed, stored] at result
+    seed cap caps steps valid runs read stores result
+  have observed := ownerBestContract_proven history writes load lastScore retirement
+    pv beta initial reports read stores
+  rw [observed] at result
   have accepted : check.stopped = false := by
     cases stop : check.stopped <;> simp [checked, stop] at result ⊢
   have final : (stateAfter pv beta initial reports).best = returned := by simpa [checked, accepted] using result

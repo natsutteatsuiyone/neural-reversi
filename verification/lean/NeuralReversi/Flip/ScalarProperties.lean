@@ -1,3 +1,4 @@
+import Lean.Compiler.CSimpAttr
 import NeuralReversi.Flip.ScalarSpec
 import NeuralReversi.Bitboard.LeastBit
 
@@ -139,6 +140,25 @@ theorem count_arithmetic (x : Word) (hx : x ≠ 0) :
     omega
   · rw [hs]
     omega
+
+def shiftCount32Fast (x : Word) : BitVec 32 :=
+  if x = 0 then -1 else BitVec.ofNat 32 x.toNat.log2
+
+@[csimp] theorem shiftCount32_exec : shiftCount32 = shiftCount32Fast := by
+  funext x
+  by_cases nonzero : x = 0
+  · subst x
+    decide
+  · have positive : x.toNat ≠ 0 := fun zero => nonzero (BitVec.eq_of_toNat_eq zero)
+    obtain ⟨_, _, count, fits⟩ := count_arithmetic x nonzero
+    have below := BitVec.toNat_lt_two_pow_sub_clz (x := x)
+    have above := BitVec.two_pow_sub_clz_le_toNat_of_ne_zero (x := x) (by decide) nonzero
+    have minIndex := (Nat.le_log2 positive).mpr above
+    have maxIndex := (Nat.log2_lt positive).mpr below
+    have log : x.toNat.log2 = 63 - x.clz.toNat := by omega
+    apply BitVec.eq_of_toNat_eq
+    simp only [shiftCount32Fast, nonzero, count, log]
+    exact (Nat.mod_eq_of_lt (by omega)).symm
 
 def flipRightValue (mask player notOpponent : Word) : Word :=
   let x := notOpponent &&& mask

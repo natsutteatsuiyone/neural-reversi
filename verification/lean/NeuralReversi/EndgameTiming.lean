@@ -5,6 +5,40 @@ namespace NeuralReversi.EndgameTiming
 
 open ScaledScore (roundEvenQuotient round_bounds)
 
+def widenedPercent (time percent : BitVec 64) : BitVec 64 :=
+  BitVec.ofNat 64 ((time.setWidth 128 * percent.setWidth 128) / 100).toNat
+
+def AllocationArithmeticContract : Prop :=
+  (∀ (time percent : BitVec 64), percent.toNat ≤ 100 →
+    (widenedPercent time percent).toNat = time.toNat * percent.toNat / 100 ∧
+    (widenedPercent time percent).toNat ≤ time.toNat) ∧
+  (∀ (base increment hard : BitVec 64),
+    min (min (base.toNat + increment.toNat) (2 ^ 64 - 1)) hard.toNat =
+      min (base.toNat + increment.toNat) hard.toNat)
+
+theorem allocationArithmeticContract_proven : AllocationArithmeticContract := by
+  constructor
+  · intro time percent atMostHundred
+    have widenedTime := BitVec.toNat_setWidth_of_le (w' := 128) (by decide) (b := time)
+    have widenedPercentValue := BitVec.toNat_setWidth_of_le (w' := 128) (by decide) (b := percent)
+    have productFits : time.toNat * percent.toNat < 2 ^ 128 := BitVec.toNat_mul_toNat_lt
+    have shareLe : time.toNat * percent.toNat / 100 ≤ time.toNat := by
+      calc
+        _ ≤ time.toNat * 100 / 100 :=
+          Nat.div_le_div_right (Nat.mul_le_mul_left _ atMostHundred)
+        _ = time.toNat := Nat.mul_div_cancel _ (by decide)
+    have shareFits := Nat.lt_of_le_of_lt shareLe time.isLt
+    have exactShare : (widenedPercent time percent).toNat = time.toNat * percent.toNat / 100 := by
+      simp only [widenedPercent, BitVec.toNat_ofNat, BitVec.toNat_udiv, BitVec.toNat_mul,
+        widenedTime, widenedPercentValue, Nat.mod_eq_of_lt productFits]
+      exact Nat.mod_eq_of_lt shareFits
+    exact ⟨exactShare, exactShare ▸ shareLe⟩
+  · intro base increment hard
+    have within : hard.toNat ≤ 2 ^ 64 - 1 := by
+      have := hard.isLt
+      omega
+    rw [Nat.min_assoc, Nat.min_eq_right within]
+
 private theorem quotient_mono (shift : Nat) {a b : Nat} (ordered : a ≤ b) :
     roundEvenQuotient a shift ≤ roundEvenQuotient b shift := by
   have floorOrder := Nat.div_le_div_right (c := 2 ^ shift) ordered
@@ -291,7 +325,7 @@ theorem timingContract_proven : TimingContract := by
   exact ⟨beforeHard, soft prediction level soft₁ soft₂ orderedSoft permitted⟩
 
 open SearchPublication (Completed Row capture finish)
-open EndgameProgress (AtLeast Clock ClockOrder depthAllowed lastLevel runNormal)
+open EndgameProgress (AtLeast Clock ClockOrder capAllows lastLevel runNormal)
 
 def sampledMs (nanoseconds : Nat) : Nat :=
   (BitVec.ofNat 64 (nanoseconds / 1000000)).toNat
@@ -309,13 +343,13 @@ theorem sampleContract_proven : SampleContract := by
     Nat.mod_eq_of_lt earlierFits, Nat.mod_eq_of_lt (fits level)] using truncated
 
 def NormalTimingContract : Prop :=
-  ∀ (minimum depth : Nat) (timed : Bool) (depthFor : Nat → Nat) (prediction : Option Prediction)
+  ∀ (minimum depth cap : Nat) (prediction : Option Prediction)
     (previous : List Clock) (last : Clock) (rows : Nat → Nat → List Row)
     (finalRows : List Row) (inherited : Completed),
-    (timed = true ∨ depth ≤ depthFor 1) →
+    1 ≤ cap →
     (∀ earlier ∈ previous, ClockOrder earlier last) →
     (∀ level, last level / 1000000 < 2 ^ 64) →
-    let allowed := depthAllowed timed depthFor depth
+    let allowed := capAllows cap
     let times := previous.map (fun clock => sampledMs ∘ clock) ++ [sampledMs ∘ last]
     inherited.marks.length = times.length →
     let keep := softAllows prediction
@@ -326,8 +360,8 @@ def NormalTimingContract : Prop :=
       (final < minimum → finish minimum state (.normal ⟨depth, final⟩ finalRows) = state.last)
 
 theorem normalTimingContract_proven : NormalTimingContract := by
-  intro minimum depth timed depthFor prediction previous last rows finalRows inherited entry ordered fits
-  refine EndgameProgress.normalRunContract_proven minimum depth timed depthFor (softAllows prediction)
+  intro minimum depth cap prediction previous last rows finalRows inherited entry ordered fits
+  refine EndgameProgress.normalRunContract_proven minimum depth cap (softAllows prediction)
     (previous.map fun clock => sampledMs ∘ clock) (sampledMs ∘ last) rows finalRows inherited
     entry (timingContract_proven.1 prediction) ?_
   intro earlier observed

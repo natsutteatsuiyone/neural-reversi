@@ -1,0 +1,100 @@
+import NeuralReversi.AspirationMir.SerialTable.MultiPublic
+
+namespace PublicMulti
+
+open NeuralReversi PvsParallel AspirationMir
+open PvsParallel.SerialTable (Memory)
+open AspirationMir.SerialTable
+
+private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def board : PvsBoardTree.Position :=
+  ⟨⟨0x7a2e541b1fa14181,0x81d1abe4e05e2e5e⟩,by unfold Board.wellFormed; decide⟩
+private def pool : EndgameSearch.CacheHistory.Pool := ⟨1,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
+private def layout : PvsParallel.SerialTable.Layout := ⟨16,by decide,false⟩
+private def config : SerialScout.Config := ⟨.aarch64 true false,false,false,true,pool.address⟩
+
+private def order : MoveInputs mc :=
+  ⟨fun _ _ _ => none,fun _ _ _ => .fast,fun _ _ m => ⟨63-m.val.val,by omega⟩,
+    fun ms => ⟨ms,.refl _⟩,fun _ => []⟩
+
+private def ops : FullLadder.Inputs mc := ⟨fun _ _ => order,fun _ _ _ _ => ⟨0,fun _ _ => 0⟩⟩
+
+private def showTrial (idx lvl : Nat) (s : SerialStack.State) (ans : SmallRoot.Answer) (m : Memory layout) : String := Id.run do
+  let mut rows := #[s!"TRIAL {idx} {lvl} {s.regs.alpha.toInt} {s.regs.beta.toInt} {ans.value}"]
+  for r in ans.rows do
+    rows := rows.push s!"ROW {r.square.val} {r.score} {r.average} {r.meanSquared}"
+  for h : i in [:m.tt.image.slots.size] do
+    let t := m.tt.image.slots[i]
+    if t.seq ||| t.player ||| t.opponent ||| t.data != 0 then
+      rows := rows.push s!"TT {i} {t.seq.toNat} {t.player.toNat} {t.opponent.toNat} {t.data.toNat}"
+  for (name,kind) in [("deep",EndgameTreeCache.Table.deep),("shallow",.shallow)] do
+    let cells := m.cache.cells kind
+    rows := rows.push s!"CACHE {name} {cells.size}"
+    for h : i in [:cells.size] do
+      let cell := cells[i]
+      if cell.board.player != 0 || cell.board.opponent != 0 || cell.lower != -65 || cell.upper != 65 then
+        rows := rows.push s!"CELL {name} {i} {cell.board.player.toNat} {cell.board.opponent.toNat} {cell.lower.toInt} {cell.upper.toInt}"
+  return "\n".intercalate rows.toList
+
+private def traced (idx lvl : Nat) : SerialCache.Trial (Memory layout) := fun s m =>
+  (MultiLevel.trial idx pool config board ops fc lvl s m).map fun (k,ans,after) =>
+    dbgTrace (showTrial idx lvl s ans after) fun _ => (k,ans,after)
+
+private theorem traced_eq (idx lvl) : traced idx lvl = MultiLevel.trial idx pool config board ops fc lvl := by
+  funext s m
+  simp only [traced]
+  cases MultiLevel.trial (l := layout) idx pool config board ops fc lvl s m <;> rfl
+
+private def sorting : PublicationMir.SliceSort where
+  byReverseKey k rows := rows.mergeSort (fun a b => decide (k b ≤ k a))
+  permutation _ _ := List.mergeSort_perm ..
+  ordered k rows := by
+    let cmp := fun (a b : RootMoveStorage.Row) => decide (k b ≤ k a)
+    have trans (a b c) (ab : cmp a b) (bc : cmp b c) : cmp a c := by
+      simp only [cmp,decide_eq_true_eq] at ab bc ⊢
+      omega
+    have total (a b) : cmp a b || cmp b a := by
+      simp only [cmp,Bool.or_eq_true,decide_eq_true_eq]
+      exact Int.le_total _ _
+    exact (List.pairwise_mergeSort trans total rows).imp of_decide_eq_true
+
+private abbrev Cap := {n : Nat // 1 ≤ n ∧ n ≤ 5}
+
+private def request (raw : Int) (cap : Cap) : Repeated.Call mc :=
+  ⟨board,cap,ops,fun _ => raw,fun _ => none,sorting,0,fun _ => .noLegalMove⟩
+
+private def tracedDirect (raw : Int) (cap : Cap) (memory : Memory layout) := do
+  let rows ← NativeRootBirth.started mc fc board config.paired (fun _ => none)
+  let m := Repeated.increment memory
+  let base := InitialEstimate.estimate m.tt.image mc fc (fun _ => raw) board
+  let levels := MultiClock.levels cap.val 1 MultiPublic.unlimited.prediction MultiPublic.unlimited.elapsed
+  let (done_,after) ← MultiBatch.lines traced levels base rows.length 0 rows m
+  let last := (levels (rows.length-1)).getLastD 5
+  let report ← OuterMir.finish 1 last sorting done_ (Board.emptyCount board.val).toNat 0 none (fun _ => .noLegalMove)
+  return (report,after)
+
+/-- The logger leaves the full public result and the retained physical memory unchanged. -/
+private theorem direct_eq (raw : Int) (cap : Cap) (m : Memory layout) :
+    tracedDirect raw cap m =
+      MultiPublic.direct (request raw cap) pool config fc (fun _ => ops) MultiPublic.unlimited m := by
+  have trials : traced = MultiBatch.trials (l := layout) pool config board (fun _ => ops) fc :=
+    funext fun i => funext fun lvl => traced_eq i lvl
+  simp only [tracedDirect,trials,MultiPublic.direct,MultiPublic.solve,request]
+
+private def run (raw : Int) : IO Unit := do
+  let mut memory := Memory.empty layout 0 pool
+  for cap in ([⟨1,by decide⟩,⟨2,by decide⟩,⟨3,by decide⟩,⟨4,by decide⟩,⟨5,by decide⟩] : List Cap) do
+    IO.eprintln s!"CAP {cap.val}"
+    let some (.bestMove result,after) := tracedDirect raw cap memory
+      | throw (IO.userError "unpublished moves")
+    IO.eprintln s!"PUBLIC {result.stamp.selectivity} {result.best.score}"
+    for row in result.alternatives do IO.eprintln s!"PV {row.square.val} {row.score}"
+    memory := after
+
+end PublicMulti
+
+def main (args : List String) : IO Unit := do
+  let [seed] := args | throw (IO.userError "expected raw evaluation")
+  let some raw := seed.toInt? | throw (IO.userError "invalid raw evaluation")
+  PublicMulti.run raw

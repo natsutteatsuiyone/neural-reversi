@@ -62,30 +62,62 @@ def moveScore {Move : Type} (pv first : Bool) (search : ChildSearch Move)
     if pv = true ∧ alpha < scout then -(search move true (-beta) (-alpha))
     else scout
 
-theorem moveScore_bound {Move : Type} {search : ChildSearch Move} {value : Move → Int}
+abbrev ChildRelation (Move : Type) := Move → Bool → Int → Int → Int → Prop
+
+def MoveCalls (completed : ChildRelation Move) (search : ChildSearch Move)
+    (pv first : Bool) (move : Move) (alpha beta : Int) : Prop :=
+  if pv && first then completed move true (-beta) (-alpha) (search move true (-beta) (-alpha))
+  else
+    let scout := search move false (-(alpha + 1)) (-alpha)
+    completed move false (-(alpha + 1)) (-alpha) scout ∧
+      (pv = true ∧ alpha < -scout → completed move true (-beta) (-alpha) (search move true (-beta) (-alpha)))
+
+theorem MoveCalls.weaken {done more : ChildRelation Move}
+    (lift : ∀ move pv alpha beta score, done move pv alpha beta score → more move pv alpha beta score)
+    (calls : MoveCalls done search pv first move alpha beta) : MoveCalls more search pv first move alpha beta := by
+  unfold MoveCalls at calls ⊢
+  split at calls <;> rename_i branch
+  · rw [ite_eq_left branch]
+    exact lift _ _ _ _ _ calls
+  · rw [ite_eq_right branch]
+    exact ⟨lift _ _ _ _ _ calls.1, fun retry => lift _ _ _ _ _ (calls.2 retry)⟩
+
+theorem MoveCalls.ofAll (all : ∀ childPv a b, completed move childPv a b (search move childPv a b)) :
+    MoveCalls completed search pv first move alpha beta := by
+  unfold MoveCalls
+  split
+  · exact all true _ _
+  · exact ⟨all false _ _, fun _ => all true _ _⟩
+
+theorem moveScore_boundSelected {Move : Type} {search : ChildSearch Move} {value : Move → Int}
     {pv first : Bool} {move : Move} {alpha beta : Int}
     (w : Window alpha beta) (null : pv = false → beta = alpha + 1)
-    (sound : ∀ childPv a b, Window a b → (childPv = false → b = a + 1) →
-      SoundResult (-(value move)) a b (search move childPv a b)) :
+    {completed : ChildRelation Move} (calls : MoveCalls completed search pv first move alpha beta)
+    (sound : ∀ childPv a b s, Window a b → (childPv = false → b = a + 1) →
+      completed move childPv a b s → SoundResult (-(value move)) a b s) :
     let score := moveScore pv first search move alpha beta
     (-scoreInf < score) ∧ score < scoreInf ∧ Bound (value move) alpha beta score := by
-  have wide := sound true _ _ (reflectedWindow w) (by simp)
-  have narrow := sound false _ _ (scoutWindow w) (by omega)
-  have wideBound : Bound (value move) alpha beta (-(search move true (-beta) (-alpha))) := by
-    simpa only [Int.neg_neg] using (Bound.ofSoundResult wide).negate
-  have narrowBound : Bound (value move) alpha (alpha + 1)
-      (-(search move false (-(alpha + 1)) (-alpha))) := by
-    simpa only [Int.neg_neg] using (Bound.ofSoundResult narrow).negate
-  have wideOK : -scoreInf < -(search move true (-beta) (-alpha)) ∧
+  have wideOK (heard : completed move true (-beta) (-alpha) (search move true (-beta) (-alpha))) :
+      -scoreInf < -(search move true (-beta) (-alpha)) ∧
       -(search move true (-beta) (-alpha)) < scoreInf ∧
-        Bound (value move) alpha beta (-(search move true (-beta) (-alpha))) :=
-    ⟨by have := wide.upper; unfold scoreInf; omega,
+        Bound (value move) alpha beta (-(search move true (-beta) (-alpha))) := by
+    have wide := sound true _ _ _ (reflectedWindow w) (by simp) heard
+    have wideBound : Bound (value move) alpha beta (-(search move true (-beta) (-alpha))) := by
+      simpa only [Int.neg_neg] using (Bound.ofSoundResult wide).negate
+    exact ⟨by have := wide.upper; unfold scoreInf; omega,
       by have := wide.lower; unfold scoreInf; omega, wideBound⟩
-  dsimp only [moveScore]
-  split
-  · exact wideOK
-  · split
-    · exact wideOK
+  dsimp only [moveScore, MoveCalls] at calls ⊢
+  split at calls <;> rename_i eldest
+  · rw [ite_eq_left eldest]
+    exact wideOK calls
+  · rw [ite_eq_right eldest]
+    have narrow := sound false _ _ _ (scoutWindow w) (by omega) calls.1
+    have narrowBound : Bound (value move) alpha (alpha + 1)
+        (-(search move false (-(alpha + 1)) (-alpha))) := by
+      simpa only [Int.neg_neg] using (Bound.ofSoundResult narrow).negate
+    split
+    · rename_i retry
+      exact wideOK (calls.2 retry)
     · rename_i noResearch
       refine ⟨by have := narrow.upper; unfold scoreInf; omega,
         by have := narrow.lower; unfold scoreInf; omega, ?_⟩
@@ -111,6 +143,67 @@ def scan {Move : Type} (pv : Bool) (search : ChildSearch Move) (beta : Int) :
       else scan pv search beta rest false alpha score
     else scan pv search beta rest false alpha best
 
+def nextScanState (pv : Bool) (beta alpha best score : Int) : Option (Int × Int) :=
+  if best < score then
+    if alpha < score then
+      if pv = true ∧ score < beta ∧ score < scoreMax then some (score, score) else none
+    else some (alpha, score)
+  else some (alpha, best)
+
+theorem scan_step (pv : Bool) (search : ChildSearch Move) (beta : Int)
+    (move : Move) (rest : List Move) (first : Bool) (alpha best : Int) :
+    let score := moveScore pv first search move alpha beta
+    scan pv search beta (move :: rest) first alpha best =
+      match nextScanState pv beta alpha best score with
+      | none => score
+      | some (a, s) => scan pv search beta rest false a s := by
+  dsimp only
+  rw [scan]
+  unfold nextScanState
+  split
+  · split
+    · split <;> rfl
+    · rfl
+  · rfl
+
+def ScanCalls (completed : ChildRelation Move) (search : ChildSearch Move) (pv : Bool) (beta : Int) :
+    List Move → Bool → Int → Int → Prop
+  | [], _, _, _ => True
+  | move :: rest, first, alpha, best =>
+    MoveCalls completed search pv first move alpha beta ∧
+      match nextScanState pv beta alpha best (moveScore pv first search move alpha beta) with
+      | none => True
+      | some (nextAlpha, nextBest) => ScanCalls completed search pv beta rest false nextAlpha nextBest
+
+theorem ScanCalls.weaken {done more : ChildRelation Move}
+    (lift : ∀ move pv alpha beta score, done move pv alpha beta score → more move pv alpha beta score)
+    (calls : ScanCalls done search pv beta moves first alpha best) :
+    ScanCalls more search pv beta moves first alpha best := by
+  induction moves generalizing first alpha best with
+  | nil => trivial
+  | cons move rest ih =>
+    refine ⟨calls.1.weaken lift, ?_⟩
+    have after := calls.2
+    cases next : nextScanState pv beta alpha best (moveScore pv first search move alpha beta) with
+    | none => trivial
+    | some state =>
+      rw [next] at after
+      rcases state with ⟨_, _⟩
+      exact ih after
+
+theorem ScanCalls.ofAll
+    (calls : ∀ m ∈ moves, ∀ childPv a b,
+      completed m childPv a b (search m childPv a b)) : ScanCalls completed search pv beta moves first alpha best := by
+  induction moves generalizing first alpha best with
+  | nil => trivial
+  | cons move rest ih =>
+    refine ⟨MoveCalls.ofAll (calls move (by simp)), ?_⟩
+    cases nextScanState pv beta alpha best (moveScore pv first search move alpha beta) with
+    | none => trivial
+    | some state =>
+      rcases state with ⟨_, _⟩
+      exact ih (fun m member => calls m (List.mem_cons_of_mem _ member))
+
 def nonPvPresearch {Move : Type} (search : ChildSearch Move)
     (first : Move) (rest : List Move) (alpha beta : Int) : Int :=
   let score := -(search first false (-(alpha + 1)) (-alpha))
@@ -118,20 +211,33 @@ def nonPvPresearch {Move : Type} (search : ChildSearch Move)
   else scan false search beta rest false alpha score
 
 def NonPvPresearchContract : Prop :=
-  ∀ (Move : Type) (search : ChildSearch Move) (first : Move) (rest : List Move)
-    (alpha beta : Int), beta = alpha + 1 → -scoreInf < -(search first false (-(alpha + 1)) (-alpha)) →
-    nonPvPresearch search first rest alpha beta =
-      scan false search beta (first :: rest) true alpha (-scoreInf)
+  ∀ (Move : Type) (completed : ChildRelation Move) (search : ChildSearch Move)
+    (first : Move) (rest : List Move) (alpha beta : Int),
+    let scout := search first false (-(alpha + 1)) (-alpha)
+    beta = alpha + 1 → -scoreInf < -scout →
+    completed first false (-(alpha + 1)) (-alpha) scout →
+    (-scout < beta → ScanCalls completed search false beta rest false alpha (-scout)) →
+    ScanCalls completed search false beta (first :: rest) true alpha (-scoreInf) ∧
+      nonPvPresearch search first rest alpha beta = scan false search beta (first :: rest) true alpha (-scoreInf)
 
 theorem nonPvPresearchContract_proven : NonPvPresearchContract := by
-  intro Move search first rest alpha beta null lo
-  let score := -(search first false (-(alpha + 1)) (-alpha))
-  rw [scan, nonPvPresearch]
-  have firstScore : moveScore false true search first alpha beta = score := by
-    simp [moveScore, score]
-  rw [firstScore, ite_eq_left lo]
-  change (if alpha < score ∧ beta ≤ score then score else
-    scan false search beta rest false alpha score) = _
+  intro Move completed search first rest alpha beta scout null above returned continues
+  let score := -scout
+  have firstScore : moveScore false true search first alpha beta = score := rfl
+  have step :
+      nextScanState false beta alpha (-scoreInf) (moveScore false true search first alpha beta) =
+        if alpha < score then none else some (alpha, score) := by
+    rw [firstScore]
+    have valid : -scoreInf < score := above
+    simp [nextScanState, valid]
+  refine ⟨⟨⟨returned, by simp⟩, ?_⟩, ?_⟩
+  · rw [step]
+    by_cases high : alpha < score
+    · simp [high]
+    · simpa [high] using continues (show score < beta by omega)
+  rw [scan_step, step, firstScore, nonPvPresearch]
+  change (if alpha < score ∧ beta ≤ score then score
+    else scan false search beta rest false alpha score) = _
   by_cases high : alpha < score
   · have cut : alpha < score ∧ beta ≤ score := ⟨high, by omega⟩
     simp [cut]
@@ -186,13 +292,15 @@ theorem bestValue_eq_of_same_moves {Move : Type} (value : Move → Int) (seed : 
       (fun move mem => bestValue_ge_move _ _ _ ((same move).mpr mem))
 
 private theorem scan_sound {Move : Type} (pv : Bool) (search : ChildSearch Move) (value : Move → Int)
+    (completed : ChildRelation Move)
     (moves : List Move) (first : Bool) (original alpha beta prev best : Int)
     (window : Window original beta) (null : pv = false → beta = original + 1)
     (raised : alpha = max original best) (bestLt : best < beta)
     (seed : Bound prev original beta best) (seedMax : prev ≤ scoreMax)
     (bounds : ∀ m ∈ moves, value m ≤ scoreMax)
-    (sound : ∀ m ∈ moves, ∀ childPv a b, Window a b → (childPv = false → b = a + 1) →
-      SoundResult (-(value m)) a b (search m childPv a b))
+    (calls : ScanCalls completed search pv beta moves first alpha best)
+    (sound : ∀ m ∈ moves, ∀ childPv a b s, Window a b → (childPv = false → b = a + 1) →
+      completed m childPv a b s → SoundResult (-(value m)) a b s)
     (searched : -scoreInf < best ∨ moves ≠ []) :
     let result := scan pv search beta moves first alpha best
     (-scoreInf < result) ∧ result < scoreInf ∧ Bound (bestValue value moves prev) original beta result := by
@@ -207,7 +315,10 @@ private theorem scan_sound {Move : Type} (pv : Bool) (search : ChildSearch Move)
       intro h
       have := null h
       omega
-    have ⟨lo, hi, current⟩ := moveScore_bound (first := first) w narrow (sound move (by simp))
+    have ⟨lo, hi, current⟩ := moveScore_boundSelected (first := first) w narrow calls.1 (sound move (by simp))
+    have after : (match nextScanState pv beta alpha best score with
+        | none => True
+        | some (nextAlpha, nextBest) => ScanCalls completed search pv beta rest false nextAlpha nextBest) := calls.2
     change -scoreInf < score at lo
     change score < scoreInf at hi
     change Bound (value move) alpha beta score at current
@@ -238,7 +349,10 @@ private theorem scan_sound {Move : Type} (pv : Bool) (search : ChildSearch Move)
           have seed' : Bound next original beta score := by
             unfold next
             constructor <;> intro h <;> omega
-          exact ih false score next score (by omega) scoreLt seed' nextMax restMax restSound (.inl lo)
+          have seen : ScanCalls completed search pv beta rest false score score := by
+            simpa only [nextScanState, ite_eq_left improves, ite_eq_left above, ite_eq_left continueSearch]
+              using after
+          exact ih false score next score (by omega) scoreLt seed' nextMax restMax seen restSound (.inl lo)
         · rw [ite_eq_right continueSearch]
           have highOrMax : beta ≤ score ∨ scoreMax ≤ score := by
             by_cases h : pv = false
@@ -260,14 +374,38 @@ private theorem scan_sound {Move : Type} (pv : Bool) (search : ChildSearch Move)
         have seed' : Bound next original beta score := by
           unfold next
           constructor <;> intro h <;> omega
-        exact ih false alpha next score (by omega) scoreLt seed' nextMax restMax restSound (.inl lo)
+        have seen : ScanCalls completed search pv beta rest false alpha score := by
+          simpa only [nextScanState, ite_eq_left improves, ite_eq_right above] using after
+        exact ih false alpha next score (by omega) scoreLt seed' nextMax restMax seen restSound (.inl lo)
     · rw [ite_eq_right improves]
       have moveLe := current.1 (by omega)
       have seed' : Bound next original beta best := by
         unfold next
         exact ⟨fun _ => Int.max_le.mpr ⟨prevLe, by omega⟩,
           fun h => Int.le_trans (seed.2 h) (Int.le_max_left _ _)⟩
-      exact ih false alpha next best raised bestLt seed' nextMax restMax restSound (.inl (by omega))
+      have seen : ScanCalls completed search pv beta rest false alpha best := by
+        simpa only [nextScanState, ite_eq_right improves] using after
+      exact ih false alpha next best raised bestLt seed' nextMax restMax seen restSound (.inl (by omega))
+
+def SelectedContract : Prop :=
+  ∀ (Move : Type) (pv : Bool) (search : ChildSearch Move) (value : Move → Int)
+    (completed : ChildRelation Move) (moves : List Move) (alpha beta : Int),
+    moves ≠ [] → Window alpha beta → (pv = false → beta = alpha + 1) →
+    (∀ m ∈ moves, value m ≤ scoreMax) →
+    ScanCalls completed search pv beta moves true alpha (-scoreInf) →
+    (∀ m ∈ moves, ∀ childPv a b s, Window a b → (childPv = false → b = a + 1) →
+      completed m childPv a b s → SoundResult (-(value m)) a b s) →
+    SoundResult (bestValue value moves (-scoreInf)) alpha beta (scan pv search beta moves true alpha (-scoreInf))
+
+theorem selectedContract_proven : SelectedContract := by
+  intro Move pv search value completed moves alpha beta ne w null bounds calls sound
+  obtain ⟨lo, hi, h⟩ := scan_sound pv search value completed moves true alpha alpha beta
+    (-scoreInf) (-scoreInf) w null
+    (by have := w.lower; unfold scoreInf; omega)
+    (by have := w.lower; have := w.ordered; unfold scoreInf; omega)
+    ⟨fun _ => Int.le_refl _, fun _ => Int.le_refl _⟩ (by decide)
+    bounds calls sound (.inr ne)
+  exact h.toSoundResult w lo hi
 
 def Contract : Prop :=
   ∀ (Move : Type) (pv : Bool) (search : ChildSearch Move) (value : Move → Int)
@@ -281,13 +419,9 @@ def Contract : Prop :=
 
 theorem contract_proven : Contract := by
   intro Move pv search value moves alpha beta ne w null bounds sound
-  obtain ⟨lo, hi, h⟩ := scan_sound pv search value moves true alpha alpha beta
-    (-scoreInf) (-scoreInf) w null
-    (by have := w.lower; unfold scoreInf; omega)
-    (by have := w.lower; have := w.ordered; unfold scoreInf; omega)
-    ⟨fun _ => Int.le_refl _, fun _ => Int.le_refl _⟩ (by decide)
-    bounds sound (.inr ne)
-  exact h.toSoundResult w lo hi
+  exact selectedContract_proven Move pv search value (fun m cp a b s => s = search m cp a b)
+    moves alpha beta ne w null bounds (ScanCalls.ofAll (by intros; rfl))
+    (fun m mem cp a b _ window narrow same => same ▸ sound m mem cp a b window narrow)
 
 inductive Tree where
   | leaf (score : {s : Int // -scoreMax ≤ s ∧ s ≤ scoreMax})

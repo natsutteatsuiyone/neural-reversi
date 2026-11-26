@@ -94,10 +94,9 @@ impl MoveList {
         }
     }
 
-    /// Creates a [`MoveList`] when the caller has already ruled out the
-    /// no-move (pass) case but the position may still have only one legal
-    /// move. Skips the empty-`moves` dispatch but still dispatches a
-    /// scalar single-square path when there is exactly one bit set.
+    /// Creates a [`MoveList`] from nonempty legal moves of `board`.
+    ///
+    /// Skips the empty-list check and uses the scalar path for a single move.
     #[inline(always)]
     pub(crate) fn with_at_least_one_move(board: &Board, moves: NonEmptyLegalMoves) -> MoveList {
         let mut result: MaybeUninit<MoveList> = MaybeUninit::uninit();
@@ -240,7 +239,7 @@ impl MoveList {
         self.wipeout_move
     }
 
-    /// Returns the number of legal moves in this position.
+    /// Returns the number of moves in the list.
     #[inline]
     pub fn count(&self) -> usize {
         self.moves.len()

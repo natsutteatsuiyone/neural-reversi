@@ -1,4 +1,5 @@
 import NeuralReversi.MoveList.Initialization
+import NeuralReversi.MoveList.OrderWeights
 
 namespace NeuralReversi.MoveList.Ordering
 open Initialization
@@ -448,6 +449,111 @@ theorem sortByKeyDesc_sorted (key : α → Int) (xs : List α) :
 example : postponeMove [10, 20, 30, 40] 1 = [10, 30, 40, 20] := rfl
 example : postponeMove [10, 20, 30] 0 = [20, 30, 10] := rfl
 example : swapList [10, 20, 30] 0 2 = [30, 20, 10] := rfl
+def SortContract : Prop :=
+  ∀ (α : Type) (key : α → Int) (xs : List α),
+    List.Perm (sortByKeyDesc key xs) xs ∧ SortedDesc key (sortByKeyDesc key xs)
+
+theorem sortContract_proven : SortContract := by
+  intro α key xs
+  exact ⟨sortByKeyDesc_perm key xs, sortByKeyDesc_sorted key xs⟩
+
+def ttMoveValue : Int := 1073741824
+
+def TtPresearchOrder [DecidableEq Label] (label : α → Label) (score : α → Int) (hint : Label)
+    (moves ordered : List α) : Prop :=
+  match moves with
+  | [first, _] => ordered = if label first = hint then moves else swapList moves 0 1
+  | _ :: _ :: _ :: _ =>
+    ordered.Perm moves ∧ SortedDesc (fun move => if label move = hint then ttMoveValue else score move) ordered
+  | _ => ordered = moves
+
+/-- Every entry of the extracted square table lies between zero and its maximum. -/
+theorem squareValue_range : ∀ i : Fin 64, 0 ≤ OrderWeights.squareValue[i] ∧ OrderWeights.squareValue[i] ≤ OrderWeights.squareMax := by
+  decide
+
+/-- The endgame ordering keys, with the extracted weights, fit in `i32` below the TT hint. -/
+def EndgamePriorityContract : Prop :=
+  ∀ square stability mobility potential evalScore : Int,
+    0 ≤ square → square ≤ OrderWeights.squareMax → 0 ≤ stability → stability ≤ 64 →
+    0 ≤ mobility → mobility ≤ 128 → 0 ≤ potential → potential ≤ 128 →
+    -32767 ≤ evalScore → evalScore ≤ 32767 →
+    let fast := square * OrderWeights.squareWeight + stability * OrderWeights.stabilityWeight +
+      (36 - mobility) * OrderWeights.mobilityWeight
+    let skip := -mobility
+    let shallow := evalScore + stability * OrderWeights.searchStabilityWeight -
+      mobility * OrderWeights.searchMobilityWeight - potential * OrderWeights.searchPotentialWeight
+    ∀ value ∈ [fast, skip, shallow], -2147483648 ≤ value ∧ value < ttMoveValue
+
+theorem endgamePriorityContract_proven : EndgamePriorityContract := by
+  intro square stability mobility potential evalScore svLo svHi stLo stHi mLo mHi pLo pHi eLo eHi
+  simp only [OrderWeights.squareMax, OrderWeights.squareWeight, OrderWeights.stabilityWeight,
+    OrderWeights.mobilityWeight, OrderWeights.searchStabilityWeight, OrderWeights.searchMobilityWeight,
+    OrderWeights.searchPotentialWeight] at svHi ⊢
+  intro value member
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at member
+  rcases member with rfl | rfl | rfl <;> unfold ttMoveValue <;> omega
+
+def PresearchedOrderContract : Prop :=
+  ∀ (α Label : Type) [DecidableEq Label] (label : α → Label) (moves ordered : List α)
+    (hint : Label) (score : α → Int),
+    (∃ selected ∈ moves, label selected = hint) →
+    (∀ move ∈ moves, label move ≠ hint → score move < ttMoveValue) →
+    TtPresearchOrder label score hint moves ordered →
+    ordered.Perm moves ∧ ordered.head?.map label = some hint
+
+theorem presearchedOrderContract_proven : PresearchedOrderContract := by
+  rintro α Label eq label moves ordered hint score ⟨selected, present, matchHint⟩ lower observed
+  cases moves with
+  | nil => simp at present
+  | cons first rest =>
+    cases rest with
+    | nil =>
+      have same : selected = first := List.mem_singleton.mp present
+      subst selected
+      simp [TtPresearchOrder] at observed
+      simp [observed, matchHint]
+    | cons second rest =>
+      cases rest with
+      | nil =>
+        by_cases same : label first = hint
+        · simp [TtPresearchOrder, same] at observed
+          simp [observed, same]
+        · have other := (List.mem_cons.mp present).resolve_left (fun bad => same (bad ▸ matchHint))
+          have secondHint := (List.mem_singleton.mp other) ▸ matchHint
+          simp only [TtPresearchOrder, same, ↓reduceIte] at observed
+          rw [observed]
+          exact ⟨swapList_perm [first, second] 0 1, by simp [swapList, secondHint]⟩
+      | cons third rest =>
+        let moves := first :: second :: third :: rest
+        let priority := fun move => if label move = hint then ttMoveValue else score move
+        obtain ⟨perm, sorted⟩ : ordered.Perm moves ∧ SortedDesc priority ordered := observed
+        have carried : selected ∈ ordered := perm.mem_iff.mpr present
+        refine ⟨perm, ?_⟩
+        cases ordered with
+        | nil => simp at carried
+        | cons top tail =>
+          have priorityTop : priority selected ≤ priority top := by
+            rcases List.mem_cons.mp carried with same | inside
+            · rw [same]
+              exact Int.le_refl _
+            · exact (List.pairwise_cons.mp sorted).1 _ inside
+          by_cases same : label top = hint
+          · simp [same]
+          · have low := lower top (perm.mem_iff.mp (by simp)) same
+            simp [priority, matchHint, same] at priorityTop
+            omega
+
+def ReorderContract : Prop :=
+  ∀ (α : Type) (xs : List α),
+    (∀ a b, a < xs.length → b < xs.length →
+      List.Perm (swapList xs a b) xs ∧ swapList (swapList xs a b) a b = xs) ∧
+    ∀ i, i < xs.length → List.Perm (postponeMove xs i) xs
+
+theorem reorderContract_proven : ReorderContract := by
+  intro α xs
+  exact ⟨fun a b _ _ => ⟨swapList_perm xs a b, swapList_involutive xs a b⟩,
+    fun i _ => postponeMove_perm xs i⟩
+
 example : sortByKeyDesc id [1, 3, 2] = [3, 2, 1] := rfl
 example : sortByKeyDesc id [1, 2] = [2, 1] := rfl
 example : sortByKeyDesc id [2, 5, 1, 4, 3] = [5, 4, 3, 2, 1] := rfl

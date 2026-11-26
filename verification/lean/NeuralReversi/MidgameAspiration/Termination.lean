@@ -37,44 +37,51 @@ private theorem large_retry_decreases {start next : Attempt} {score : Int}
       split <;> decide
     · cases step
 
-private theorem finish_large (search : Aspiration.Trials Payload) (finite : FiniteTrials search)
-    (window : start.window) (large : 65536 ≤ start.delta)
-    (fuelBound : rank start.alpha start.beta < fuel) :
-    ∃ result, run search fuel i start = some result := by
-  induction fuel generalizing i start with
+/-- The retry budget applies even when each trial mutates the table and the root rows. -/
+def HasFuel : Nat → Attempt → Prop
+  | 0, _ => False
+  | n + 1, start => ∀ score, FiniteScore score → ∀ next, start.retry score = some next → HasFuel n next
+
+private theorem finish_large (window : start.window) (large : 65536 ≤ start.delta)
+    (bound : rank start.alpha start.beta < fuel) : HasFuel fuel start := by
+  induction fuel generalizing start with
   | zero => omega
   | succ fuel ih =>
-    rw [run]
-    cases abort : (search i start.alpha start.beta).aborted
-    · simp only [Bool.false_eq_true, ite_false]
-      cases step : start.retry (search i start.alpha start.beta).score with
-      | none => exact ⟨_, rfl⟩
-      | some next =>
-        have value := finite _ _ _ window abort
-        have smaller := large_retry_decreases window large value step
-        obtain ⟨valid, width⟩ := retry_window window value (by omega) step
-        exact ih valid (by rw [width]; unfold grow; omega) (by omega)
-    · simp only [ite_true]
-      exact ⟨_, rfl⟩
+    intro score finite next step
+    have smaller := large_retry_decreases window large finite step
+    obtain ⟨valid,width⟩ := retry_window window finite (by omega) step
+    exact ih valid (by rw [width]; unfold grow; omega) (by omega)
 
-private theorem warmup (search : Aspiration.Trials Payload) (finite : FiniteTrials search)
-    (window : start.window) (positive : 0 < start.delta)
-    (large : 65536 ≤ growN rounds start.delta) :
-    ∃ result, run search (rounds + 4) i start = some result := by
-  induction rounds generalizing i start with
-  | zero =>
-    exact finish_large search finite window large (Nat.lt_succ_of_le (rank_bound ..))
+private theorem warmup (window : start.window) (positive : 0 < start.delta)
+    (large : 65536 ≤ growN rounds start.delta) : HasFuel (rounds + 4) start := by
+  induction rounds generalizing start with
+  | zero => exact finish_large window large (Nat.lt_succ_of_le (rank_bound ..))
   | succ rounds ih =>
-    rw [Nat.succ_add, run]
-    cases abort : (search i start.alpha start.beta).aborted
-    · simp only [Bool.false_eq_true, ite_false]
+    rw [Nat.succ_add]
+    intro score finite next step
+    obtain ⟨valid,width⟩ := retry_window window finite positive step
+    exact ih valid (by rw [width]; unfold grow; omega) (by rwa [width,growN_step])
+
+theorem enough_retries (valid : start.window) (width : 512 ≤ start.delta) : HasFuel 16 start :=
+  warmup (rounds := 12) valid (by omega)
+    (Int.le_trans (by decide : (65536 : Int) ≤ growN 12 512) (growN_mono 12 width))
+
+private theorem run_with_fuel (search : Aspiration.Trials Payload) (finite : FiniteTrials search)
+    (valid : start.window) (positive : 0 < start.delta) (budget : HasFuel fuel start) :
+    ∃ result, run search fuel i start = some result := by
+  induction fuel generalizing i start with
+  | zero => contradiction
+  | succ fuel ih =>
+    rw [run]
+    split
+    · exact ⟨_,rfl⟩
+    next live =>
       cases step : start.retry (search i start.alpha start.beta).score with
-      | none => exact ⟨_, rfl⟩
+      | none => exact ⟨_,rfl⟩
       | some next =>
-        obtain ⟨valid, width⟩ := retry_window window (finite _ _ _ window abort) positive step
-        exact ih valid (by rw [width]; unfold grow; omega) (by rwa [width, growN_step])
-    · simp only [ite_true]
-      exact ⟨_, rfl⟩
+        have word := finite _ _ _ valid (by simpa using live)
+        obtain ⟨win,width⟩ := retry_window valid word positive step
+        exact ih win (by rw [width]; unfold grow; omega) (budget _ word next step)
 
 def TerminationContract : Prop :=
   ∀ (Payload : Type) (search : Aspiration.Trials Payload) (start : Attempt),
@@ -83,10 +90,7 @@ def TerminationContract : Prop :=
 
 theorem terminationContract_proven : TerminationContract := by
   intro Payload search start finite valid delta
-  have large : (65536 : Int) ≤ growN 12 512 := by decide
-  obtain ⟨result, returned⟩ :=
-    warmup (i := 0) (rounds := 12) search finite valid (by omega)
-      (Int.le_trans large (growN_mono 12 delta))
+  obtain ⟨result, returned⟩ := run_with_fuel (i := 0) search finite valid (by omega) (enough_retries valid delta)
   exact ⟨result, returned, run_witness search finite valid (by omega) returned⟩
 
 def AcceptanceContract : Prop :=

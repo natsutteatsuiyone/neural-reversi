@@ -207,6 +207,24 @@ class PolicyRegression(unittest.TestCase):
                 policy.main()
             self.assertIn("PROOF POLICY OK (1 Lean files", output.getvalue())
 
+    def test_main_scans_tla_lean_witnesses(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            lean_dir = root / "lean"
+            witness_dir = root / "tla" / "lean-witnesses"
+            lean_dir.mkdir(parents=True)
+            witness_dir.mkdir(parents=True)
+            (lean_dir / "Ok.lean").write_text("def x : Nat := 0\n", encoding="utf-8")
+            (witness_dir / "ReplayBad.lean").write_text("theorem bad : True := by bv_decide\n", encoding="utf-8")
+            with patch.object(policy, "LEAN_ROOT", lean_dir), self.assertRaises(SystemExit) as caught:
+                policy.main()
+            self.assertIn("ReplayBad.lean:1: bv_decide", str(caught.exception))
+            (witness_dir / "ReplayBad.lean").write_text("theorem ok : True := trivial\n", encoding="utf-8")
+            output = io.StringIO()
+            with patch.object(policy, "LEAN_ROOT", lean_dir), contextlib.redirect_stdout(output):
+                policy.main()
+            self.assertIn("PROOF POLICY OK (2 Lean files", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

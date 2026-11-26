@@ -1,5 +1,6 @@
 import NeuralReversi.Board.Model
 import NeuralReversi.Solve2.Control
+import NeuralReversi.TranspositionTable.Clear
 
 namespace NeuralReversi.EndgameCache
 
@@ -28,6 +29,14 @@ def probe (e : Entry) (board : Board) (alpha : Int) : Option Int :=
   else if e.lower.toInt > alpha then some e.lower.toInt
   else if e.upper.toInt ≤ alpha then some e.upper.toInt
   else none
+
+def SlotContract : Prop :=
+  ∀ key (len : BitVec 64), 0 < len.toNat →
+    TranspositionTable.Clear.mulHi64 key len < len.toNat
+
+theorem slotContract_proven : SlotContract := by
+  intro key len positive
+  exact TranspositionTable.Clear.mulHi64_lt key len positive
 
 def InRange (n : Int) : Prop := -64 ≤ n ∧ n ≤ 64
 

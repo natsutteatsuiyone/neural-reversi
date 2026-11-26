@@ -1,0 +1,155 @@
+import NeuralReversi.PvsParallel.Interleaving.Drive
+import NeuralReversi.PvsParallel.Interleaving.EventOrder
+import NeuralReversi.PvsParallel.Interleaving.Schedule
+
+open NeuralReversi NeuralReversi.PvsParallel
+open Interleaving
+
+private def bit : String → Option Bool
+  | "0" => some false
+  | "1" => some true
+  | _ => none
+
+private def word (s : String) : Option (BitVec 32) := do
+  let n ← s.toInt?
+  guard (-2147483648 ≤ n ∧ n ≤ 2147483647)
+  return BitVec.ofInt 32 n
+
+private def query (index : Nat) : List String → Option SplitWorkerMir.Query
+  | [pv,d,a,z,cut,r] => return ⟨index,← d.toNat?,← bit pv,← word a,← word z,← bit cut,← word r⟩
+  | _ => none
+
+private def numerical (t : Schedule.Task) (s : Tickets.State 64) (stopped : Bool) (ws : List String) :
+    Option Drive.Event := do
+  let worker :: ordinal :: selectedAlpha :: chosen :: cut :: preA :: preB :: postA :: postB :: a :: f :: children := ws
+    | none
+  let index ← ordinal.toNat?
+  let i ← worker.toNat?
+  let a ← a.toInt?
+  let f ← f.toInt?
+  let scout ← query index (children.take 6)
+  let rest := children.drop 6
+  let wide ← if rest.isEmpty then pure none else some <$> query index rest
+  let prefixes := List.range (s.reports.length+1)
+  let alpha k := alphaAt t.pv t.beta t.entry ((s.reports.map Tickets.Post.report).map Threading.SplitResult.Report.score) k
+  let k ← prefixes.find? (fun n => alpha n == a)
+  let l ← prefixes.find? (fun n => alpha n == f)
+  let reply : PvsMoveLoop.ChildSearch Nat := fun _ pv _ _ =>
+    if pv then (wide.map (fun q => q.result.toInt)).getD 0 else scout.result.toInt
+  let j : Schedule.Job := ⟨index,k,l,reply⟩
+  let input := j.input t s.reports
+  let body ← SplitWorkerMir.search input
+  let issued := body.steps.filterMap (fun | .returned q => some q | _ => none)
+  guard (issued == scout :: wide.toList)
+  guard (body.chosen == (← word chosen) && body.searchedAlpha == (← word selectedAlpha))
+  let locked : SplitWorkerMir.Locked := ⟨stopped,← word preA,← word preB⟩
+  let before := t.locked s.reports
+  guard (locked.alpha.toInt == before.alpha && locked.best.toInt == before.best)
+  let c := SplitWorkerMir.commit input locked body.chosen
+  let after := SplitWorkerMir.lockedState locked c
+  guard (after.alpha == (← word postA).toInt && after.best == (← word postB).toInt && c.cut == (← bit cut))
+  if stopped then
+    guard (c.exit == .stopped)
+    return .discard i index
+  let p := j.post t s.reports
+  guard (p.report.index == index && p.report.score == body.chosen.toInt &&
+    p.report.searchedAlpha == body.searchedAlpha.toInt && p.cut == c.cut)
+  return .report i p
+
+private def decode (t : Schedule.Task) (s : Tickets.State 64) : List String → Option Drive.Event
+  | ["book",w] => return .book (← w.toNat?)
+  | ["take",w,i] => return .take (← w.toNat?) (← i.toNat?)
+  | ["empty",w] => return .empty (← w.toNat?)
+  | "report" :: rest => numerical t s false rest
+  | "discard" :: rest => numerical t s true rest
+  | ["leave",w] => return .leave (← w.toNat?)
+  | ["external",_] => return .externalStop
+  | _ => none
+
+private def task : List String → Option Schedule.Task
+  | [pv,root,cut,depth,beta,alpha,best] =>
+    return ⟨← bit pv,← bit root,← bit cut,← depth.toNat?,← beta.toInt?,⟨← alpha.toInt?,← best.toInt?⟩⟩
+  | _ => none
+
+private inductive Access where
+  | claim (index : Nat)
+  | empty
+  | locked
+  deriving BEq
+
+private structure Row where
+  worker : Nat
+  access : Access
+  words : List String
+
+private def row (ws : List String) : Option Row := do
+  let op :: w :: args := ws | none
+  let worker ← w.toNat?
+  match op,args with
+  | "take",[index] => return ⟨worker,.claim (← index.toNat?),ws⟩
+  | "empty",[] => return ⟨worker,.empty,ws⟩
+  | "book",_ | "leave",_ | "report",_ | "discard",_ | "external",_ => return ⟨worker,.locked,ws⟩
+  | _,_ => none
+
+private def before (rows : Array Row) (i j : Fin rows.size) : Bool :=
+  let a := rows[i]
+  let b := rows[j]
+  (i < j && (a.worker == b.worker || (a.access == .locked && b.access == .locked))) ||
+    match a.access, b.access with
+    | .claim fromIndex, .claim toIndex => fromIndex < toIndex
+    | .claim _, .empty => true
+    | _,_ => false
+
+private def reorder (rows : Array Row) (proposed : List String) : Option (List Row) := do
+  let indices ← proposed.mapM fun s => do
+    let i ← s.toNat?
+    if h : i < rows.size then pure (⟨i,h⟩ : Fin rows.size) else none
+  let checked ← EventOrder.check (before rows) indices
+  return checked.indices.map fun i => rows[i]
+
+def main (args : List String) : IO Unit := do
+  let [file] := args | throw (IO.userError "expected a split event file")
+  let mut current : Option (Nat × Schedule.Task × Tickets.State 64) := none
+  let mut returned := 0
+  let mut rows : Array Row := #[]
+  let mut ordered := false
+  for line in (← IO.FS.lines file) do
+    let words := line.splitOn " "
+    match words, current with
+    | "begin" :: n :: first :: worker :: params, none =>
+      let some len := n.toNat? | throw (IO.userError line)
+      let some start := first.toNat? | throw (IO.userError line)
+      let some owner := worker.toNat? | throw (IO.userError line)
+      let some t := task params | throw (IO.userError line)
+      unless start ≤ len ∧ len ≤ 35 ∧ owner < 64 do throw (IO.userError line)
+      current := some (len,t,Tickets.initial (BitVec.ofNat 64 start) owner)
+      rows := #[]
+      ordered := false
+    | ["zero",raw,flag], some (_,t,s) =>
+      unless ordered do throw (IO.userError "missing split event order")
+      unless s.pollers.isEmpty && s.pending.isEmpty && s.departing.isEmpty do
+        throw (IO.userError "Acquire returned zero with a live worker")
+      let some stopped := bit flag | throw (IO.userError line)
+      let some score := raw.toInt? | throw (IO.userError line)
+      unless score == (t.locked s.reports).best && (!s.outside || stopped) do
+        throw (IO.userError "owner returned an inconsistent score or stop state")
+      current := none
+      returned := returned + 1
+    | "order" :: ids, some (len,t,s) =>
+      if ordered then throw (IO.userError "duplicate split event order")
+      let some replay := reorder rows ids | throw (IO.userError "invalid split event ordering")
+      let mut state := s
+      for event in replay do
+        let detail := String.intercalate " " event.words
+        let some e := decode t state event.words | throw (IO.userError s!"invalid locked score or child query: {detail}")
+        let some next := Drive.step len state e | throw (IO.userError s!"invalid split transition: {detail}")
+        state := next
+      current := some (len,t,state)
+      ordered := true
+    | _, some _ =>
+      if ordered then throw (IO.userError "observed event after split event order")
+      let some event := row words | throw (IO.userError line)
+      rows := rows.push event
+    | _, none => throw (IO.userError line)
+  unless current.isNone && returned > 0 do throw (IO.userError "incomplete split trace")
+  IO.println s!"Replayed {returned} split generations"

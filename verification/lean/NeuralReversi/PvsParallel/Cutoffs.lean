@@ -3,6 +3,8 @@ import NeuralReversi.PvsEnhancedCutoff
 import NeuralReversi.TranspositionTable.ProbeRetry
 import NeuralReversi.TranspositionTable.Save
 import NeuralReversi.TranspositionTable.StoredBound
+import NeuralReversi.TranspositionTable.Penalty
+import NeuralReversi.TranspositionTable.WriterTrace
 
 namespace NeuralReversi.PvsParallel.Cutoffs
 
@@ -17,8 +19,35 @@ def exactSelectivity : Selectivity := ⟨5, by decide⟩
 
 def key (b : Position) : ProbeRetry.Key := (b.val.player, b.val.opponent)
 
+def ExactEndgame (entry : EntryData) : Prop :=
+  entry.flags.getLsbD 0 = true ∧ 5 ≤ entry.selectivity.toNat
+
+theorem exactEndgame_of_eligible {entry : EntryData} {depth : Depth}
+    (eligible : Eligible entry depth exactSelectivity true) : ExactEndgame entry := by
+  refine ⟨eligible.1.resolve_left (by decide), ?_⟩
+  exact Nat.le_trans eligible.2.2 (Nat.min_le_left _ _)
+
 def SoundHistory (mc : X86Config) (fc : FlipConfig) (history : History) : Prop :=
-  ∀ b entry, (b, entry) ∈ history → BoundSound entry (minimax mc fc b)
+  ∀ b entry, (b, entry) ∈ history → ExactEndgame entry → BoundSound entry (minimax mc fc b)
+
+theorem SoundHistory.append_other {mc : X86Config} {fc : FlipConfig} {history : History}
+    (sound : SoundHistory mc fc history) (b : Position) (entry : EntryData)
+    (other : ¬ExactEndgame entry) : SoundHistory mc fc (history ++ [(b, entry)]) := by
+  intro board data present eligible
+  rcases List.mem_append.mp present with earlier | new
+  · exact sound board data earlier eligible
+  · obtain ⟨rfl, rfl⟩ := Prod.mk.inj (List.mem_singleton.mp new)
+    exact (other eligible).elim
+
+theorem SoundHistory.append_penalty {mc : X86Config} {fc : FlipConfig} {history : History}
+    (sound : SoundHistory mc fc history) (b : Position) (entry : EntryData)
+    (previous : (b, entry) ∈ history) :
+    SoundHistory mc fc (history ++ [(b, Packing.penalized entry)]) := by
+  intro board data present eligible
+  rcases List.mem_append.mp present with earlier | new
+  · exact sound board data earlier eligible
+  · obtain ⟨rfl, rfl⟩ := Prod.mk.inj (List.mem_singleton.mp new)
+    exact (Penalty.penalized_boundSound entry _).mpr (sound _ entry previous eligible)
 
 def StoreContract : Prop :=
   ∀ (mc : X86Config) (fc : FlipConfig) (history : History) (b : Position)
@@ -48,13 +77,13 @@ theorem storeContract_proven : StoreContract := by
       unfold Save.payload
       split <;> exact ⟨rfl, rfl⟩
     refine ⟨fields.1 ▸ packed.1, ?_⟩
-    intro board entry member
+    intro board entry member eligible
     rcases List.mem_append.mp member with earlier | new
-    · exact historySound board entry earlier
+    · exact historySound board entry earlier eligible
     · obtain ⟨rfl, rfl⟩ := Prod.mk.inj (List.mem_singleton.mp new)
       simpa only [BoundSound, fields.1, fields.2] using packed.2.1
 
-private theorem cutBound (entry : EntryData) (alpha beta : Score) (depth : Depth) (checked : Bool)
+theorem cutBound (entry : EntryData) (alpha beta : Score) (depth : Depth) (checked : Bool)
     (truth : Int) (narrow : beta.raw.toInt = alpha.raw.toInt + 1) (sound : BoundSound entry truth)
     (cut : canCut checked entry beta depth exactSelectivity true = .ok true) :
     PvsMoveLoop.Bound truth alpha.raw.toInt beta.raw.toInt entry.score.toInt := by
@@ -65,46 +94,150 @@ private theorem cutBound (entry : EntryData) (alpha beta : Score) (depth : Depth
 
 def ProbeMatches (history : History) (b : Position) (attempts : List ProbeRetry.RawAttempt)
     (slot : Fin 2) (entry : EntryData) : Prop :=
-  ∀ a ∈ attempts.take 3, a.readSlot slot = some (key b, entry) → (b, entry) ∈ history
+  ∀ a ∈ attempts.take 3, a.readSlot slot = some (key b, entry) →
+    entry.bound ≠ 0 → (b, entry) ∈ history
 
-structure Lookup (history : History) (b : Position) (entry : EntryData) where
+def SlotPublications (history : History) {memory : SeqLock.Memory Nat}
+    (slot : WriterTrace.Slot memory) (bigEndian : Bool) : Prop :=
+  ∀ epoch, 2 * epoch ≤ slot.history.length →
+    let entry := Packing.unpack bigEndian (memory.writeValue (.payload .metadata) epoch)
+    entry.bound ≠ 0 →
+    ∃ board : Position, (board, entry) ∈ history ∧
+      memory.writeValue (.payload .player) epoch = board.val.player ∧
+      memory.writeValue (.payload .opponent) epoch = board.val.opponent
+
+structure RawSample where
   memory : SeqLock.Memory Nat
-  epoch : Nat
+  firstIndex : Nat
   finalIndex : Nat
-  writers : SeqLock.Writers memory
-  reader : SeqLock.Reader memory epoch finalIndex
+  slot : WriterTrace.Slot memory
+  reader : SeqLock.RawReader memory firstIndex finalIndex
   pe : Nat
   oe : Nat
   de : Nat
   player : SeqLock.FieldRead reader .player pe
   opponent : SeqLock.FieldRead reader .opponent oe
   metadata : SeqLock.FieldRead reader .metadata de
-  noWrap : finalIndex < 2 * epoch + SeqLock.modulus
-  raw : SeqLock.Word
+  noWrap : finalIndex < firstIndex + SeqLock.modulus
   bigEndian : Bool
-  accepted : SeqLock.lookupDecision (memory.readValue reader.first) (memory.readValue reader.last)
-    ⟨memory.readValue player.event, memory.readValue opponent.event, memory.readValue metadata.event⟩
+
+def RawSample.publication (sample : RawSample) (history : History) : Prop :=
+  let payload := sample.slot.payloadAt (sample.firstIndex / 2)
+  let entry := Packing.unpack sample.bigEndian payload.metadata
+  entry.bound ≠ 0 →
+  ∃ board : Position, (board, entry) ∈ history ∧
+    payload.player = board.val.player ∧ payload.opponent = board.val.opponent
+
+structure ReadSample (history : History) extends RawSample where
+  published : toRawSample.publication history
+
+def ReadSample.weaken (sample : ReadSample history) (included : ∀ pair ∈ history, pair ∈ later) :
+    ReadSample later :=
+  ⟨sample.toRawSample, fun occupied => by
+    obtain ⟨board, present, player, opponent⟩ := sample.published occupied
+    exact ⟨board, included _ present, player, opponent⟩⟩
+
+def RawSample.first (sample : RawSample) : SeqLock.Word :=
+  sample.memory.readValue sample.reader.first
+
+def RawSample.last (sample : RawSample) : SeqLock.Word :=
+  sample.memory.readValue sample.reader.last
+
+def RawSample.payload (sample : RawSample) : SeqLock.Payload :=
+  ⟨sample.memory.readValue sample.player.event, sample.memory.readValue sample.opponent.event,
+    sample.memory.readValue sample.metadata.event⟩
+
+theorem RawSample.publishingCall (raw : RawSample) (even : raw.first &&& 1 = 0)
+    (positive : 0 < raw.firstIndex) :
+    ∃ call, raw.slot.history[raw.firstIndex - 1]? = some (.publish call) ∧
+      raw.slot.payloadAt (raw.firstIndex / 2) = call.payload ∧
+      raw.memory.hb call.finish raw.reader.first := by
+  let writers := raw.slot.writers
+  let reader := raw.reader.asStable writers even
+  have index := raw.reader.evenIndex writers even
+  have known := raw.slot.source _ _ raw.reader.first_rf
+  obtain ⟨call, event, words⟩ := raw.slot.publishedPayload (raw.firstIndex / 2) (by omega) (by omega)
+  rw [← index] at event
+  have physical := (raw.slot.modified _ _ event).1
+  rw [show raw.firstIndex - 1 + 1 = raw.firstIndex by omega] at physical
+  have prior := reader.publicationAcquired writers (by omega)
+  change raw.memory.hb (raw.memory.write .sequence (2 * (raw.firstIndex / 2))) raw.reader.first at prior
+  rw [← index, physical] at prior
+  exact ⟨call, event, words, prior⟩
+
+structure Lookup (history : History) (b : Position) (entry : EntryData)
+    extends ReadSample history where
+  raw : SeqLock.Word
+  accepted : SeqLock.lookupDecision toReadSample.first toReadSample.last toReadSample.payload
     b.val.player b.val.opponent = some raw
   decoded : Packing.unpack bigEndian raw = entry
-  stored : Position
-  storedPlayer : memory.writeValue (.payload .player) epoch = stored.val.player
-  storedOpponent : memory.writeValue (.payload .opponent) epoch = stored.val.opponent
-  publication : (stored, Packing.unpack bigEndian (memory.writeValue (.payload .metadata) epoch)) ∈ history
+  occupied : entry.bound ≠ 0
+
+def Lookup.weaken (lookup : Lookup history b entry) (included : ∀ pair ∈ history, pair ∈ later) :
+    Lookup later b entry :=
+  ⟨lookup.toReadSample.weaken included, lookup.raw, lookup.accepted, lookup.decoded, lookup.occupied⟩
+
+private theorem Lookup.even (lookup : Lookup history b entry) :
+    lookup.memory.readValue lookup.reader.first &&& 1 = 0 :=
+  ((SeqLock.lookup_success_iff _ _ _ _ _ _).mp lookup.accepted).1
 
 theorem Lookup.source (lookup : Lookup history b entry) : (b, entry) ∈ history := by
-  obtain ⟨player, opponent, data⟩ := SeqLock.lookup_consistent lookup.writers lookup.reader
-    lookup.player lookup.opponent lookup.metadata b.val.player b.val.opponent lookup.raw
-    lookup.noWrap lookup.accepted
-  have equal : lookup.stored = b := by
+  let writers := lookup.slot.writers
+  let reader := lookup.reader.asStable writers lookup.even
+  have noWrap : lookup.finalIndex < 2 * (lookup.firstIndex / 2) + SeqLock.modulus := by
+    rw [← lookup.reader.evenIndex writers lookup.even]
+    exact lookup.noWrap
+  obtain ⟨player, opponent, data⟩ := SeqLock.lookup_consistent writers reader
+    (lookup.player.asStable writers lookup.even) (lookup.opponent.asStable writers lookup.even)
+    (lookup.metadata.asStable writers lookup.even) b.val.player b.val.opponent lookup.raw noWrap lookup.accepted
+  have payload := (congrArg (Packing.unpack lookup.bigEndian) data).symm.trans lookup.decoded
+  obtain ⟨stored, valid, storedPlayer, storedOpponent⟩ :=
+    lookup.published (by
+      change (Packing.unpack lookup.bigEndian
+        (lookup.memory.writeValue (.payload .metadata) (lookup.firstIndex / 2))).bound ≠ 0
+      rw [payload]
+      exact lookup.occupied)
+  have equal : stored = b := by
     apply Subtype.ext
-    have left := lookup.storedPlayer.symm.trans player
-    have right := lookup.storedOpponent.symm.trans opponent
+    have left := storedPlayer.symm.trans player
+    have right := storedOpponent.symm.trans opponent
     calc
-      lookup.stored.val = ⟨lookup.stored.val.player, lookup.stored.val.opponent⟩ := rfl
+      stored.val = ⟨stored.val.player, stored.val.opponent⟩ := rfl
       _ = ⟨b.val.player, b.val.opponent⟩ := by rw [left, right]
       _ = b.val := rfl
-  have payload := (congrArg (Packing.unpack lookup.bigEndian) data).symm.trans lookup.decoded
-  simpa only [equal, payload] using lookup.publication
+  change (stored, Packing.unpack lookup.bigEndian
+    (lookup.memory.writeValue (.payload .metadata) (lookup.firstIndex / 2))) ∈ history at valid
+  simpa only [equal, payload] using valid
+
+def ReadProvenanceContract : Prop :=
+  ∀ history b entry (lookup : Lookup history b entry),
+    (b, entry) ∈ history ∧ lookup.firstIndex = lookup.finalIndex ∧
+    (0 < lookup.firstIndex →
+      lookup.memory.hb (lookup.memory.write .sequence lookup.firstIndex) lookup.reader.first)
+
+theorem readProvenanceContract_proven : ReadProvenanceContract := by
+  intro history b entry lookup
+  let writers := lookup.slot.writers
+  have valid := (SeqLock.lookup_success_iff _ _ _ _ _ _).mp lookup.accepted
+  refine ⟨lookup.source, lookup.reader.validatedIndex writers lookup.noWrap valid.2.2.2.1, ?_⟩
+  intro positive
+  have index := lookup.reader.evenIndex writers lookup.even
+  have acquired := (lookup.reader.asStable writers lookup.even).publicationAcquired writers (by omega)
+  change lookup.memory.hb (lookup.memory.write .sequence (2 * (lookup.firstIndex / 2)))
+    lookup.reader.first at acquired
+  rw [← index] at acquired
+  exact acquired
+
+def PublishedProbe (history : History) (b : Position) (attempts : List ProbeRetry.RawAttempt) : Prop :=
+  ∀ a ∈ attempts.take 3, ∀ slot entry,
+    a.readSlot slot = some (key b, entry) → entry.bound ≠ 0 → Nonempty (Lookup history b entry)
+
+theorem PublishedProbe.matches
+    (reads : PublishedProbe history b attempts) (slot : Fin 2) (entry : EntryData) :
+    ProbeMatches history b attempts slot entry := by
+  intro attempted present read occupied
+  obtain ⟨lookup⟩ := reads attempted present slot entry read occupied
+  exact lookup.source
 
 def ProbedChildren (mc : X86Config) (fc : FlipConfig) (context : History) (b : Position)
     (q : PvsEnhancedCutoff.Query) (probes : List PvsEnhancedCutoff.Probe) : Prop :=
@@ -112,16 +245,17 @@ def ProbedChildren (mc : X86Config) (fc : FlipConfig) (context : History) (b : P
     ∃ move : GeneratedSquare mc b.val, move.val = probe.1 ∧ move ∈ legalSquares mc b.val ∧
       Nonempty (Lookup context (play mc fc b move).val entry)
 
-private theorem etcBound (mc : X86Config) (fc : FlipConfig) (b : Position) (q : PvsEnhancedCutoff.Query)
-    (context : History) (probes : List PvsEnhancedCutoff.Probe) (hit : PvsEnhancedCutoff.Hit)
-    (historySound : SoundHistory mc fc context) (probed : ProbedChildren mc fc context b q probes)
+theorem etcBoundFrom (mc : X86Config) (fc : FlipConfig) (b : Position) (q : PvsEnhancedCutoff.Query)
+    (probes : List PvsEnhancedCutoff.Probe) (hit : PvsEnhancedCutoff.Hit)
+    (probed : ∀ probe ∈ probes, ∀ entry, probe.2 = some entry →
+      Eligible entry (q.depth-1) q.selectivity q.endgame →
+      ∃ move ∈ legalSquares mc b.val, BoundSound entry (minimax mc fc (play mc fc b move).val))
     (cut : PvsEnhancedCutoff.scan q probes = some hit) :
     PvsMoveLoop.Bound (minimax mc fc b) q.alpha.raw.toInt (q.alpha.raw.toInt + 1) hit.2 := by
   obtain ⟨before, probe, after, order, ⟨entry, probedEntry, eligible, tag, high, same⟩, _⟩ :=
     ((PvsEnhancedCutoff.contract_proven q probes).2.1 hit).mp cut
-  obtain ⟨move, _, legal, ⟨lookup⟩⟩ :=
-    probed probe (by simp [order]) entry probedEntry eligible
-  have upper := (historySound _ _ lookup.source).2 (by
+  obtain ⟨move,legal,bound⟩ := probed probe (by simp [order]) entry probedEntry eligible
+  have upper := bound.2 (by
     rcases tag with exactTag | upperTag
     · rw [exactTag]; decide
     · rw [upperTag]; decide)
@@ -197,12 +331,29 @@ theorem contract_proven : Contract := by
   | stability alpha result raw checked hit converted =>
     exact stabilityBound mc fc b alpha result raw checked hit converted
   | probe context attempts slot entry alpha beta depth checked historySound matched hit cut =>
-    obtain ⟨attempt, member, published, _⟩ :=
+    obtain ⟨attempt, member, published, occupied⟩ :=
       ProbeRetry.contract_proven.2 (key b) attempts slot entry hit
     exact cutBound entry alpha beta depth checked _ (null rfl)
-      (historySound b entry (matched attempt member published)) cut
-  | enhanced context probes query hit _ _ historySound matched cut =>
-    exact etcBound mc fc b query context probes hit historySound matched cut
+      (historySound b entry (matched attempt member published occupied)
+        (exactEndgame_of_eligible (canCut_true_iff _ _ _ _ _ _ |>.mp cut).1)) cut
+  | enhanced context probes query hit exact endgame historySound matched cut =>
+    apply etcBoundFrom mc fc b query probes hit _ cut
+    intro probe member e found eligible
+    obtain ⟨m,_,legal,⟨read⟩⟩ := matched probe member e found eligible
+    exact ⟨m,legal,historySound _ _ read.source (exactEndgame_of_eligible (by simpa only [exact,endgame] using eligible))⟩
+
+def PublishedCutContract : Prop :=
+  ∀ mc fc b history attempts slot entry (alpha beta : Score) depth checked,
+    SoundHistory mc fc history → PublishedProbe history b attempts →
+    beta.raw.toInt = alpha.raw.toInt + 1 →
+    ProbeRetry.probe (attempts.map (ProbeRetry.observe (key b))) = .hit slot entry →
+    canCut checked entry beta depth exactSelectivity true = .ok true →
+    PvsMoveLoop.Bound (minimax mc fc b) alpha.raw.toInt beta.raw.toInt entry.score.toInt
+
+theorem publishedCutContract_proven : PublishedCutContract := by
+  intro mc fc b history attempts slot entry alpha beta depth checked sound reads narrow hit cut
+  exact contract_proven mc fc b false _ _ _ (fun _ => narrow)
+    (.probe history attempts slot entry alpha beta depth checked sound (reads.matches slot entry) hit cut)
 
 private def scalarMoves : X86Config := ⟨false, false⟩
 private def scalarFlips : FlipConfig := ⟨false, false, false⟩

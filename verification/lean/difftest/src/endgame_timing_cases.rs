@@ -1,5 +1,8 @@
 use std::io::{self, Write};
 
+use flip_scalar_difftest::SplitMix64;
+
+#[allow(clippy::duplicate_mod)]
 #[path = "../../../../crates/reversi-core/src/search/time_control/endgame_budget.rs"]
 mod endgame_budget;
 
@@ -72,10 +75,10 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
         }
     }
 
-    let mut rng = super::SplitMix64(0x74a1_892f_a120_9125);
+    let mut rng = SplitMix64(0x74a1_892f_a120_9125);
     for _ in 0..1024 {
-        let factor = f64::from_bits(rng.next() & 0x7fff_ffff_ffff_ffff);
-        write_case(out, rng.next(), rng.next(), factor)?;
+        let factor = f64::from_bits(rng.next_u64() & 0x7fff_ffff_ffff_ffff);
+        write_case(out, rng.next_u64(), rng.next_u64(), factor)?;
     }
     Ok(())
 }

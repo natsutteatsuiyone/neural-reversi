@@ -1,0 +1,83 @@
+private structure Child where
+  worker : Nat
+  address : Nat
+  index : Nat
+  square : Bitboard.Square
+  sampled : Nat
+  phase : Nat
+  alpha : Int
+  entered : Nat
+  returned : Nat
+  board : Board.Board
+  depth : Nat
+  pv : Bool
+  lo : Int
+  hi : Int
+  cut : Bool
+  score : Int
+
+private structure Ticket where
+  worker : Nat
+  address : Nat
+  index : Nat
+  square : Bitboard.Square
+  claimed : Nat
+  children : List Child
+  locked : Nat
+  outcome : Option (Int × Int)
+  stored : Option BestPublisher.Store
+
+private def tickets : List Ticket := PACKETS
+private def ordered : List Bitboard.Square := MOVES
+
+private def childOK (t : Ticket) (cp : Board.Board) (c : Child) (wide : Bool) (afterTick : Nat) : Bool :=
+  c.worker == t.worker && c.index == t.index && c.square == t.square && c.address == t.address &&
+  c.board == cp && c.depth+1 == DEPTH && c.phase == (if wide then 1 else 0) && c.pv == wide &&
+  c.lo == (if wide then -(BETA : Int) else -(c.alpha+1)) && c.hi == -c.alpha &&
+  c.cut == (if wide then false else !CUT) &&
+  decide (afterTick < c.sampled ∧ c.sampled < c.entered ∧ c.entered < c.returned ∧ c.returned < t.locked)
+
+private def packet (t : Ticket) : Option BestPublisher.Packet := do
+  guard (t.address == ADDRESS && decide (START ≤ t.index ∧ SEED < t.claimed))
+  guard (ordered[t.index]? == some t.square)
+  let mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+  let move ← (PvsBoardTree.legalSquares mc b.val).find? (fun m => m.val == t.square)
+  let cp := (PvsBoardTree.play mc ⟨false,false,false⟩ b move).val.val
+  let scout :: rest := t.children | none
+  guard (childOK t cp scout false t.claimed)
+  let chosen ← if PV && decide (-scout.score > scout.alpha) then do
+      let [wide] := rest | none
+      guard (childOK t cp wide true scout.returned)
+      pure (-wide.score)
+    else do
+      guard rest.isEmpty
+      pure (-scout.score)
+  match t.outcome with
+  | none => guard t.stored.isNone; return .stopped
+  | some (old,value) =>
+    guard (value == chosen)
+    return .live t.worker t.index (BitVec.ofInt 32 old) (BitVec.ofInt 32 chosen) t.stored
+
+private def winningWith (reports : List Ticket) : Option BestPublisher.Winner := do
+  guard (reports.map Ticket.index |>.Nodup)
+  let mutations := reports.flatMap fun t => t.locked :: (t.stored.map (fun wr => wr.event.step)).toList
+  guard (([MARK,SEED] ++ mutations ++ [LOAD]).Pairwise (· < ·))
+  let packets ← reports.mapM packet
+  BestPublisher.replay ⟨⟨WORKER,SEED⟩,BitVec.ofInt 32 (INITIAL)⟩ packets
+
+private abbrev winning := winningWith tickets
+
+private def acceptsSource (worker tick index : Nat) (v : Int) : Bool :=
+  decide (winning = some (⟨⟨worker,tick⟩,BitVec.ofInt 32 v⟩,some index)) &&
+  worker != WORKER && accepted false BANK MARK v
+
+example : (WORKER,BANK,ADDRESS) = (OTHERWORKER,OTHERBANK,OTHERADDRESS) ∧
+    MARK ≠ (OTHERMARK : Nat) := by decide +kernel
+
+private theorem remoteStoreAndOwner : acceptsSource WINNER WRITE INDEX (VALUE) = true := by decide +kernel
+
+CASECONTROL
+
+-- Replacing both endpoints by the seed misidentifies the writer even if its score is copied.
+example : winning ≠ some (⟨⟨WORKER,SEED⟩,BitVec.ofInt 32 (VALUE)⟩,none) := by decide +kernel
+example : accepted true BANK MARK (VALUE) = false := by decide +kernel

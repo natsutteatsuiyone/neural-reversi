@@ -58,6 +58,28 @@ def play (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
   exact ⟨⟨next, (Board.legalCheckedStep_progress mc edge b.property).1⟩,
     Board.legalCheckedStep_strict mc edge b.property⟩
 
+theorem play_occupancy (mc : X86Config) (fc : Flip.Dispatch.X86Config) (board : Position)
+    (square : GeneratedSquare mc board.val) :
+    let next := (play mc fc board square).val
+    next.val.player ||| next.val.opponent = (board.val.player ||| board.val.opponent) ||| Bitboard.squareMask square.val := by
+  have accepted := (Board.precomputedMoveContract_proven mc fc true true
+    board.val square.val board.property square.property).1
+  rw [Board.makeMoveWithFlippedAny_valid] at accepted
+  exact (Board.playableCheckedPlacementInvariant_proven _ _ _ _ board.property accepted).2.2.2
+
+/-- The newly occupied square distinguishes children of the same parent even
+    when searching them flips different sets of opposing discs. -/
+theorem play_injective (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
+    {m n : GeneratedSquare mc b.val} (same : (play mc fc b m).val.val = (play mc fc b n).val.val) : m = n := by
+  have occupied := congrArg (fun child : Board => (child.player ||| child.opponent).getLsbD m.val.val) same
+  change ((play mc fc b m).val.val.player ||| _).getLsbD _ = ((play mc fc b n).val.val.player ||| _).getLsbD _ at occupied
+  rw [play_occupancy,play_occupancy] at occupied
+  have legal := (Board.getMoves_exact mc b.val _).mp m.property
+  simp only [BitVec.getLsbD_or,Bitboard.squareMask_bit,legal.2.1,legal.2.2.1] at occupied
+  apply Subtype.ext
+  apply Fin.ext
+  simpa using occupied
+
 def TargetChildContract : Prop :=
   ∀ (target : Flip.Dispatch.TargetConfig) (mc : X86Config) (fc : Flip.Dispatch.X86Config)
     (b : Position) (sq : Bitboard.Square) (debugAssertions overflowChecks : Bool),
@@ -170,19 +192,21 @@ theorem contract_proven : Contract := by
   intro mc fc b pv alpha beta window null
   exact PvsMoveLoop.run_sound (build mc fc b) pv alpha beta window null
 
+theorem terminal_tree (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
+    (stuck : legalSquares mc b.val = [])
+    (other : Board.hasLegalMoves mc (Board.switchPlayers b.val) = false) :
+    build mc fc b = .leaf (terminalScore b) := by
+  rw [build.eq_def]
+  split
+  next eq => rw [stuck] at eq; cases eq
+  next => simp [pass, other]
+
 theorem terminal_value (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
     (stuck : legalSquares mc b.val = [])
     (other : Board.hasLegalMoves mc (Board.switchPlayers b.val) = false) :
     minimax mc fc b = 256 * Board.AwardedScore b.val := by
-  have leaf : build mc fc b = .leaf (terminalScore b) := by
-    rw [build.eq_def]
-    split
-    next eq =>
-      rw [stuck] at eq
-      cases eq
-    next => simp [pass, other]
   unfold minimax
-  rw [leaf, PvsMoveLoop.minimax.eq_def]
+  rw [terminal_tree mc fc b stuck other, PvsMoveLoop.minimax.eq_def]
   rfl
 
 theorem fullWindow_exact (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position) :

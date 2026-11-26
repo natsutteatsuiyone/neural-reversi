@@ -98,7 +98,7 @@ struct SharedTranspositionTable {
 impl SharedTranspositionTable {
     /// Returns a copy of the table for `game_id` once its board is not the one
     /// the sibling game left after our latest move there. Must be called
-    /// while holding the search lock: the copy needs the table free of writers.
+    /// while holding the search lock, which orders table writes across searches.
     fn split_off(&mut self, game_id: &str, board: &Board) -> Option<TranspositionTable> {
         let diverged = !self.diverged
             && self
@@ -109,7 +109,8 @@ impl SharedTranspositionTable {
         diverged
             .then(|| self.tt.upgrade())
             .flatten()
-            // SAFETY: the caller holds the search lock, so no search writes the table.
+            // SAFETY: completed searches publish their results before releasing
+            // the search lock, and the caller holds it until after the copy.
             .map(|tt| unsafe { tt.duplicate() })
     }
 

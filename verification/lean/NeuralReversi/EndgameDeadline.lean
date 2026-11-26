@@ -37,7 +37,7 @@ theorem checkContract_proven : CheckContract := by
   refine ⟨rfl, fun early => by simp [checkTime, beforeDeadline, early], fun expired => ?_⟩
   simp only [checkTime, beforeDeadline, Option.map_some, Option.getD_some, Nat.not_lt_of_ge expired,
     decide_false, Bool.false_eq_true, ite_false]
-  obtain ⟨_, _, _, stopped, requestAt, _, _⟩ := Threading.SearchAbort.generationWordContract_proven word
+  obtain ⟨_, _, _, stopped, requestAt, _⟩ := Threading.SearchAbort.generationWordContract_proven word
   refine ⟨trivial, trivial, ?_, ?_⟩
   · rintro (rfl | rfl)
     · exact ⟨rfl, stopped⟩
@@ -101,7 +101,7 @@ structure TimerSignal (history : History) (slot : Nat) where
 private theorem TimerSignal.stops (signal : TimerSignal history slot) :
     Stopped (history.epochs.get signal.abort).value ∧
       generation (history.epochs.get signal.abort).value = signal.target := by
-  obtain ⟨_, _, generationKept, stopped, requestAt, _, _⟩ :=
+  obtain ⟨_, _, generationKept, stopped, requestAt, _⟩ :=
     Threading.SearchAbort.generationWordContract_proven (history.epochs.get signal.prior).value
   have targeted := requestAt signal.target
   split at targeted

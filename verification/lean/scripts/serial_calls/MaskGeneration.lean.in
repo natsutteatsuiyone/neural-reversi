@@ -1,0 +1,163 @@
+import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+
+namespace NeuralReversi.PvsParallel.Interleaving.NativeMaskGeneration
+open Threading AtomicWord
+
+set_option maxRecDepth 16384
+set_option maxHeartbeats 8000000
+
+private instance (a b : Event) : Decidable (SequencedBefore a b) :=
+  inferInstanceAs (Decidable (a.worker = b.worker ∧ a.step < b.step))
+
+-- These are the preceding final release, every modification under the native
+-- slot lock up through this generation, and the following same-worker clear.
+private def writes : List Write := WRITES
+
+private def eligible (site : Event) (word : BitVec 64) (s : Fin writes.length) : Prop :=
+  (writes.get s).value = word ∧ ∀ i : Fin writes.length,
+    (SequencedBefore (writes.get i).event site → i.val ≤ s.val) ∧
+    (SequencedBefore site (writes.get i).event → s.val < i.val)
+
+private instance (site : Event) (word : BitVec 64) (s : Fin writes.length) :
+    Decidable (eligible site word s) := by unfold eligible; infer_instance
+
+private def receipts : List (Event × BitVec 64 × Event) := RECEIPTS
+
+-- Exactly one source satisfies the observed bits and same-worker bounds for
+-- each selected load. No comparison between different workers bounds a read.
+private theorem finite (r : Event × BitVec 64 × Event) (mem : r ∈ receipts) :
+    ∃ s : Fin writes.length, eligible r.1 r.2.1 s ∧
+      ∀ i : Fin writes.length, eligible r.1 r.2.1 i ↔ (writes.get i).event = r.2.2 :=
+  (by decide +kernel : ∀ x ∈ receipts, ∃ s : Fin writes.length, eligible x.1 x.2.1 s ∧
+    ∀ i : Fin writes.length, eligible x.1 x.2.1 i ↔ (writes.get i).event = x.2.2) r mem
+
+private theorem atPhysical (past future : List Write) (i : Fin writes.length) :
+    ((past ++ writes ++ future).get ⟨past.length+i.val,by simp; omega⟩) = writes.get i := by
+  simp only [List.get_eq_getElem]
+  rw [List.getElem_append_left (by simp), List.getElem_append_right (by omega)]
+  simp
+
+-- A full execution can contain arbitrary earlier and later modifications to
+-- this object. The two real owner clears place every load within the slice.
+private theorem actualSource (past future : List Write) (r : Event × BitVec 64 × Event)
+    (observed : r ∈ receipts) (read : Read (past ++ writes ++ future))
+    (site : read.event = r.1) (word : ((past ++ writes ++ future).get read.source).value = r.2.1)
+    (wr : ∀ i, SequencedBefore ((past ++ writes ++ future).get i).event read.event →
+      i.val ≤ read.source.val)
+    (rw : ∀ i, SequencedBefore read.event ((past ++ writes ++ future).get i).event →
+      read.source.val < i.val) :
+    ((past ++ writes ++ future).get read.source).event = r.2.2 := by
+  let physicalIndex (i : Fin writes.length) : Fin (past ++ writes ++ future).length :=
+    ⟨past.length + i.val,by simp; omega⟩
+  have eqAt (i) : (past ++ writes ++ future).get (physicalIndex i) = writes.get i := atPhysical past future i
+  have bounds := (by decide +kernel : ∀ x ∈ receipts,
+    SequencedBefore (writes.get ⟨1,by decide⟩).event x.1 ∧
+    SequencedBefore x.1 (writes.get ⟨LAST,by decide⟩).event) r observed
+  have lo := wr (physicalIndex ⟨1,by decide⟩) (by rw [eqAt,site]; exact bounds.1)
+  have hi := rw (physicalIndex ⟨LAST,by decide⟩) (by rw [eqAt,site]; exact bounds.2)
+  change past.length+1 ≤ read.source.val at lo
+  change read.source.val < past.length+LAST at hi
+  have size : writes.length = COUNT := by decide
+  let j : Fin writes.length := ⟨read.source.val-past.length,by omega⟩
+  have src : physicalIndex j = read.source := Fin.ext (by change past.length+(read.source.val-past.length) = _; omega)
+  have which : eligible r.1 r.2.1 j := by
+    refine ⟨?_,fun i => ⟨?_,?_⟩⟩
+    · rwa [← eqAt j,src]
+    · intro edge
+      have h := wr (physicalIndex i) (by rwa [eqAt,site])
+      change past.length+i.val ≤ read.source.val at h
+      change i.val ≤ read.source.val-past.length
+      omega
+    · intro edge
+      have h := rw (physicalIndex i) (by rwa [eqAt,site])
+      change read.source.val < past.length+i.val at h
+      change read.source.val-past.length < i.val
+      omega
+  rw [← src,eqAt]
+  obtain ⟨_,_,unique⟩ := finite r observed
+  exact (unique j).mp which
+
+private def lastReceipt : Event × BitVec 64 × Event := TERMINAL
+-- All three substitutions write the same zero bits at the same physical mask.
+-- The preceding final release, the clear, and the next reuse violate coherence.
+example : lastReceipt ∈ receipts ∧ lastReceipt.2.1 = 0 ∧
+    ∀ i ∈ ([⟨0,by decide⟩,⟨1,by decide⟩,⟨LAST,by decide⟩] : List (Fin writes.length)),
+      (writes.get i).value = 0 ∧ ¬ eligible lastReceipt.1 0 i := by decide +kernel
+
+private def b : PvsBoardTree.Position := ⟨⟨PLAYER,OPPONENT⟩,by unfold Board.wellFormed; decide⟩
+private def args : NativeFrames.Args := ⟨b.val,DEPTH,⟨BitVec.ofInt 32 (ALPHA)⟩,⟨BitVec.ofInt 32 (BETA)⟩,
+  true,LEVEL,PV,CUT,none⟩
+private def es (remote : Event) : Joint.Tape Unit := TAPE
+
+private def owner (remote : Event) := (show Option Unit from do
+  let tape := es remote
+  let frames ← CallReturns.captureTimed (tape.map Joint.Event.frameSample)
+  let [row] := frames.allRows | none
+  guard (row.score == SCORE)
+  let sc : CallReturns.Scope := ⟨frames.allRows,row.id,row.chosen,frames.calls⟩
+  guard (JournalHelpers.ownerWindow tape sc b false PV CUT LEVEL DEPTH (BETA) BANK
+    ⟨OWNER,MARK⟩ ⟨OWNER,SCORELOAD⟩ (SCORE) false)
+  return ()) |>.isSome
+
+private def ownerID : Fin 64 := ⟨OWNER,by decide⟩
+private def address : TaskRetention.Address :=
+  fun w b => if w == OWNER && b == BANK then some FLAG else none
+
+example : MaskGeneration.locate address (es lastReceipt.2.2) ⟨FLAG,⟨OWNER,MARK⟩⟩ = some (ownerID,BANK) ∧
+    MaskGeneration.locate address (es lastReceipt.2.2) ⟨MASK,⟨OWNER,MARK⟩⟩ = none ∧
+    MaskGeneration.locate address (es lastReceipt.2.2) ⟨POINT,⟨OWNER,MARK⟩⟩ = none := by decide +kernel
+
+private def rows (source : Event) := MaskGeneration.rows ownerID BANK (es source)
+private def decoded (source : Event) := do
+  let o ← MaskGeneration.observe ownerID (rows source) ⟨OWNER,MARK⟩
+  return (o.read.event,(MaskGeneration.writes ownerID (rows source)).get o.read.source |>.event,
+    o.mask.actions.length,o.exit)
+
+private theorem realDecoder : decoded lastReceipt.2.2 =
+    some (lastReceipt.1,lastReceipt.2.2,ACTIONS,(⟨OWNER,EXIT⟩ : Event)) := by decide +kernel
+
+private abbrev rs := rows lastReceipt.2.2
+private abbrev ws := MaskGeneration.writes ownerID rs
+
+-- The physical writes consumed by the generation decoder are exactly the
+-- native slice whose source ranks were proved above, including the stale zero.
+example : ws = writes := rfl
+
+-- A compatible physical realization of this projected slice. Each cross-worker
+-- synchronization edge comes from a release sequence to an observed acquire.
+-- The native clock is used here as a topological order of those edges, after
+-- the independent same-worker RF proof above.
+private def hist : CutoffVisibility.History :=
+  ⟨[],fun _ => [],[],[],fun _ _ => False⟩
+
+private def recoveredWait := do
+  let ⟨_,c⟩ ← SlotSynchronization.capture hist (es lastReceipt.2.2) [] []
+  let i := MaskGeneration.input c (es lastReceipt.2.2) address
+  let g ← i.generation ⟨FLAG,⟨OWNER,MARK⟩⟩
+  return g.wait
+
+private theorem retired : recoveredWait = some lastReceipt.1 := by cbv
+
+private theorem completion (past future : List Write) (read : Read (past ++ writes ++ future))
+    (site : read.event = lastReceipt.1) (zero : ((past ++ writes ++ future).get read.source).value = 0)
+    (wr : ∀ i, SequencedBefore ((past ++ writes ++ future).get i).event read.event →
+      i.val ≤ read.source.val)
+    (rw : ∀ i, SequencedBefore read.event ((past ++ writes ++ future).get i).event →
+      read.source.val < i.val) :
+    let actual := ((past ++ writes ++ future).get read.source).event
+    owner actual = true ∧ decoded actual =
+      some (lastReceipt.1,actual,ACTIONS,(⟨OWNER,EXIT⟩ : Event)) := by
+  have rf := actualSource past future lastReceipt (by decide) read site zero wr rw
+  dsimp only
+  rw [rf]
+  exact ⟨by decide +kernel,realDecoder⟩
+
+-- The stale and reuse modifications really appear in the decoder's MO as zero.
+-- Either substitution fails even though it preserves the observed raw word.
+example : decoded ⟨OLDWORKER,OLD⟩ = none ∧ decoded ⟨OWNER,NEXT⟩ = none := by decide +kernel
+#print axioms completion
+#print axioms retired
+#print axioms actualSource
+
+end NeuralReversi.PvsParallel.Interleaving.NativeMaskGeneration

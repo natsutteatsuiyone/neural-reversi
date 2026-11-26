@@ -1,8 +1,8 @@
 //! Emits `EVAL_FEATURE_U16_SUM` (16 MiB) to `$OUT_DIR/eval_feature_u16_sum.bin`
-//! when the target enables AVX2/AVX-512BW or AArch64 NEON. Generating the table as a
-//! `const fn` exceeds rustc's `long_running_const_eval` budget; the data and
-//! the index helper live in `src/eval/pattern_table_data.rs` so both this
-//! script and the runtime module use the same definitions.
+//! in the target's byte order when it enables AVX2/AVX-512BW or AArch64 NEON.
+//! Generating the table as a `const fn` exceeds rustc's `long_running_const_eval`
+//! budget. The data and the index helper live in `src/eval/pattern_table_data.rs`
+//! so this script and the runtime module use the same definitions.
 //!
 //! Also emits the midgame ProbCut coefficient table to
 //! `$OUT_DIR/midgame_probcut_table.rs`, tabulated from
@@ -50,13 +50,13 @@ fn generate_u16_sum_table() -> Vec<[u16; FEATURE_VECTOR_SIZE]> {
     table
 }
 
-fn write_u16_sum_table(path: &std::path::Path) {
+fn write_u16_sum_table(path: &std::path::Path, target_is_little_endian: bool) {
     let mut table = generate_u16_sum_table();
-    // Force LE byte order so the embedded blob is portable across build hosts.
-    if cfg!(target_endian = "big") {
+    // The target transmutates the bytes directly into u16 lanes.
+    if cfg!(target_endian = "little") != target_is_little_endian {
         for row in &mut table {
             for v in row {
-                *v = v.to_le();
+                *v = v.swap_bytes();
             }
         }
     }
@@ -153,6 +153,7 @@ fn main() {
     println!("cargo::rerun-if-changed=src/probcut/midgame_params.rs");
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_ARCH");
     println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
+    println!("cargo::rerun-if-env-changed=CARGO_CFG_TARGET_ENDIAN");
     generate_tables();
 }
 
@@ -170,7 +171,8 @@ pub(crate) fn generate_tables() {
     let path = out_dir.join("eval_feature_u16_sum.bin");
 
     if needs_table {
-        write_u16_sum_table(&path);
+        let endian = env::var("CARGO_CFG_TARGET_ENDIAN").expect("CARGO_CFG_TARGET_ENDIAN not set");
+        write_u16_sum_table(&path, endian == "little");
     } else {
         // Drop any stale output from a previous build so the .bin doesn't
         // survive a cfg toggle.

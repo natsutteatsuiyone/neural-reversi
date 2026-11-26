@@ -25,14 +25,6 @@ private def noWrapR1 (axis : Fin 4) : Word :=
   | 2 => 0xfefefefefefefefe
   | _ => 0x7f7f7f7f7f7f7f7f
 
-private theorem noWrap_exact :
-    ∀ (axis : Fin 4) (x : Fin 64),
-      (stride axis ≤ x.val →
-        ((noWrapL1 axis).getLsbD x.val = true ↔ sameLine axis x.val (x.val - stride axis))) ∧
-      (x.val + stride axis < 64 →
-        ((noWrapR1 axis).getLsbD x.val = true ↔ sameLine axis x.val (x.val + stride axis))) := by
-  decide
-
 private def contactLines (known : Word) (lines : FullLines) : FullLines :=
   byAxis fun axis =>
     ((known <<< stride axis) &&& noWrapL1 axis) |||

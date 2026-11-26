@@ -8,7 +8,7 @@ def discScore (b : Board) : Score := playerCount b * 2 - 64
 
 def finalScore (checked : Bool) (b : Board) : Except String Score :=
   if checked && emptySquares b != 0 then
-    .error "final_score requires no empty squares; use solve() for boards with empties"
+    .error "final_disc_diff requires no empty squares; use solve_disc_diff() for boards with empties"
   else .ok (discScore b)
 
 def finishScore (score empties : Score) : Score :=

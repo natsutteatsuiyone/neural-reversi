@@ -6,7 +6,7 @@ use crate::square::Square;
 /// A record stored for each ply in the search stack.
 #[derive(Clone, Copy)]
 struct StackRecord {
-    /// Principal variation line from this ply, terminated by the first [`None`].
+    /// Principal variation from this ply, read up to the first [`None`] or the end.
     pv: [Option<Square>; MAX_PLY],
 }
 
@@ -26,6 +26,10 @@ impl SearchStack {
     }
 
     /// Prepends a square to its child's principal variation, reserving the terminator.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` and `ply + 1` do not both identify stack rows.
     #[inline]
     pub fn update_pv(&mut self, sq: Square, ply: usize) {
         let [parent, child, ..] = &mut self.stack[ply..] else {
@@ -44,15 +48,23 @@ impl SearchStack {
     ///
     /// Sets only position 0; all PV consumers stop at the first [`None`],
     /// so a full fill is unnecessary.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is at least [`MAX_PLY`].
     #[inline]
     pub fn clear_pv(&mut self, ply: usize) {
         self.stack[ply].pv[0] = None;
     }
 
-    /// Clears the PV buffers for the given ply and its child ply.
+    /// Clears the given ply's PV and the next ply's PV if that row exists.
     ///
-    /// PV searches clear both slots up front so early returns cannot leak a stale
+    /// PV searches clear these rows up front so early returns cannot leak a stale
     /// continuation from a previous sibling or root move.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is at least [`MAX_PLY`].
     #[inline]
     pub fn prepare_pv(&mut self, ply: usize) {
         self.clear_pv(ply);
@@ -61,13 +73,21 @@ impl SearchStack {
         }
     }
 
-    /// Returns the principal variation at the given ply.
+    /// Returns the entire PV buffer at the given ply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is at least [`MAX_PLY`].
     #[inline]
     pub fn pv(&self, ply: usize) -> &[Option<Square>; MAX_PLY] {
         &self.stack[ply].pv
     }
 
-    /// Sets the principal variation at the given ply.
+    /// Copies the entire PV buffer into the given ply.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ply` is at least [`MAX_PLY`].
     #[inline]
     pub fn set_pv(&mut self, ply: usize, pv: &[Option<Square>; MAX_PLY]) {
         self.stack[ply].pv.copy_from_slice(pv);

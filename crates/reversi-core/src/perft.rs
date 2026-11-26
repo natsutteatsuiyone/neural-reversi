@@ -5,11 +5,12 @@ use crate::eval::pattern_feature::PatternFeatures;
 use crate::move_list::MoveList;
 use crate::search::side_to_move::SideToMove;
 
-/// Counts the total nodes reachable from the standard initial position.
+/// Counts the leaves at the requested depth from the standard initial position.
 ///
 /// A depth of 0 counts the root node; depth 1 counts the immediate legal
-/// moves. Larger values walk the tree recursively while exercising
-/// [`PatternFeatures`] updates along each move.
+/// moves. A terminal position counts as a leaf even when the requested
+/// depth has not been reached. A forced pass does not consume depth.
+/// Each placement exercises [`PatternFeatures`] updates.
 ///
 /// [`PatternFeatures`]: crate::eval::pattern_feature::PatternFeatures
 pub fn perft_root(depth: u32) -> u64 {

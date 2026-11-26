@@ -59,6 +59,10 @@ pub struct SearchContext<'a> {
 
 impl<'a> SearchContext<'a> {
     /// Creates a new search context for the given board position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `board` has fewer than four discs.
     pub fn new(
         board: &Board,
         selectivity: Selectivity,
@@ -124,6 +128,12 @@ impl<'a> SearchContext<'a> {
     }
 
     /// Updates the search context after making a move in midgame search.
+    ///
+    /// `sq` and `flipped` must describe the legal move from the current position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `flipped` is empty or there is no successor pattern slot.
     #[inline]
     pub fn update(&mut self, sq: Square, flipped: Bitboard) {
         self.increment_nodes();
@@ -133,21 +143,23 @@ impl<'a> SearchContext<'a> {
         self.empty_list.remove(sq);
     }
 
-    /// Undoes a move in the search context.
+    /// Undoes the most recent midgame move after its descendant updates are undone.
     #[inline]
     pub fn undo(&mut self, sq: Square) {
         self.empty_list.restore(sq);
         self.switch_players();
     }
 
-    /// Updates the context for an endgame move (no pattern feature update).
+    /// Removes an endgame move's square without updating features or side to move.
+    ///
+    /// The search must restore the empty list before reading pattern features again.
     #[inline]
     pub fn update_endgame(&mut self, sq: Square) {
         self.increment_nodes();
         self.empty_list.remove(sq);
     }
 
-    /// Undoes an endgame move by restoring the played square.
+    /// Restores the most recently removed endgame square that is still absent.
     #[inline]
     pub fn undo_endgame(&mut self, sq: Square) {
         self.empty_list.restore(sq);

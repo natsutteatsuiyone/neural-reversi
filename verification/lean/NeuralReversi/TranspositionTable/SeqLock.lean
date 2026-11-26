@@ -103,20 +103,24 @@ structure Memory (Event : Type) where
   releaseFence : Event → Prop
   acquireFence : Event → Prop
   sb_hb : ∀ {a b}, sb a b → hb a b
+  sb_trans : ∀ {a b c}, sb a b → sb b c → sb a c
   hb_trans : ∀ {a b c}, hb a b → hb b c → hb a c
   hb_irrefl : ∀ a, ¬ hb a a
   release_acquire : ∀ {w r}, release w → acquire r → rf w r → hb w r
   fence_fence : ∀ {a w r b}, releaseFence a → acquireFence b →
     sb a w → rf w r → sb r b → hb a b
+  write_write : ∀ {loc i j}, hb (write loc i) (write loc j) → i < j
   write_read : ∀ {loc i j r}, hb (write loc i) r → rf (write loc j) r → i ≤ j
   read_read : ∀ {loc i j a b}, hb a b → rf (write loc i) a →
     rf (write loc j) b → i ≤ j
 
 structure Writers {Event : Type} (memory : Memory Event) where
+  baseEpoch : Nat
   begun : Nat → Prop
   published : Nat → Prop
   fence : Nat → Event
-  sequence_value : ∀ i, memory.writeValue .sequence i = seqWord i
+  sequence_value : ∀ i r, memory.rf (memory.write .sequence i) r →
+    memory.writeValue .sequence i = seqWord (2 * baseEpoch + i)
   publication_read : ∀ k r, 0 < k →
     memory.rf (memory.write .sequence (2 * k)) r → published k
   payload_read : ∀ k f r, 0 < k →
@@ -124,13 +128,12 @@ structure Writers {Event : Type} (memory : Memory Event) where
   publish_release : ∀ k, published k → memory.release (memory.write .sequence (2 * k))
   payload_before_publish : ∀ k f, published k →
     memory.sb (memory.write (.payload f) k) (memory.write .sequence (2 * k))
-  fence_release : ∀ k, begun k → memory.releaseFence (fence k)
-  claim_before_fence : ∀ k, begun k →
-    memory.sb (memory.write .sequence (2 * k - 1)) (fence k)
-  fence_before_payload : ∀ k f, begun k →
+  payload_fences : ∀ k f r, memory.rf (memory.write (.payload f) k) r → begun k →
+    memory.releaseFence (fence k) ∧
+    memory.sb (memory.write .sequence (2 * k - 1)) (fence k) ∧
     memory.sb (fence k) (memory.write (.payload f) k)
 
-structure Reader {Event : Type} (memory : Memory Event) (epoch finalIndex : Nat) where
+structure RawReader {Event : Type} (memory : Memory Event) (firstIndex finalIndex : Nat) where
   first : Event
   fence : Event
   last : Event
@@ -138,21 +141,65 @@ structure Reader {Event : Type} (memory : Memory Event) (epoch finalIndex : Nat)
   fence_acquire : memory.acquireFence fence
   first_before_fence : memory.sb first fence
   fence_before_last : memory.sb fence last
-  first_rf : memory.rf (memory.write .sequence (2 * epoch)) first
+  first_rf : memory.rf (memory.write .sequence firstIndex) first
   last_rf : memory.rf (memory.write .sequence finalIndex) last
 
-structure FieldRead {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
-    (reader : Reader memory epoch finalIndex) (field : Field) (sourceEpoch : Nat) where
+abbrev Reader {Event : Type} (memory : Memory Event) (epoch finalIndex : Nat) :=
+  RawReader memory (2 * epoch) finalIndex
+
+theorem RawReader.evenIndex {memory : Memory Event}
+    (raw : RawReader memory firstIndex finalIndex) (writers : Writers memory)
+    (even : memory.readValue raw.first &&& 1 = 0) : firstIndex = 2 * (firstIndex / 2) := by
+  have value := (memory.rf_value raw.first_rf).trans (writers.sequence_value _ _ raw.first_rf)
+  rw [value] at even
+  have parity := (seqWord_even_iff _).mp even
+  omega
+
+def RawReader.asStable {memory : Memory Event}
+    (raw : RawReader memory firstIndex finalIndex) (writers : Writers memory)
+    (even : memory.readValue raw.first &&& 1 = 0) : Reader memory (firstIndex / 2) finalIndex where
+  first := raw.first
+  fence := raw.fence
+  last := raw.last
+  first_acquire := raw.first_acquire
+  fence_acquire := raw.fence_acquire
+  first_before_fence := raw.first_before_fence
+  fence_before_last := raw.fence_before_last
+  first_rf := by rw [← raw.evenIndex writers even]; exact raw.first_rf
+  last_rf := raw.last_rf
+
+structure FieldRead {Event : Type} {memory : Memory Event} {firstIndex finalIndex : Nat}
+    (reader : RawReader memory firstIndex finalIndex) (field : Field) (sourceEpoch : Nat) where
   event : Event
   after_first : memory.sb reader.first event
   before_fence : memory.sb event reader.fence
   reads_from : memory.rf (memory.write (.payload field) sourceEpoch) event
 
-theorem sequence_read_monotone {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
-    (reader : Reader memory epoch finalIndex) : 2 * epoch ≤ finalIndex := by
+def FieldRead.asStable {memory : Memory Event} {raw : RawReader memory firstIndex finalIndex}
+    (read : FieldRead raw field sourceEpoch) (writers : Writers memory)
+    (even : memory.readValue raw.first &&& 1 = 0) : FieldRead (raw.asStable writers even) field sourceEpoch :=
+  ⟨read.event, read.after_first, read.before_fence, read.reads_from⟩
+
+theorem RawReader.monotone {memory : Memory Event} (reader : RawReader memory firstIndex finalIndex) :
+    firstIndex ≤ finalIndex := by
   exact memory.read_read
     (memory.hb_trans (memory.sb_hb reader.first_before_fence)
       (memory.sb_hb reader.fence_before_last)) reader.first_rf reader.last_rf
+
+theorem RawReader.validatedIndex {memory : Memory Event}
+    (raw : RawReader memory firstIndex finalIndex) (writers : Writers memory)
+    (noWrap : finalIndex < firstIndex + modulus)
+    (validated : memory.readValue raw.first = memory.readValue raw.last) : firstIndex = finalIndex := by
+  rw [memory.rf_value raw.first_rf, writers.sequence_value _ _ raw.first_rf,
+    memory.rf_value raw.last_rf, writers.sequence_value _ _ raw.last_rf] at validated
+  have same := seqWord_local_injective _ _ (by have := raw.monotone; omega) (by omega) validated
+  omega
+
+theorem Reader.publicationAcquired {memory : Memory Event} {epoch finalIndex : Nat}
+    (reader : Reader memory epoch finalIndex) (writers : Writers memory) (positive : 0 < epoch) :
+    memory.hb (memory.write .sequence (2 * epoch)) reader.first := by
+  have active := writers.publication_read epoch reader.first positive reader.first_rf
+  exact memory.release_acquire (writers.publish_release epoch active) reader.first_acquire reader.first_rf
 
 theorem field_not_older {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
     (writers : Writers memory) (reader : Reader memory epoch finalIndex)
@@ -162,8 +209,7 @@ theorem field_not_older {Event : Type} {memory : Memory Event} {epoch finalIndex
   · omega
   · have positive : 0 < epoch := by omega
     have active := writers.publication_read epoch reader.first positive reader.first_rf
-    have sync := memory.release_acquire (writers.publish_release epoch active)
-      reader.first_acquire reader.first_rf
+    have sync := reader.publicationAcquired writers positive
     have visible := memory.hb_trans
       (memory.sb_hb (writers.payload_before_publish epoch field active))
       (memory.hb_trans sync (memory.sb_hb read.after_first))
@@ -174,22 +220,22 @@ theorem field_claim_visible {Event : Type} {memory : Memory Event} {epoch finalI
     {field : Field} {sourceEpoch : Nat} (read : FieldRead reader field sourceEpoch)
     (positive : 0 < sourceEpoch) : 2 * sourceEpoch - 1 ≤ finalIndex := by
   have active := writers.payload_read sourceEpoch field read.event positive read.reads_from
-  have sync := memory.fence_fence (writers.fence_release sourceEpoch active)
-    reader.fence_acquire (writers.fence_before_payload sourceEpoch field active)
-    read.reads_from read.before_fence
+  obtain ⟨release, claimBefore, storeAfter⟩ :=
+    writers.payload_fences sourceEpoch field read.event read.reads_from active
+  have sync := memory.fence_fence release reader.fence_acquire storeAfter read.reads_from read.before_fence
   have visible := memory.hb_trans
-    (memory.sb_hb (writers.claim_before_fence sourceEpoch active))
+    (memory.sb_hb claimBefore)
     (memory.hb_trans sync (memory.sb_hb reader.fence_before_last))
   exact memory.write_read visible reader.last_rf
 
-theorem same_epoch_of_validated (epoch finalIndex sourceEpoch : Nat)
+theorem same_epoch_of_validated (baseEpoch epoch finalIndex sourceEpoch : Nat)
     (ordered : 2 * epoch ≤ finalIndex)
     (noWrap : finalIndex < 2 * epoch + modulus)
-    (validated : seqWord (2 * epoch) = seqWord finalIndex)
+    (validated : seqWord (2 * baseEpoch + 2 * epoch) = seqWord (2 * baseEpoch + finalIndex))
     (lower : epoch ≤ sourceEpoch)
     (upper : 0 < sourceEpoch → 2 * sourceEpoch - 1 ≤ finalIndex) :
     sourceEpoch = epoch := by
-  have same := seqWord_local_injective (2 * epoch) finalIndex ordered noWrap validated
+  have same := seqWord_local_injective _ _ (by omega) (by omega) validated
   by_cases zero : sourceEpoch = 0
   · omega
   · have visible := upper (by omega)
@@ -200,9 +246,10 @@ theorem validated_field_same_epoch {Event : Type} {memory : Memory Event}
     (reader : Reader memory epoch finalIndex) {field : Field} {sourceEpoch : Nat}
     (read : FieldRead reader field sourceEpoch)
     (noWrap : finalIndex < 2 * epoch + modulus)
-    (validated : seqWord (2 * epoch) = seqWord finalIndex) : sourceEpoch = epoch := by
-  exact same_epoch_of_validated epoch finalIndex sourceEpoch
-    (sequence_read_monotone reader) noWrap validated
+    (validated : seqWord (2 * writers.baseEpoch + 2 * epoch) =
+      seqWord (2 * writers.baseEpoch + finalIndex)) : sourceEpoch = epoch := by
+  exact same_epoch_of_validated writers.baseEpoch epoch finalIndex sourceEpoch
+    reader.monotone noWrap validated
     (field_not_older writers reader read) (field_claim_visible writers reader read)
 
 theorem publication_budget (epoch later : Nat) (ordered : epoch ≤ later)
@@ -287,19 +334,20 @@ theorem snapshot_success_iff (first last : Word) (sample : Payload)
 
 theorem reader_first_value {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
     (writers : Writers memory) (reader : Reader memory epoch finalIndex) :
-    memory.readValue reader.first = seqWord (2 * epoch) := by
-  rw [memory.rf_value reader.first_rf, writers.sequence_value]
+    memory.readValue reader.first = seqWord (2 * writers.baseEpoch + 2 * epoch) := by
+  exact (memory.rf_value reader.first_rf).trans (writers.sequence_value _ _ reader.first_rf)
 
 theorem reader_last_value {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
     (writers : Writers memory) (reader : Reader memory epoch finalIndex) :
-    memory.readValue reader.last = seqWord finalIndex := by
-  rw [memory.rf_value reader.last_rf, writers.sequence_value]
+    memory.readValue reader.last = seqWord (2 * writers.baseEpoch + finalIndex) := by
+  exact (memory.rf_value reader.last_rf).trans (writers.sequence_value _ _ reader.last_rf)
 
 theorem validated_field_value {Event : Type} {memory : Memory Event} {epoch finalIndex : Nat}
     (writers : Writers memory) (reader : Reader memory epoch finalIndex)
     {field : Field} {sourceEpoch : Nat} (read : FieldRead reader field sourceEpoch)
     (noWrap : finalIndex < 2 * epoch + modulus)
-    (validated : seqWord (2 * epoch) = seqWord finalIndex) :
+    (validated : seqWord (2 * writers.baseEpoch + 2 * epoch) =
+      seqWord (2 * writers.baseEpoch + finalIndex)) :
     memory.readValue read.event = memory.writeValue (.payload field) epoch := by
   have same := validated_field_same_epoch writers reader read noWrap validated
   calc
@@ -337,7 +385,7 @@ theorem occupied_snapshot_consistent {Event : Type} {memory : Memory Event}
       ⟨memory.readValue pr.event, memory.readValue op.event, memory.readValue dr.event⟩ isEmpty =
         some result) :
     result = ⟨memory.writeValue (.payload .player) epoch,
-      memory.writeValue (.payload .opponent) epoch, seqWord (2 * epoch),
+      memory.writeValue (.payload .opponent) epoch, seqWord (2 * writers.baseEpoch + 2 * epoch),
       memory.writeValue (.payload .metadata) epoch⟩ := by
   obtain ⟨_, same, output⟩ := (snapshot_success_iff _ _ _ _ _).mp accepted
   rw [reader_first_value writers reader, reader_last_value writers reader] at same
@@ -355,7 +403,8 @@ theorem empty_snapshot_consistent {Event : Type} {memory : Memory Event}
     (noWrap : finalIndex < 2 * epoch + modulus)
     (accepted : snapshotDecision (memory.readValue reader.first) (memory.readValue reader.last)
       ⟨unusedPlayer, unusedOpponent, memory.readValue dr.event⟩ isEmpty = some result) :
-    result = ⟨0, 0, seqWord (2 * epoch), memory.writeValue (.payload .metadata) epoch⟩ := by
+    result = ⟨0, 0, seqWord (2 * writers.baseEpoch + 2 * epoch),
+      memory.writeValue (.payload .metadata) epoch⟩ := by
   obtain ⟨_, same, output⟩ := (snapshot_success_iff _ _ _ _ _).mp accepted
   rw [reader_first_value writers reader, reader_last_value writers reader] at same
   have vd := validated_field_value writers reader dr noWrap same

@@ -49,7 +49,7 @@ private theorem ranked_subset (ranking : Ranked values candidates picks) :
     · obtain ⟨kept, value⟩ := ih next pick later
       exact ⟨List.mem_of_mem_erase kept, value⟩
 
-private theorem ranked_order (ranking : Ranked values candidates picks) :
+theorem Ranked.ordered (ranking : Ranked values candidates picks) :
     picks.Pairwise (fun a b => b.score ≤ a.score) := by
   induction picks generalizing candidates with
   | nil => exact .nil
@@ -112,7 +112,33 @@ def Matched (mc : X86Config) (fc : Root.FlipConfig) (board : Position) (observe 
       SoundSearch mc fc board roots idx (observe roots idx) ∧
       ∀ i a b, Window a b → (observe roots idx i a b).aborted = false
 
-private theorem run_ranked (matched : Matched mc fc board observe seed)
+def LineCalls (observe : Observations) (seed : Seed)
+    (checked : List Square → Nat → RootAspiration.Line → Prop) : Nat → Nat → List Square → Prop
+  | 0, _, _ => True
+  | count + 1, idx, roots =>
+    ∃ line, runLine (observe roots idx) roots idx (seed roots idx).1 (seed roots idx).2 = some line ∧
+      checked roots idx line ∧ LineCalls observe seed checked count (idx + 1) line.order
+
+private theorem LineCalls.ofMatched (matched : Matched mc fc board observe seed)
+    (covered : Root.Covers mc board roots) (enough : idx + count ≤ roots.length) :
+    LineCalls observe seed (RootAspiration.LineSound (Root.squareValue mc fc board)) count idx roots := by
+  induction count generalizing roots idx with
+  | zero => trivial
+  | succ count ih =>
+    have inside : idx < roots.length := by omega
+    obtain ⟨window, sound, uninterrupted⟩ := matched roots idx covered inside
+    obtain ⟨line, _, _, _, found, _, _, valid⟩ := RootAspiration.lineContract_proven
+      mc fc board roots idx (seed roots idx).1 (seed roots idx).2 (observe roots idx)
+      covered inside window sound uninterrupted
+    refine ⟨line, found, valid, ih (valid.order.trans covered) ?_⟩
+    rw [valid.order.length_eq]
+    omega
+
+theorem LineCalls.ranked {checked : List Square → Nat → RootAspiration.Line → Prop}
+    (calls : LineCalls observe seed checked count idx roots)
+    (sound : ∀ order j line, Root.Covers mc board order → j < order.length →
+      runLine (observe order j) order j (seed order j).1 (seed order j).2 = some line →
+      checked order j line → RootAspiration.LineSound (Root.squareValue mc fc board) order j line)
     (covered : Root.Covers mc board roots) (enough : idx + count ≤ roots.length) :
     ∃ result, run observe seed count idx roots = some result ∧
       result.picks.length = count ∧
@@ -123,15 +149,13 @@ private theorem run_ranked (matched : Matched mc fc board observe seed)
   | zero => exact ⟨⟨[], roots⟩, rfl, rfl, List.Perm.refl _, rfl, rfl, True.intro⟩
   | succ count ih =>
     have inside : idx < roots.length := by omega
-    obtain ⟨window, sound, uninterrupted⟩ := matched roots idx covered inside
-    obtain ⟨line, _, _, _, lineFound, _, _, lineSound⟩ := RootAspiration.lineContract_proven
-      mc fc board roots idx (seed roots idx).1 (seed roots idx).2 (observe roots idx)
-      covered inside window sound uninterrupted
+    obtain ⟨line, lineFound, checkedLine, restCalls⟩ := calls
+    have lineSound := sound roots idx line covered inside lineFound checkedLine
     have capacity : idx + 1 + count ≤ line.order.length := by
       rw [lineSound.order.length_eq]
       omega
     obtain ⟨rest, found, length, order, fixed, picked, ranked⟩ :=
-      ih (lineSound.order.trans covered) capacity
+      ih restCalls (lineSound.order.trans covered) capacity
     refine ⟨⟨line.pick :: rest.picks, rest.order⟩, ?_, ?_, order.trans lineSound.order, ?_, ?_, ?_⟩
     · simp only [run, lineFound, Option.bind_some, found, Option.map_some]
     · simp only [List.length_cons, length]
@@ -156,9 +180,10 @@ def Contract : Prop :=
 
 theorem contract_proven : Contract := by
   intro mc fc board roots count observe seed covered enough matched
+  have capacity : 0 + count ≤ roots.length := by simpa using enough
   obtain ⟨result, found, length, order, _, chosen, ranked⟩ :=
-    run_ranked matched covered (idx := 0) (count := count) (by simpa using enough)
-  exact ⟨result, found, length, order, chosen, ranked, ranked_order ranked,
+    (LineCalls.ofMatched matched covered capacity).ranked (fun _ _ _ _ _ _ valid => valid) covered capacity
+  exact ⟨result, found, length, order, chosen, ranked, ranked.ordered,
     ranked_distinct (Root.roots_nodup covered) ranked, fun all => ranked_all ranked (length.trans all)⟩
 
 private def mc : X86Config := ⟨false, false⟩

@@ -4,7 +4,7 @@ use std::hint::spin_loop;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-/// Maximum spin iterations before yielding to the OS scheduler.
+/// Number of busy polls before yielding to the OS scheduler.
 const SPIN_LIMIT: u32 = 100;
 
 /// Maximum exponent for exponential backoff (2^6 = 64 spins).

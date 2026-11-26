@@ -418,8 +418,8 @@ static EVAL_FEATURE_U16_SUM: EvalFeatureU16SumTable = {
     const _: () =
         assert!(TABLE_BYTES == FLIP_U16_TABLES * FLIP_U16_VALUES * FEATURE_VECTOR_SIZE * 2);
 
-    // SAFETY: size match is statically asserted above; supported SIMD targets
-    // are LE so the on-disk LE bytes are native-order. The transmute is
+    // SAFETY: size match is statically asserted above and the build script
+    // writes lanes in the target's native byte order. The transmute is
     // by-value, so the `static`'s 64-byte alignment (from `PatternFeature`'s
     // `#[repr(align(64))]`) is what backs the aligned SIMD loads — not the
     // align-1 of the `include_bytes!` source.

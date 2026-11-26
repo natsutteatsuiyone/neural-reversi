@@ -25,9 +25,11 @@ theorem updateState_correct (table : EdgeTable) (st : State)
 theorem updateState_preserves_correct (table : EdgeTable) (st : State)
     (size : table.size = 65536)
     (value : findEdgeStable st.1 st.2 table = recursiveStable st.1 st.2)
-    (q : State) (correct : CorrectEntry table q) : CorrectEntry (updateState table st) q := by
+    (hstd : st.1 &&& st.2 = 0)
+    (q : State) (hqd : q.1 &&& q.2 = 0) (correct : CorrectEntry table q) :
+    CorrectEntry (updateState table st) q := by
   by_cases he : edgeIndex st.1 st.2 = edgeIndex q.1 q.2
-  · have eq := edgeIndex_injective st.1 st.2 q.1 q.2 he
+  · have eq := edgeIndex_disjoint_injective st.1 st.2 q.1 q.2 hstd hqd he
     have hs : st = q := Prod.ext eq.1 eq.2
     subst q
     exact updateState_correct table st size value
@@ -49,27 +51,27 @@ theorem layer_fold_contract (states : List State) (k : Nat) (table : EdgeTable)
     (states.foldl updateState table).size = 65536 ∧
     CorrectFrom (states.foldl updateState table) (k+1) ∧
     (∀ st ∈ states, CorrectEntry (states.foldl updateState table) st) ∧
-    (∀ st, CorrectEntry table st → CorrectEntry (states.foldl updateState table) st) := by
+    (∀ st, st.1 &&& st.2 = 0 → CorrectEntry table st → CorrectEntry (states.foldl updateState table) st) := by
   induction states generalizing table with
-  | nil => exact ⟨size,higher,by simp,fun _ h => h⟩
+  | nil => exact ⟨size,higher,by simp,fun _ _ h => h⟩
   | cons st states ih =>
     have hst := members st (by simp)
     have value := source_update_correct_from table k st hst.1 hst.2 higher
     have size' : (updateState table st).size = 65536 := by rw [updateState_size, size]
-    have preserve := updateState_preserves_correct table st size value
+    have preserve := updateState_preserves_correct table st size value hst.1
     have higher' : CorrectFrom (updateState table st) (k+1) := by
       intro q valid count
-      exact preserve q (higher q valid count)
+      exact preserve q valid (higher q valid count)
     have tail := ih (updateState table st) size' higher' (by
       intro q hq; exact members q (by simp [hq]))
     refine ⟨tail.1, tail.2.1, ?_, ?_⟩
     · intro q hq
       rcases List.mem_cons.mp hq with he | hm
       · subst q
-        exact tail.2.2.2 st (updateState_correct table st size value)
+        exact tail.2.2.2 st hst.1 (updateState_correct table st size value)
       · exact tail.2.2.1 q hm
-    · intro q hq
-      exact tail.2.2.2 q (preserve q hq)
+    · intro q hqd hq
+      exact tail.2.2.2 q hqd (preserve q hqd hq)
 
 theorem fillOccupancy_correct_from (k : Nat) (table : EdgeTable)
     (size : table.size = 65536) (higher : CorrectFrom table (k+1)) :

@@ -24,7 +24,7 @@ def FinalScoreContract : Prop :=
     finalScore false b = .ok (discScore b) ∧
     (finalScore true b = .ok (discScore b) ↔ emptySquares b = 0#64) ∧
     (emptySquares b ≠ 0#64 → finalScore true b =
-      .error "final_score requires no empty squares; use solve() for boards with empties") ∧
+      .error "final_disc_diff requires no empty squares; use solve_disc_diff() for boards with empties") ∧
     (wellFormed b → emptySquares b = 0#64 →
       (discScore b).toInt = ((playerCount b).toNat : Int) - (opponentCount b).toNat)
 

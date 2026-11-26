@@ -390,7 +390,7 @@ const NWS_STABILITY_THRESHOLD: [i8; 64] = [
     48, 48, 50, 50, 52, 52, 54, 54,  // 24-31 empties
     56, 56, 58, 58, 60, 60, 62, 62,  // 32-39 empties
     64, 64, 64, 64, 64, 64, 64, 64,  // 40-47 empties
-    99, 99, 99, 99, 99, 99, 99, 99,  // 48-55 empties (no stable squares)
+    99, 99, 99, 99, 99, 99, 99, 99,  // 48-55 empties
     99, 99, 99, 99, 99, 99, 99, 99   // 56-63 empties (no stable squares)
 ];
 

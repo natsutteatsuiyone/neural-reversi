@@ -1,0 +1,277 @@
+import NeuralReversi.PvsParallel.Interleaving.WriterSteps
+import NeuralReversi.PvsParallel.Interleaving.WriterStamps
+import NeuralReversi.PvsParallel.Interleaving.SerialMemory
+import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
+
+namespace NeuralReversi.PvsParallel.Interleaving.OccupiedSources
+open TranspositionTable
+open SeqLock (Location Word)
+open NativeTableWrites.Journal (Calls Site Record)
+open FrameTableReads (Address)
+open FrameTableReads.Operations.Execution (Instruction)
+
+private def address : Address := ⟨ALLOCATION,SLOT⟩
+private def endian := ENDIAN
+private def initial : Location → Word
+  | .sequence => INITIALSEQ
+  | .payload .player => INITIALPLAYER
+  | .payload .opponent => INITIALOPPONENT
+  | .payload .metadata => INITIALMETADATA
+set_option maxRecDepth 16384
+set_option maxHeartbeats 32000000
+private def b : PvsBoardTree.Position := ⟨⟨PLAYER,OPPONENT⟩,rfl⟩
+deriving instance DecidableEq for ReaderWindow.Args
+private def args : ReaderWindow.Args := ⟨.probe (Cutoffs.key b),ALLOCATION,CLUSTERS,KEY⟩
+private def calls : Calls := fun k => match k with
+WRITERS
+  | _ => ⟨address,⟨0,rfl⟩,.clear,false,id⟩
+private def writes : List (Nat × Site × Word) := WRITES
+private def instrumented (operand : Nat → O) (label : Nat → Nat) : Joint.Tape O := EVENTS
+private def tape := instrumented (fun _ => ())
+private def records := (tape fun _ => 0).zipIdx.filterMap fun (e,t) => match e.engineEvent with
+  | .localCall w ev _ => some (.localCall w ev : Record)
+  | .atomic .. => (writes.find? fun (at_,_,_) => at_ == t).map fun (_,s,_) => .writer s
+  | _ => none
+
+private structure Load where
+  time : Nat
+  loc : Location
+  mode : ReaderMir.Ordering
+  source : Nat
+
+private def loads : List Load := LOADS
+private def candidates (label : Nat → Nat) (q : Load) :=
+  ReadCandidates.onTape calls endian records (tape label) q.time address q.loc (initial q.loc)
+
+-- The worker and invocation on the captured tape suffice to recover each executed instruction.
+private def emitted := (WriterStamps.index (tape fun _ => 0)).stamps
+example : writes.all (fun (t,s,_) => emitted[(s.invocation,s.pc.index)]? == some t) = true := by decide +kernel
+
+-- Every logged writer PC has the time and word emitted by the reconstructed MIR program.
+example : writes.all (fun (t,s,v) => s.event calls == t && s.word calls endian == v) = true := by decide +kernel
+example : PhysicalCalls.raw (tape (fun _ => 0)) endian FINISH FINISH = some (OPENING,args) := by decide +kernel
+
+-- The reader's source labels are arbitrary. They are never used to compute these candidate lists.
+private theorem verified (label : Nat → Nat) : loads.all (fun q =>
+    Joint.opcode (tape label) q.time == some (.load address q.loc q.mode) &&
+    candidates label q == PROFILE) = true := by rfl
+
+-- Removing worker ordering preserves every value-compatible native publication.
+example (label : Nat → Nat) : loads.all (fun q => match q.loc with
+    | .sequence => true
+    | .payload _fld => ReadCandidates.sources calls endian records address q.loc (initial q.loc)
+        (Joint.word (tape label) q.time) (fun _ => false) == VALUECANDIDATES) = true := by rfl
+
+-- Every compatible physical reads-from execution must agree with the indexes above.
+private theorem identifies {x : NativeTableWrites.Journal.Execution calls endian records}
+    (label : Nat → Nat) (atoms : Joint.Atomics x (tape label))
+    (cold : ∀ loc, (x.memory address).writeValue loc 0 = initial loc)
+    (q : Load) (observed : q ∈ loads)
+    (unique : candidates label q = [q.source]) : Joint.origin (tape label) q.time = q.source := by
+  obtain ⟨issued,_⟩ := Bool.and_eq_true_iff.mp (List.all_eq_true.mp (verified label) q observed)
+  have kept := ReadCandidates.issued atoms (beq_iff_eq.mp issued)
+  rw [cold] at kept
+  exact List.mem_singleton.mp (unique ▸ kept)
+
+open NativeTableWrites.Journal (mods)
+private def blank := tape fun _ => 0
+private def wordAt (site : Site) := (site.event calls,site.word calls endian)
+private def histories : Location → List (Nat × Word)
+HISTORIES
+private def sample (live : Bool) : SerialMemory.Sample where
+  limit := blank.length
+  initInPrefix := FRONT
+  ranks := RANKS
+  initial := initial
+  writes := fun l => if live then histories l else []
+  reads := if live then SAMPLELOADS else []
+  release := fun i => live && writes.any fun (t,s,_) => t == i && (s.pc == .finish || s.pc == .cas)
+  acquire := fun i => live && (writes.any (fun (t,s,_) => t == i && s.pc == .cas) ||
+    (Joint.opcode blank i).any (fun | .load _ _ .acquire => true | _ => false))
+  releaseFence := fun i => writes.any fun (t,s,_) => t == i && s.pc == .fence
+  acquireFence := fun i => Joint.opcode blank i == some (.fence .acquire)
+
+private theorem checkedRR (s : SerialMemory.Sample) (l : Location)
+    (contra : ∀ i j : Fin s.ranks, j < i → ∀ e ∈ s.edges, (s.atRank l i).1 = e.1 →
+        ∀ f ∈ s.edges, (s.atRank l j).1 = f.1 → ¬s.key e.2 < s.key f.2) :
+    ∀ i j : Fin s.ranks, ∀ e ∈ s.edges, ∀ f ∈ s.edges, s.key e.2 < s.key f.2 →
+      (s.atRank l i).1 = e.1 → (s.atRank l j).1 = f.1 → i ≤ j := by
+  intro i j e he f hf lt hi hj
+  exact Fin.not_lt.mp (fun back => contra i j back e he hi f hf hj lt)
+
+private theorem checked (live : Bool) : SerialMemory.Checked (sample live) := by
+  cases live <;> constructor
+  case false.rr | true.rr =>
+    intro l
+    apply checkedRR
+    cases l with
+    | sequence => decide +kernel
+    | payload f => cases f <;> decide +kernel
+  all_goals first | decide +kernel | (intro l; cases l with
+    | sequence => decide +kernel
+    | payload f => cases f <;> decide +kernel)
+
+private def label (i : Nat) := match Joint.opcode blank i with
+  | some (.load _ l _) => (sample true).rank l i
+  | _ => 0
+private def actual := tape label
+private def slotSample (a : Address) := sample (a == address)
+private def mem (a : Address) := (slotSample a).memory (checked (a == address))
+private theorem allSites (k : Nat) : (calls k).address = address := by rcases k with INDICES <;> rfl
+private theorem siteWords (a : Address) (l : Location) :
+    (slotSample a).writes l = (mods calls records a l).map wordAt := by
+  by_cases h : a = address
+  · subst a; cases l with
+    | sequence => rfl
+    | payload f => cases f <;> rfl
+  · have absent : mods calls records a l = [] := by
+      apply List.eq_nil_iff_forall_not_mem.mpr
+      intro s m
+      exact h ((allSites s.invocation).symm.trans (NativeTableWrites.Journal.mem_mods.mp m).2.1).symm
+    simp [slotSample,sample,h,absent]
+
+private theorem accessRmw (i : Fin (mods calls records address .sequence).length) :
+    let s := (mods calls records address .sequence)[i]
+    s.pc = .cas → ((slotSample address).atRank .sequence i |>.1,(calls s.invocation).event 0) ∈ (slotSample address).edges := by
+  exact (by decide +kernel : ∀ i : Fin (mods calls records address .sequence).length,
+    let s := (mods calls records address .sequence)[i]
+    s.pc = .cas → ((slotSample address).atRank .sequence i |>.1,(calls s.invocation).event 0) ∈ (slotSample address).edges) i
+
+private theorem accessMode (s : Site) (h : .writer s ∈ records) :
+    NativeTableWrites.Journal.mode (mem (calls s.invocation).address) (s.event calls) (calls s.invocation).success
+      ((calls s.invocation).program endian).1[s.pc.index]? := by
+  let only : Record → Option Site := fun | .writer site => some site | _ => none
+  have eq : records.filterMap only = writes.map (fun w => w.2.1) := by rfl
+  have member := List.mem_filterMap.mpr ⟨Record.writer s,h,(rfl : only (.writer s) = some s)⟩
+  rw [eq] at member
+  simp only [writes,List.map_cons,List.map_nil,List.mem_cons,List.not_mem_nil,or_false] at member
+  rcases member with (SITES) <;> first | (intro _; exact ⟨rfl,rfl⟩) | exact True.intro | rfl
+
+private def access : WriterSteps.Access calls endian records where
+  memory := mem
+  source := by
+    intro a l i r rf
+    have ts := (checked (a == address)).times _ rf
+    have bound := (slotSample a).present (Nat.lt_trans ts.1 ((slotSample a).real ts.2))
+    simpa [siteWords] using bound
+  modified := by
+    intro a l i s hit
+    have member := (NativeTableWrites.Journal.mem_mods.mp (List.mem_of_getElem? hit)).2
+    have received : (slotSample a).atRank l (i+1) = wordAt s := by
+      simp [SerialMemory.Sample.atRank,siteWords,hit]
+    rw [s.modification, member.2.1, ite_eq_left rfl, member.2.2]
+    exact ⟨congrArg Prod.fst received, congrArg (fun p : Nat × Word => some (l,p.2)) received.symm⟩
+  rmw := by
+    intro a i k hit
+    have mem_ := (NativeTableWrites.Journal.mem_mods.mp (List.mem_of_getElem? hit)).2.1
+    rw [allSites] at mem_
+    subst a
+    obtain ⟨bound,at_⟩ := List.getElem?_eq_some_iff.mp hit
+    have kept := accessRmw ⟨i,bound⟩
+    change ((slotSample address).atRank .sequence i |>.1,(calls k).event 0) ∈ (slotSample address).edges
+    simpa [at_] using kept
+  ordering := accessMode
+
+private def decoded := CallJournal.run ⟨false,false⟩ ⟨false,false,false⟩ calls endian (actual.map Joint.Event.engineEvent)
+private theorem writerFacts : WriterSteps.Facts calls actual records := by
+  let state := decoded.get (by decide +kernel)
+  have got : decoded = some state := (Option.some_get _).symm
+  exact WriterSteps.run (t := state) got
+
+private def execution := writerFacts.execution access (fun _ _ _ lt bounded _ => ⟨lt,bounded⟩)
+
+
+private def agrees (es : Joint.Tape O) (i : Nat) : Bool :=
+  match Joint.opcode es i with
+  | some (.load a l mode) =>
+    let s := slotSample a
+    s.edges.contains ((s.atRank l (Joint.origin es i)).1,i) && s.value i == Joint.word es i &&
+      (mode != .acquire || s.acquire i)
+  | some (.fence .acquire) => (sample true).acquireFence i && (sample false).acquireFence i
+  | _ => true
+
+private theorem allObserved (operand : Nat → O) : ∀ i : Fin (instrumented operand label).length, agrees (instrumented operand label) i = true := of_decide_eq_true rfl
+
+private theorem observed (operand : Nat → O) (op : Joint.opcode (instrumented operand label) i = some opcode) :
+    agrees (instrumented operand label) i = true := by
+  by_cases inside : i < (instrumented operand label).length
+  · exact allObserved operand ⟨i,inside⟩
+  · simp [Joint.opcode,List.getElem?_eq_none (Nat.le_of_not_gt inside)] at op
+
+private theorem witnessed (operand : Nat → O) : Joint.Atomics execution (instrumented operand label) where
+  reads i a l mode issued := by
+    have ok := observed operand issued
+    simp only [agrees,issued,Bool.and_eq_true,List.contains_iff_mem,beq_iff_eq] at ok
+    exact ok.1
+  acquire i a l issued := by
+    have ok := observed operand issued
+    simp only [agrees,issued,Bool.and_eq_true] at ok
+    exact ok.2
+  fence i issued a := by
+    have ok := observed operand issued
+    simp only [agrees,issued,Bool.and_eq_true] at ok
+    change (sample (a == address)).acquireFence i = true
+    cases a == address
+    · exact ok.2
+    · exact ok.1
+  sb _ _ _ lt within _ := ⟨lt,within⟩
+
+private theorem atomics : Joint.Atomics execution actual := witnessed (fun _ => ())
+
+example : PhysicalCalls.raw actual endian FINISH FINISH = some (OPENING,args) := by decide +kernel
+
+example : loads.all (fun q => Joint.origin actual q.time == q.source) = true := by decide +kernel
+
+example : ∃ x : NativeTableWrites.Journal.Execution calls endian records, Joint.Atomics x actual :=
+  ⟨execution,atomics⟩
+
+private theorem distinctInitialization :
+    ([.sequence,.payload .player,.payload .opponent,.payload .metadata] : List Location).map
+      (fun l => (execution.memory address).write l 0) |>.Nodup := by decide +kernel
+
+private abbrev first := FIRSTLOAD
+private def ev (i : Nat) := first+i
+private def source (i : Nat) := Joint.origin actual (ev i)
+private def run := ReaderMir.run endian ((execution.memory address).readValue ∘ ev)
+
+private def liftPC : ReaderMir.AtomicAction → Instruction
+  | .load l mode => .load address l mode
+  | .fence mode => .fence mode
+private theorem matched : ∀ i : Fin run.actions.length,
+    Joint.opcode actual (ev i) = some (liftPC run.actions[i]) := by decide +kernel
+
+private theorem atPC (h : run.actions[i]? = some pc) : Joint.opcode actual (ev i) = some (liftPC pc) := by
+  obtain ⟨bound,hit⟩ := List.getElem?_eq_some_iff.mp h
+  have ok := matched ⟨i,bound⟩
+  change Joint.opcode actual (ev i) = some (liftPC run.actions[i]) at ok
+  simpa only [hit] using ok
+
+private theorem realizes : ReaderMir.Realizes (execution.memory address) run.actions ev source where
+  adjacent i within := by
+    have valid := (by decide +kernel : ∀ j : Fin (run.actions.length-1), ev j < ev (j+1) ∧ ev (j+1) < actual.length)
+    exact valid ⟨i,by omega⟩
+  reads _ _ _ issued := (atomics.reads _ _ _ _ (atPC issued)).1
+  acquire _ _ issued := atomics.acquire _ _ _ (atPC issued)
+  fence _ issued := atomics.fence _ (atPC issued) address
+
+private def snapshot : SeqLock.Snapshot :=
+  ⟨Joint.word actual (ev 2),Joint.word actual (ev 3),Joint.word actual (ev 0),Joint.word actual (ev 1)⟩
+
+-- The accepted occupied reader observed writer invocation 1 (the second store).
+private theorem publication :
+    Record.writer ⟨1,.finish⟩ ∈ records ∧
+    (execution.memory address).hb ((calls 1).event 5) (ev 0) ∧
+    (⟨snapshot.player,snapshot.opponent,snapshot.metadata⟩ : SeqLock.Payload) = ((calls 1).call endian).payload := by
+  have origin := execution.origin address (by rfl) ev source (result := snapshot) realizes
+    (by decide +kernel) (by decide +kernel) (by decide +kernel)
+  rcases origin with ⟨cold,_⟩ | ⟨k,seen,_,_,identified,hb,words⟩
+  · have nonzero : source 0 ≠ 0 := by decide +kernel
+    exact (nonzero cold).elim
+  · have which : (mods calls records address .sequence)[source 0 - 1]? = some ⟨1,.finish⟩ := by decide +kernel
+    rw [which] at identified
+    cases identified
+    exact ⟨seen,hb,words⟩
+
+
+PUBLICPROOF
+end NeuralReversi.PvsParallel.Interleaving.OccupiedSources

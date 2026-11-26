@@ -6,105 +6,23 @@ on:
     branches: [ main ]
     paths:
       - verification/lean/**
+      - verification/tla/lean-witnesses/*.lean
       - .github/workflows/verify-lean.yml
-      - crates/reversi-core/src/flip/flip_scalar.rs
-      - crates/reversi-core/src/flip/lrmask.rs
-      - crates/reversi-core/src/bitboard.rs
-      - crates/reversi-core/src/board.rs
-      - crates/reversi-core/src/score.rs
-      - crates/reversi-core/src/transposition_table.rs
-      - crates/reversi-core/src/eval/eval_cache.rs
-      - crates/reversi-core/src/eval/eval_cache/policy.rs
-      - crates/reversi-core/src/level.rs
-      - crates/reversi-core/src/probcut.rs
-      - crates/reversi-core/src/probcut/endgame.rs
-      - crates/reversi-core/src/probcut/midgame_params.rs
-      - crates/reversi-core/src/types.rs
-      - crates/reversi-core/src/search/pvs.rs
-      - crates/reversi-core/src/search/aspiration.rs
-      - crates/reversi-core/src/search/root_move.rs
-      - crates/reversi-core/src/search/stack.rs
-      - crates/reversi-core/src/search/midgame.rs
-      - crates/reversi-core/src/search/midgame/lazy_smp.rs
-      - crates/reversi-core/src/search/midgame/lazy_smp/policy.rs
-      - crates/reversi-core/src/search/endgame.rs
-      - crates/reversi-core/src/search/endgame/cache.rs
-      - crates/reversi-core/src/search/time_control.rs
-      - crates/reversi-core/src/search/time_control/endgame_budget.rs
-      - crates/reversi-core/src/stability.rs
-      - crates/reversi-core/src/bitboard/moves.rs
-      - crates/reversi-core/src/legal_moves.rs
-      - crates/reversi-core/src/constants.rs
-      - crates/reversi-core/src/eval/network/activations.rs
-      - crates/reversi-core/src/eval/network/linear_layer.rs
-      - crates/reversi-core/src/eval/network/output_layer.rs
-      - crates/reversi-core/src/eval/network/layer_stack.rs
-      - crates/reversi-core/src/eval/network.rs
-      - crates/reversi-core/src/eval/network/input_layer.rs
-      - crates/reversi-core/src/eval/network/input_layer/**
-      - crates/reversi-core/src/eval/network_small.rs
-      - crates/reversi-core/src/eval/pattern_feature.rs
-      - crates/reversi-core/src/eval/pattern_table_data.rs
+      - crates/reversi-core/src/**
       - crates/reversi-core/build.rs
-      - crates/reversi-core/src/search/context.rs
-      - crates/reversi-core/src/search/side_to_move.rs
-      - crates/reversi-core/src/eval/util.rs
-      - crates/reversi-core/src/util/align.rs
-      - crates/reversi-core/src/util/aligned_buffer.rs
-      - crates/reversi-core/src/util/large_pages.rs
-      - crates/reversi-core/src/square.rs
+      - crates/reversi-core/Cargo.toml
+      - Cargo.lock
       - rust-toolchain.toml
   pull_request:
     branches: [ main ]
     paths:
       - verification/lean/**
+      - verification/tla/lean-witnesses/*.lean
       - .github/workflows/verify-lean.yml
-      - crates/reversi-core/src/flip/flip_scalar.rs
-      - crates/reversi-core/src/flip/lrmask.rs
-      - crates/reversi-core/src/bitboard.rs
-      - crates/reversi-core/src/board.rs
-      - crates/reversi-core/src/score.rs
-      - crates/reversi-core/src/transposition_table.rs
-      - crates/reversi-core/src/eval/eval_cache.rs
-      - crates/reversi-core/src/eval/eval_cache/policy.rs
-      - crates/reversi-core/src/level.rs
-      - crates/reversi-core/src/probcut.rs
-      - crates/reversi-core/src/probcut/endgame.rs
-      - crates/reversi-core/src/probcut/midgame_params.rs
-      - crates/reversi-core/src/types.rs
-      - crates/reversi-core/src/search/pvs.rs
-      - crates/reversi-core/src/search/aspiration.rs
-      - crates/reversi-core/src/search/root_move.rs
-      - crates/reversi-core/src/search/stack.rs
-      - crates/reversi-core/src/search/midgame.rs
-      - crates/reversi-core/src/search/midgame/lazy_smp.rs
-      - crates/reversi-core/src/search/midgame/lazy_smp/policy.rs
-      - crates/reversi-core/src/search/endgame.rs
-      - crates/reversi-core/src/search/endgame/cache.rs
-      - crates/reversi-core/src/search/time_control.rs
-      - crates/reversi-core/src/search/time_control/endgame_budget.rs
-      - crates/reversi-core/src/stability.rs
-      - crates/reversi-core/src/bitboard/moves.rs
-      - crates/reversi-core/src/legal_moves.rs
-      - crates/reversi-core/src/constants.rs
-      - crates/reversi-core/src/eval/network/activations.rs
-      - crates/reversi-core/src/eval/network/linear_layer.rs
-      - crates/reversi-core/src/eval/network/output_layer.rs
-      - crates/reversi-core/src/eval/network/layer_stack.rs
-      - crates/reversi-core/src/eval/network.rs
-      - crates/reversi-core/src/eval/network/input_layer.rs
-      - crates/reversi-core/src/eval/network/input_layer/**
-      - crates/reversi-core/src/eval/network_small.rs
-      - crates/reversi-core/src/eval/pattern_feature.rs
-      - crates/reversi-core/src/eval/pattern_table_data.rs
+      - crates/reversi-core/src/**
       - crates/reversi-core/build.rs
-      - crates/reversi-core/src/search/context.rs
-      - crates/reversi-core/src/search/side_to_move.rs
-      - crates/reversi-core/src/eval/util.rs
-      - crates/reversi-core/src/util/align.rs
-      - crates/reversi-core/src/util/aligned_buffer.rs
-      - crates/reversi-core/src/util/large_pages.rs
-      - crates/reversi-core/src/square.rs
+      - crates/reversi-core/Cargo.toml
+      - Cargo.lock
       - rust-toolchain.toml
 
 permissions:

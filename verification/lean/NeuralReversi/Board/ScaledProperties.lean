@@ -47,7 +47,7 @@ def FinalScaledContract : Prop :=
   ∀ (checked : Bool) (board : Board),
     (finalScoreScaled checked board).map (fun score => (ScaledScore.value score).toInt) =
       if checked && emptySquares board != 0 then
-        .error "final_score requires no empty squares; use solve() for boards with empties"
+        .error "final_disc_diff requires no empty squares; use solve_disc_diff() for boards with empties"
       else .ok (256 * (2 * ((playerCount board).toNat : Int) - 64))
 
 theorem finalScaledContract_proven : FinalScaledContract := by

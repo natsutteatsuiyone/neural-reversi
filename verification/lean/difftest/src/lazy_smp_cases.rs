@@ -1,13 +1,14 @@
 use std::io::{self, Write};
 use std::num::NonZeroUsize;
 
-use crate::SplitMix64;
+use flip_scalar_difftest::{SplitMix64, opt_or_dash};
+
 use crate::lazy_smp_policy::{Ballot, skips_depth, winner};
 use crate::score::Score;
 use crate::square::Square;
 
 fn write_vote(out: &mut impl Write, ballots: &[Ballot]) -> io::Result<()> {
-    let winner = winner(ballots, |b| *b).map_or("-".into(), |i| i.to_string());
+    let winner = opt_or_dash(winner(ballots, |b| *b));
     write!(out, "v {winner}")?;
     for ballot in ballots {
         write!(
@@ -51,13 +52,13 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
     for i in 0..1024 {
         let ballots: Vec<_> = (0..(i % 65))
             .map(|_| {
-                let square = (random.next() % if i % 2 == 0 { 4 } else { 64 }) as u8;
+                let square = (random.next_u64() % if i % 2 == 0 { 4 } else { 64 }) as u8;
                 let score = if i % 3 == 0 {
-                    anchors[(random.next() % (anchors.len() as u64)) as usize]
+                    anchors[(random.next_u64() % (anchors.len() as u64)) as usize]
                 } else {
-                    (random.next() % 65535) as i32 - 32767
+                    (random.next_u64() % 65535) as i32 - 32767
                 };
-                let depth = (random.next() % 60 + 1) as u32;
+                let depth = (random.next_u64() % 60 + 1) as u32;
                 ballot(square, score, depth)
             })
             .collect();

@@ -78,15 +78,6 @@ theorem replay_sound (mc : X86Config) (fc : FlipConfig) (board : Position) (line
 def vacant (board : Position) (square : Square) : Prop :=
   (board.val.player ||| board.val.opponent).getLsbD square.val = false
 
-private theorem move_occupancy (mc : X86Config) (fc : FlipConfig) (board : Position)
-    (square : GeneratedSquare mc board.val) :
-    let next := (play mc fc board square).val
-    next.val.player ||| next.val.opponent = (board.val.player ||| board.val.opponent) ||| squareMask square.val := by
-  have accepted := (Board.precomputedMoveContract_proven mc fc true true
-    board.val square.val board.property square.property).1
-  rw [Board.makeMoveWithFlippedAny_valid] at accepted
-  exact (Board.playableCheckedPlacementInvariant_proven _ _ _ _ board.property accepted).2.2.2
-
 private theorem move_count (mc : X86Config) (fc : FlipConfig) (board : Position)
     (square : GeneratedSquare mc board.val) :
     (emptyCount (play mc fc board square).val.val).toNat + 1 = (emptyCount board.val).toNat :=
@@ -101,7 +92,7 @@ private theorem line_stats (legal : Legal mc fc board line after) :
   | @move board after rest square child ih =>
     obtain ⟨nodup, count, later⟩ := ih
     have delta := move_count mc fc board square
-    have occupied := move_occupancy mc fc board square
+    have occupied := PvsBoardTree.play_occupancy mc fc board square
     have target := (Board.getMoves_exact mc board.val square.val.val).mp square.property
     refine ⟨List.nodup_cons.mpr ⟨?_, nodup⟩, by simp only [List.length_cons]; omega, ?_⟩
     · intro repeated

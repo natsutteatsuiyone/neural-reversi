@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
-use crate::SplitMix64;
+use flip_scalar_difftest::{SplitMix64, opt_or_dash};
+
 use crate::eval_cache_policy::{EMPTY_ENTRY, KEY_MASK, bucket_count, location, pack, select_way};
 use crate::score::Score;
 
@@ -9,7 +10,7 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
     let keys = [0, u64::MAX, 0x1234_5678_9ABC_DEF0]
         .into_iter()
         .chain((0..64).map(|bit| 1_u64 << bit))
-        .chain((0..8).map(|_| random.next()));
+        .chain((0..8).map(|_| random.next_u64()));
     for key in keys {
         for size in 0..usize::BITS {
             let count = bucket_count(size);
@@ -43,7 +44,7 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
             let [a, b, c, d] = bucket;
             for victim in 0..4 {
                 let (score, way) = select_way(key, &bucket, victim);
-                let answer = score.map_or("-".into(), |s| s.value().to_string());
+                let answer = opt_or_dash(score.map(Score::value));
                 writeln!(out, "p {key} {victim} {a} {b} {c} {d} {way} {answer}")?;
             }
         }

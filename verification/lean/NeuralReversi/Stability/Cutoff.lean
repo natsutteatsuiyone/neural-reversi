@@ -284,4 +284,30 @@ theorem stabilityCutoff_le_alpha {s : State} {c : Color} {player opponent : Word
   have ⟨h1, h2⟩ := stabilityCutoff_sound repr hcut hval
   omega
 
+def cutoffAtEmptyCount (player opponent : Word) (nEmpties : Nat) (alpha : DiscScore) :
+    Option DiscScore :=
+  if inTable : nEmpties < 64 then
+    stabilityCutoff player opponent ⟨nEmpties, inTable⟩ alpha
+  else none
+
+def SourceCutoffContract : Prop :=
+  ∀ player opponent nEmpties alpha,
+    (64 ≤ nEmpties → cutoffAtEmptyCount player opponent nEmpties alpha = none) ∧
+    ∀ cutoff, cutoffAtEmptyCount player opponent nEmpties alpha = some cutoff →
+      cutoff.value = 64 - 2 * (popcount (cutoffStable opponent player alpha) : Int) ∧
+      cutoff.value ≤ alpha.value ∧
+      hasEnoughOpponentDiscsForCutoff (popcount opponent) alpha = true ∧
+      ∀ s c value, Represents s c player opponent → MinimaxVal c s value → value ≤ cutoff.value
+
+theorem sourceCutoffContract_proven : SourceCutoffContract := by
+  intro player opponent nEmpties alpha
+  by_cases inTable : nEmpties < 64
+  · refine ⟨fun outside => by omega, ?_⟩
+    intro cutoff picked
+    have result : stabilityCutoff player opponent ⟨nEmpties, inTable⟩ alpha = some cutoff := by
+      simpa [cutoffAtEmptyCount, inTable] using picked
+    obtain ⟨score, bound, _, enough⟩ := stabilityCutoff_some_spec result
+    exact ⟨score, bound, enough, fun _ _ _ repr value => (stabilityCutoff_sound repr result value).1⟩
+  · simp [cutoffAtEmptyCount, inTable]
+
 end NeuralReversi.Stability.Cutoff

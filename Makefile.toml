@@ -102,17 +102,17 @@ args = ["bench", "-p", "reversi-core"]
 # Shell scripts, not `command`, so that Windows resolves a `python.cmd` shim
 # and Unix prefers `python3` when `python` is absent.
 [tasks.verify-tla]
-description = "Model-check the split-point protocol with TLC (needs Java and Python 3.10+ on PATH)"
+description = "Model-check all TLA+ concurrency protocols with TLC (needs Java and Python 3.10+ on PATH)"
 script = '''
 if command -v python3 >/dev/null 2>&1; then
-    python3 verification/tla/split-point/check.py --all
+    python3 verification/tla/check.py --all
 else
-    python verification/tla/split-point/check.py --all
+    python verification/tla/check.py --all
 fi
 '''
 
 [tasks.verify-tla.windows]
-script = "python verification/tla/split-point/check.py --all"
+script = "python verification/tla/check.py --all"
 
 [tasks.verify-lean]
 description = "Run the Lean proofs, audits, policy regressions, and Rust differential tests (needs elan and Python 3.10+)"
@@ -126,6 +126,19 @@ fi
 
 [tasks.verify-lean.windows]
 script = "python verification/lean/check.py"
+
+[tasks.verify-mir]
+description = "Compare compiled reversi-core MIR against Lean proof inputs and MIR mutants"
+script = '''
+if command -v python3 >/dev/null 2>&1; then
+    python3 verification/lean/scripts/check_endgame_mir.py
+else
+    python verification/lean/scripts/check_endgame_mir.py
+fi
+'''
+
+[tasks.verify-mir.windows]
+script = "python verification/lean/scripts/check_endgame_mir.py"
 
 [tasks.licenses-cli]
 description = "Regenerate crates/cli/THIRD_PARTY_LICENSES.txt via cargo-about"

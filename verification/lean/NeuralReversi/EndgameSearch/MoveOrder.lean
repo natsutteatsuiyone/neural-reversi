@@ -3,6 +3,7 @@ import NeuralReversi.EmptyListParity
 import NeuralReversi.MoveList.BestFirst
 import NeuralReversi.MoveList.SmallGenerate
 import NeuralReversi.ShallowMoveOrder
+import NeuralReversi.MoveList.Ordering
 
 namespace NeuralReversi.EndgameSearch
 
@@ -10,51 +11,28 @@ open PvsBoardTree (Position GeneratedSquare legalSquares play minimax)
 open Bitboard.Moves (X86Config)
 open EndgameTreeCache (Address Store Table soundHistory)
 
-private def squareValues : Vector Int32 64 := #v[
-  18, 4, 16, 12, 12, 16, 4, 18,
-  4, 2, 6, 8, 8, 6, 2, 4,
-  16, 6, 14, 10, 10, 14, 6, 16,
-  12, 8, 10, 0, 0, 10, 8, 12,
-  12, 8, 10, 0, 0, 10, 8, 12,
-  16, 6, 14, 10, 10, 14, 6, 16,
-  4, 2, 6, 8, 8, 6, 2, 4,
-  18, 4, 16, 12, 12, 16, 4, 18]
+open MoveList.OrderWeights
 
+/-- The fast endgame ordering key, computed with `i32` operations on the extracted weights. -/
 def fastMoveValue (sq : Bitboard.Square) (next : Board.Board) (moves : Bitboard.Bits) : Int32 :=
   let stability := Int32.ofInt (Bitboard.cornerStability next.opponent).toNat
   let mobility := Int32.ofInt (Bitboard.cornerWeightedCount moves).toNat
-  squareValues[sq] * 128 + stability * 2048 + (36 - mobility) * 16384
-
-private theorem squareValues_bounded : ∀ sq : Fin 64,
-    0 ≤ squareValues[sq].toInt ∧ squareValues[sq].toInt ≤ 18 := by decide
+  Int32.ofInt squareValue[sq] * Int32.ofInt squareWeight + stability * Int32.ofInt stabilityWeight +
+    (36 - mobility) * Int32.ofInt mobilityWeight
 
 theorem fastMoveValue_exact (sq : Bitboard.Square) (next : Board.Board) (moves : Bitboard.Bits) :
     (fastMoveValue sq next moves).toInt =
-      squareValues[sq].toInt * 128 + ((Bitboard.cornerStability next.opponent).toNat : Int) * 2048 +
-        (36 - (Bitboard.cornerWeightedCount moves).toNat) * 16384 := by
-  have ⟨squareMin, squareMax⟩ := squareValues_bounded sq
+      squareValue[sq] * squareWeight + ((Bitboard.cornerStability next.opponent).toNat : Int) * stabilityWeight +
+        (36 - (Bitboard.cornerWeightedCount moves).toNat) * mobilityWeight := by
+  have ⟨svMin, svMax⟩ := MoveList.Ordering.squareValue_range sq
   have stabilityMax := (Bitboard.cornerStabilityContract_proven next.opponent).2
   have mobilityMax := (Bitboard.cornerWeightedCountContract_proven moves).2.1
-  let st : Int := (Bitboard.cornerStability next.opponent).toNat
-  let mo : Int := (Bitboard.cornerWeightedCount moves).toNat
-  have stCast : (Int32.ofInt st).toInt = st :=
-    Int32.toInt_ofInt_of_le (by dsimp [st]; omega) (by dsimp [st]; omega)
-  have moCast : (Int32.ofInt mo).toInt = mo :=
-    Int32.toInt_ofInt_of_le (by dsimp [mo]; omega) (by dsimp [mo]; omega)
+  simp only [MoveList.OrderWeights.squareMax] at svMax
+  have base : (36 : Int32).toInt = 36 := by decide
   unfold fastMoveValue
-  change (squareValues[sq] * 128 + Int32.ofInt st * 2048 + (36 - Int32.ofInt mo) * 16384).toInt = _
-  simp only [Int32.toInt_add, Int32.toInt_mul, Int32.toInt_sub, stCast, moCast]
-  change (((squareValues[sq].toInt * 128).bmod 4294967296 +
-    (st * 2048).bmod 4294967296).bmod 4294967296 +
-    ((36 - mo).bmod 4294967296 * 16384).bmod 4294967296).bmod 4294967296 = _
-  have ⟨stMin, stMax⟩ : 0 ≤ st ∧ st ≤ 12 := by dsimp [st]; omega
-  have ⟨moMin, moMax⟩ : 0 ≤ mo ∧ mo ≤ 68 := by dsimp [mo]; omega
-  rw [Int.bmod_eq_of_le (n := squareValues[sq].toInt * 128) (by omega) (by omega),
-    Int.bmod_eq_of_le (n := st * 2048) (by omega) (by omega),
-    Int.bmod_eq_of_le (n := squareValues[sq].toInt * 128 + st * 2048) (by omega) (by omega),
-    Int.bmod_eq_of_le (n := 36 - mo) (by omega) (by omega),
-    Int.bmod_eq_of_le (n := (36 - mo) * 16384) (by omega) (by omega),
-    Int.bmod_eq_of_le (by omega) (by omega)]
+  simp only [squareWeight, stabilityWeight, mobilityWeight, Int32.toInt_add, Int32.toInt_mul, Int32.toInt_sub,
+    Int32.toInt_ofInt, Int32.size, base]
+  simp (disch := omega) only [Int.bmod_eq_of_le]
 
 structure EvaluatedMove where
   square : Bitboard.Square
@@ -172,15 +150,16 @@ theorem orderedMoves_members (mc : X86Config) (fc : FlipConfig) (b : Position) (
   · exact deepOrder_members mc fc b sq
   · exact shallowOrder_members mc b _ sq
 
+/-- A concrete deep order: the generated moves with their successor move sets, ranked by
+    decreasing fast key. The keys and their order depend on the extracted weights. -/
 example :
     let b : Position := ⟨⟨0x4022060737000080, 0x14d9b8f8c87efc7f⟩, by unfold Board.wellFormed; decide⟩
     let mc : X86Config := ⟨false, false⟩
     let fc : FlipConfig := ⟨false, false, false⟩
-    (deepOrder mc fc b).map (fun m =>
-      let record := evaluated mc fc b m
-      (record.square.val, record.value.toInt, record.nextMoves)) =
-        [(50, 477952, 0x2b00410000000000), (8, 477696, 0x2104410000010000),
-          (23, 464896, 0x2304410000010000), (61, 446464, 0x8b04410000000000),
-          (46, 445184, 0xa304010000010000), (9, 444672, 0x2304410000010100)] := by decide +kernel
+    let records := (deepOrder mc fc b).map (evaluated mc fc b)
+    (records.map fun record => (record.square.val, record.nextMoves)).isPerm
+        [(50, 0x2b00410000000000), (8, 0x2104410000010000), (23, 0x2304410000010000),
+          (61, 0x8b04410000000000), (46, 0xa304010000010000), (9, 0x2304410000010100)] ∧
+      (records.map fun record => record.value.toInt).Pairwise (· ≥ ·) := by decide +kernel
 
 end NeuralReversi.EndgameSearch

@@ -22,11 +22,26 @@ structure EmptyState where
 def EmptyState.matches (state : EmptyState) (b : Position) : Prop :=
   EmptyStateMatches b state.links state.parity state.count
 
+/-- Read the two neighboring indices at update time. The returned links retain
+    those indices when subsequent moves read the list. -/
+@[noinline] private def splice (state : EmptyState) (node : EmptyListLinks.Node) (next prev : EmptyListLinks.Index)
+    (sq : Bitboard.Square) (count : BitVec 32) : EmptyState :=
+  ⟨EmptyListLinks.writePrev (EmptyListLinks.writeNext state.links node.prev next) node.next prev,
+    EmptyListParity.toggle state.parity sq,count⟩
+
 def EmptyState.remove (state : EmptyState) (sq : Bitboard.Square) : EmptyState :=
-  ⟨EmptyListLinks.remove state.links sq, EmptyListParity.toggle state.parity sq, state.count - 1⟩
+  let node := state.links (EmptyListLinks.slot sq)
+  splice state node node.next node.prev sq (state.count - 1)
 
 def EmptyState.restore (state : EmptyState) (sq : Bitboard.Square) : EmptyState :=
-  ⟨EmptyListLinks.restore state.links sq, EmptyListParity.toggle state.parity sq, state.count + 1⟩
+  let slot := EmptyListLinks.slot sq
+  splice state (state.links slot) slot slot sq (state.count + 1)
+
+theorem EmptyState.remove_eq (s : EmptyState) (sq : Bitboard.Square) :
+    s.remove sq = ⟨EmptyListLinks.remove s.links sq,EmptyListParity.toggle s.parity sq,s.count-1⟩ := rfl
+
+theorem EmptyState.restore_eq (s : EmptyState) (sq : Bitboard.Square) :
+    s.restore sq = ⟨EmptyListLinks.restore s.links sq,EmptyListParity.toggle s.parity sq,s.count+1⟩ := rfl
 
 structure State where
   empties : EmptyState
@@ -174,7 +189,7 @@ private theorem moveFrame_valid (mc : X86Config) (fc : FlipConfig) (b : Position
     refine ⟨?_, after, grew, ?_⟩
     · change result.state.empties.restore sq.val = state.empties
       rw [restored]
-      simp only [placed, EmptyState.remove, EmptyState.restore, links, parity, count]
+      simp only [placed, EmptyState.remove_eq, EmptyState.restore_eq, links, parity, count]
     · change ScoreValid alpha (-discValue mc fc (play mc fc b sq).val.val)
         { result.state with empties := result.state.empties.restore sq.val } result.score
       change ScoreValid alpha (-discValue mc fc (play mc fc b sq).val.val) result.state result.score at bounds
@@ -314,7 +329,80 @@ decreasing_by
   · exact (play mc fc b sq).property
 
 def publish (result : Outcome) (aborted : Bool) (score : Score) : Option Score :=
-  if result.state.polls.occurred || aborted then none else some score
+  if result.state.polls.cache.latched || aborted then none else some score
+
+/-- There is no split ancestor in the single-thread specialization. -/
+def NoSplit (p : Polling) : Prop :=
+  p.cache.latched = false ∧ ∀ i, (p.observations i).chain = []
+
+private theorem after_noSplit {p : Polling} (h : NoSplit p) : NoSplit p.after := by
+  obtain ⟨live, empty⟩ := h
+  refine ⟨?_, by simpa [Polling.after, live] using empty⟩
+  simp only [Polling.after, live, Bool.false_eq_true, ↓reduceIte, Threading.SplitCutoff.poll,
+    Bool.false_or]
+  split <;> simp_all
+
+private theorem scan_noSplit {Move : Type} (call : Move → State → Outcome)
+    (preserves : ∀ m s, NoSplit s.polls → NoSplit (call m s).state.polls)
+    (alpha : Int) (moves : List Move) (best : Int) (s : State) (h : NoSplit s.polls) :
+    NoSplit (scanRaw call alpha moves best s).2.polls := by
+  induction moves generalizing best s with
+  | nil => exact h
+  | cons m rest ih =>
+    rw [scanRaw]
+    split
+    · exact preserves m s h
+    · exact ih _ _ (preserves m s h)
+
+theorem run_noSplit (mc : X86Config) (fc : FlipConfig) (opts : Options mc)
+    (b : Position) (alpha : Int) (s : State) (h : NoSplit s.polls) :
+    NoSplit (run mc fc opts b alpha s).state.polls := by
+  rw [run.eq_def]
+  split
+  next moves =>
+    split
+    next mobile => exact run_noSplit mc fc opts (pass b) _ s h
+    next => exact h
+  next first rest moves =>
+    split
+    · exact h
+    · rw [(storeGateContract_proven _ _ _ _).2.1]
+      apply after_noSplit
+      apply scan_noSplit _ _ _ _ _ _ h
+      intro m input quiet
+      have after := after_noSplit quiet
+      have live : input.polls.occurred = false := after.1
+      simp only [moveFrame, live, Bool.false_eq_true, ↓reduceIte, Outcome.negate]
+      split
+      · exact after
+      · exact run_noSplit mc fc opts (play mc fc b m).val _ _ after
+termination_by Board.playRank mc b.val
+decreasing_by
+  · apply Board.legalCheckedStep_strict mc (.pass _) b.property
+    exact ⟨PvsBoardTree.stuck_of_nil (by assumption), by assumption⟩
+  · exact (play mc fc b m).property
+
+/-- A cutoff before the move loop consumes no poll, even when the next poll
+    would observe a newly raised ancestor flag. -/
+theorem cutoff_before_poll (opts : Options mc) (b : Position) (state : State)
+    {first : GeneratedSquare mc b.val} {rest : List (GeneratedSquare mc b.val)}
+    (moves : legalSquares mc b.val = first :: rest)
+    (cut : EndgameCutoffs.beforeMoves fc b.val state.history opts.address .deep alpha
+      ((first :: rest).map Subtype.val) = some bound)
+    (live : state.polls.cache.latched = false) (raw : Score) :
+    let out := run mc fc opts b alpha state
+    out.score = some bound ∧ out.state.polls = state.polls ∧ publish out false raw = some raw := by
+  have result : run mc fc opts b alpha state = ⟨some bound,state⟩ := by
+    rw [run]
+    split
+    · rename_i empty
+      rw [moves] at empty
+      contradiction
+    · rename_i head tail branch
+      rw [moves] at branch
+      cases branch
+      rw [cut]
+  simp [result, publish, live]
 
 def Contract : Prop :=
   ∀ (mc : X86Config) (fc : FlipConfig) (opts : Options mc)
@@ -378,13 +466,13 @@ theorem boundaryContract_proven : BoundaryContract := by
     change raw.raw.toInt = 0 ∧ publish result aborted raw = none
     have latched : result.state.polls.cache.latched = true := by
       simpa only [ScoreValid, cut] using valid
-    exact ⟨by simpa [cut] using scaled, by simp [publish, occurred_latched latched]⟩
+    exact ⟨by simpa [cut] using scaled, by simp [publish, latched]⟩
   · intro allowed
     change publish result aborted raw = some raw at allowed
     cases answer : result.score with
     | none =>
       have latched : result.state.polls.cache.latched = true := by simpa only [ScoreValid, answer] using valid
-      simp [publish, occurred_latched latched] at allowed
+      simp [publish, latched] at allowed
     | some value =>
       have bound : SearchRange value ∧ NWS threshold (discValue mc fc b.val) value := by
         simpa only [ScoreValid, answer] using valid

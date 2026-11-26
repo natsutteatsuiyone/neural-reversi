@@ -86,6 +86,16 @@ theorem rebuild_some_iff (opponent : Bitboard.Bits) (values : Nat → Move)
     intro previous member
     simpa [isMatch] using earlier previous member
 
+def CacheContract : Prop :=
+  ∀ opponent (values : Nat → Move) (keep : Nat → Bool) n (mem : Memory Move),
+    Readable mem values 0 n →
+    rebuild opponent keep n mem =
+      ((selected values keep n 0).find? (isMatch opponent)).map Move.square
+
+theorem cacheContract_proven : CacheContract := by
+  intro opponent values keep n mem readable
+  exact rebuild_exact opponent values keep n mem readable
+
 def generationCache (opponent : Bitboard.Bits) : List Move →
     Option NeuralReversi.Square.Square → Option NeuralReversi.Square.Square
   | [], cache => cache

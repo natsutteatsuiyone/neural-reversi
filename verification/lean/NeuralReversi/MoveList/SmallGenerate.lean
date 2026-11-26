@@ -57,6 +57,30 @@ theorem generate_spec (paired : Bool) (wipeout : α → Bool) (xs : List α) :
   rw [flatten_batches] at h
   exact ⟨h.1, h.2.1, h.2.2.1, h.2.2.2, h.2.2.1.length_le⟩
 
+def generateChecked (paired : Bool) (wipeout : α → Bool) (moves : List α) :
+    Option (Bool × List α) :=
+  if moves.length ≤ 12 then some (generate paired wipeout moves) else none
+
+def GenerationAdmissionContract : Prop :=
+  ∀ (α : Type) paired (wipeout : α → Bool) moves,
+    (generateChecked paired wipeout moves = none ↔ 12 < moves.length) ∧
+    (∀ result,
+      generateChecked paired wipeout moves = some result →
+      result.2.length ≤ 12 ∧
+      ∀ write, write < result.2.length → write < 12)
+
+theorem generationAdmissionContract_proven : GenerationAdmissionContract := by
+  intro α paired wipeout moves
+  by_cases fits : moves.length ≤ 12
+  · have noOverflow : ¬12 < moves.length := by omega
+    refine ⟨by simp [generateChecked, fits, noOverflow], ?_⟩
+    intro result same
+    have eq : generate paired wipeout moves = result := by simpa [generateChecked, fits] using same
+    subst result
+    have bound := Nat.le_trans (generate_spec paired wipeout moves).2.2.2.2 fits
+    exact ⟨bound, fun write valid => Nat.lt_of_lt_of_le valid bound⟩
+  · simp [generateChecked, fits, show 12 < moves.length by omega]
+
 example : generate true (· == (2 : Nat)) [1, 2, 3] = (false, []) ∧
     generate false (· == (2 : Nat)) [1, 2, 3] = (false, [1]) := by decide
 

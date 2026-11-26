@@ -1,0 +1,143 @@
+import NeuralReversi.PvsParallel.Interleaving.AlphaReplay
+
+namespace NativeSplitAlpha
+open Lean NeuralReversi NeuralReversi.Threading NeuralReversi.PvsParallel
+open Interleaving SplitSchedulerMir
+open AtomicWord (Event Write)
+
+structure Word where
+  actor : Nat
+  pc : Nat
+  value : Int
+  seed : Bool
+  deriving FromJson
+structure Guard where
+  actor : Nat
+  acquired : Nat
+  released : Nat
+  deriving FromJson
+structure Child where
+  entered : Nat
+  returned : Nat
+  lo : Int
+  hi : Int
+  raw : Int
+  ticket : Nat
+  square : Nat
+  pv : Bool
+  deriving FromJson
+structure Witness where
+  owner : Nat
+  bank : Nat
+  address : Nat
+  worker : Nat
+  birth : Nat
+  nextSeed : Nat
+  stale : Nat
+  writes : List Word
+  guards : List Guard
+  reads : List Word
+  children : List Child
+  ticket : Nat
+  square : Nat
+  pairs : List (List Nat)
+  deriving FromJson
+
+private def require (ok : Bool) (reason : String) : Except String Unit :=
+  unless ok do throw reason
+
+private def run (d : Witness) (renumber : Bool) : Except String (List (List Nat)) := do
+  let slot : AlphaReplay.Slot ← if h : d.owner < 64 then pure (⟨d.owner,h⟩,d.bank)
+    else throw "invalid slot owner"
+  -- Relabel each worker's clock independently in the second run. The list of
+  -- acquisitions/releases still comes solely from the physical mutex order.
+  let ev (w pc : Nat) : Event := ⟨w, if renumber then pc + (4-w)*10000000 else pc⟩
+  let stamp (w : Word) := ev w.actor w.pc
+  let writes : List (Nat × Joint.Event Unit) := d.writes.map fun a =>
+    (a.pc,.alphaWord a.actor (stamp a).step d.owner d.bank (.store (BitVec.ofInt 32 a.value)))
+  let guards : List (Nat × Joint.Event Unit) := d.guards.flatMap fun g => [
+    (g.acquired,.splitWord g.actor (ev g.actor g.acquired).step (.lock d.owner d.bank)),
+    (g.released,.splitWord g.actor (ev g.actor g.released).step (.unlock d.owner d.bank))]
+  -- All events in this merge were recorded inside the same mutex. The relaxed
+  -- load is never inserted at a supposed cross-worker position in this list.
+  let es := ((writes ++ guards).mergeSort (fun a b => a.1 ≤ b.1)).map Prod.snd
+  let ops := SlotSynchronization.operations slot.1 d.bank es
+  let pairs := d.guards.map fun g => (ev g.actor g.acquired,ev g.actor g.released)
+  require (Mutex.guards ops == some pairs) "malformed physical section pairs"
+  let order := pairs.flatMap (fun (a,b) => [a,b])
+  let base : CutoffVisibility.History := ⟨[],fun _ => [],[],[],fun _ _ => False⟩
+  let some ⟨_,c⟩ := SlotSynchronization.capture base es [] order | throw "invalid lock handoffs"
+  let carry := fun a b => (FlagSegment.published c.transfers a b).isSome
+  let ws := AlphaReplay.stores (AlphaReplay.accesses slot es)
+  let some begin_ := d.writes[d.birth]? | throw "missing current seed"
+  let some end_ := d.writes[d.nextSeed]? | throw "missing following seed"
+  let some stale := d.writes[d.stale]? | throw "missing earlier store"
+  let [scout,wide] := d.reads | throw "missing alpha reads"
+  let [narrow,research] := d.children | throw "missing child calls"
+  let bits (v : Int) := BitVec.ofInt 32 v
+  require (d.writes.length == ws.length && d.birth < d.nextSeed && 0 < d.birth && d.stale < d.birth &&
+    begin_.seed && end_.seed && (d.writes.take d.birth).any Word.seed &&
+    !((d.writes.drop (d.birth+1)).take (d.nextSeed-d.birth-1)).any Word.seed &&
+    (ws.map Write.event).Nodup) "incomplete or duplicated generation"
+  let activeWrites := (ws.drop d.birth).take (d.nextSeed-d.birth)
+  let some prior := AlphaReplay.prefixStores ws activeWrites (ws.drop d.nextSeed) (stamp begin_) |
+    throw "current alpha stores do not join their physical prefix and suffix"
+  require (prior.length == d.birth) "wrong seed index"
+  require (d.worker != d.owner && scout.actor == d.worker && wide.actor == d.worker &&
+    !narrow.pv && research.pv && [narrow,research].all (fun k => k.ticket == d.ticket && k.square == d.square) &&
+    scout.pc < narrow.entered && narrow.entered < narrow.returned && narrow.returned < wide.pc &&
+    wide.pc < research.entered && research.entered < research.returned &&
+    narrow.lo == -(scout.value+1) && narrow.hi == -scout.value && -narrow.raw > scout.value &&
+    research.lo < research.hi && research.hi == -wide.value) "child windows or local chronology disagree"
+  let decode (x : Word) (src : Event) (value : Int) :=
+    (⟨stamp x,src,bits value⟩ : AlphaReplay.Sample).decode slot ws
+  let mut sources : List (List Nat) := []
+  for r in [scout,wide] do
+    require (Mutex.carries ops (stamp begin_) (stamp r) && Mutex.carries ops (stamp r) (stamp end_) &&
+      carry (stamp begin_) (stamp r) && carry (stamp r) (stamp end_))
+      "physical mutexes did not bracket the generation"
+    let coherent := fun i => ((decode r (ws.get i).event r.value).map (AlphaReplay.coherent c ws)).getD false
+    let members := (List.finRange ws.length).filter fun i => (ws.get i).value.setWidth 32 == bits r.value &&
+      coherent i
+    require (!members.isEmpty) "no coherent source"
+    sources := sources ++ [members.map Fin.val]
+  let [first,second] := sources | throw "missing candidates"
+  -- Both relaxed loads are on this worker in program order. C++ read-read
+  -- coherence rules out a backward source-rank pair even if words agree.
+  let possible := first.flatMap fun a => second.filterMap fun b => if a ≤ b then some [a,b] else none
+  require (possible == d.pairs && !possible.isEmpty) "native and Lean source candidates differ"
+  for candidate in possible do
+    let [a,b] := candidate | throw "malformed source pair"
+    let some sa := ws[a]? | throw "missing scout source"
+    let some sb := ws[b]? | throw "missing fresh source"
+    let some n := decode scout sa.event scout.value | throw "undecodable scout"
+    let some w := decode wide sb.event wide.value | throw "undecodable fresh load"
+    let regs := [n,w]
+    if ok : regs.all (AlphaReplay.coherent c ws) then
+      let m := AlphaOrigin.memory slot ws regs (fun reg mem _ _ =>
+        (AlphaReplay.atomicOrder _ c ws reg).mp (List.all_eq_true.mp ok reg mem))
+      require (NativeSplit.AlphaLoads.operand m.reads (stamp scout) (bits scout.value) &&
+        NativeSplit.AlphaLoads.operand m.reads (stamp wide) (bits wide.value))
+        "native operand decoder did not recover both sampled registers"
+    else throw "source pair failed atomic coherence"
+  let some probe := d.reads.find? (fun r => r.value == stale.value) | throw "stale source is not an equal word"
+  let some bad := decode probe (stamp stale) probe.value | throw "equal old word should decode"
+  require (!AlphaReplay.coherent c ws bad) "an earlier identical store survived the generation bound"
+  let some i := first.head? | throw "missing scout source"
+  let some head := ws[i]? | throw "missing scout store"
+  require ((decode scout head.event (scout.value+1)).isNone &&
+    (decode scout (ev 63 0) scout.value).isNone) "malformed physical source accepted"
+  return possible
+
+def main (argv : List String) : IO Unit := do
+  let [path] := argv | throw (IO.userError "expected native receipts")
+  let raw ← IO.ofExcept (← Json.parse <$> IO.FS.readFile path)
+  let data : Witness ← IO.ofExcept (fromJson? raw)
+  let normal ← IO.ofExcept (run data false)
+  let renamed ← IO.ofExcept (run data true)
+  unless normal == renamed do throw (IO.userError "worker clock relabeling changed the result")
+  IO.println s!"owner {data.owner}, bank {data.bank}, worker {data.worker}, source pairs {normal}, alpha {data.reads.map Word.value}, equal stale rank {data.stale} rejected"
+
+end NativeSplitAlpha
+
+def main := NativeSplitAlpha.main

@@ -7,14 +7,14 @@ namespace NeuralReversi.Solve2
 
 open Flip.Dispatch (TargetConfig Backend backendFor pair_eq single_eq)
 
-private def solve1On (target : TargetConfig) (bmi2 : Bool) (b : Solve1.Bmi2.Board)
+def solve1On (target : TargetConfig) (bmi2 : Bool) (b : Solve1.Bmi2.Board)
     (alpha : Score) : Score :=
   match target with
   | .x86_64 _ => if bmi2 then Solve1.Bmi2.solve b alpha else Solve1.Scalar.solve b alpha
   | .aarch64 _ _ => Solve1.Neon.solve b alpha
   | .wasm32 _ | .other => Solve1.Scalar.solve b alpha
 
-private theorem solve1On_eq (target : TargetConfig) (bmi2 : Bool) (b : Solve1.Bmi2.Board) (alpha : Score) :
+theorem solve1On_eq (target : TargetConfig) (bmi2 : Bool) (b : Solve1.Bmi2.Board) (alpha : Score) :
     solve1On target bmi2 b alpha = Solve1.Bmi2.solve b alpha := by
   cases target <;> simp [solve1On, Solve1.Scalar.solve_eq_bmi2, Solve1.Neon.solve_eq_bmi2]
 

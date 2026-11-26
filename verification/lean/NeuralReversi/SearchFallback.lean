@@ -1,5 +1,6 @@
 import NeuralReversi.PvsBoardTree
 import NeuralReversi.SearchPublication
+import NeuralReversi.TranspositionTable.Proofs
 
 namespace NeuralReversi.SearchFallback
 
@@ -11,6 +12,7 @@ open SearchPublication (Row Snapshot Stamp)
 structure CachedMove where
   square : Square
   score : Int
+  bound : TranspositionTable.Bound
   stamp : Stamp
   endgame : Bool
 
@@ -92,7 +94,7 @@ def resolve (mc : X86Config) (fc : Flip.Dispatch.X86Config) (board : Position)
   | none =>
     match cached with
     | some move =>
-      if (legalMoves mc board).contains move.square then some (fromCache move nodes)
+      if move.bound = .exact ∧ move.square ∈ legalMoves mc board then some (fromCache move nodes)
       else quickMove mc fc board evaluate nodes
     | none => quickMove mc fc board evaluate nodes
 
@@ -102,9 +104,9 @@ def ResolveContract : Prop :=
     (∀ snapshot head tail, snapshot.rows = head :: tail →
       resolve mc fc board evaluate (some snapshot) cached nodes =
         some ⟨head, head :: tail, snapshot.stamp, snapshot.endgame, nodes⟩) ∧
-    (∀ move, cached = some move → LegalMove board.val.player board.val.opponent move.square.val →
+    (∀ move, cached = some move → move.bound = .exact → LegalMove board.val.player board.val.opponent move.square.val →
       resolve mc fc board evaluate none cached nodes = some (fromCache move nodes)) ∧
-    ((∀ move, cached = some move → ¬LegalMove board.val.player board.val.opponent move.square.val) →
+    ((∀ move, cached = some move → ¬(move.bound = .exact ∧ LegalMove board.val.player board.val.opponent move.square.val)) →
       let output := resolve mc fc board evaluate none cached nodes
       (output = none ↔ ∀ sq : Square, ¬LegalMove board.val.player board.val.opponent sq.val) ∧
       ∀ report, output = some report →
@@ -120,17 +122,17 @@ theorem resolveContract_proven : ResolveContract := by
   refine ⟨?_, ?_, ?_⟩
   · intro snapshot head tail rows
     simp [resolve, fromSnapshot, rows]
-  · intro move hit legal
+  · intro move hit exactBound legal
     have member := (legal_moves mc board move.square).mpr legal
-    simp [resolve, hit, member]
+    simp [resolve, hit, exactBound, member]
   · intro unavailable output
     have fallback : output = quickMove mc fc board evaluate nodes := by
       cases hit : cached with
       | none => simp [output, resolve, hit]
       | some move =>
-        have missing : move.square ∉ legalMoves mc board :=
-          fun member => unavailable move hit ((legal_moves mc board move.square).mp member)
-        simp [output, resolve, hit, missing]
+        have unusable : ¬(move.bound = .exact ∧ move.square ∈ legalMoves mc board) :=
+          fun ⟨exactBound, member⟩ => unavailable move hit ⟨exactBound, (legal_moves mc board move.square).mp member⟩
+        simp [output, resolve, hit, unusable]
     rw [fallback, quickMove]
     cases moves : legalMoves mc board with
     | nil =>

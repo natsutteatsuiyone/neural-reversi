@@ -674,6 +674,68 @@ mod transposition_table {
     }
 
     #[test]
+    fn lookup_distinguishes_the_empty_board_from_an_unused_slot() {
+        let mut tt = TranspositionTable::new(0);
+        let board = make_board(0, 0);
+        let key = board.hash();
+        assert!(tt.lookup(&board, key).is_none());
+
+        tt.store(
+            tt.probe(&board, key).slot(),
+            &board,
+            Score::ZERO,
+            Bound::Exact,
+            0,
+            None,
+            Selectivity::None,
+            true,
+            false,
+        );
+        let stored = tt.lookup(&board, key).expect("stored empty board");
+        assert_eq!(stored.bound(), Bound::Exact);
+        assert_eq!(stored.best_move(), None);
+        tt.clear_shared();
+        assert!(tt.lookup(&board, key).is_none());
+        tt.clear();
+        assert!(tt.lookup(&board, key).is_none());
+    }
+
+    #[test]
+    fn lookup_ignores_records_without_a_bound() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(START_PLAYER, START_OPPONENT);
+        let key = board.hash();
+        tt.store(
+            tt.probe(&board, key).slot(),
+            &board,
+            Score::ZERO,
+            Bound::None,
+            3,
+            sq(10),
+            Selectivity::None,
+            false,
+            false,
+        );
+        assert!(tt.probe(&board, key).data().is_none());
+        assert!(tt.lookup(&board, key).is_none());
+
+        tt.store(
+            slot_at(&tt, tt.get_cluster_idx(key) + 1),
+            &board,
+            Score::ZERO,
+            Bound::Exact,
+            4,
+            sq(11),
+            Selectivity::None,
+            false,
+            false,
+        );
+        let second = tt.lookup(&board, key).expect("occupied second slot");
+        assert_eq!(second.bound(), Bound::Exact);
+        assert_eq!(second.best_move(), sq(11));
+    }
+
+    #[test]
     fn lookup_misses_for_a_different_board_in_the_same_cluster() {
         let tt = TranspositionTable::new(0);
         let fixture = ClusterFixture::new(&tt, make_board(START_PLAYER, START_OPPONENT));
@@ -979,6 +1041,46 @@ mod transposition_table {
     }
 
     #[test]
+    fn shared_clear_skips_a_busy_slot_and_clears_it_once_stable() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(START_PLAYER, START_OPPONENT);
+        let key = board.hash();
+        let stable_seq = u64::MAX - 1;
+        let start = tt.get_cluster_idx(key);
+        let other = board.switch_players();
+        for (index, position) in [(start, &board), (start + 1, &other)] {
+            tt.store(
+                slot_at(&tt, index),
+                position,
+                raw_score(40),
+                Bound::Exact,
+                10,
+                sq(3),
+                Selectivity::None,
+                false,
+                false,
+            );
+        }
+        let busy = &tt.entries[start];
+        let sibling = &tt.entries[start + 1];
+        let stored = busy.data.load(Ordering::Relaxed);
+        busy.seq.store(u64::MAX, Ordering::Relaxed);
+
+        tt.clear_shared();
+        assert_eq!(busy.seq.load(Ordering::Relaxed), u64::MAX);
+        assert_eq!(busy.data.load(Ordering::Relaxed), stored);
+        assert!(tt.lookup(&other, key).is_none());
+        let sibling_seq = sibling.snapshot_seq();
+
+        busy.seq.store(stable_seq, Ordering::Relaxed);
+        assert_eq!(tt.lookup(&board, key).unwrap().score(), raw_score(40));
+        tt.clear_shared();
+        assert!(tt.lookup(&board, key).is_none());
+        assert_eq!(busy.snapshot_seq(), 0);
+        assert_eq!(sibling.snapshot_seq(), sibling_seq);
+    }
+
+    #[test]
     fn usage_rate_counts_occupied_slots_in_the_sampled_clusters() {
         let tt = TranspositionTable::new(0);
         let board = make_board(START_PLAYER, START_OPPONENT);
@@ -1045,30 +1147,66 @@ mod transposition_table {
     }
 
     #[test]
-    fn duplicate_copies_entries_and_generation_then_stays_independent() {
+    fn penalize_at_zero_does_not_create_a_cutoff() {
         let tt = TranspositionTable::new(0);
-        let generation = tt.increment_generation();
         let board = make_board(START_PLAYER, START_OPPONENT);
-        let slot = tt.probe(&board, board.hash()).slot();
+        let key = board.hash();
+        let slot = tt.probe(&board, key).slot();
         tt.store(
             slot,
             &board,
-            raw_score(100),
-            Bound::Exact,
-            20,
-            sq(10),
-            Selectivity::None,
-            true,
+            raw_score(40),
+            Bound::Lower,
+            1,
+            sq(3),
+            Selectivity::Level2,
+            false,
             false,
         );
+        tt.penalize(slot, &board, tt.lookup(&board, key).unwrap());
+        let zero = tt.lookup(&board, key).unwrap();
+        assert_eq!(zero.depth(), 0);
+        tt.penalize(slot, &board, zero);
+        let latest = tt.lookup(&board, key).unwrap();
+        assert!(!latest.can_cut(raw_score(40), 1, Selectivity::Level2, false));
+        assert_eq!(latest, zero);
+    }
 
-        // SAFETY: no other thread touches `tt`.
+    #[test]
+    fn duplicate_copies_entries_and_generation_then_stays_independent() {
+        let tt = TranspositionTable::new(0);
+        let board = make_board(START_PLAYER, START_OPPONENT);
+        let generation = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let generation = tt.increment_generation();
+                    let slot = tt.probe(&board, board.hash()).slot();
+                    tt.store(
+                        slot,
+                        &board,
+                        raw_score(100),
+                        Bound::Exact,
+                        20,
+                        sq(10),
+                        Selectivity::None,
+                        true,
+                        false,
+                    );
+                    generation
+                })
+                .join()
+                .unwrap()
+        });
+
+        // SAFETY: the writer's join orders its stores before the copy.
         let copy = unsafe { tt.duplicate() };
         assert_eq!(copy.generation(), generation);
         assert_eq!(
             copy.lookup(&board, board.hash()),
             tt.lookup(&board, board.hash())
         );
+        assert_eq!(copy.increment_generation(), generation + 1);
+        assert_eq!(tt.generation(), generation);
 
         let other = make_board(START_OPPONENT, START_PLAYER);
         let slot = copy.probe(&other, other.hash()).slot();

@@ -1,4 +1,4 @@
-import NeuralReversi.TranspositionTable.SeqLock
+import NeuralReversi.TranspositionTable.LookupCut
 
 namespace NeuralReversi.TranspositionTable.Clear
 
@@ -59,15 +59,28 @@ theorem clear_slot_snapshot_empty :
       some ⟨0, 0, 0, 0⟩ := by
   decide
 
-theorem clear_slot_lookup_miss (qp qo : Word) (hnonempty : qp ≠ 0 ∨ qo ≠ 0) :
-    lookupDecision emptySlot.seq emptySlot.seq
+theorem clear_slot_lookup_miss (bigEndian : Bool) (qp qo : Word) :
+    LookupCut.readOccupied bigEndian emptySlot.seq emptySlot.seq
       ⟨emptySlot.player, emptySlot.opponent, emptySlot.data⟩ qp qo = none := by
-  simp only [lookupDecision, emptySlot, ne_eq, ite_eq_left_iff, ite_eq_right_iff, and_imp,
-    Decidable.not_not]
-  intro _ h1 h2 _
-  rcases hnonempty with h | h
-  · exact False.elim (h h1.symm)
-  · exact False.elim (h h2.symm)
+  cases hit : LookupCut.readOccupied bigEndian emptySlot.seq emptySlot.seq
+      ⟨emptySlot.player, emptySlot.opponent, emptySlot.data⟩ qp qo with
+  | none => rfl
+  | some entry =>
+    obtain ⟨_, _, _, _, decoded, occupied⟩ := (LookupCut.readContract_proven _ _ _ _ _ _ _).mp hit
+    change Packing.unpack bigEndian 0 = entry at decoded
+    have zero : (Packing.unpack bigEndian 0).bound = 0#8 := by cases bigEndian <;> rfl
+    exact (occupied (decoded ▸ zero)).elim
+
+def ExclusiveContract : Prop :=
+  ∀ entries, (clearTable entries).length = entries.length ∧
+    ∀ i, i < entries.length → (clearTable entries)[i]? = some emptySlot
+
+theorem exclusiveContract_proven : ExclusiveContract := by
+  intro entries
+  refine ⟨clearTable_length entries, ?_⟩
+  intro i valid
+  have within : i < (clearTable entries).length := by simpa [clearTable_length] using valid
+  exact (List.getElem?_eq_getElem within).trans (congrArg some (clearTable_getElem entries i valid))
 
 inductive ClearOutcome where
   | retry
@@ -119,6 +132,68 @@ theorem clearSharedAttempt_cleared_monotone (epoch : Nat) (lastSeq currentSeq da
   rw [hidx]
   exact ⟨rfl, (seqWord_even_iff (2 * (epoch + 1))).mpr (by omega)⟩
 
+structure ClearObservation where
+  firstSeq : Word
+  lastSeq : Word
+  currentSeq : Word
+  dataWord : Word
+
+def ClearObservation.outcome (a : ClearObservation) : ClearOutcome :=
+  clearSharedAttempt a.firstSeq a.lastSeq a.currentSeq a.dataWord
+
+def clearSharedRun (observations : List ClearObservation) : Option ClearObservation :=
+  (observations.take 4).find? (fun a => a.outcome != .retry)
+
+def RetryContract : Prop :=
+  ∀ observations,
+    (clearSharedRun observations = none ↔ ∀ a ∈ observations.take 4, a.outcome = .retry) ∧
+    ∀ selected, clearSharedRun observations = some selected ↔
+      ∃ before after, observations.take 4 = before ++ selected :: after ∧
+        (∀ a ∈ before, a.outcome = .retry) ∧ selected.outcome ≠ .retry
+
+theorem retryContract_proven : RetryContract := by
+  intro observations
+  refine ⟨by simp [clearSharedRun, List.find?_eq_none], ?_⟩
+  intro selected
+  rw [clearSharedRun, List.find?_eq_some_iff_append]
+  constructor
+  · rintro ⟨hit, before, after, shape, earlier⟩
+    exact ⟨before, after, shape, by simpa using earlier, by simpa using hit⟩
+  · rintro ⟨before, after, shape, earlier, hit⟩
+    exact ⟨by simpa using hit, before, after, shape, by simpa using earlier⟩
+
+def afterAttempt (entry : SlotState) (outcome : ClearOutcome) : SlotState :=
+  match outcome with
+  | .cleared seq => ⟨seq, 0, 0, 0⟩
+  | .retry | .skippedEmpty => entry
+
+def SharedAttemptContract : Prop :=
+  (∀ first last current raw,
+    clearSharedAttempt first last current raw = .skippedEmpty ↔
+      first &&& 1 = 0 ∧ raw = 0 ∧ first = last) ∧
+  (∀ first last current raw next,
+    clearSharedAttempt first last current raw = .cleared next ↔
+      first &&& 1 = 0 ∧ raw ≠ 0 ∧ current = first ∧ next = publish first) ∧
+  ∀ entry, entry.seq &&& 1 = 0 →
+    let attempt := clearSharedAttempt entry.seq entry.seq entry.seq entry.data
+    let result := afterAttempt entry attempt
+    result.data = 0#64 ∧
+    (entry.data = 0#64 → result = entry) ∧
+    (entry.data ≠ 0#64 → result = ⟨publish entry.seq, 0, 0, 0⟩)
+
+theorem sharedAttemptContract_proven : SharedAttemptContract := by
+  refine ⟨clearSharedAttempt_skippedEmpty_iff, clearSharedAttempt_cleared_iff, ?_⟩
+  intro entry even
+  dsimp only
+  by_cases empty : entry.data = 0#64
+  · have skipped := (clearSharedAttempt_skippedEmpty_iff entry.seq entry.seq entry.seq entry.data).mpr
+      ⟨even, empty, rfl⟩
+    rw [skipped]
+    simp [afterAttempt, empty]
+  · have cleared := (clearSharedAttempt_cleared_iff entry.seq entry.seq entry.seq entry.data
+      (publish entry.seq)).mpr ⟨even, empty, rfl, rfl⟩
+    simp [cleared, afterAttempt, empty]
+
 structure ClearEpoch {Event : Type} {memory : Memory Event}
     (writers : Writers memory) (k : Nat) : Prop where
   positive : 0 < k
@@ -161,7 +236,7 @@ theorem clear_shared_occupied_snapshot_no_tear {Event : Type} {memory : Memory E
       ⟨memory.readValue pr.event, memory.readValue op.event, memory.readValue dr.event⟩ isEmpty =
         some result) :
     result = ⟨memory.writeValue (.payload .player) epoch,
-      memory.writeValue (.payload .opponent) epoch, seqWord (2 * epoch),
+      memory.writeValue (.payload .opponent) epoch, seqWord (2 * writers.baseEpoch + 2 * epoch),
       memory.writeValue (.payload .metadata) epoch⟩ ∧ epoch ≠ k := by
   have hsnap := occupied_snapshot_consistent writers reader pr op dr isEmpty result occupied noWrap accepted
   refine ⟨hsnap, ?_⟩
@@ -183,7 +258,8 @@ theorem clear_shared_empty_snapshot_no_tear {Event : Type} {memory : Memory Even
     (noWrap : finalIndex < 2 * epoch + modulus)
     (accepted : snapshotDecision (memory.readValue reader.first) (memory.readValue reader.last)
       ⟨unusedPlayer, unusedOpponent, memory.readValue dr.event⟩ isEmpty = some result) :
-    result = ⟨0, 0, seqWord (2 * epoch), memory.writeValue (.payload .metadata) epoch⟩ :=
+    result = ⟨0, 0, seqWord (2 * writers.baseEpoch + 2 * epoch),
+      memory.writeValue (.payload .metadata) epoch⟩ :=
   empty_snapshot_consistent writers reader dr unusedPlayer unusedOpponent isEmpty result empty noWrap accepted
 
 theorem clear_shared_fast_skip_sound {Event : Type} {memory : Memory Event}
@@ -212,49 +288,53 @@ theorem post_clear_reader_sees_empty_snapshot {Event : Type} {memory : Memory Ev
     memory.readValue dr.event = 0 ∧
     snapshotDecision (memory.readValue reader.first) (memory.readValue reader.last)
       ⟨unusedPlayer, unusedOpponent, memory.readValue dr.event⟩ (fun d => d == 0) =
-      some ⟨0, 0, seqWord (2 * k), 0⟩ := by
+      some ⟨0, 0, seqWord (2 * writers.baseEpoch + 2 * k), 0⟩ := by
   have hge : 2 * k ≤ 2 * epoch := memory.write_read afterClear reader.first_rf
-  have hmono : 2 * epoch ≤ finalIndex := sequence_read_monotone reader
+  have hmono : 2 * epoch ≤ finalIndex := reader.monotone
   have hepoch : epoch = k := by omega
   have hfinal : finalIndex = 2 * k := by omega
   have hnoWrap : finalIndex < 2 * epoch + modulus := by unfold modulus; omega
-  have hsame : seqWord (2 * epoch) = seqWord finalIndex := by rw [hepoch, hfinal]
+  have hsame : seqWord (2 * writers.baseEpoch + 2 * epoch) =
+      seqWord (2 * writers.baseEpoch + finalIndex) := by rw [hepoch, hfinal]
   have vd : memory.readValue dr.event = 0 := by
     rw [validated_field_value writers reader dr hnoWrap hsame, hepoch, hclear.metadata_zero]
   refine ⟨hepoch, vd, ?_⟩
   rw [reader_first_value writers reader, reader_last_value writers reader, vd, hepoch, hfinal]
-  have heven : seqWord (2 * k) &&& 1 = 0 := (seqWord_even_iff (2 * k)).mpr (by omega)
+  have heven : seqWord (2 * writers.baseEpoch + 2 * k) &&& 1 = 0 :=
+    (seqWord_even_iff _).mpr (by omega)
   simp [snapshotDecision]
   exact heven
 
-theorem post_clear_reader_lookup_misses {Event : Type} {memory : Memory Event}
+def PublishedClearContract : Prop :=
+  ∀ {Event : Type} {memory : Memory Event}
     {epoch finalIndex k : Nat} (writers : Writers memory)
-    (hclear : ClearEpoch writers k)
+    (_hclear : ClearEpoch writers k)
     (reader : Reader memory epoch finalIndex)
     {pe oe de : Nat} (pr : FieldRead reader .player pe)
     (op : FieldRead reader .opponent oe) (dr : FieldRead reader .metadata de)
-    (qp qo : Word) (hnonempty : qp ≠ 0 ∨ qo ≠ 0)
-    (afterClear : memory.hb (memory.write .sequence (2 * k)) reader.first)
-    (noLaterWrite : finalIndex ≤ 2 * k) :
-    lookupDecision (memory.readValue reader.first) (memory.readValue reader.last)
+    (qp qo : Word) (bigEndian : Bool),
+    memory.hb (memory.write .sequence (2 * k)) reader.first →
+    finalIndex ≤ 2 * k →
+    LookupCut.readOccupied bigEndian (memory.readValue reader.first) (memory.readValue reader.last)
       ⟨memory.readValue pr.event, memory.readValue op.event, memory.readValue dr.event⟩ qp qo =
-      none := by
+      none
+
+theorem post_clear_reader_lookup_misses : PublishedClearContract := by
+  intro Event memory epoch finalIndex k writers hclear reader pe oe de pr op dr qp qo bigEndian afterClear noLaterWrite
   have hge : 2 * k ≤ 2 * epoch := memory.write_read afterClear reader.first_rf
-  have hmono : 2 * epoch ≤ finalIndex := sequence_read_monotone reader
+  have hmono : 2 * epoch ≤ finalIndex := reader.monotone
   have hepoch : epoch = k := by omega
-  have hfinal : finalIndex = 2 * k := by omega
   have hnoWrap : finalIndex < 2 * epoch + modulus := by unfold modulus; omega
-  have hsame : seqWord (2 * epoch) = seqWord finalIndex := by rw [hepoch, hfinal]
-  have vp : memory.readValue pr.event = 0 := by
-    rw [validated_field_value writers reader pr hnoWrap hsame, hepoch, hclear.player_zero]
-  have vo : memory.readValue op.event = 0 := by
-    rw [validated_field_value writers reader op hnoWrap hsame, hepoch, hclear.opponent_zero]
-  rw [vp, vo]
-  simp only [lookupDecision, ne_eq, ite_eq_left_iff, ite_eq_right_iff, and_imp, Decidable.not_not]
-  intro _ h1 h2 _
-  rcases hnonempty with h | h
-  · exact False.elim (h h1.symm)
-  · exact False.elim (h h2.symm)
+  cases result : LookupCut.readOccupied bigEndian (memory.readValue reader.first)
+    (memory.readValue reader.last)
+    ⟨memory.readValue pr.event, memory.readValue op.event, memory.readValue dr.event⟩ qp qo with
+  | none => rfl
+  | some entry =>
+    obtain ⟨_, _, decoded, occupied⟩ := LookupCut.publishedReadContract_proven
+      writers reader pr op dr qp qo bigEndian entry hnoWrap result
+    rw [hepoch, hclear.metadata_zero] at decoded
+    have zero : (Packing.unpack bigEndian 0).bound = 0#8 := by cases bigEndian <;> rfl
+    exact (occupied (decoded ▸ zero)).elim
 
 example : clearSharedAttempt 1 1 1 9 = .retry := by decide
 example : clearSharedAttempt 2 2 2 0 = .skippedEmpty := by decide

@@ -5,12 +5,15 @@ namespace NeuralReversi.Threading.SplitReturn.Observation
 open AtomicWord (Event Write Read ReadWindow SequencedBefore signed32At)
 open CutoffVisibility (Coherent FlagRead HappensBefore History Walk)
 open SearchAbort (Stopped request)
-open SplitCompletion (RetainedThrough)
+open SplitCompletion (Activation Retirement RetainedThrough)
 
-structure ScoreRead (history : History) {writes : List Write} (load : Read writes)
-    (last : Fin writes.length) (wait : Event) : Prop where
-  retained : RetainedThrough history (writes.get last).event wait
-  beforeLoad : SequencedBefore wait load.event
+structure ScoreRead (history : History) {mask : List Write} {activation : Activation mask}
+    (retirement : Retirement history mask activation) {writes : List Write} (load : Read writes)
+    (last : Fin writes.length) : Prop where
+  finished : SequencedBefore (writes.get last).event retirement.read.event ∨
+    ∃ i : Fin activation.actions.length, (activation.actions.get i).release = true ∧
+      SequencedBefore (writes.get last).event (activation.actions.get i).event
+  beforeLoad : SequencedBefore retirement.read.event load.event
   beforeReuse : ∀ i : Fin writes.length, i.val = last.val + 1 →
     SequencedBefore load.event (writes.get i).event
   writeRead : ∀ i : Fin writes.length, HappensBefore history (writes.get i).event load.event →
@@ -20,17 +23,49 @@ structure ScoreRead (history : History) {writes : List Write} (load : Read write
 
 def ScoreReadContract : Prop :=
   ∀ (history : History) (writes : List Write) (load : Read writes) (last : Fin writes.length)
-    (wait : Event), ScoreRead history load last wait →
+    {mask : List Write} {activation : Activation mask}
+    (retirement : Retirement history mask activation), ScoreRead history retirement load last →
     load.source = last ∧ signed32At writes load.source = signed32At writes last
 
 theorem scoreReadContract_proven : ScoreReadContract := by
-  intro history writes load last wait read
+  intro history writes load last mask activation retirement read
+  have finished : HappensBefore history (writes.get last).event retirement.read.event := by
+    rcases read.finished with owner | ⟨i, released, beforeRelease⟩
+    · exact .sequenced owner
+    · exact .trans (.sequenced beforeRelease)
+        (SplitCompletion.handoffContract_proven history mask activation retirement i released)
   have window : ReadWindow load (HappensBefore history) last last.val :=
-    ⟨SplitCompletion.retainedAccessContract_proven history (writes.get last).event wait load.event
-      read.retained read.beforeLoad,
+    ⟨.trans finished (.sequenced read.beforeLoad),
       fun i next => .sequenced (read.beforeReuse i next), read.writeRead, read.readWrite⟩
   have exactSource : load.source = last := Fin.ext (Nat.le_antisymm window.bounds.2 window.bounds.1)
   exact ⟨exactSource, congrArg (signed32At writes) exactSource⟩
+
+structure ReportPublication (activation : Activation mask) where
+  worker : SplitCompletion.Worker
+  acquired : Event
+  checked : Event
+  published : Event
+  stopped : Bool
+  running : stopped = false
+  afterAcquire : SequencedBefore acquired checked
+  afterCheck : SequencedBefore checked published
+  finish : Fin activation.actions.length
+  finished : (activation.actions.get finish) = .finish worker (activation.actions.get finish).event
+  sameWorker : published.worker = worker.val
+  beforeFinish : SequencedBefore published (activation.actions.get finish).event
+
+theorem ReportPublication.beforeOwnerRead {mask : List Write} {activation : Activation mask}
+    (publication : ReportPublication activation)
+    (retirement : Retirement history mask activation)
+    (afterWait : SequencedBefore retirement.read.event ownerRead) :
+    HappensBefore history publication.acquired ownerRead := by
+  have released : (activation.actions.get publication.finish).release = true := by
+    rw [publication.finished]
+    rfl
+  have acquired := SplitCompletion.handoffContract_proven history mask activation retirement
+    publication.finish released
+  exact .trans (.sequenced publication.afterAcquire) (.trans (.sequenced publication.afterCheck)
+    (.trans (.sequenced publication.beforeFinish) (.trans acquired (.sequenced afterWait))))
 
 structure SharedAbortRead (history : History) {writes : List Write}
     (worker owner : Read writes) (last : Nat) (wait : Event) : Prop where

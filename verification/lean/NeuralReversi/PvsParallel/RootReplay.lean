@@ -6,7 +6,7 @@ open Aspiration (SoundResult Window)
 open Bitboard (Square)
 open Bitboard.Moves (X86Config)
 open PvsBoardTree (GeneratedSquare Position)
-open PvsMoveLoop (ChildSearch Tree bestValue moveScore scan scoreInf scoreMax)
+open PvsMoveLoop (ChildRelation ChildSearch ScanCalls Tree bestValue moveScore scan scoreInf scoreMax)
 open RootOrder (Records Report SelectedLine SoundAttempt sortFrom visibleScore writeScore)
 open Threading.SplitWindow (State marksCutoff publish)
 
@@ -91,12 +91,14 @@ theorem serial_seen (square : Move → Square) (observe : ChildSearch Move) (bet
 
 theorem serial_records (square : Move → Square) (observe : ChildSearch Move)
     (value : Square → Int) (moves : List Move) (before : Snapshot)
+    (completed : ChildRelation Move)
     (window : Window before.state.alpha beta)
     (prior : Records candidates value original beta before.seen before.state before.scores)
     (distinct : (moves.map square).Nodup)
     (available : ∀ move ∈ moves, square move ∈ candidates ∧ square move ∉ before.seen)
-    (children : ∀ move ∈ moves, ∀ cp a b, Window a b → (cp = false → b = a + 1) →
-      SoundResult (-(value (square move))) a b (observe move cp a b)) :
+    (calls : ScanCalls completed observe true beta moves before.seen.isEmpty before.state.alpha before.state.best)
+    (children : ∀ move ∈ moves, ∀ cp a b s, Window a b → (cp = false → b = a + 1) →
+      completed move cp a b s → SoundResult (-(value (square move))) a b s) :
     let final := serial square observe beta moves before
     Records candidates value original beta final.seen final.state final.scores := by
   induction moves generalizing before with
@@ -106,9 +108,9 @@ theorem serial_records (square : Move → Square) (observe : ChildSearch Move)
     let score := moveScore true before.seen.isEmpty observe move alpha beta
     let after := before.record beta ⟨square move, alpha, score⟩
     have chosen := available move (by simp)
-    have sound := PvsMoveLoop.moveScore_bound (value := fun m => value (square m))
+    have sound := PvsMoveLoop.moveScore_boundSelected (value := fun m => value (square m))
       (pv := true) (first := before.seen.isEmpty) (move := move)
-      window (by simp) (children move (by simp))
+      window (by simp) calls.1 (children move (by simp))
     have recorded : Records candidates value original beta after.seen after.state after.scores :=
       .push ⟨square move, alpha, score⟩ prior chosen.1 chosen.2 (Int.le_refl _) sound.2.2
     have nextWindow : Window after.state.alpha beta :=
@@ -131,7 +133,13 @@ theorem serial_records (square : Move → Square) (observe : ChildSearch Move)
     rw [serial]
     split
     · exact recorded
-    · exact ih after nextWindow recorded (List.nodup_cons.mp distinct).2 remaining
+    · rename_i noCut
+      have restCalls := calls.2
+      change (match PvsMoveLoop.nextScanState true beta alpha before.state.best score with
+        | none => True
+        | some (a, s) => ScanCalls completed observe true beta rest false a s) at restCalls
+      rw [Prefix.nextScanState_eq, ite_eq_right noCut] at restCalls
+      exact ih after nextWindow recorded (List.nodup_cons.mp distinct).2 remaining restCalls
         (fun other mem => children other (List.mem_cons_of_mem _ mem))
 
 theorem selected (final : Snapshot) (covers : Root.Covers mc b roots) (inside : idx < roots.length)
@@ -156,24 +164,30 @@ def SerialContract : Prop :=
       (original beta : Int),
       Root.Covers mc b roots → idx < roots.length → Window original beta →
       moves.Perm (Root.choices mc b roots idx) →
-      ChildCalls completed (fun m => PvsBoardTree.build mc fc (PvsBoardTree.play mc fc b m).val) moves observe →
+      ScanCalls (fun m => completed (PvsBoardTree.build mc fc (PvsBoardTree.play mc fc b m).val))
+        observe true beta moves true original (-scoreInf) →
       let final := serial Subtype.val observe beta moves (start original)
       final.state.best = scan true observe beta moves true original (-scoreInf) ∧
       SoundAttempt mc fc b roots idx original beta final.state.best final.scores
 
-theorem serialContract_proven : SerialContract := by
-  intro completed follows mc fc b roots idx moves observe original beta covers inside window order calls final
+theorem serial_of_children (mc : X86Config) (fc : Root.FlipConfig) (b : Position)
+    (roots : List Square) (idx : Nat) (moves : List (GeneratedSquare mc b.val))
+    (observe : ChildSearch (GeneratedSquare mc b.val)) (completed : ChildRelation (GeneratedSquare mc b.val))
+    (original beta : Int) (covers : Root.Covers mc b roots) (inside : idx < roots.length)
+    (window : Window original beta) (order : moves.Perm (Root.choices mc b roots idx))
+    (calls : ScanCalls completed observe true beta moves true original (-scoreInf))
+    (children : ∀ m ∈ moves, ∀ cp a z s, Window a z → (cp = false → z = a + 1) →
+      completed m cp a z s → SoundResult (-(Root.squareValue mc fc b m.val)) a z s) :
+    let final := serial Subtype.val observe beta moves (start original)
+    final.state.best = scan true observe beta moves true original (-scoreInf) ∧
+      SoundAttempt mc fc b roots idx original beta final.state.best final.scores := by
+  intro final
   have membership (m : GeneratedSquare mc b.val) (mem : m ∈ moves) : m.val ∈ roots.drop idx :=
     (Root.choices_squares_mem covers m.val).mp (List.mem_map_of_mem (order.mem_iff.mp mem))
   have distinct := (order.map Subtype.val).nodup_iff.mpr (Root.choices_squares_nodup mc b roots idx)
-  have children (m : GeneratedSquare mc b.val) (mem : m ∈ moves) (cp : Bool) (a z : Int)
-      (valid : Window a z) (narrow : cp = false → z = a + 1) :
-      SoundResult (-(Root.squareValue mc fc b m.val)) a z (observe m cp a z) := by
-    rw [Root.square_value_eq_child m, Root.childValue, Int.neg_neg]
-    exact sound completed follows _ cp a z _ valid narrow (calls m mem cp a z valid narrow)
   have records := serial_records Subtype.val observe (Root.squareValue mc fc b) moves (start original)
-    (original := original) (candidates := roots.drop idx) window .start distinct
-    (fun m mem => ⟨membership m mem, by simp [start]⟩) children
+    completed (original := original) (candidates := roots.drop idx) window .start distinct
+    (fun m mem => ⟨membership m mem, by simp [start]⟩) calls children
   have best : final.state.best = scan true observe beta moves true original (-scoreInf) :=
     serial_best Subtype.val observe beta moves (start original)
   have nonempty : moves ≠ [] := fun empty =>
@@ -183,14 +197,22 @@ theorem serialContract_proven : SerialContract := by
     change -scoreMax ≤ PvsBoardTree.minimax mc fc (PvsBoardTree.play mc fc b m).val at range
     unfold Root.childValue
     omega
-  have result := PvsMoveLoop.contract_proven _ true observe (Root.childValue mc fc b) moves
-    original beta nonempty window (by simp) (fun m _ => cap m) (fun m mem cp a z w n => by
+  have result := PvsMoveLoop.selectedContract_proven _ true observe (Root.childValue mc fc b)
+    completed moves original beta nonempty window (by simp) (fun m _ => cap m) calls
+    (fun m mem cp a z s w n recorded => by
       rw [← Root.square_value_eq_child m]
-      exact children m mem cp a z w n)
+      exact children m mem cp a z s w n recorded)
   have value : bestValue (Root.childValue mc fc b) moves (-scoreInf) = Root.value mc fc b roots idx :=
     PvsMoveLoop.bestValue_eq_of_same_moves _ _ (fun _ => order.mem_iff)
   rw [value, ← best] at result
   exact ⟨best, result, selected final covers inside window records result⟩
+
+theorem serialContract_proven : SerialContract := by
+  intro completed follows mc fc b roots idx moves observe original beta covers inside window order calls
+  apply serial_of_children mc fc b roots idx moves observe _ original beta covers inside window order calls
+  intro m _ cp a z s valid narrow recorded
+  rw [Root.square_value_eq_child m, Root.childValue, Int.neg_neg]
+  exact sound completed follows _ cp a z s valid narrow recorded
 
 def WipeoutContract : Prop :=
   ∀ (mc : X86Config) (fc : Root.FlipConfig) (board : Position) (roots : List Square) (idx : Nat)
@@ -236,7 +258,7 @@ example :
   have covers : Root.Covers mc twoOpen roots := List.Perm.of_eq legal.symm
   have matched := serialContract_proven _ sequential_follows mc fc twoOpen roots 0 moves observe
     (-scoreInf) scoreInf covers (by decide) ⟨by decide, by decide, by decide⟩
-    (List.Perm.refl _) (fun _ _ _ _ _ _ _ => rfl)
+    (List.Perm.refl _) (ScanCalls.ofAll (by intros; rfl))
   have seen : final.seen = [47, 14] := by decide +kernel
   have best : final.state.best = -1024 := by decide +kernel
   have first : final.scores 14 = -4096 := by decide +kernel

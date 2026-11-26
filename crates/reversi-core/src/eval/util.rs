@@ -53,8 +53,8 @@ pub(super) fn accumulate_scalar<const DIMS: usize>(
 
 /// Checks that `reader` has no data left after a network's weights.
 ///
-/// The weight format has no header, so leftover data is the only sign that
-/// the stream was written for a different, larger network layout.
+/// The weight format has no header. After all expected fields have been read,
+/// this checks for extra decoded bytes and for errors reported at the end.
 ///
 /// # Errors
 ///

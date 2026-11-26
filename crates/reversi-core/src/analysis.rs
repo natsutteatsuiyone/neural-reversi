@@ -25,6 +25,8 @@ pub enum AnalysisError {
     PassWithLegalMoves,
     /// The injected search callback returned an error.
     Search(String),
+    /// The search callback returned a score outside the finite search range.
+    InvalidSearchScore(Score),
 }
 
 impl fmt::Display for AnalysisError {
@@ -38,6 +40,9 @@ impl fmt::Display for AnalysisError {
                 f.write_str("Cannot pass when legal moves are available")
             }
             AnalysisError::Search(message) => f.write_str(message),
+            AnalysisError::InvalidSearchScore(score) => {
+                write!(f, "Search returned an invalid score ({})", score.value())
+            }
         }
     }
 }
@@ -51,6 +56,16 @@ pub struct Analysis {
     pub pv: Vec<Square>,
     pub best_move: Square,
     pub score: Score,
+}
+
+impl Analysis {
+    fn checked_score(&self) -> Result<Score, AnalysisError> {
+        if self.score.is_finite() {
+            Ok(self.score)
+        } else {
+            Err(AnalysisError::InvalidSearchScore(self.score))
+        }
+    }
 }
 
 /// One per-move Game Analysis result (CONTEXT.md → Game Analysis, Played
@@ -75,7 +90,7 @@ pub enum GameAnalysisMove {
 /// Drive a Game Analysis over `moves` applied from `initial`, emitting one
 /// [`GameAnalysisProgress`] per non-pass move, newest move first.
 ///
-/// - `search` scores a Position that has Legal Moves — the engine seam.
+/// - `search` scores a Position that has Legal Moves with a finite score.
 /// - `is_cancelled` is polled to bail when the run is superseded; on cancel
 ///   the analysis stops and returns `Ok(())`.
 /// - `on_progress` receives each per-move result.
@@ -86,7 +101,8 @@ pub enum GameAnalysisMove {
 ///
 /// # Errors
 ///
-/// Returns [`AnalysisError`] if the move list is illegal, or if `search` fails.
+/// Returns [`AnalysisError`] if the move list is illegal, or if `search` fails
+/// or provides a score outside the finite search range.
 pub fn analyze_game(
     initial: Board,
     moves: &[GameAnalysisMove],
@@ -106,7 +122,7 @@ pub fn analyze_game(
             if is_cancelled() {
                 return Ok(());
             }
-            analysis.score
+            analysis.checked_score()?
         }
         SeedPosition::Pass => {
             // Side to move has no Legal Moves but the opponent does — a forced
@@ -116,7 +132,7 @@ pub fn analyze_game(
             if is_cancelled() {
                 return Ok(());
             }
-            -analysis.score
+            -analysis.checked_score()?
         }
         SeedPosition::Terminal => final_board.solve(final_board.empty_count()),
     };
@@ -139,12 +155,13 @@ pub fn analyze_game(
             return Ok(());
         }
 
-        let (played_score, score_loss, next_score) = propagate_step(analysis.score, score);
+        let best_score = analysis.checked_score()?;
+        let (played_score, score_loss, next_score) = propagate_step(best_score, score);
         on_progress(GameAnalysisProgress {
             move_index,
             pv: analysis.pv,
             best_move: analysis.best_move,
-            best_score: analysis.score,
+            best_score,
             played_score,
             score_loss,
         });
@@ -565,6 +582,25 @@ mod tests {
             emitted[0].score_loss,
             Score::from_disc_diff(DiscScore::new(0))
         );
+    }
+
+    #[test]
+    fn analyze_game_rejects_scores_outside_the_search_range() {
+        let invalid = Score::ZERO + i32::MIN;
+        for (initial, moves) in [
+            (Board::new(), vec![play(Square::D3)]),
+            (forced_pass_board(), vec![]),
+            (Board::from_bitboards(1, 2), vec![play(Square::C1)]),
+        ] {
+            let result = analyze_game(
+                initial,
+                &moves,
+                |_| Ok(analysis(Square::A1, invalid)),
+                || false,
+                |_| panic!("an invalid score must not be reported"),
+            );
+            assert_eq!(result, Err(AnalysisError::InvalidSearchScore(invalid)));
+        }
     }
 
     #[test]

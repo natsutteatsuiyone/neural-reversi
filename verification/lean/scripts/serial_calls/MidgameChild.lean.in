@@ -1,0 +1,47 @@
+import NeuralReversi.PvsParallel.SerialTable.MidgameNative
+
+namespace NeuralReversi.PvsParallel.SerialTable.MidgameNative.Test
+
+open PvsBoardTree (Position)
+
+private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def b : Position := ⟨⟨0x0020000000000100,0xf7dfffffffff8c00⟩,by unfold Board.wellFormed; decide⟩
+private def pool : EndgameSearch.CacheHistory.Pool :=
+  ⟨1,64,by decide,Board.Hash.hash false,0,⟨0,⟨0,0⟩⟩,⟨0,⟨0,0⟩⟩⟩
+private def layout : Layout := ⟨16,by decide,false⟩
+
+-- This fixture has one legal move, disables selective pruning and promotes the child.
+private def ops : Inputs where
+  config := ⟨.aarch64 true false,false,false,true,pool.address⟩
+  level := 5
+  shallow _ := ⟨fun _ _ => 0,fun _ _ _ _ => 0⟩
+  ordering _ _ _ _ := 0
+  tie _ _ _ := 0
+  estimates _ _ := (0,0,0)
+
+private def showImage (m : Memory layout) : IO Unit := do
+  for h : i in [:m.tt.image.slots.size] do
+    let s := m.tt.image.slots[i]
+    if s.seq ||| s.player ||| s.opponent ||| s.data != 0 then
+      IO.println s!"TT {i} {s.seq.toNat} {s.player.toNat} {s.opponent.toNat} {s.data.toNat}"
+  for (name,kind) in [("deep",EndgameTreeCache.Table.deep),("shallow",.shallow)] do
+    let cells := m.cache.cells kind
+    IO.println s!"CACHE {name} {cells.size}"
+    for h : i in [:cells.size] do
+      let c := cells[i]
+      if c.board.player != 0 || c.board.opponent != 0 || c.lower != -65 || c.upper != 65 then
+        IO.println s!"CELL {name} {i} {c.board.player.toNat} {c.board.opponent.toNat} {c.lower.toInt} {c.upper.toInt}"
+
+def compare : IO Unit := do
+  let mut m := Memory.empty layout 0 pool
+  for (stop,alpha) in [(true,0),(false,0),(false,0),(false,-32767)] do
+    let r : SerialCalls.Request := ⟨b,13,false,false,alpha,alpha+1⟩
+    let some (v,next) := MidgameNative.run (mc := mc) (fc := fc) pool {ops with stop := fun _ _ _ => stop} r m | throw <| IO.userError "child failed"
+    IO.println s!"SCORE {stop} {alpha} {v}"
+    showImage next
+    m := next
+
+end NeuralReversi.PvsParallel.SerialTable.MidgameNative.Test
+
+def main := NeuralReversi.PvsParallel.SerialTable.MidgameNative.Test.compare

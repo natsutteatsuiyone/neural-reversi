@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
-use crate::SplitMix64;
+use flip_scalar_difftest::SplitMix64;
+
 use crate::bitboard::Bitboard;
 
 const BACKEND: &str = cfg_select! {
@@ -60,7 +61,7 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
 
     let mut rng = SplitMix64(0x7265_7665_7273_692d);
     for i in 0..4096 {
-        let (a, b, c) = (rng.next(), rng.next(), rng.next());
+        let (a, b, c) = (rng.next_u64(), rng.next_u64(), rng.next_u64());
         let (p, o) = match i % 4 {
             0 => (a & !b, b),
             1 => (a & b & c, !a & b),

@@ -95,6 +95,60 @@ theorem trace_boundSound {n : Nat} {first last : EntryData}
     rw [penalized_boundSound]
     exact ih
 
+def tryPenalize (bigEndian : Bool) (player opponent : SeqLock.Word) (expected : EntryData)
+    (observation : Option SeqLock.Snapshot) (current : SeqLock.Word) : Option EntryData :=
+  if expected.depth = 0#8 then none else
+    observation.bind fun slot =>
+      if slot.player = player ∧ slot.opponent = opponent ∧ unpack bigEndian slot.metadata = expected then
+        if (SeqLock.claim current slot.sequence).1 then some (penalized expected) else none
+      else none
+
+def WriteContract : Prop :=
+  ∀ bigEndian player opponent expected observation current result,
+    tryPenalize bigEndian player opponent expected observation current = some result ↔
+      0 < expected.depth.toNat ∧ ∃ slot, observation = some slot ∧
+        slot.player = player ∧ slot.opponent = opponent ∧ unpack bigEndian slot.metadata = expected ∧
+        current = slot.sequence ∧ result = penalized expected
+
+theorem writeContract_proven : WriteContract := by
+  intro bigEndian player opponent expected observation current result
+  have positive : expected.depth ≠ 0#8 ↔ 0 < expected.depth.toNat := by
+    constructor
+    · intro nonzero
+      apply Nat.pos_of_ne_zero
+      exact fun zero => nonzero (BitVec.eq_of_toNat_eq zero)
+    · intro pos zero
+      simp [zero] at pos
+  cases observation with
+  | none => by_cases zero : expected.depth = 0#8 <;> simp [tryPenalize, zero]
+  | some slot =>
+    by_cases zero : expected.depth = 0#8
+    · simp [tryPenalize, zero]
+    · have pos := positive.mp zero
+      by_cases matching : slot.player = player ∧ slot.opponent = opponent ∧
+          unpack bigEndian slot.metadata = expected
+      · simp [tryPenalize, zero, pos, matching, SeqLock.claim_success_iff,
+          show penalized expected = result ↔ result = penalized expected from eq_comm]
+      · simp [tryPenalize, zero, matching]
+        intro _ hp ho hd
+        exact (matching ⟨hp, ho, hd⟩).elim
+
+def CutContract : Prop :=
+  ∀ bigEndian player opponent expected observation current result,
+    tryPenalize bigEndian player opponent expected observation current = some result →
+      result.depth.toNat + 1 = expected.depth.toNat ∧
+      (∀ truth, BoundSound result truth ↔ BoundSound expected truth) ∧
+      ∀ checked beta depth selectivity endgame,
+        canCut checked result beta depth selectivity endgame = .ok true →
+          canCut checked expected beta depth selectivity endgame = .ok true
+
+theorem cutContract_proven : CutContract := by
+  intro bigEndian player opponent expected observation current result written
+  obtain ⟨positive, slot, observed, playerMatch, opponentMatch, dataMatch, stillCurrent, rfl⟩ :=
+    (writeContract_proven bigEndian player opponent expected observation current result).mp written
+  exact ⟨penalized_depth expected positive, penalized_boundSound expected,
+    penalized_no_new_cut expected positive⟩
+
 private def fixture (score : Int) (depth : Nat) : EntryData :=
   ⟨BitVec.ofInt 16 score, 64, 3, BitVec.ofNat 8 depth, 5, 0, 1⟩
 
@@ -122,5 +176,8 @@ example : canCut true (fixture (-32768) 12) ⟨0⟩ 12 ⟨5, by decide⟩ true =
 example : canCut false (fixture 0 0) ⟨0⟩ 1 ⟨5, by decide⟩ true = .ok false ∧
     canCut false (penalized (fixture 0 0)) ⟨0⟩ 1 ⟨5, by decide⟩ true = .ok true := by
   constructor <;> rfl
+
+example : tryPenalize false 7 8 (fixture 0 0)
+    (some ⟨7, 8, 2, pack false (fixture 0 0)⟩) 2 = none := by decide
 
 end NeuralReversi.TranspositionTable.Penalty

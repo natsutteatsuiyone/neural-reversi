@@ -2,6 +2,66 @@ import NeuralReversi.TranspositionTable.Packing
 
 namespace NeuralReversi.TranspositionTable.LookupCut
 
+def readOccupied (bigEndian : Bool) (first last : SeqLock.Word) (sample : SeqLock.Payload)
+    (qp qo : SeqLock.Word) : Option EntryData :=
+  (SeqLock.lookupDecision first last sample qp qo).bind fun raw =>
+    let entry := Packing.unpack bigEndian raw
+    if entry.bound = 0#8 then none else some entry
+
+def ReadContract : Prop :=
+  ∀ bigEndian first last (sample : SeqLock.Payload) qp qo entry,
+    readOccupied bigEndian first last sample qp qo = some entry ↔
+      first &&& 1 = 0 ∧ sample.player = qp ∧ sample.opponent = qo ∧ first = last ∧
+      Packing.unpack bigEndian sample.metadata = entry ∧ entry.bound ≠ 0#8
+
+theorem readContract_proven : ReadContract := by
+  intro bigEndian first last sample qp qo entry
+  unfold readOccupied
+  rw [Option.bind_eq_some_iff]
+  constructor
+  · rintro ⟨raw, published, occupied⟩
+    obtain ⟨even, player, opponent, stable, rfl⟩ :=
+      (SeqLock.lookup_success_iff first last sample qp qo raw).mp published
+    dsimp only at occupied
+    split at occupied
+    · contradiction
+    · rename_i nonzero
+      have decoded := Option.some.inj occupied
+      exact ⟨even, player, opponent, stable, decoded, decoded ▸ nonzero⟩
+  · rintro ⟨even, player, opponent, stable, decoded, nonzero⟩
+    exact ⟨sample.metadata, (SeqLock.lookup_success_iff _ _ _ _ _ _).mpr
+      ⟨even, player, opponent, stable, rfl⟩, by simp [decoded, nonzero]⟩
+
+def ClusterContract : Prop :=
+  ∀ (left right : Option EntryData) entry,
+    left.or right = some entry ↔ left = some entry ∨ (left = none ∧ right = some entry)
+
+theorem clusterContract_proven : ClusterContract := by
+  intro left right entry
+  cases left <;> simp
+
+def PublishedReadContract : Prop :=
+  ∀ {Event : Type} {memory : SeqLock.Memory Event}
+    {epoch finalIndex : Nat} (_writers : SeqLock.Writers memory)
+    (reader : SeqLock.Reader memory epoch finalIndex)
+    {pe oe de : Nat} (pr : SeqLock.FieldRead reader .player pe)
+    (op : SeqLock.FieldRead reader .opponent oe) (dr : SeqLock.FieldRead reader .metadata de)
+    (qp qo : SeqLock.Word) (bigEndian : Bool) (entry : EntryData),
+    finalIndex < 2 * epoch + SeqLock.modulus →
+    readOccupied bigEndian (memory.readValue reader.first) (memory.readValue reader.last)
+      ⟨memory.readValue pr.event, memory.readValue op.event, memory.readValue dr.event⟩ qp qo = some entry →
+    memory.writeValue (.payload .player) epoch = qp ∧
+    memory.writeValue (.payload .opponent) epoch = qo ∧
+    Packing.unpack bigEndian (memory.writeValue (.payload .metadata) epoch) = entry ∧ entry.bound ≠ 0#8
+
+theorem publishedReadContract_proven : PublishedReadContract := by
+  intro Event memory epoch finalIndex writers reader pe oe de pr op dr qp qo bigEndian entry noWrap accepted
+  obtain ⟨even, player, opponent, stable, decoded, nonzero⟩ :=
+    (readContract_proven _ _ _ _ _ _ _).mp accepted
+  have raw := (SeqLock.lookup_success_iff _ _ _ _ _ _).mpr ⟨even, player, opponent, stable, rfl⟩
+  obtain ⟨hp, ho, metadata⟩ := SeqLock.lookup_consistent writers reader pr op dr qp qo _ noWrap raw
+  exact ⟨hp, ho, metadata ▸ decoded, nonzero⟩
+
 theorem different_published_key_misses {Event : Type} {memory : SeqLock.Memory Event}
     {epoch finalIndex : Nat} (writers : SeqLock.Writers memory)
     (reader : SeqLock.Reader memory epoch finalIndex)
@@ -93,6 +153,11 @@ theorem lookup_cut_sound {Event : Type} {memory : SeqLock.Memory Event}
 
 private def fixture (score : Int) (bound : Nat) : EntryData :=
   ⟨BitVec.ofInt 16 score, Packing.noMove, BitVec.ofNat 8 bound, 12, 5, 0, 1⟩
+
+example : readOccupied false 0 0 ⟨0, 0, 0⟩ 0 0 = none := by decide
+example : readOccupied true 0 0 ⟨0, 0, Packing.pack true (fixture 0 3)⟩ 0 0 =
+    some (fixture 0 3) := by decide
+example : readOccupied false 0 0 ⟨7, 8, Packing.pack false (fixture 0 0)⟩ 7 8 = none := by decide
 
 example : BoundSound (fixture 0 1) 256 ∧
     canCut true (fixture 0 1) ⟨0⟩ 12 ⟨5, by decide⟩ true = .ok true ∧

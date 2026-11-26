@@ -1,7 +1,7 @@
 //! Empty square list management.
 
 use crate::board::Board;
-use crate::constants::INITIAL_EMPTY_COUNT;
+use crate::constants::{BOARD_SQUARES, INITIAL_EMPTY_COUNT};
 use crate::square::Square;
 
 /// Returns the quadrant ID for a given square.
@@ -195,11 +195,11 @@ impl EmptyList {
         self.count -= 1;
     }
 
-    /// Restores a previously removed square to the empty list.
+    /// Restores the most recently removed square that has yet to be restored.
     #[inline(always)]
     pub fn restore(&mut self, sq: Square) {
         debug_assert!(
-            self.count < INITIAL_EMPTY_COUNT as u32,
+            self.count < BOARD_SQUARES as u32,
             "Cannot restore: list is already full"
         );
         debug_assert!(
@@ -222,6 +222,7 @@ impl EmptyList {
     ///
     /// In Reversi, the game starts with 4 discs placed and 60 empty squares.
     /// Each non-pass move fills one empty square, so ply = [`INITIAL_EMPTY_COUNT`] - empty_count.
+    /// Requires a list with at most [`INITIAL_EMPTY_COUNT`] entries.
     #[inline(always)]
     pub fn ply(&self) -> usize {
         (INITIAL_EMPTY_COUNT as u32 - self.count) as usize
@@ -231,6 +232,19 @@ impl EmptyList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restores_squares_when_the_board_has_more_than_sixty_empties() {
+        for occupied in 0..=3 {
+            let board = Board::from_bitboards((1_u64 << occupied) - 1, 0_u64);
+            let mut empties = EmptyList::new(&board);
+            let first = empties.first();
+            empties.remove(first);
+            empties.restore(first);
+            assert_eq!(empties.count(), board.empty_count());
+            assert_eq!(empties.first(), first);
+        }
+    }
 
     #[test]
     fn test_empty_list_remove_restore() {

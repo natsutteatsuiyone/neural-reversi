@@ -1,0 +1,109 @@
+import NeuralReversi.AspirationMir.SerialTable.FromBoard
+import NeuralReversi.Board.Hash
+open NeuralReversi NeuralReversi.PvsParallel
+namespace CacheStackComparison
+private def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def pool : EndgameSearch.CacheHistory.Pool := ⟨1,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
+private def layout : SerialTable.Layout := ⟨16,by decide,false⟩
+private def c : SerialScout.Config := ⟨.aarch64 true false,false,false,true,pool.address⟩
+private def board : PvsBoardTree.Position := ⟨⟨0x7e5032204c1e3c24,0x81afcddfb3e1c080⟩,by unfold Board.wellFormed;decide⟩
+private def order : AspirationMir.SerialTable.MoveInputs mc :=
+  ⟨fun _ _ _ => none, fun _ _ _ => .fast, fun _ _ m => ⟨63-m.val.val,by omega⟩,
+    fun ms => ⟨ms,.refl _⟩,fun _ => []⟩
+
+private def base : SerialExecution.Inputs mc fc := fun i f =>
+  ⟨order.scratch i f,[],[],[],[],order.heuristic i f,order.tie i f⟩
+
+private def rootArgs : SerialRecursion.RootInput := ⟨fun _ => 0,order.rootSort,order.pvLine⟩
+
+private def mark (i : Nat) (ctx : SerialExecution.Frame) (out : Option (SerialTable.Stack.Output layout Int)) :=
+  let q := ctx.request
+  let value := match out with
+  | none => "NONE"
+  | some (_,v,mem) => s!"{v} {mem.cache.history.length}"
+  dbgTrace s!"ROW {i} {q.board.val.player.toNat} {q.board.val.opponent.toNat} {q.depth.toNat} {q.pv.toNat} {q.cut.toNat} {q.alpha} {q.beta} {value}" fun _ => out
+
+private def applyObserved (mem : SerialTable.Memory layout) (slot : layout.Index)
+    (proposal : Option SerialTable.Writes.Proposal) :=
+  let after := mem.apply slot proposal
+  let cell := after.tt.image.get slot
+  if cell.seq = (mem.tt.image.get slot).seq then after else
+    dbgTrace s!"PUBLISH {slot.val} {cell.seq.toNat} {cell.player.toNat} {cell.opponent.toNat} {cell.data.toNat}" fun _ => after
+
+private theorem applyObserved_eq (mem : SerialTable.Memory layout) (slot proposal) :
+    applyObserved mem slot proposal = mem.apply slot proposal := by
+  dsimp only [applyObserved]
+  split <;> rfl
+
+private def tracedFuel : Nat → SerialTable.Stack.Child layout
+  | 0, _, _, _ => none
+  | n+1, i, ctx, m => mark i ctx <|
+    if ctx.request.pv = false ∧ ctx.request.depth.toNat ≤ 12 then
+      (SerialCacheStack.Cells.run pool c (m.tt.image.inputs m.supported c base) i ctx m.cache).map
+        fun (k,w,cells) => (k,w,{m with cache := cells})
+    else do
+      let slot := m.tt.image.slot ctx.request.board
+      let (k,out,after) ← SerialTable.Stack.interpret (mc := mc) (fc := fc) (tracedFuel n) i ctx m
+        (SerialTable.Execution.body c (m.inputs c base) i ctx)
+      return (k,out.score,applyObserved after slot out.store)
+
+private theorem traced_eq (fuel : Nat) : tracedFuel fuel = SerialTable.Stack.runFuel pool c base fuel := by
+  induction fuel with
+  | zero => rfl
+  | succ n ih =>
+    funext i ctx m
+    unfold tracedFuel SerialTable.Stack.runFuel
+    simp only [ih,applyObserved_eq]
+    rfl
+
+private def traced (s : AspirationMir.SerialStack.State) (prior : SerialTable.Memory layout) := do
+  let ctx := SerialRootExecution.context board s.regs.alpha s.regs.beta
+  let slot := prior.tt.image.slot board
+  let code := SerialTable.Root.frame mc fc board ctx.request.depth c.paired (base s.opening ctx).memory s.rows 0
+    (SerialTable.Trial.ordering prior base board rootArgs s) s.regs.alpha s.regs.beta
+  let child := fun i (ctx : SerialExecution.Frame) => tracedFuel (Board.playRank mc ctx.request.board.val + 1) i ctx
+  let (k,out,after) ← SerialTable.Stack.interpret (mc := mc) (fc := fc) child s.opening ctx prior code
+  return (k,out.answer,applyObserved after slot out.proposal)
+
+private theorem traced_trial (s : AspirationMir.SerialStack.State) (prior : SerialTable.Memory layout) :
+    traced s prior = AspirationMir.SerialTable.search pool c board (fun _ => order) fc s prior := by
+  simp only [traced,traced_eq,applyObserved_eq]
+  rfl
+
+private def orderingKey (row : String) : Option Int := do
+  let [player,opponent,hint,square] := row.splitOn " " | none
+  let b : Board.Board := ⟨BitVec.ofNat 64 (← player.toNat?),BitVec.ofNat 64 (← opponent.toNat?)⟩
+  let raw ← square.toNat?
+  if h : b.player &&& b.opponent = 0 ∧ raw < 64 then
+    let sq : Bitboard.Square := ⟨raw,h.2⟩
+    return if hint.toNat? = some raw then EndgameOrderMir.tt else
+      EndgameOrderMir.priority mc fc ⟨b,h.1⟩ (fun _ => .fast) sq
+  else none
+
+private def printKeys (path : String) : IO Unit := do
+  for row in (← IO.FS.readFile path).splitOn "\n" do
+    if row.isEmpty then continue
+    let some key := orderingKey row | throw (IO.userError row)
+    IO.println s!"KEY {key}"
+
+def run (args : List String) : IO Unit := do
+  let [keys] := args | throw (IO.userError "expected ordering verification queries")
+  printKeys keys
+  let machine : AspirationMir.Machine := ⟨0,⟨0,256,0⟩,0,⟨0,0,0,0⟩,false,0⟩
+  let state := AspirationMir.SerialStack.first machine (AspirationMir.NativeRootBirth.initial mc board)
+  let before := SerialTable.Memory.empty layout 0 pool
+  let some (early,last) := AspirationMir.SerialCache.run traced 12 state before | throw (IO.userError "missing result")
+  for v in early++[last] do
+    IO.println s!"ROOT {v.state.opening} {v.closing} {v.state.regs.alpha.toInt} {v.state.regs.beta.toInt} {v.answer.value} {v.after.cache.history.length}"
+    for (b,e) in v.after.tt.history.drop v.before.tt.history.length do
+      IO.println s!"TTW {b.val.player.toNat} {b.val.opponent.toNat} {(TranspositionTable.Packing.pack false e).toNat}"
+    for i in [:v.after.tt.image.slots.size] do
+      let some cell := v.after.tt.image.slots[i]? | throw (IO.userError "missing slot")
+      IO.println s!"TTC {i} {cell.seq.toNat} {cell.player.toNat} {cell.opponent.toNat} {cell.data.toNat}"
+    for e in v.after.cache.history.drop v.before.cache.history.length do
+      let kind := match e.table with | .deep => "Deep" | .shallow => "Shallow"
+      IO.println s!"STORE {kind} {e.write.board.player.toNat} {e.write.board.opponent.toNat} {e.write.alpha} {e.write.score}"
+    (← IO.getStdout).flush
+end CacheStackComparison
+def main := CacheStackComparison.run

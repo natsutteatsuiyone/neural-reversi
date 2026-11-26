@@ -6,7 +6,7 @@ open Aspiration (SoundResult Window)
 open Bitboard (Square)
 open Bitboard.Moves (X86Config)
 open PvsBoardTree (GeneratedSquare Position)
-open PvsMoveLoop (ChildSearch Tree bestValue minimax scoreInf scoreMax)
+open PvsMoveLoop (ChildSearch ScanCalls Tree bestValue minimax scoreInf scoreMax)
 open RootOrder (Records SoundAttempt)
 open Threading
 open Threading.SplitResult (Report slots)
@@ -23,7 +23,7 @@ theorem replay_state (square : Nat → Square) (beta : Int) (reports : List Repo
   | nil => rfl
   | cons report rest ih => exact ih _
 
-private theorem mapped_distinct (square : Nat → Square) (reports : List Report)
+theorem mapped_distinct (square : Nat → Square) (reports : List Report)
     (distinct : (reports.map Report.index).Nodup)
     (injective : ∀ a ∈ reports, ∀ b ∈ reports, square a.index = square b.index → a.index = b.index) :
     (reports.map (fun report => square report.index)).Nodup := by
@@ -38,7 +38,7 @@ private theorem mapped_distinct (square : Nat → Square) (reports : List Report
     have equal := injective other (List.mem_cons_of_mem _ member) report (by simp) same
     exact fresh (List.mem_map.mpr ⟨other, member, equal⟩)
 
-private theorem records_after (square : Nat → Square) (value : Square → Int) (initial : Snapshot)
+theorem records_after (square : Nat → Square) (value : Square → Int) (initial : Snapshot)
     (reports : List Report) (steps : ReportSteps true beta initial.state (value ∘ square) reports)
     (earlier rest : List Report) (partition : reports = earlier ++ rest)
     (distinct : (rest.map fun report => square report.index).Nodup)
@@ -101,10 +101,10 @@ def Contract : Prop :=
 
 theorem contract_proven : Contract := by
   intro len original beta score split square value candidates before entry started prior available injective steps final
-  have observed := (SplitReturn.Observation.scoreReadContract_proven split.history split.writes
-    split.result split.lastScore split.wait.read.event split.read).2
+  have observed := SplitReturn.ownerBestContract_proven split.history split.writes
+    split.result split.lastScore split.wait true beta split.entry split.reports split.read split.bestStores
   have result := split.accepted
-  rw [observed, split.stored, entry] at result
+  rw [observed, entry] at result
   have accepted : split.check.stopped = false := by
     cases stopped : split.check.stopped <;> simp [SplitReturn.checked, stopped] at result ⊢
   have best : final.state.best = score := by
@@ -152,8 +152,8 @@ def RootContract : Prop :=
       0 < split.start.toNat →
       Prefix.run true observe beta (List.range split.start.toNat) true ⟨original, -scoreInf⟩ =
         some split.entry →
-      ChildCalls completed (childAt ((first :: rest).map (childTree mc fc b)))
-        (List.range split.start.toNat) observe →
+      ScanCalls (fun i => completed (childAt ((first :: rest).map (childTree mc fc b)) i))
+        observe true beta (List.range split.start.toNat) true original (-scoreInf) →
       (∀ earlier report later (same : split.reports = earlier ++ report :: later),
         let reads := split.reportReads earlier report later same
         let child := childAt ((first :: rest).map (childTree mc fc b)) report.index
@@ -196,13 +196,12 @@ theorem rootContract_proven : RootContract := by
     have := (PvsMoveLoop.minimax_range (childAt trees i)).1
     dsimp [value]
     omega
-  have prefixSound (i : Nat) (mem : i ∈ serialIndices) (pv : Bool) (a z : Int)
-      (w : Window a z) (n : pv = false → z = a + 1) :
-      SoundResult (-(value i)) a z (observe i pv a z) := by
-    simpa only [value, Int.neg_neg] using sound completed follows (childAt trees i) pv a z _ w n
-      (prefixCalls i mem pv a z w n)
-  obtain ⟨openWindow, limit, narrow, seed⟩ := Prefix.contract_proven Nat true observe value serialIndices
-    original beta split.entry window (by simp) continued (fun i _ => cap i) prefixSound
+  have prefixSound (i : Nat) (pv : Bool) (a z s : Int) (w : Window a z) (n : pv = false → z = a + 1)
+      (recorded : completed (childAt trees i) pv a z s) : SoundResult (-(value i)) a z s := by
+    simpa only [value, Int.neg_neg] using sound completed follows (childAt trees i) pv a z s w n recorded
+  obtain ⟨openWindow, limit, narrow, seed⟩ := Prefix.selectedContract_proven Nat true observe value serialIndices
+    (fun i => completed (childAt trees i)) original beta split.entry window (by simp) continued
+    (fun i _ => cap i) prefixCalls (fun i _ => prefixSound i)
   have ⟨scoreBound, steps⟩ := split_bounds split openWindow limit narrow seed (by
     intro earlier report later same
     obtain ⟨scout, wide⟩ := reportCalls earlier report later same
@@ -222,12 +221,12 @@ theorem rootContract_proven : RootContract := by
   have entry : split.entry = before.state :=
     (serial_prefix square observe beta serialIndices (start original) continued).symm
   have prevRecords := serial_records square observe (Root.squareValue mc fc b) serialIndices (start original)
-    (original := original) (candidates := roots.drop idx) window .start
+    (fun i => completed (childAt trees i)) (original := original) (candidates := roots.drop idx) window .start
     (prefixSquares ▸ (List.take_sublist split.start.toNat _).nodup unique)
     (fun i hi => ⟨legal i (Nat.lt_of_lt_of_le (List.mem_range.mp hi) bounded), by simp [start]⟩)
-    (fun i hi pv a z w n => by
+    prefixCalls (fun i hi pv a z s w n recorded => by
       rw [← sameValue i (Nat.lt_of_lt_of_le (List.mem_range.mp hi) bounded)]
-      exact prefixSound i hi pv a z w n)
+      exact prefixSound i pv a z s w n recorded)
   have squareEq (i j : Nat) (hi : i < moves.length) (hj : j < moves.length)
       (equal : square i = square j) : i = j := by
     have mapped : (moves.map Subtype.val)[i]'(by simpa using hi) =

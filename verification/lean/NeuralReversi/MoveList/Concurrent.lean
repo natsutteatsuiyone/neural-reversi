@@ -100,6 +100,23 @@ theorem exhaustionContract_proven : ExhaustionContract := by
   | done => exact ⟨rfl, rfl⟩
   | take success _ => rw [exhausted] at success; cases success
 
+def ReturnContract : Prop :=
+  ∀ (α : Type) (w len : Nat) (counter : BitVec w) (mem : Initialization.Memory α),
+    35 < 2 ^ w → len ≤ 35 → (∀ i, i < len → ∃ v, mem i = some v) →
+    (next len counter = none ↔ len ≤ counter.toNat) ∧
+    ∀ i ordinal, next len counter = some (i, ordinal) →
+      i < len ∧ ordinal.toNat = i + 1 ∧ 1 ≤ ordinal.toNat ∧ ordinal.toNat ≤ 35 ∧
+      ∃ v, mem i = some v
+
+theorem returnContract_proven : ReturnContract := by
+  intro α w len counter mem width capacity init
+  refine ⟨?_, ?_⟩
+  · by_cases inside : counter.toNat < len <;> simp [next, advance, inside, Nat.not_le.mpr] <;> omega
+  · intro i ordinal success
+    obtain ⟨inside, exactNumber, positive, bounded⟩ :=
+      successful_bounds len counter i ordinal width capacity success
+    exact ⟨inside, exactNumber, positive, bounded, successful_initialized len counter i ordinal mem init success⟩
+
 example : advance 2 (0xFFFFFFFF#32) = none := rfl
 example : advance 2 (0xFFFFFFFFFFFFFFFF#64) = none := rfl
 

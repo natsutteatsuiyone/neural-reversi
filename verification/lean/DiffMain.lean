@@ -1,91 +1,16 @@
 import NeuralReversi
-import NeuralReversi.Board.ConstructionFixture
-import NeuralReversi.Board.TransformFixture
-import NeuralReversi.Bitboard.MovesModel
-import NeuralReversi.Bitboard.PotentialModel
-import NeuralReversi.Bitboard.Avx2Model
-import NeuralReversi.Bitboard.Avx512Model
-import NeuralReversi.Bitboard.Avx2PotentialModel
-import NeuralReversi.Simd.Fixture
-import NeuralReversi.Simd.ZmmFixture
-import NeuralReversi.Bitboard.Avx512PotentialModel
-import NeuralReversi.Bitboard.NeonMoves
-import NeuralReversi.LegalMoves.Encoding
 import Std.Tactic.BVDecide.LRAT.Parser
-import NeuralReversi.Eval.Activations
-import NeuralReversi.Eval.PatternUpdate.Storage
-import NeuralReversi.EndgameProbCut
-import NeuralReversi.EndgameTiming
-import NeuralReversi.MidgameProbCut
-import NeuralReversi.MidgameAspiration.Model
-import NeuralReversi.LazySmp.Schedule
-import NeuralReversi.LazySmp.Voting
-import NeuralReversi.MidgameScoreRange.Domain
-import NeuralReversi.EvalCache.Probe
-import NeuralReversi.AlignedBuffer.Cleanup
-import NeuralReversi.PrincipalVariation.Buffer
-import NeuralReversi.Move.Model
-import NeuralReversi.Flip.ScalarModel
-import NeuralReversi.Flip.Model
-import NeuralReversi.Flip.Avx2.Fixture
-import NeuralReversi.Flip.Avx512.Fixture
-import NeuralReversi.Board.MovesFixture
-import NeuralReversi.Board.Move.Fixture
-import NeuralReversi.Game.History.Fixture
-import NeuralReversi.Game.Terminal.Fixture
-import NeuralReversi.Game.Initialization.Fixture
-import NeuralReversi.Game.Queries.Fixture
-import NeuralReversi.ScaledScore.DisplayControl.Fixture
 
 open Lean NeuralReversi NeuralReversi.Bitboard NeuralReversi.Board
 
-def coordinateOutput : Except Square.Panic Nat → String
-  | .ok value => toString value
-  | .error reason => s!"error:{reason.message}"
-
-def maskOutput : Except String Bits → String
-  | .ok value => s!"ok:{value.toNat}"
-  | .error reason => s!"error:{reason}"
-
-def membershipOutput : Except String Bool → String
-  | .ok value => s!"ok:{if value then 1 else 0}"
-  | .error reason => s!"error:{reason}"
-
-def scoreOutput : Except String Score → String
-  | .ok value => s!"ok:{value.toInt}"
-  | .error reason => s!"error:{reason}"
-
-def shiftAssignmentOutput (outcome : Except String Unit × Bits) : String :=
-  let status := match outcome.1 with
-    | .ok () => "ok"
-    | .error reason => s!"error:{reason}"
-  s!"{status}|{outcome.2.toNat}"
-
-def iteratorTraceOutput (checked : Bool) (state : Bits) : Except String String :=
-  (iteratorTrace 66 checked state).map fun values =>
-    String.intercalate " " (values.map fun value => match value with
-      | some index => toString index
-      | none => "none")
-
-def boardGeometryOutput (b : Board) : String :=
-  String.intercalate "|" ([Board.flipVertical b, Board.flipHorizontal b,
-    Board.flipDiagA1H8 b, Board.flipDiagA8H1 b, Board.rotate90 b, Board.rotate180 b,
-    Board.rotate270 b, Board.unique b].map fun value =>
-      s!"{value.player.toNat} {value.opponent.toNat}")
-
-def uncheckedOutput : Square.UncheckedResult → Except String String
-  | .value square => .ok s!"ok:{square.val}"
-  | .panic input => .ok s!"error:{Square.UncheckedResult.message input}"
-  | .invalidDiscriminant _ => .error "invalid enum transmutation is outside executable comparisons"
-
-def hexNibble (c : Char) : Except String Nat :=
+private def hexNibble (c : Char) : Except String Nat :=
   let n := c.toNat
   if 48 ≤ n ∧ n ≤ 57 then .ok (n - 48)
   else if 97 ≤ n ∧ n ≤ 102 then .ok (n - 87)
   else if 65 ≤ n ∧ n ≤ 70 then .ok (n - 55)
   else .error "invalid hex digit"
 
-def decodeHexBytes : List Char → Except String (List UInt8)
+private def decodeHexBytes : List Char → Except String (List UInt8)
   | [] => .ok []
   | high :: low :: rest => do
     let high ← hexNibble high
@@ -94,380 +19,80 @@ def decodeHexBytes : List Char → Except String (List UInt8)
     pure (UInt8.ofNat (16 * high + low) :: tail)
   | [_] => .error "odd hex input length"
 
-def decodeText (encoded : String) : Except String String := do
+private def decodeText (encoded : String) : Except String String := do
   if encoded == "-" then return ""
   let bytes ← decodeHexBytes encoded.toList
   match String.fromUTF8? (ByteArray.mk bytes.toArray) with
   | some text => pure text
   | none => throw "invalid UTF-8 protocol input"
 
-def squareParseOutput : Except Square.ParseFailure Square.Square → String
-  | .ok square => s!"ok:{square.val}"
-  | .error (.error .invalidFormat) => "error:format"
-  | .error (.error (.invalidFile byte)) => s!"error:file:{byte.toNat}"
-  | .error (.error (.invalidRank byte)) => s!"error:rank:{byte.toNat}"
-  | .error (.panic reason) => s!"panic:{reason.message}"
-
-def sequenceParseOutput : Except Square.SeqFailure (List Square.Square) → String
-  | .ok moves => s!"ok:{String.intercalate "," (moves.map fun sq => toString sq.val)}"
-  | .error (.error reason) =>
-    let tag := match reason.source with
-      | .invalidFormat => "format"
-      | .invalidFile byte => s!"file:{byte.toNat}"
-      | .invalidRank byte => s!"rank:{byte.toNat}"
-    s!"error:{reason.index.toNat}:{tag}"
-  | .error (.panic reason) => s!"panic:{reason.message}"
-
-def encodeText (text : String) : String :=
+private def encodeText (text : String) : String :=
   String.ofList (text.toUTF8.data.toList.flatMap fun byte =>
     let digit (n : Nat) := Char.ofNat (if n < 10 then 48 + n else 87 + n)
     [digit (byte.toNat / 16), digit (byte.toNat % 16)])
 
-def utf8ChunkDiagnostic (bytes : List Square.Byte) : String :=
-  let validity := match Square.decodeByteList bytes with
-    | none => "invalid"
-    | some text => s!"ok:{if text.isEmpty then "-" else encodeText text}"
-  s!"{validity}|{squareParseOutput (Square.parseChunk bytes)}"
+private def parseNat (label field : String) : Except String Nat :=
+  match field.toNat? with
+  | some n => .ok n
+  | none => .error s!"invalid {label}: {field}"
 
-def discResultOutput : Except String Disc.Disc → String
-  | .ok .empty => "ok:0"
-  | .ok .black => "ok:1"
-  | .ok .white => "ok:2"
-  | .error reason => s!"error:{reason}"
+private def parseInt (label field : String) : Except String Int :=
+  match field.toInt? with
+  | some n => .ok n
+  | none => .error s!"invalid {label}: {field}"
 
-def renderedBoardOutput : Except String String → String
-  | .ok text => s!"ok:{encodeText text}"
-  | .error reason => s!"error:{reason}"
+private def parseU64 (label field : String) : Except String (BitVec 64) := do
+  let n ← parseNat label field
+  if n < 2 ^ 64 then pure (BitVec.ofNat 64 n)
+  else throw s!"out-of-range {label}: {field}"
 
-def valueObservation (value : Bitboard.Value) : String :=
-  let cells := String.ofList ((List.finRange 64).map fun i =>
-    if value.storage.getLsbD i.val then '1' else '0')
-  s!"{(Bitboard.bits value).toNat} {(Bitboard.intoU64 value).toNat} {(Bitboard.valueCount value).toNat} {cells}"
+private def parseFlag (label field : String) : Except String Bool :=
+  match field with
+  | "0" => .ok false
+  | "1" => .ok true
+  | _ => .error s!"invalid {label}: {field}"
 
-def squareValueOutput (checked : Bool) (square : Square.Square) : String :=
-  match Bitboard.fromSquareValue checked square with
-  | .ok value => s!"ok:{valueObservation value}"
-  | .error message => s!"error:{message}"
+private def parseCsv (field : String) : List String :=
+  if field == "-" then [] else field.splitOn ","
 
-def boardObservationOutput (b : Board) : String :=
-  s!"{valueObservation (Board.getPlayer b)}|{valueObservation (Board.getOpponent b)}"
+private def parseSquare (label field : String) : Except String Square.Square := do
+  let n ← parseNat label field
+  if h : n < 64 then pure ⟨n, h⟩
+  else throw s!"square out of range ({label}): {field}"
 
-def initialStateOutput (checked : Bool) : String :=
-  let observe (b : Board) :=
-    s!"{boardObservationOutput b}@{renderedBoardOutput (Board.toStringAsBoard checked b .black)}"
-  s!"{observe Board.defaultBoard}#{observe Board.newBoard}"
+private def boolBit (b : Bool) : String := if b then "1" else "0"
 
-def boardParseOutput : Except Board.TextFailure Board → String
-  | .ok b => s!"ok:{b.player.toNat} {b.opponent.toNat}"
-  | .error (.error (.tooShort expected actual)) => s!"error:short:{expected.toNat}:{actual.toNat}"
-  | .error (.error (.tooLong expected actual)) => s!"error:long:{expected.toNat}:{actual.toNat}"
-  | .error (.error (.invalidChar c position)) => s!"error:char:{c.toNat}:{position.toNat}"
-  | .error (.panic message) => s!"panic:{message}"
+private def runCaseFileWith (label : String) (check : String → Except String Unit)
+    (expectedCount : Option Nat) (summary : Option String) (path : String) : IO UInt32 := do
+  let cases ← IO.FS.lines path
+  match expectedCount with
+  | some n =>
+    unless cases.size == n do
+      throw (IO.userError s!"expected {n} {label} cases, got {cases.size}")
+  | none =>
+    if cases.isEmpty then throw (IO.userError s!"missing {label} cases")
+  for line in cases do
+    IO.ofExcept (check line)
+  let desc := summary.getD s!"{label} cases"
+  (← IO.getStdout).putStrLn s!"{cases.size} {desc}, 0 mismatches"
+  return 0
 
-def scaledObservationOutput (score : ScaledScore.ScaledScore) : String :=
-  s!"{(ScaledScore.value score).toInt} {(ScaledScore.toDiscDiff score).toInt}"
+private def runCaseFile (label : String) (check : String → Except String Unit) :
+    String → IO UInt32 :=
+  runCaseFileWith label check none none
 
-def scaledConstructorOutput : Except String ScaledScore.ScaledScore → String
-  | .ok score => s!"ok:{scaledObservationOutput score}"
-  | .error reason => s!"error:{reason}"
-
-def scaledAssignmentOutput (outcome : Except String Unit × ScaledScore.ScaledScore) : String :=
-  let status := match outcome.1 with
-    | .ok () => "ok"
-    | .error reason => s!"error:{reason}"
-  s!"{status}|{(ScaledScore.value outcome.2).toInt}"
-
-def scaledArithmeticOutput (checked : Bool) (a b : ScaledScore.ScaledScore) : String :=
-  let output (result : Except String ScaledScore.ScaledScore) :=
-    scoreOutput (result.map ScaledScore.value)
-  String.intercalate "|" [
-    output (ScaledScore.addScore checked a b), output (ScaledScore.subScore checked a b),
-    output (ScaledScore.negate checked a), output (ScaledScore.addInt checked a b.raw),
-    output (ScaledScore.subInt checked a b.raw),
-    output (ScaledScore.divInt checked a b.raw),
-    scaledAssignmentOutput (ScaledScore.addAssign checked a b),
-    scaledAssignmentOutput (ScaledScore.subAssign checked a b)]
-
-structure DisplayTrace where
-  calls : Nat := 0
-  bytes : String := ""
-  chunks : List String := []
-
-def traceWrite (stop behavior : Nat) (state : DisplayTrace) (chunk : String) :
-    ScaledScore.WriteResult DisplayTrace String :=
-  let stopping := state.calls = stop
-  let added := if stopping ∧ (behavior = 3 ∨ behavior = 4) then
-    String.ofList (chunk.toList.take 1) else chunk
-  let next : DisplayTrace := ⟨state.calls + 1, state.bytes ++ added, state.chunks ++ [chunk]⟩
-  if stopping ∧ (behavior = 1 ∨ behavior = 3) then .error next
-  else if stopping ∧ (behavior = 2 ∨ behavior = 4) then .panic "display writer panic" next
-  else .ok next
-
-def displayTraceOutput (raw : ScaledScore.Word) (stop behavior : Nat) : String :=
-  let outcome := ScaledScore.display raw {} (traceWrite stop behavior) {}
-  let (status, state) := match outcome.1 with
-    | .ok state => ("ok", state)
-    | .error state => ("error", state)
-    | .panic _ state => ("panic", state)
-  s!"{status}|{if outcome.2 = ({} : ScaledScore.FormatOptions) then 1 else 0}|{state.bytes}|{String.intercalate "~" state.chunks}"
-
-def runCase (line : String) : Except String String := do
-  let fields := (line.splitOn " ").filter (· != "")
-  if fields.head? == some "game-terminal" then
-    return ← Game.Terminal.Fixture.request fields
-  if fields.head? == some "game-init" then
-    return ← Game.Initialization.Fixture.request fields
-  if fields.head? == some "queries-action" then
-    return ← Game.Queries.Fixture.actionRequest fields
-  if fields.head? == some "queries-value" then
-    return ← Game.Queries.Fixture.valueRequest fields
-  if fields.head? == some "history-value" then
-    return ← Game.History.Fixture.valueRequest fields
-  if fields.head? == some "history-vec-model" then
-    return ← Game.History.Fixture.vecRequest fields
-  if fields.head? == some "display-control-replay" then
-    return ← ScaledScore.DisplayControl.Fixture.request fields
-  if fields.head? == some "board-move-release" || fields.head? == some "board-move-checked" then
-    return ← Board.MoveFixture.request fields
-  if fields.head? == some "board-wrappers-release" || fields.head? == some "board-wrappers-checked" then
-    return ← Board.wrapperRequest fields
-  if fields.head? == some "board-moves-release" || fields.head? == some "board-moves-checked" then
-    return ← Board.movesRequest fields
-  if fields.head? == some "flip-avx512-release" || fields.head? == some "flip-avx512-checked" then
-    return ← Flip.Avx512.publicRequest fields
-  if fields.head? == some "flip-avx512-index-release" || fields.head? == some "flip-avx512-index-checked" then
-    return ← Flip.Avx512.indexRequest fields
-  if fields.head? == some "avx512-flip-primitives" then
-    return ← Flip.Avx512.primitiveRequest fields
-  if fields.head? == some "flip-avx2-mm-release" || fields.head? == some "flip-avx2-mm-checked" then
-    return ← Flip.Avx2.preparedRequest fields
-  if fields.head? == some "avx2-flip-primitives" then
-    return ← Flip.Avx2.flipPrimitiveRequest fields
-  if fields.head? == some "avx512-zmm-primitives" then
-    return ← Simd.X86.zmmPrimitiveRequest fields
-  if fields.head? == some "avx512-zmm-ternary" then
-    return ← Simd.X86.zmmTernaryRequest fields
-  if fields.head? == some "avx512-ternary" then
-    return ← Simd.X86.ternaryRequest fields
-  if fields.head? == some "avx2-primitives" || fields.head? == some "avx2-pair-reduction" then
-    return ← Simd.X86.primitiveRequest fields
-  let [op, p, o, f, s] := fields | throw "expected: op player opponent flipped square"
-  if op == "square-text-release" || op == "square-text-checked" then
-    return squareParseOutput (Square.fromStr (← decodeText p))
-  if op == "square-sequence-release" || op == "square-sequence-checked" then
-    return sequenceParseOutput (Square.parseSequence (← decodeText p))
-  if op == "board-parse-release" || op == "board-parse-checked" then
-    let side : Disc.PlayerColor ← match o with
-      | "1" => pure .black
-      | "2" => pure .white
-      | _ => throw "invalid player color"
-    return boardParseOutput (Board.fromString (op == "board-parse-checked") (← decodeText p) side)
-  let parse (text : String) : Except String Nat :=
-    match text.toNat? with
-    | some value => .ok value
-    | none => .error "invalid unsigned decimal"
-  let p ← parse p
-  let o ← parse o
-  let f ← parse f
-  let s ← parse s
-  if p >= 2^64 || o >= 2^64 || f >= 2^64 then
-    throw "input outside model domain"
-  let b : Board := ⟨BitVec.ofNat 64 p, BitVec.ofNat 64 o⟩
-  let flipped := BitVec.ofNat 64 f
-  if op == "flip-avx2-release" || op == "flip-avx2-checked" then
-    if f != 0 then throw "AVX2 flip reserves the fourth field as zero"
-    if h : s < 64 then
-      return s!"ok:{(Flip.Avx2.flip ⟨s,h⟩ b.player b.opponent).toNat}"
-    else throw "invalid square discriminant"
-  if op == "flip-scalar-release" || op == "flip-scalar-checked" then
-    if f != 0 then throw "scalar flip reserves the fourth field as zero"
-    if h : s < 64 then
-      return maskOutput (Flip.flip (op == "flip-scalar-checked") ⟨s,h⟩ b.player b.opponent)
-    else throw "invalid square discriminant"
-  if op == "scalar-bits-release" || op == "scalar-bits-checked" then
-    if o != 0 || f != 0 || s != 0 then throw "expected one unsigned-operation word"
-    return s!"{(b.player &&& -b.player).toNat}|{(Flip.Scalar.leadingZeros32 b.player).toNat}"
-  if op == "scalar-flip-left-release" || op == "scalar-flip-left-checked" then
-    if s != 0 then throw "expected three scalar flip words"
-    return s!"ok:{(Flip.Scalar.flipLeft b.player b.opponent flipped).toNat}"
-  if op == "scalar-flip-right-release" || op == "scalar-flip-right-checked" then
-    if s != 0 then throw "expected three scalar flip words"
-    match Flip.Scalar.flipRight (op == "scalar-flip-right-checked") b.player b.opponent flipped with
-    | .ok value => return s!"ok:{value.toNat}"
-    | .error reason => return s!"error:{reason}"
-  if op == "move-constructor-release" || op == "move-constructor-checked" then
-    if h : s < 64 then
-      match Move.create (op == "move-constructor-checked") ⟨s,h⟩ flipped with
-      | .ok value => return s!"ok:{value.sq.val}|{value.flipped.toNat}|{value.value.toInt}"
-      | .error reason => return s!"error:{reason.message}"
-    else throw "invalid square discriminant"
-  if op == "transform-release" || op == "transform-checked" then
-    if f >= 196 || s >= 2^64 then throw "transform fixture outside its domain"
-    return Transform.Fixture.output b.player b.opponent f (BitVec.ofNat 64 s)
-  if op == "board-constructor-release" || op == "board-constructor-checked" then
-    if f >= 1024 || s >= 2^64 then throw "constructor fixture outside its domain"
-    return Construction.Fixture.output b.player b.opponent f (BitVec.ofNat 64 s)
-  let sq : Square ← if h : s < 64 then pure ⟨s, h⟩ else throw "invalid square"
-  match op with
-  | "representation-release" | "representation-checked" =>
-    let raw := BitVec.ofNat 64 p
-    pure s!"{valueObservation (Bitboard.new raw)}|{valueObservation (Bitboard.fromU64 raw)}"
-  | "square-value-release" | "square-value-checked" =>
-    if h : f < 64 then pure (squareValueOutput (op == "square-value-checked") ⟨f, h⟩)
-    else throw "invalid square discriminant"
-  | "board-observe-release" | "board-observe-checked" =>
-    if b.player &&& b.opponent != 0 then throw "board constructor requires disjointness"
-    pure (boardObservationOutput b)
-  | "board-observe-raw-release" => pure (boardObservationOutput b)
-  | "initial-state-release" | "initial-state-checked" =>
-    pure (initialStateOutput (op == "initial-state-checked"))
-  | "board-disc-at-release" | "board-disc-at-checked" | "board-disc-at-raw-release"
-  | "board-render-release" | "board-render-checked" | "board-render-raw-release"
-  | "board-roundtrip-release" | "board-roundtrip-checked" | "board-roundtrip-raw-release" =>
-    if op == "board-disc-at-release" || op == "board-disc-at-checked" ||
-        op == "board-render-release" || op == "board-render-checked" ||
-        op == "board-roundtrip-release" || op == "board-roundtrip-checked" then
-      if b.player &&& b.opponent != 0 then throw "board constructor requires disjointness"
-    let side : Disc.PlayerColor ← match s with
-      | 1 => pure .black
-      | 2 => pure .white
-      | _ => throw "invalid player color"
-    let checked := op == "board-disc-at-checked" || op == "board-render-checked" ||
-      op == "board-roundtrip-checked"
-    if op == "board-render-release" || op == "board-render-checked" ||
-        op == "board-render-raw-release" then
-      pure (renderedBoardOutput (Board.toStringAsBoard checked b side))
-    else if op == "board-roundtrip-release" || op == "board-roundtrip-checked" ||
-        op == "board-roundtrip-raw-release" then
-      match Board.toStringAsBoard checked b side with
-      | .error message => pure s!"panic:{message}"
-      | .ok text => pure (boardParseOutput (Board.fromString checked (Board.stripRowSeparators text) side))
-    else if h : f < 64 then
-      pure (discResultOutput (Board.discAt checked b ⟨f, h⟩ side))
-    else throw "invalid square discriminant"
-  | "scaled-display-release" | "scaled-display-checked" =>
-    if p >= 2^32 then throw "scaled display input outside i32 bit domain"
-    pure (displayTraceOutput (BitVec.ofNat 32 p) f s)
-  | "scaled-f32-release" | "scaled-f32-checked" =>
-    if p >= 2^32 then throw "scaled float input outside i32 bit domain"
-    let input := BitVec.ofNat 32 p
-    pure s!"{(ScaledScore.toDiscDiffF32 ⟨input⟩).toNat} {(ScaledScore.integerCastBits input).toNat}"
-  | "scaled-arithmetic-release" | "scaled-arithmetic-checked" =>
-    if p >= 2^32 || o >= 2^32 then throw "scaled operand outside i32 bit domain"
-    pure (scaledArithmeticOutput (op == "scaled-arithmetic-checked")
-      ⟨BitVec.ofNat 32 p⟩ ⟨BitVec.ofNat 32 o⟩)
-  | "scaled-conversions-release" | "scaled-conversions-checked" =>
-    if p >= 2^32 then throw "scaled input outside i32 bit domain"
-    let input := BitVec.ofNat 32 p
-    let checked := op == "scaled-conversions-checked"
-    pure s!"{scaledConstructorOutput (ScaledScore.fromRaw checked input)}|{scaledConstructorOutput (ScaledScore.fromDiscDiff checked input)}|{scaledObservationOutput ⟨input⟩}"
-  | "unchecked-u8-release" | "unchecked-u8-checked" =>
-    if p >= 2^8 then throw "unchecked input outside u8 domain"
-    uncheckedOutput (Square.fromU8Unchecked (op == "unchecked-u8-checked") (BitVec.ofNat 8 p))
-  | "unchecked-u32-release" | "unchecked-u32-checked" =>
-    if p >= 2^32 then throw "unchecked input outside u32 domain"
-    uncheckedOutput (Square.fromU32Unchecked (op == "unchecked-u32-checked") (BitVec.ofNat 32 p))
-  | "unchecked-usize-release" | "unchecked-usize-checked" =>
-    uncheckedOutput (Square.fromUsizeUnchecked64 (op == "unchecked-usize-checked") (BitVec.ofNat 64 p))
-  | "board-geometry-release" | "board-geometry-checked" =>
-    if b.player &&& b.opponent != 0 then throw "board constructor requires disjointness"
-    pure (boardGeometryOutput b)
-  | "board-geometry-raw-release" => pure (boardGeometryOutput b)
-  | "iterator-release" | "iterator-checked" =>
-    let checked := op == "iterator-checked"
-    let direct ← iteratorTraceOutput checked (bitboardIter b.player)
-    let consumed ← iteratorTraceOutput checked (intoIterator b.player)
-    let constructed ← iteratorTraceOutput checked (iteratorNew b.player)
-    pure s!"{direct}|{consumed}|{constructed}"
-  | "adjacent-release" | "adjacent-checked" =>
-    if h : f < 64 then
-      pure (if hasAdjacentBit b.player ⟨f, h⟩ then "1" else "0")
-    else throw "invalid square discriminant"
-  | "corners-release" | "corners-checked" =>
-    pure s!"{(corners b.player).toNat} {(nonCorners b.player).toNat} {(cornerWeightedCount b.player).toNat} {(cornerStability b.player).toNat}"
-  | "logic-release" | "logic-checked" =>
-    pure s!"{(bitAnd b.player b.opponent).toNat} {(bitOr b.player b.opponent).toNat} {(bitXor b.player b.opponent).toNat} {(bitNot b.player).toNat} {(bitAndAssign b.player b.opponent).2.toNat} {(bitOrAssign b.player b.opponent).2.toNat} {(bitXorAssign b.player b.opponent).2.toNat}"
-  | "shifts-release" | "shifts-checked" =>
-    if f >= 2^32 then throw "shift count outside u32 domain"
-    let count := BitVec.ofNat 32 f
-    let checks := op == "shifts-checked"
-    pure s!"{maskOutput (shiftLeft checks b.player count)}|{maskOutput (shiftRight checks b.player count)}|{shiftAssignmentOutput (shiftLeftAssign checks b.player count)}|{shiftAssignmentOutput (shiftRightAssign checks b.player count)}"
-  | "delta-release" | "delta-checked" =>
-    if f >= 2^32 then throw "delta outside u32 domain"
-    pure (maskOutput (deltaSwap (op == "delta-checked") b.player b.opponent (BitVec.ofNat 32 f)))
-  | "geometry-release" | "geometry-checked" =>
-    pure s!"{(Bitboard.flipVertical b.player).toNat} {(Bitboard.flipHorizontal b.player).toNat} {(Bitboard.flipDiagA1H8 b.player).toNat} {(Bitboard.flipDiagA8H1 b.player).toNat} {(Bitboard.rotate90 b.player).toNat} {(Bitboard.rotate180 b.player).toNat} {(Bitboard.rotate270 b.player).toNat}"
-  | "score-release" | "score-checked" =>
-    if f >= 2^32 then throw "empty count outside u32 domain"
-    let checks := op == "score-checked"
-    pure s!"{scoreOutput (finalScore checks b)}|{scoreOutput (solve checks b (BitVec.ofNat 32 f))}"
-  | "board-scaled-release" | "board-scaled-checked" | "board-scaled-raw-release" =>
-    if f >= 2^32 then throw "empty count outside u32 domain"
-    if op != "board-scaled-raw-release" && b.player &&& b.opponent != 0 then
-      throw "board constructor requires disjointness"
-    let checked := op == "board-scaled-checked"
-    pure s!"{scaledConstructorOutput (finalScoreScaled checked b)}|{scaledConstructorOutput (solveScaled checked b (BitVec.ofNat 32 f))}"
-  | "masks-release" | "masks-checked" =>
-    if h : f < 64 then
-      let anySq : AnySquare := ⟨f, h⟩
-      let checks := op == "masks-checked"
-      pure s!"ok:{(fromSquare anySq).toNat}|{maskOutput (squareBitboard checks checks anySq)}|{maskOutput (setSquare checks checks b.player anySq)}|{membershipOutput (containsSquare checks checks b.player anySq)}|{if isEmpty b.player then 1 else 0}"
-    else throw "invalid square discriminant"
-  | "get-moves-portable" => pure s!"{(Moves.getMovesPortable b.player b.opponent).toNat}"
-  | "get-moves-avx2" => pure s!"{(Moves.getMovesAvx2 b.player b.opponent).toNat}"
-  | "get-moves-avx512" => pure s!"{(Moves.getMovesAvx512 b.player b.opponent).toNat}"
-  | "get-moves-and-potential-avx2" =>
-    let (moves, potential) := Moves.getMovesAndPotentialAvx2 b.player b.opponent
-    pure s!"{moves.toNat}|{potential.toNat}"
-  | "get-moves-and-potential-avx512" =>
-    let (moves, potential) := Moves.getMovesAndPotentialAvx512 b.player b.opponent
-    pure s!"{moves.toNat}|{potential.toNat}"
-  | "get-moves-and-potential-portable" =>
-    let (moves, potential) := Moves.getMovesAndPotentialPortable b.player b.opponent
-    pure s!"{moves.toNat}|{potential.toNat}"
-  | "lowbits" => pure s!"{(clearLsb b.player).toNat} {if hasSingleBitNonzero b.player then 1 else 0} {(count b.player).toNat}"
-  | "least-release" | "least-checked" =>
-    match lsbSquareUnchecked (op == "least-checked") b.player with
-    | .ok result => pure s!"ok:{result.val}"
-    | .error reason => pure s!"error:{reason}"
-  | "pop-release" | "pop-checked" =>
-    match popLsb (op == "pop-checked") b.player with
-    | .ok (result, rest) => pure s!"ok:{result.val} {rest.toNat}"
-    | .error reason => pure s!"error:{reason}"
-  | "place-release" | "place-checked" =>
-    match makeMoveWithFlipped (op == "place-checked") b flipped sq with
-    | .ok result => pure s!"ok:{result.player.toNat} {result.opponent.toNat}"
-    | .error reason => pure s!"error:{reason}"
-  | "square-iter" => pure (String.intercalate " " (Square.iter.map fun sq => toString (Square.index sq)))
-  | "square-from-u8" =>
-    if p >= 256 then throw "input outside u8 domain"
-    match Square.fromU8 (BitVec.ofNat 8 p) with
-    | some value => pure s!"some:{Square.index value}"
-    | none => pure "none"
-  | "square-coordinates" =>
-    if h : p < 64 then
-      let value : Square.Square := ⟨p, h⟩
-      pure s!"{Square.index value}|{Square.file value}|{Square.rank value}"
-    else throw "invalid square discriminant"
-  | "square-from-coordinates" =>
-    if p >= 256 || o >= 256 then throw "input outside u8 domain"
-    match Square.fromFileRank (BitVec.ofNat 8 p) (BitVec.ofNat 8 o) with
-    | .ok value => pure s!"ok:{Square.index value}"
-    | .error reason => pure s!"error:{reason.message}"
-  | "disc" =>
-    let disc : Disc.Disc ← match p with
-      | 0 => pure .empty
-      | 1 => pure .black
-      | 2 => pure .white
-      | _ => throw "invalid disc"
-    pure s!"{(Disc.toChar disc).toNat}"
-  | "flip" => pure s!"{(applyFlip b.player flipped).toNat}"
-  | "move" => pure s!"{(applyMove b.player flipped sq).toNat}"
-  | "empty" => pure s!"{(emptySquares b).toNat} {(playerCount b).toNat} {(opponentCount b).toNat} {(emptyCount b).toNat}"
-  | "switch" =>
-    let result := switchPlayers b
-    pure s!"{result.player.toNat} {result.opponent.toNat}"
-  | _ => throw s!"unknown operation: {op}"
+private def runHeaderCaseFile {α : Type} (label : String)
+    (parseHeader : String → Except String (α × (Nat → String)))
+    (check : α → String → Except String Unit) (path : String) : IO UInt32 := do
+  let lines ← IO.FS.lines path
+  let some header := lines[0]? | throw (IO.userError s!"missing {label} header")
+  let (cfg, formatSummary) ← IO.ofExcept (parseHeader header.trimAscii.toString)
+  let cases := lines.extract 1 lines.size
+  if cases.isEmpty then throw (IO.userError s!"missing {label} cases")
+  for line in cases do
+    IO.ofExcept (check cfg line)
+  (← IO.getStdout).putStrLn (formatSummary cases.size)
+  return 0
 
 structure FlipScalarCase where
   sq : Square.Square
@@ -476,37 +101,22 @@ structure FlipScalarCase where
   opponent : Flip.Word
   expected : Flip.Word
 
-def parseFlipScalarCase (line : String) : Except String FlipScalarCase := do
+private def parseFlipScalarCase (line : String) : Except String FlipScalarCase := do
   let normalized := line.trimAscii.toString.replace "\t" " "
   let fields := (normalized.splitOn " ").filter (· != "")
-  let ns ← fields.mapM fun field =>
-    match field.toNat? with
-    | some n => .ok n
-    | none => .error s!"unparsable line: {line}"
-  let [sqNat, m0, m1, m2, m3, m4, m5, m6, m7, p, o, exp] := ns
+  let sqField :: wordFields := fields | throw s!"unparsable line: {line}"
+  let sq ← parseSquare "flip scalar square" sqField
+  let words ← wordFields.mapM (parseU64 "flip scalar word")
+  let [m0, m1, m2, m3, m4, m5, m6, m7, player, opponent, expected] := words
     | throw s!"unparsable line: {line}"
-  if hsq : sqNat < 64 then
-    let words := [m0, m1, m2, m3, m4, m5, m6, m7, p, o, exp]
-    if words.any (· >= 2^64) then
-      throw s!"input outside u64 domain: {line}"
-    let maskVec : Vector Flip.Word 8 :=
-      ⟨#[BitVec.ofNat 64 m0, BitVec.ofNat 64 m1, BitVec.ofNat 64 m2, BitVec.ofNat 64 m3,
-         BitVec.ofNat 64 m4, BitVec.ofNat 64 m5, BitVec.ofNat 64 m6, BitVec.ofNat 64 m7], rfl⟩
-    pure {
-      sq := ⟨sqNat, by omega⟩
-      masks := fun d => maskVec.get d
-      player := BitVec.ofNat 64 p
-      opponent := BitVec.ofNat 64 o
-      expected := BitVec.ofNat 64 exp
-    }
-  else
-    throw s!"square out of range (expected < 64, got {sqNat}): {line}"
+  let maskVec : Vector Flip.Word 8 := ⟨#[m0, m1, m2, m3, m4, m5, m6, m7], rfl⟩
+  pure { sq, masks := fun d => maskVec.get d, player, opponent, expected }
 
-def formatFlipOutcome : Except String Flip.Word → String
+private def formatFlipOutcome : Except String Flip.Word → String
   | .ok w => toString w.toNat
   | .error msg => s!"error:{msg}"
 
-def runFlipScalarCases (path : String) : IO UInt32 := do
+private def runFlipScalarCases (path : String) : IO UInt32 := do
   let stderr ← IO.getStderr
   let stdout ← IO.getStdout
   let rawLines ← try
@@ -542,39 +152,26 @@ def runFlipScalarCases (path : String) : IO UInt32 := do
   stdout.putStrLn s!"{lines.size} cases, {mismatches} mismatches"
   return if mismatches == 0 && lines.size > 0 then 0 else 1
 
-private def moveCasesConfig (backend : String) : Except String Flip.Dispatch.TargetConfig :=
-  match backend with
-  | "neon-sha3" => .ok (.aarch64 true true)
-  | "neon" => .ok (.aarch64 true false)
-  | "avx512" => .ok (.x86_64 ⟨false, true, false⟩)
-  | "avx2" => .ok (.x86_64 ⟨false, false, true⟩)
-  | "portable" => .ok .other
-  | _ => .error s!"unknown move generation backend: {backend}"
+private def moveCasesHeader (backend : String) :
+    Except String (Flip.Dispatch.TargetConfig × (Nat → String)) := do
+  let cfg ← match backend with
+    | "neon-sha3" => .ok (.aarch64 true true)
+    | "neon" => .ok (.aarch64 true false)
+    | "avx512" => .ok (.x86_64 ⟨false, true, false⟩)
+    | "avx2" => .ok (.x86_64 ⟨false, false, true⟩)
+    | "portable" => .ok .other
+    | _ => .error s!"unknown move generation backend: {backend}"
+  pure (cfg, fun n => s!"{backend}: {n} move generation cases, 0 mismatches")
 
 private def checkMoveCase (cfg : Flip.Dispatch.TargetConfig) (line : String) :
     Except String Unit := do
-  let ws ← (line.trimAscii.toString.splitOn " ").mapM fun field => do
-    let some n := field.toNat? | throw s!"invalid move generation case: {line}"
-    if n ≥ 2^64 then throw s!"word outside u64 domain: {line}"
-    pure (BitVec.ofNat 64 n)
+  let ws ← (line.trimAscii.toString.splitOn " ").mapM (parseU64 "move generation word")
   let [p, o, rustLegal, rustCombined, rustPotential] := ws
     | throw s!"invalid move generation case: {line}"
   let legal := Moves.legalMovesTarget cfg p o
   let (combined, potential) := Moves.legalMovesAndPotentialTarget cfg p o
   unless (legal, combined, potential) == (rustLegal, rustCombined, rustPotential) do
     throw s!"move generation mismatch: {line}; model {legal.toNat} {combined.toNat} {potential.toNat}"
-
-private def runMoveCases (path : String) : IO UInt32 := do
-  let lines ← IO.FS.lines path
-  let some header := lines[0]? | throw (IO.userError "missing backend header")
-  let backend := header.trimAscii.toString
-  let cfg ← IO.ofExcept (moveCasesConfig backend)
-  let cases := lines.extract 1 lines.size
-  if cases.isEmpty then throw (IO.userError "missing move generation cases")
-  for line in cases do
-    IO.ofExcept (checkMoveCase cfg line)
-  (← IO.getStdout).putStrLn s!"{backend}: {cases.size} move generation cases, 0 mismatches"
-  return 0
 
 open NeuralReversi.Eval.Activations in
 private def activationBackend (name : String) : Except String Backend :=
@@ -585,11 +182,17 @@ private def activationBackend (name : String) : Except String Backend :=
   | "neon" => .ok .neon
   | _ => .error s!"unknown activation backend: {name}"
 
+open NeuralReversi.Eval.Activations in
+private def activationHeader (header : String) :
+    Except String ((Backend × Backend) × (Nat → String)) := do
+  let [fusedName, scReluName] := header.splitOn " "
+    | throw "expected fused and SCReLU backend names"
+  let fused ← activationBackend fusedName
+  let scRelu ← activationBackend scReluName
+  pure ((fused, scRelu), fun n => s!"{fusedName}/{scReluName}: {n} activation cases, 0 mismatches")
+
 private def parseActivationValues (text : String) : Except String (Array Int) :=
-  ((text.splitOn " ").filter (· != "")).toArray.mapM fun field =>
-    match field.toInt? with
-    | some n => .ok n
-    | none => .error s!"invalid activation value: {field}"
+  ((text.splitOn " ").filter (· != "")).toArray.mapM (parseInt "activation value")
 
 private def parseActivationInput (text : String) : Except String (Array Int32) := do
   let values ← parseActivationValues text
@@ -620,57 +223,479 @@ private def checkActivationCase (fused scRelu : Backend) (line : String) : Excep
         throw s!"SCReLU mismatch for size {xs.size} at {i}: Rust index {indices[i]!}, value {ys[i]!}; model index {wantIdx}, value {want}"
   | _ => throw s!"invalid activation case: {line}"
 
-private def runActivationCases (path : String) : IO UInt32 := do
-  let lines ← IO.FS.lines path
-  let some header := lines[0]? | throw (IO.userError "missing activation backend header")
-  let [fusedName, scReluName] := header.trimAscii.toString.splitOn " "
-    | throw (IO.userError "expected fused and SCReLU backend names")
-  let fused ← IO.ofExcept (activationBackend fusedName)
-  let scRelu ← IO.ofExcept (activationBackend scReluName)
-  let cases := lines.extract 1 lines.size
-  if cases.isEmpty then throw (IO.userError "missing activation cases")
-  for line in cases do
-    IO.ofExcept (checkActivationCase fused scRelu line)
-  (← IO.getStdout).putStrLn s!"{fusedName}/{scReluName}: {cases.size} activation cases, 0 mismatches"
-  return 0
-
 open NeuralReversi.EndgameTiming in
 private def checkEndgameTimingCase (line : String) : Except String Unit := do
-  let values ← (line.trimAscii.toString.splitOn " ").mapM fun field =>
-    match field.toNat? with
-    | some n => if n < 2 ^ 64 then .ok n else .error s!"outside u64 range: {field}"
-    | none => .error s!"invalid timing value: {field}"
+  let values ← (line.trimAscii.toString.splitOn " ").mapM (parseU64 "timing value")
   let [elapsed, budget, factorBits, elapsedBits, budgetBits, productBits, permits] := values
     | throw s!"invalid endgame timing case: {line}"
-  let some factor := decode (BitVec.ofNat 64 factorBits)
+  let some factor := decode factorBits
     | throw s!"unsupported negative factor: {line}"
-  unless decode (BitVec.ofNat 64 elapsedBits) = some (.finite (castUnits elapsed)) do
+  unless decode elapsedBits = some (.finite (castUnits elapsed.toNat)) do
     throw s!"elapsed cast disagrees with the binary64 model: {line}"
-  unless decode (BitVec.ofNat 64 budgetBits) = some (.finite (castUnits budget)) do
+  unless decode budgetBits = some (.finite (castUnits budget.toNat)) do
     throw s!"budget cast disagrees with the binary64 model: {line}"
-  unless decode (BitVec.ofNat 64 productBits) = some (elapsedProduct elapsed factor) do
+  unless decode productBits = some (elapsedProduct elapsed.toNat factor) do
     throw s!"projected time disagrees with the binary64 model: {line}"
-  unless permits = (if underBudget budget elapsed factor then 1 else 0) do
+  unless permits.toNat = (if underBudget budget.toNat elapsed.toNat factor then 1 else 0) do
     throw s!"budget decision disagrees with the binary64 model: {line}"
 
-private def runEndgameTimingCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing endgame timing cases")
-  for line in cases do
-    IO.ofExcept (checkEndgameTimingCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} endgame timing cases, 0 mismatches"
-  return 0
+private def timeModeOutput : TimeSettings.Mode → String
+  | .infinite => "infinite"
+  | .byoyomi time => s!"byo {time}"
+  | .fischer main increment => s!"fischer {main} {increment}"
+  | .japaneseByo main time => s!"japanese {main} {time}"
+
+private def checkTimeSettingsCase (line : String) : Except String Unit := do
+  let [input, fields, initial, perMove] := line.trimAscii.toString.splitOn "|"
+    | throw s!"malformed time settings case: {line}"
+  let parameters ← (input.splitOn " ").mapM (parseNat "time setting")
+  let [main, extra, stones, remaining, left] := parameters
+    | throw s!"malformed time settings input: {input}"
+  let settings := TimeSettings.fromGtpSecs main extra stones
+  let (bank, period, encodedStones) := TimeSettings.gtpFields settings
+  let enabled := boolBit (TimeSettings.enabled settings)
+  let expected := s!"{enabled} {bank} {period} {encodedStones}"
+  let expectedInitial := timeModeOutput (TimeSettings.initialMode settings)
+  let expectedMove := timeModeOutput (TimeSettings.moveMode remaining left settings)
+  unless fields == expected && initial == expectedInitial && perMove == expectedMove do
+    throw s!"time settings differ: {line}, Lean returned {expected}|{expectedInitial}|{expectedMove}"
+
+private def fixedEndgameHeader (header : String) : Except String (Unit × (Nat → String)) := do
+  let expected := String.intercalate " " (EndgameProgress.ladder.map toString)
+  unless header == expected do
+    throw s!"Rust endgame ladder differs: {header}, expected {expected}"
+  pure ((), fun n => s!"{n} fixed endgame cases, 0 mismatches")
+
+private def checkFixedEndgameCase (line : String) : Except String Unit := do
+  let fields := line.trimAscii.toString.splitOn " "
+  let [empties, firstCap, secondCap, d1, d2, d3, d4, d5, result] := fields
+    | throw s!"malformed fixed endgame case: {line}"
+  let values ← [empties, firstCap, secondCap, d1, d2, d3, d4, d5].mapM fun field => do
+    let n ← parseNat "fixed endgame value" field
+    if n < 2 ^ 32 then pure n else throw s!"outside u32 range: {field}"
+  let [empties, firstCap, secondCap, d1, d2, d3, d4, d5] := values
+    | throw s!"invalid fixed endgame case: {line}"
+  let observed ← if result == "-" then pure none else some <$> parseNat "endgame result" result
+  let depths := [d1, d2, d3, d4, d5]
+  let expected := EndgameProgress.endSelectivity (min firstCap secondCap)
+    (fun step => depths[step - 1]?.getD 0) empties
+  unless observed == expected do
+    throw s!"fixed endgame cutoff differs: {line}, Lean returned {expected}"
+
+private def checkGameAnalysisCase (line : String) : Except String Unit := do
+  let [input, outcome, progress] := line.trimAscii.toString.splitOn "|"
+    | throw s!"malformed game analysis case: {line}"
+  let [player, opponent, history, cancellation, mode] := input.splitOn " "
+    | throw s!"malformed game analysis input: {input}"
+  let p ← parseU64 "player bits" player
+  let o ← parseU64 "opponent bits" opponent
+  let cancelAt ← parseNat "cancellation poll" cancellation
+  let moves ← (parseCsv history).mapM fun token => do
+    if token == "p" then return GameAnalysis.Action.pass
+    return GameAnalysis.Action.play (← parseSquare "game analysis action" token)
+  let board : Board := ⟨p, o⟩
+  let probe : GameAnalysis.Search :=
+    fun _ searched =>
+      if mode == "error" then .error "fixture"
+      else
+        let player := (playerCount searched).toNat
+        let opponent := (opponentCount searched).toNat
+        let index := 3 * player + opponent
+        let first : Square.Square := ⟨index % 64, Nat.mod_lt _ (by decide)⟩
+        let next : Square.Square := ⟨(index + 17) % 64, Nat.mod_lt _ (by decide)⟩
+        let score : BitVec 32 := if mode == "invalid" then 0x80000000#32
+          else BitVec.ofInt 32 (64 * ((player : Int) - opponent) + 17)
+        .ok ⟨⟨score⟩, first, [first, next]⟩
+  let model := GameAnalysis.reportGame ⟨false, false⟩ ⟨false, false, false⟩
+    (fun index => probe (index.getD 0)) (fun poll => decide (cancelAt ≤ poll)) board moves
+  let (expected, emitted) := match model with
+    | .error (.illegalMove square) => (s!"illegal:{square.val}", "")
+    | .error (.illegalMoveAt index square) => (s!"illegal:{index}:{square.val}", "")
+    | .error .passWithLegalMoves => ("pass-with-moves", "")
+    | .error .passAfterGameOver => ("pass-after-game", "")
+    | .ok report =>
+      let status := match report.outcome with
+        | .complete | .cancelled => "ok"
+        | .searchError message => s!"search:{message}"
+        | .invalidScore raw => s!"invalid:{raw}"
+      let encoded := report.progress.map fun move =>
+        let pv := String.intercalate "," (move.pv.map fun square => toString square.val)
+        s!"{move.index},{move.best},{move.played},{move.loss},{move.bestMove.val}:{pv}"
+      (status, String.intercalate ";" encoded)
+  unless outcome == expected && progress == emitted do
+    throw s!"game analysis disagrees: {line}, Lean returned {expected}|{emitted}"
+
+private def obfOption {α : Type} [ToString α] (value : Option α) : String :=
+  value.map toString |>.getD "-"
+
+private def observeObf : Except Obf.Error (Option Obf.Position) → String
+  | .ok none => "blank"
+  | .ok (some pos) =>
+    let white := boolBit (pos.side == .white)
+    let passing := boolBit (Obf.isPass pos)
+    let expected := obfOption (Obf.expectedScore pos)
+    let best := String.intercalate "," ((Obf.bestMoves pos).map (fun sq => toString sq.val))
+    let scores := String.intercalate "," ((List.finRange 64).map fun sq =>
+      s!"{obfOption (Obf.scoreOf pos sq)}:{obfOption (Obf.rankOf pos sq)}")
+    s!"ok {pos.board.player.toNat} {pos.board.opponent.toNat} {white} {passing} {expected}|{best}|{scores}"
+  | .error error =>
+    let category := match error with
+      | .nonAsciiHeader _ => "non-ascii"
+      | .shortHeader _ => "short"
+      | .invalidSide _ => "side"
+      | .invalidBoard _ => "board"
+      | .invalidSegment _ => "segment"
+      | .invalidMove _ _ => "move"
+      | .invalidScore _ _ => "score"
+    let cause := (error.sourceMessage.map encodeText).getD "-"
+    s!"error {category}|{encodeText error.message}|{cause}"
+
+private def checkObfCase (line : String) : Except String Unit := do
+  let input :: observed := line.trimAscii.toString.splitOn "|"
+    | throw s!"malformed OBF comparison: {line}"
+  let text ← decodeText input
+  let predicted := observeObf (Obf.parse text)
+  unless (String.intercalate "|" observed) == predicted do
+    throw s!"OBF disagrees on {repr text}: Rust returned {String.intercalate "|" observed}, Lean returned {predicted}"
+
+private def emptyListOutput (order : List Square.Square) : String :=
+  let quadrant := EmptyListParity.quadrantId
+  let parity := order.foldl EmptyListParity.toggle 0#8
+  String.intercalate " " ([toString order.length, toString parity.toNat] ++
+    order.map (fun square => s!"{square.val}:{(quadrant square).toNat}"))
+
+private def checkEmptyListCase (line : String) : Except String Unit := do
+  let input :: snapshots := line.trimAscii.toString.splitOn "|" | throw "missing empty list input"
+  let [empty, removed] := input.splitOn " " | throw s!"malformed empty list input: {input}"
+  let bits ← parseU64 "empty mask" empty
+  let n ← parseNat "removed square" removed
+  let order := EmptyListParity.presorted.filter (fun sq => bits.getLsbD sq.val)
+  let initial := emptyListOutput order
+  let expected ← if fits : n < 64 then do
+    let sq : Square.Square := ⟨n, fits⟩
+    unless order.contains sq do throw s!"removed square not in initial empty list: {input}"
+    pure [initial, emptyListOutput (order.erase sq), initial]
+  else if n == 64 && order.isEmpty then pure [initial]
+  else throw s!"invalid empty-list action: {input}"
+  unless snapshots == expected do
+    throw s!"empty list differs for {input}: Lean returned {String.intercalate "|" expected}"
+
+private def counterSnapshotOutput (enabled : Bool) (s : SearchCounters.Snapshot) : String :=
+  let stats := if enabled then (List.finRange 10).map (fun i => (s.stats i).toNat) else []
+  String.intercalate " " ((s.nodes.toNat :: stats).map toString)
+
+private def checkCounterCase (line : String) : Except String Unit := do
+  let input :: observed := line.trimAscii.toString.splitOn "|" | throw "missing counter case input"
+  let [flag, nodes, otherNodes, mask, otherMask] := input.splitOn " "
+    | throw s!"invalid counter case input: {input}"
+  let enabled ← parseFlag "counter flag" flag
+  let nodes ← parseU64 "counter nodes" nodes
+  let otherNodes ← parseU64 "counter nodes" otherNodes
+  let mask ← parseNat "counter mask" mask
+  let otherMask ← parseNat "counter mask" otherMask
+  unless mask < 1024 && otherMask < 1024 do
+    throw s!"counter input out of range: {input}"
+  let incremented (mask : Nat) := (List.finRange 10).foldl (fun state (i : Fin 10) =>
+    if mask.testBit i.val then SearchCounters.increment enabled state i else state) (fun _ => 0)
+  let current := SearchCounters.withNodes enabled nodes (incremented mask)
+  let other := SearchCounters.withNodes enabled otherNodes (incremented otherMask)
+  let total := SearchCounters.merge enabled current other
+  let updated := SearchCounters.withNodes enabled current.nodes total.stats
+  let delta := if enabled then counterSnapshotOutput enabled (SearchCounters.deltaSince total current) else "-"
+  let expected := [counterSnapshotOutput enabled current, counterSnapshotOutput enabled total,
+    counterSnapshotOutput enabled updated, delta]
+  unless observed == expected do
+    throw s!"search counters differ for {input}: Rust returned {observed}, Lean returned {expected}"
+
+private def checkBoardHashCase (line : String) : Except String Unit := do
+  let [endian, player, opponent, observed] := line.trimAscii.toString.splitOn " "
+    | throw s!"invalid board hash case: {line}"
+  let bigEndian ← parseFlag "board hash endianness" endian
+  let board : Board := ⟨← parseU64 "board hash player" player, ← parseU64 "board hash opponent" opponent⟩
+  let observed ← parseU64 "board hash value" observed
+  let predicted := Board.Hash.hash bigEndian board
+  unless predicted == observed do
+    throw s!"board hash comparison failed: {line}, Lean returned {predicted.toNat}"
+
+private def parseStopAction (input : String) : Except String Threading.StopToken.FixtureAction := do
+  if input == "s" then return .stop
+  let [verb, poolCode] := input.toList | throw s!"invalid stop action: {input}"
+  let pool : Fin 2 ← match poolCode with
+    | '0' => pure 0
+    | '1' => pure 1
+    | _ => throw s!"invalid stop pool: {input}"
+  match verb with
+  | 'b' => pure (.begin pool)
+  | 'a' => pure (.attach pool)
+  | 'd' => pure (.detach pool)
+  | _ => throw s!"invalid stop action: {input}"
+
+private def checkStopTimeline (state : Threading.StopToken.FixtureState) :
+    List String → Except String Unit
+  | [] => .ok ()
+  | action :: bits :: rest => do
+    let step ← parseStopAction action
+    let next ← Threading.StopToken.fixtureStep state step
+    let expected := Threading.StopToken.fixtureBits next
+    unless bits.toNat? == some expected do
+      throw s!"stop action {action}: native abort bits {bits}, Lean abort bits {expected}"
+    checkStopTimeline next rest
+  | _ => .error "missing observed stop bits"
+
+private def checkStopTokenCase (line : String) : Except String Unit :=
+  (checkStopTimeline Threading.StopToken.fixtureStart (line.trimAscii.toString.splitOn " ")).mapError
+    fun error => s!"{error} in {line}"
+
+private def checkInFlightCase (line : String) : Except String Unit := do
+  let [first, second, dropFirst, observed] := line.splitOn " " |
+    throw s!"malformed in-flight case: {line}"
+  let a ← parseU64 "first hash" first
+  let b ← parseU64 "second hash" second
+  let dropA ← parseFlag "in-flight drop flag" dropFirst
+  let index := Threading.InFlight.slot
+  let claim := Threading.InFlight.claim
+  let code : Threading.InFlight.Claim → Char
+    | .owned => 'o'
+    | .busy => 'b'
+    | .untracked => 'u'
+  let set (slots : BitVec 16 → BitVec 64) hash word :=
+    fun i => if i = index hash then word else slots i
+  let start : BitVec 16 → BitVec 64 := fun _ => 0
+  let (wordA, claimA) := claim 0 a
+  let slotsA := set start a wordA
+  let (wordB, claimB) := claim (slotsA (index b)) b
+  let both := set slotsA b wordB
+  let dropGuard slots hash outcome :=
+    if outcome = Threading.InFlight.Claim.owned then set slots hash 0 else slots
+  let one := if dropA then dropGuard both a claimA else dropGuard both b claimB
+  let probe slots hash := code (claim (slots (index hash)) hash).2
+  let expected := String.ofList
+    [code claimA, code claimB, probe both a, probe both b, probe one a, probe one b,
+      probe start a, probe start b]
+  unless observed == expected do
+    throw s!"in-flight outcomes differ: native {observed}, Lean {expected} in {line}"
+
+private def checkLmrCase (line : String) : Except String Unit := do
+  let (expected, actual) ← match line.splitOn " " with
+    | ["log", index, value] =>
+      let i ← parseNat "LMR natural number" index
+      unless i ≤ 60 do throw s!"invalid LMR log index: {line}"
+      pure (LateMoveReduction.logAt i, ← parseNat "LMR natural number" value)
+    | ["curve", depth, ordinal, value] =>
+      pure (LateMoveReduction.curve (← parseNat "LMR natural number" depth)
+        (← parseNat "LMR natural number" ordinal), ← parseNat "LMR natural number" value)
+    | ["reduce", depth, ordinal, total, flags, alpha, value, result] =>
+      let bits ← parseNat "LMR natural number" flags
+      unless bits < 32 do throw s!"invalid LMR flags: {line}"
+      let node : LateMoveReduction.Node :=
+        ⟨← parseNat "LMR natural number" depth, ← parseNat "LMR natural number" ordinal,
+          ← parseNat "LMR natural number" total, bits.testBit 4, bits.testBit 3, bits.testBit 0⟩
+      let resultLean :=
+        LateMoveReduction.scheduled node (bits.testBit 1) (bits.testBit 2)
+          (← parseInt "LMR integer" alpha) (← parseInt "LMR integer" value)
+      pure (resultLean, ← parseNat "LMR natural number" result)
+    | _ => throw s!"malformed LMR case: {line}"
+  unless actual == expected do
+    throw s!"LMR result differs: native {actual}, Lean {expected} in {line}"
+
+open Threading.SplitWindow in
+private def checkSplitReportCase (line : String) : Except String Unit := do
+  let pv :: alpha :: best :: beta :: score :: observed := line.splitOn " " |
+    throw s!"malformed split report case: {line}"
+  let pv ← parseFlag "split node type" pv
+  let state : State := ⟨← parseInt "split report score" alpha, ← parseInt "split report score" best⟩
+  let beta ← parseInt "split report score" beta
+  let score ← parseInt "split report score" score
+  let update := publish pv beta state score
+  let expected := [toString update.alpha, toString update.best,
+    boolBit (decide (raisesAlpha pv beta state score)),
+    boolBit (decide (state.best < score ∧ state.alpha < score)),
+    boolBit (marksCutoff pv beta state score)]
+  unless observed == expected do
+    throw s!"split report differs (Lean {String.intercalate " " expected}): {line}"
+
+private def checkLargePageCase (line : String) : Except String Unit := do
+  let [width, bytes, boundary, flags, allocated, requested, observed] := line.splitOn " " |
+    throw s!"malformed Windows large-page case: {line}"
+  let bits ← parseNat "pointer width" width
+  let size ← parseNat "request size" bytes
+  let page ← parseNat "page size" boundary
+  let mask ← parseNat "reply flags" flags
+  unless (bits == 32 || bits == 64) && size < 2 ^ bits && page < 2 ^ bits && mask < 64 do
+    throw s!"out-of-range Windows large-page case: {line}"
+  let reply : LargePages.WindowsReply :=
+    ⟨mask.testBit 0, mask.testBit 1, mask.testBit 2, mask.testBit 3, mask.testBit 4, mask.testBit 5⟩
+  let (ok, calls) := LargePages.windowsRun (LargePages.requestSize bits size page) reply true
+  let actualBytes := calls.findSome? fun
+    | .alloc size => some size
+    | _ => none
+  let code : LargePages.WindowsCall → Char
+    | .openToken => 'o'
+    | .lookup => 'l'
+    | .enable => 'a'
+    | .lastError => 'e'
+    | .alloc _ => 'v'
+    | .restore changed => if changed then 's' else 'r'
+    | .close => 'c'
+    | .free => 'f'
+  let trace := if calls.isEmpty then "-" else String.ofList (calls.map code)
+  unless allocated == boolBit ok &&
+      requested == (actualBytes.map toString).getD "-" && observed == trace do
+    throw s!"Windows large-page outcome differs: Lean {ok}, {actualBytes}, {trace} in {line}"
+
+private def checkWeightStreamCase (line : String) : Except String Unit := do
+  let fields := line.splitOn " "
+  if let ["layout", network, bytes] := fields then
+    let expected ← match network with
+      | "main" => pure Eval.WeightStream.mainFields.sum
+      | "small" => pure Eval.WeightStream.smallFields.sum
+      | _ => throw s!"unknown network: {line}"
+    unless bytes.toNat? == some expected do
+      throw s!"weight layout length differs: Lean {expected} in {line}"
+    return ()
+  let [_, payload, terminal, maximum, interrupts, consumed, observed] := fields |
+    throw s!"malformed weight stream case: {line}"
+  let maxRead ← parseNat "read cap" maximum
+  let retries ← parseNat "interrupt count" interrupts
+  unless 0 < maxRead do throw s!"empty read cap: {line}"
+  let bytes ← (parseCsv payload).mapM fun byte => do
+    let n ← parseNat "byte" byte
+    unless n < 256 do throw s!"out-of-range byte: {line}"
+    pure (BitVec.ofNat 8 n)
+  let terminalErr : Option Eval.WeightStream.ReadError ← match terminal with
+    | "clean" => pure none
+    | "eof" => pure (some .unexpectedEof)
+    | "invalid" => pure (some .invalidData)
+    | "denied" => pure (some .permissionDenied)
+    | "other" => pure (some .other)
+    | _ => throw s!"invalid terminal result: {line}"
+  let widths := [2, 2, 4, 1, 2]
+  let bytesRead := Eval.WeightStream.consumed widths bytes.length
+  let expected ← match Eval.WeightStream.load widths bytes.length retries terminalErr with
+    | .ok () =>
+      let some (decoded, []) := Eval.WeightStream.readSlices widths bytes |
+        throw s!"weight stream model accepted an incomplete read: {line}"
+      pure (String.intercalate "," (decoded.map
+        fun value => toString (Eval.WeightStream.littleWord value).toInt))
+    | .error .unexpectedEof => pure "eof"
+    | .error .invalidData => pure "invalid"
+    | .error .permissionDenied => pure "denied"
+    | .error .other => pure "other"
+  unless bytesRead == consumed.toNat?.getD (bytes.length + 1) && expected == observed do
+    throw s!"weight stream outcome differs: Lean {bytesRead} {expected} in {line}"
+
+private def checkMoveStorageCase (line : String) : Except String Unit := do
+  match line.splitOn " " with
+  | ["order", values, sorted, selected] =>
+    let scores ← (parseCsv values).mapM fun token => do
+      let value ← parseInt "ordering value" token
+      unless -2147483648 ≤ value && value ≤ 2147483647 do throw s!"out-of-range score: {line}"
+      pure (Int32.ofInt value)
+    let ids := List.range scores.length
+    let input := ids.zip scores
+    let sorted ← (parseCsv sorted).mapM (parseNat "move storage integer")
+    let best ← (parseCsv selected).mapM (parseNat "move storage integer")
+    let expected := MoveList.Ordering.sortByKeyDesc (fun row => row.2.toInt) input
+    let expectedBest := (MoveList.BestFirst.ordered Prod.snd input).map Prod.fst
+    if scores.length ≤ 3 then
+      unless sorted == expected.map Prod.fst do throw s!"small move sort differs: {line}"
+    else
+      unless sorted.mergeSort == ids &&
+          sorted.filterMap (fun i => scores[i]?) == expected.map Prod.snd do
+        throw s!"large move sort differs: {line}"
+    unless best == expectedBest do throw s!"best-first selection differs: Lean {expectedBest} in {line}"
+  | ["claims", width, count, offset, claimed] =>
+    let bits ← parseNat "move storage integer" width
+    let len ← parseNat "move storage integer" count
+    let start ← parseNat "move storage integer" offset
+    unless (bits == 32 || bits == 64) && len ≤ 35 && start < 2 ^ bits do
+      throw s!"out-of-range move claim: {line}"
+    let expected := (List.range' start (len - start)).map fun i => s!"{i}:{i+1}"
+    unless parseCsv claimed == expected do throw s!"move claims differ: Lean {expected} in {line}"
+  | ["retain", count, pattern, retained] =>
+    let len ← parseNat "move storage integer" count
+    let mask ← parseNat "move storage integer" pattern
+    unless len ≤ 35 && mask < 2 ^ 64 do
+      throw s!"out-of-range retain case: {line}"
+    let visible := MoveList.Retain.compact (fun i => mask.testBit i) len 0 0 (fun i => some i)
+    let expected := (List.range visible.len).filterMap visible.memory
+    let actual ← (parseCsv retained).mapM (parseNat "move storage integer")
+    unless actual == expected do
+      throw s!"retained moves differ: Lean {expected} in {line}"
+  | _ => throw s!"malformed move storage case: {line}"
+
+private def moveGenerationHeader (header : String) : Except String (Bool × (Nat → String)) := do
+  let ["backend", backend] := header.splitOn " "
+    | throw "missing move generation backend"
+  unless ["avx512", "avx2", "neon", "wasm", "portable"].contains backend do
+    throw "invalid move generation backend"
+  pure (backend == "avx512", fun n => s!"{n} move generation cases ({backend}), 0 mismatches")
+
+private def checkMoveGenerationCase (paired : Bool) (line : String) : Except String Unit := do
+  let p :: o :: mask :: mode :: output := line.splitOn " "
+    | throw s!"malformed move generation case: {line}"
+  let board : Board.Board :=
+    ⟨← parseU64 "move generation player bits" p, ← parseU64 "move generation opponent bits" o⟩
+  let filter ← parseU64 "move generation mask" mask
+  unless board.player &&& board.opponent == 0 do throw s!"overlapping board: {line}"
+  let selected := Board.getMoves ⟨false, false⟩ board &&& filter
+  unless (mode == "new" && filter == -1) || mode == "subset" || (mode == "nonempty" && selected != 0) do
+    throw s!"invalid move generation input: {line}"
+  let generated := MoveList.Generation.fill (mode == "nonempty") paired ⟨false, false, false⟩
+    board selected (fun _ => none)
+  let some length := generated.len | throw "move generation left length uninitialized"
+  let some wipeout := generated.wipeout | throw "move generation left wipeout cache uninitialized"
+  let square (sq : Option (Fin 64)) := toString ((sq.map Fin.val).getD 64)
+  let header := [toString length, square ((generated.slots 0).map Move.Move.sq), square wipeout]
+  let moves ← (List.range length).mapM fun i => do
+    let some mv := generated.slots i | throw s!"move generation left slot {i} uninitialized"
+    pure s!"{mv.sq.val}:{mv.flipped.toNat}:{mv.value.toInt}"
+  unless output == header ++ moves do
+    throw s!"move generation differs: Lean {String.intercalate " " (header ++ moves)} in {line}"
+
+open TranspositionTable in
+private def checkTtSaveCase (line : String) : Except String Unit := do
+  let [endian, seq, oldPlayer, oldOpponent, oldData, newPlayer, newOpponent, newData,
+      access, snapshot, lookup, afterSeq, afterPlayer, afterOpponent, afterData] := line.splitOn " "
+    | throw s!"malformed TT save case: {line}"
+  let bigEndian ← parseFlag "TT save byte order" endian
+  let seq ← parseU64 "TT save word" seq
+  let old : SeqLock.Payload :=
+    ⟨← parseU64 "TT save word" oldPlayer, ← parseU64 "TT save word" oldOpponent,
+      ← parseU64 "TT save word" oldData⟩
+  let key := (← parseU64 "TT save word" newPlayer, ← parseU64 "TT save word" newOpponent)
+  let data := Packing.unpack bigEndian (← parseU64 "TT save word" newData)
+  let readMetadata (entry : EntryData) :=
+    let square := ((Packing.decodeBestMove entry.bestMove).map Fin.val).getD 64
+    let endgame := boolBit (isEndgame entry)
+    let pv := boolBit (Access.isPv entry)
+    s!"{entry.score.toInt}:{entry.bound.toNat}:{entry.depth.toNat}:{selectivityRank entry.selectivity}:{entry.generation.toNat}:{endgame}:{pv}:{square}"
+  let expectedAccess := s!"{readMetadata (Packing.unpack bigEndian old.metadata)}|{readMetadata data}"
+  unless access == expectedAccess do
+    throw s!"TT metadata access differs (Lean {expectedAccess}): {line}"
+  let expectedSnapshot := (Snapshot.read bigEndian seq seq old).map fun snap =>
+    s!"{snap.player.toNat}:{snap.opponent.toNat}:{snap.sequence.toNat}:{snap.metadata.toNat}"
+  unless snapshot == expectedSnapshot.getD "-" do
+    throw s!"TT snapshot differs (Lean {(expectedSnapshot.getD "-")}): {line}"
+  let expectedLookup := (LookupCut.readOccupied bigEndian seq seq old key.1 key.2).map fun entry =>
+    toString (Packing.pack bigEndian entry).toNat
+  unless lookup == expectedLookup.getD "-" do
+    throw s!"TT lookup differs (Lean {(expectedLookup.getD "-")}): {line}"
+  let obs : Save.Observation := ⟨seq, seq, old, seq⟩
+  let chosen := Save.run bigEndian key data (List.replicate 4 obs)
+  let expected := match chosen.map (Save.attempt bigEndian key data) with
+    | some (.written next entry) => (next, key.1, key.2, Packing.pack bigEndian entry)
+    | _ => (seq, old.player, old.opponent, old.metadata)
+  let actual := (← parseU64 "TT save word" afterSeq, ← parseU64 "TT save word" afterPlayer,
+    ← parseU64 "TT save word" afterOpponent, ← parseU64 "TT save word" afterData)
+  unless actual == expected do throw s!"TT saved payload differs (Lean {repr expected}): {line}"
 
 private def checkEndgameProbCutCase (line : String) : Except String Unit := do
   let [beta, verificationBits, screenBits, upperDelta, lowerDelta, pcBeta, screenBeta] :=
     line.splitOn " " | throw s!"malformed ProbCut window case: {line}"
-  let some beta := beta.toInt? | throw s!"invalid ProbCut beta: {line}"
-  let some verificationBits := verificationBits.toNat? | throw s!"invalid verification margin: {line}"
-  let some screenBits := screenBits.toNat? | throw s!"invalid screen margin: {line}"
-  unless verificationBits < 2 ^ 64 && screenBits < 2 ^ 64 do
-    throw s!"ProbCut margin bits exceed binary64: {line}"
-  let verification := BitVec.ofNat 64 verificationBits
-  let screen := BitVec.ofNat 64 screenBits
+  let beta ← parseInt "ProbCut beta" beta
+  let verification ← parseU64 "verification margin" verificationBits
+  let screen ← parseU64 "screen margin" screenBits
   unless some (EndgameProbCut.roundedMargin true verification) == upperDelta.toInt? do
     throw s!"verification ceil and cast disagree with the model: {line}"
   unless some (EndgameProbCut.roundedMargin false screen) == lowerDelta.toInt? do
@@ -679,29 +704,17 @@ private def checkEndgameProbCutCase (line : String) : Except String Unit := do
   unless some expected.verification == pcBeta.toInt? && some expected.screen == screenBeta.toInt? do
     throw s!"ProbCut thresholds disagree with the model: {line}"
 
-private def runEndgameProbCutCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing endgame ProbCut cases")
-  for line in cases do
-    IO.ofExcept (checkEndgameProbCutCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} endgame ProbCut cases, 0 mismatches"
-  return 0
-
 private def checkMidgameProbCutCase (line : String) : Except String Unit := do
   let [depth, shallow, beta, t, cutNode, mean, sigma, mean0, sigma0, pcBeta, screen] :=
     line.splitOn " " | throw s!"malformed midgame ProbCut case: {line}"
-  let some depth := depth.toNat? | throw s!"invalid deep depth: {line}"
+  let depth ← parseNat "deep depth" depth
   unless depth < 2 ^ 32 && some (MidgameProbCut.shallowDepth depth) == shallow.toNat? do
     throw s!"midgame ProbCut shallow depth disagrees with the model: {line}"
-  let some beta := beta.toInt? | throw s!"invalid midgame ProbCut beta: {line}"
-  let cutNode ← match cutNode with
-    | "0" => pure false
-    | "1" => pure true
-    | _ => throw s!"invalid midgame ProbCut node type: {line}"
+  let beta ← parseInt "midgame ProbCut beta" beta
+  let cutNode ← parseFlag "midgame ProbCut node type" cutNode
   let parseFloat (word : String) : Except String Int := do
-    let some bits := word.toNat? | throw s!"invalid binary64 bits: {word}"
-    unless bits < 2 ^ 64 do throw s!"binary64 word out of range: {word}"
-    let some units := Binary64Arithmetic.finiteUnits (BitVec.ofNat 64 bits)
+    let bits ← parseU64 "binary64 bits" word
+    let some units := Binary64Arithmetic.finiteUnits bits
       | throw s!"expected a finite coefficient: {word}"
     return units
   let coefficients : MidgameProbCut.Coefficients :=
@@ -713,55 +726,45 @@ private def checkMidgameProbCutCase (line : String) : Except String Unit := do
   unless some (MidgameProbCut.publicThreshold evaluation) == screen.toInt? do
     throw s!"midgame ProbCut screen threshold disagrees with the model: {line}"
 
-private def runMidgameProbCutCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing midgame ProbCut cases")
-  for line in cases do
-    IO.ofExcept (checkMidgameProbCutCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} midgame ProbCut cases, 0 mismatches"
-  return 0
-
 open PrincipalVariation in
 private def checkPvStackCase (line : String) : Except String Unit := do
   let [op, ply, square, parent, child, nextParent, nextChild] :=
     line.splitOn " " | throw s!"malformed PV stack case: {line}"
-  let some ply := ply.toNat? | throw s!"invalid PV stack ply: {line}"
+  let ply ← parseNat "PV stack ply" ply
   unless ply < capacity do throw s!"PV ply out of range: {line}"
-  let some square := square.toNat? | throw s!"invalid PV square: {line}"
-  let parse (row : String) : Except String Buffer := do
+  let square ← parseNat "PV square" square
+  let parseRow (row : String) : Except String Buffer := do
     let entries := row.splitOn ","
     unless entries.length = capacity do throw s!"wrong PV row length: {row}"
-    entries.mapM fun entry =>
-      match entry.toNat? with
-      | some index =>
-        if fits : index < 64 then pure (some ⟨index, fits⟩)
-        else if index = 64 then pure none else throw s!"invalid PV entry: {entry}"
-      | none => throw s!"invalid PV entry: {entry}"
-  let parent ← parse parent
-  let child ← parse child
-  let actualParent ← parse nextParent
-  let actualChild ← parse nextChild
-  let expected ← match op with
+    entries.mapM fun entry => do
+      let index ← parseNat "PV entry" entry
+      if fits : index < 64 then pure (some ⟨index, fits⟩)
+      else if index = 64 then pure none
+      else throw s!"invalid PV entry: {entry}"
+  let parent ← parseRow parent
+  let child ← parseRow child
+  let actualParent ← parseRow nextParent
+  let actualChild ← parseRow nextChild
+  let stack := (StackAccess.initial.set ply parent).set (ply + 1) child
+  let next ← match op with
     | "u" =>
-      if fits : square < 64 then
-        if ply + 1 < capacity then pure (prepend ⟨square, fits⟩ child parent, child)
-        else throw "cannot prepend without a child row"
+      if fits : square < 64 then do
+        let some next := StackAccess.promote stack ply ⟨square, fits⟩ | throw "cannot prepend without a child row"
+        pure next
       else throw "invalid placement square"
-    | "p" =>
-      let stack := ((List.replicate capacity []).set ply parent).set (ply + 1) child
-      let prepared := prepare stack ply
-      pure (prepared[ply]?.getD [], prepared[ply + 1]?.getD child)
+    | "p" => do
+      let some next := StackAccess.prepareAt stack ply | throw "cannot prepare an absent parent row"
+      pure next
+    | "b" =>
+      if fits : square < 64 then do
+        let some first := StackAccess.promote stack ply 0 | throw "cannot publish first sibling"
+        let some cleared := StackAccess.clearAt first (ply + 1) | throw "cannot clear sibling row"
+        let some next := StackAccess.promote cleared ply ⟨square, fits⟩ | throw "cannot publish second sibling"
+        pure next
+      else throw "invalid placement square"
     | _ => throw s!"unknown PV operation: {op}"
-  unless expected.1 == actualParent do throw s!"parent PV buffer disagrees with the model: {line}"
-  unless expected.2 == actualChild do throw s!"child PV buffer disagrees with the model: {line}"
-
-private def runPvStackCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing PV stack cases")
-  for line in cases do
-    IO.ofExcept (checkPvStackCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} PV stack cases, 0 mismatches"
-  return 0
+  unless next[ply]? == some actualParent do throw s!"parent PV buffer disagrees with the model: {line}"
+  unless next[ply+1]?.getD child == actualChild do throw s!"child PV buffer disagrees with the model: {line}"
 
 open MidgameAspiration in
 private def midgameAspirationTrial (style abortAt : Nat) : Aspiration.Trials Unit := fun i a b =>
@@ -788,144 +791,134 @@ private def midgameAttemptWindows (search : Aspiration.Trials Unit) :
 
 open MidgameAspiration in
 private def checkMidgameAspirationCase (line : String) : Except String Unit := do
-  let parse (field : String) : Except String Int := do
-    let some value := field.toInt? | throw s!"invalid aspiration integer: {field}"
-    pure value
-  let natural (field : String) : Except String Nat := do
-    let some value := field.toNat? | throw s!"invalid aspiration natural: {field}"
-    pure value
   match line.splitOn " " with
   | ["w", depth, helper, raw, a, b, d] =>
     let history ← if raw = "none" then pure none else do
       let [avg, mss] := raw.splitOn "," | throw s!"invalid root score history: {raw}"
-      pure (some ⟨← parse avg, ← parse mss⟩)
-    let start := initial (← natural depth) history (← natural helper)
-    unless start == ⟨← parse a, ← parse b, ← parse d⟩ do
+      pure (some ⟨← parseInt "aspiration integer" avg, ← parseInt "aspiration integer" mss⟩)
+    let start := initial (← parseNat "aspiration natural" depth) history
+      (← parseNat "aspiration natural" helper)
+    unless start == ⟨← parseInt "aspiration integer" a, ← parseInt "aspiration integer" b,
+        ← parseInt "aspiration integer" d⟩ do
       throw s!"initial aspiration window disagrees with the model: {line}"
   | ["r", lo, hi, width, style, abortAt, a, b, score, clean, windows] =>
-    let start : Attempt := ⟨← parse lo, ← parse hi, ← parse width⟩
-    let trials := midgameAspirationTrial (← natural style) (← natural abortAt)
+    let start : Attempt :=
+      ⟨← parseInt "aspiration integer" lo, ← parseInt "aspiration integer" hi,
+        ← parseInt "aspiration integer" width⟩
+    let trials := midgameAspirationTrial (← parseNat "aspiration natural" style)
+      (← parseNat "aspiration natural" abortAt)
     let some result := run trials 16 0 start | throw s!"aspiration retries exhausted: {line}"
-    unless result.attempt.alpha == (← parse a) && result.attempt.beta == (← parse b) &&
-        result.trial.score == (← parse score) && (if result.clean then "1" else "0") == clean do
+    unless result.attempt.alpha == (← parseInt "aspiration integer" a) &&
+        result.attempt.beta == (← parseInt "aspiration integer" b) &&
+        result.trial.score == (← parseInt "aspiration integer" score) &&
+        boolBit result.clean == clean do
       throw s!"final aspiration result disagrees with the model: {line}"
     unless ";".intercalate (midgameAttemptWindows trials 16 0 start) == windows do
       throw s!"aspiration attempt windows disagree with the model: {line}"
   | _ => throw s!"invalid midgame aspiration case: {line}"
 
-private def runMidgameAspirationCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing midgame aspiration cases")
-  for line in cases do
-    IO.ofExcept (checkMidgameAspirationCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} midgame aspiration cases, 0 mismatches"
-  return 0
+private def checkEndgameAspirationCase (line : String) : Except String Unit := do
+  let lo :: hi :: finalLo :: finalHi :: result :: records := line.splitOn " " |
+    throw s!"invalid endgame aspiration case: {line}"
+  let initial := (← parseInt "endgame aspiration integer" lo, ← parseInt "endgame aspiration integer" hi)
+  let final := (← parseInt "endgame aspiration integer" finalLo, ← parseInt "endgame aspiration integer" finalHi)
+  let result ← parseInt "endgame aspiration integer" result
+  let trials ← records.toArray.mapM fun record => do
+    let [a, b, s, flag] := record.splitOn "," | throw s!"invalid aspiration trial: {record}"
+    let aborted ← parseFlag "stop flag" flag
+    pure ((← parseInt "endgame aspiration integer" a, ← parseInt "endgame aspiration integer" b),
+      (⟨← parseInt "endgame aspiration integer" s, (), aborted⟩ : Aspiration.Trial Unit))
+  let some (last, trial) := trials.back? | throw s!"empty aspiration trace: {line}"
+  let mut window := initial
+  let mut delta := 256
+  for i in [:trials.size] do
+    let some (observed, current) := trials[i]? | throw s!"missing aspiration trial {i}: {line}"
+    unless observed == window do throw s!"aspiration window mismatch at trial {i}: {line}"
+    let next := if current.aborted then none else Aspiration.widen current.score window.1 window.2 delta
+    match next with
+    | none =>
+      unless i + 1 == trials.size && observed == final && current.score == result do
+        throw s!"aspiration return mismatch at trial {i}: {line}"
+    | some widened =>
+      unless i + 1 < trials.size do throw s!"missing aspiration retry: {line}"
+      window := widened
+      delta := delta + delta
+  let search i _ _ := (trials[i]?.map Prod.snd).getD ⟨0, (), true⟩
+  let accepted := Aspiration.runWith search 11 0 initial.1 initial.2 256
+  match accepted with
+  | none => unless trial.aborted do throw s!"completed aspiration modeled as aborted: {line}"
+  | some chosen =>
+    unless !trial.aborted && chosen.index + 1 == trials.size &&
+        (chosen.alpha, chosen.beta) == last && chosen.trial.score == result do
+      throw s!"accepted aspiration trial disagrees with the model: {line}"
 
 open LazySmp in
 private def checkLazySmpCase (line : String) : Except String Unit := do
   match line.splitOn " " with
   | ["s", helper, depth, skipped] =>
-    let some helper := helper.toNat? | throw s!"invalid helper index: {line}"
-    let some depth := depth.toNat? | throw s!"invalid helper depth plus ply: {line}"
-    let expected := if skipsDepth helper depth then "1" else "0"
-    unless expected == skipped do throw s!"Lazy SMP schedule disagrees with the model: {line}"
+    let helper ← parseNat "helper index" helper
+    let depth ← parseNat "helper depth plus ply" depth
+    unless boolBit (skipsDepth helper depth) == skipped do
+      throw s!"Lazy SMP schedule disagrees with the model: {line}"
   | "v" :: picked :: entries =>
     let ballots ← entries.mapM fun entry => do
       let [square, score, depth] := entry.splitOn "," | throw s!"invalid ballot: {entry}"
-      let some square := square.toNat? | throw s!"invalid vote square: {entry}"
-      let some score := score.toInt? | throw s!"invalid vote score: {entry}"
-      let some depth := depth.toNat? | throw s!"invalid vote depth: {entry}"
-      if fits : square < 64 then pure (⟨⟨square, fits⟩, score, depth⟩ : Ballot)
-      else throw s!"vote square is out of range: {entry}"
+      pure (⟨← parseSquare "vote square" square, ← parseInt "vote score" score,
+        ← parseNat "vote depth" depth⟩ : Ballot)
     let expected := (winner ballots).map (fun result => toString result.1)
     unless expected.getD "-" == picked do throw s!"Lazy SMP winner disagrees with the model: {line}"
   | _ => throw s!"invalid Lazy SMP case: {line}"
 
-private def runLazySmpCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing Lazy SMP cases")
-  for line in cases do
-    IO.ofExcept (checkLazySmpCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} Lazy SMP cases, 0 mismatches"
-  return 0
-
 private def checkFiniteScoreCase (line : String) : Except String Unit := do
   let [score, actual] := line.splitOn " " | throw s!"invalid finite score case: {line}"
-  let some score := score.toInt? | throw s!"invalid i32 score: {line}"
+  let score ← parseInt "i32 score" score
   unless -(2^31 : Int) ≤ score && score < (2^31 : Int) do
     throw s!"score outside i32 domain: {line}"
-  let expected := if MidgameScoreRange.isFinite (BitVec.ofInt 32 score) then "1" else "0"
-  unless expected == actual do throw s!"finite score admission disagrees with the model: {line}"
-
-private def runFiniteScoreCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing finite score cases")
-  for line in cases do
-    IO.ofExcept (checkFiniteScoreCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} finite score cases, 0 mismatches"
-  return 0
+  unless boolBit (MidgameScoreRange.isFinite (BitVec.ofInt 32 score)) == actual do
+    throw s!"finite score admission disagrees with the model: {line}"
 
 open EvalCache in
 private def checkEvalCacheCase (line : String) : Except String Unit := do
-  let natural (field : String) : Except String Nat := do
-    let some value := field.toNat? | throw s!"invalid cache integer: {field}"
-    pure value
-  let word (field : String) : Except String Word := do
-    let value ← natural field
-    if value < 2 ^ 64 then pure (BitVec.ofNat 64 value)
-    else throw s!"cache word exceeds u64: {field}"
   match line.splitOn " " with
   | ["g", pointerBits, size, key, count, index, way] =>
-    let size ← natural size
-    let key ← word key
-    unless checkedCount (← natural pointerBits) size == some (← natural count) &&
-        bucket size key == (← natural index) && victim key == (← natural way) do
+    let size ← parseNat "cache integer" size
+    let key ← parseU64 "cache word" key
+    unless checkedCount (← parseNat "cache integer" pointerBits) size ==
+          some (← parseNat "cache integer" count) &&
+        bucket size key == (← parseNat "cache integer" index) &&
+        victim key == (← parseNat "cache integer" way) do
       throw s!"evaluation cache address disagrees with the model: {line}"
   | ["e", key, signed, payload] =>
-    let some score := signed.toInt? | throw s!"invalid cache score: {signed}"
-    unless encode (← word key) (BitVec.ofInt 32 score) == some (← word payload) do
+    let score ← parseInt "cache score" signed
+    unless encode (← parseU64 "cache word" key) (BitVec.ofInt 32 score) ==
+        some (← parseU64 "cache word" payload) do
       throw s!"evaluation cache encoding disagrees with the model: {line}"
   | ["p", key, replacement, a, b, c, d, way, score] =>
-    let replacement ← natural replacement
-    let layout : Vector Word 4 := #v[← word a, ← word b, ← word c, ← word d]
+    let replacement ← parseNat "cache integer" replacement
+    let layout : Vector Word 4 := #v[← parseU64 "cache word" a, ← parseU64 "cache word" b,
+      ← parseU64 "cache word" c, ← parseU64 "cache word" d]
     if fits : replacement < 4 then
-      let (slot, signed) := match select (← word key) (fun i => layout[i]) ⟨replacement, fits⟩ with
+      let (slot, signed) := match select (← parseU64 "cache word" key) (fun i => layout[i]) ⟨replacement, fits⟩ with
         | .hit i value => (i.val, toString value)
         | .miss i => (i.val, "-")
-      unless slot == (← natural way) && signed == score do
+      unless slot == (← parseNat "cache integer" way) && signed == score do
         throw s!"evaluation cache probe disagrees with the model: {line}"
     else throw s!"cache victim way is out of range: {line}"
   | _ => throw s!"invalid evaluation cache case: {line}"
 
-private def runEvalCacheCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing evaluation cache cases")
-  for line in cases do
-    IO.ofExcept (checkEvalCacheCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} evaluation cache cases, 0 mismatches"
-  return 0
-
 open AlignedBuffer in
 private def checkAlignedBufferCase (line : String) : Except String Unit := do
-  let natural (field : String) : Except String Nat := do
-    let some value := field.toNat? | throw s!"invalid buffer integer: {field}"
-    pure value
-  let flag (field : String) : Except String Bool :=
-    match field with
-    | "0" => pure false
-    | "1" => pure true
-    | _ => throw s!"invalid buffer flag: {field}"
-  let indices (field : String) : Except String (List Nat) :=
-    if field = "-" then pure [] else (field.splitOn ",").mapM natural
+  let indices (field : String) := (parseCsv field).mapM (parseNat "buffer integer")
   match line.splitOn " " with
   | ["l", pointerBits, count, itemSize, result, bytes] =>
-    let model := checkedLayout (← natural pointerBits) (← natural count) (← natural itemSize)
+    let model := checkedLayout (← parseNat "buffer integer" pointerBits)
+      (← parseNat "buffer integer" count) (← parseNat "buffer integer" itemSize)
     let (expected, size) := match model with
       | .multiplyOverflow => ("overflow", 0)
       | .noBytes => ("empty", 0)
       | .invalidLayout => ("layout", 0)
       | .allocated value => ("alloc", value)
-    unless expected == result && size == (← natural bytes) do
+    unless expected == result && size == (← parseNat "buffer integer" bytes) do
       throw s!"aligned buffer layout disagrees with the model: {line}"
   | ["f", large, count, ending, stop, failingDrop, ready, panic, allocs, freed, pages, values, drops] =>
     let status ← match ending with
@@ -934,57 +927,40 @@ private def checkAlignedBufferCase (line : String) : Except String Unit := do
       | "panic" => pure FillStatus.panic
       | _ => throw s!"invalid buffer iterator outcome: {ending}"
     let actual : Observation :=
-      ⟨← flag ready, ← flag panic, ← natural allocs, ← natural freed, ← natural pages,
-        ← indices values, ← indices drops⟩
-    let expected := fixture (← flag large) (← natural count) status (← natural stop)
-      (← natural failingDrop) (ending == "drop-panic")
+      ⟨← parseFlag "buffer flag" ready, ← parseFlag "buffer flag" panic,
+        ← parseNat "buffer integer" allocs, ← parseNat "buffer integer" freed,
+        ← parseNat "buffer integer" pages, ← indices values, ← indices drops⟩
+    let expected := fixture (← parseFlag "buffer flag" large) (← parseNat "buffer integer" count)
+      status (← parseNat "buffer integer" stop) (← parseNat "buffer integer" failingDrop)
+      (ending == "drop-panic")
     unless expected == actual do throw s!"aligned buffer cleanup disagrees with the model: {line}"
   | _ => throw s!"invalid aligned buffer case: {line}"
 
-private def runAlignedBufferCases (path : String) : IO UInt32 := do
-  let cases ← IO.FS.lines path
-  if cases.isEmpty then throw (IO.userError "missing aligned buffer cases")
-  for line in cases do
-    IO.ofExcept (checkAlignedBufferCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} aligned buffer cases, 0 mismatches"
-  return 0
-
-private def patternNatural (field : String) : Except String Nat :=
-  match field.toNat? with
-  | some n => .ok n
-  | none => .error s!"invalid pattern feature value: {field}"
-
 private def patternLanes (text : String) : Except String (Array Nat) := do
-  let lanes ← (text.splitOn ",").toArray.mapM patternNatural
+  let lanes ← (text.splitOn ",").toArray.mapM (parseNat "pattern feature value")
   unless lanes.size == 32 && lanes.all (· < 65536) do throw "invalid u16 pattern vector"
   return lanes
 
-private def patternBits (text : String) : Except String Bits := do
-  let n ← patternNatural text
-  if n ≥ 2^64 then throw "pattern bitboard exceeds u64"
-  return BitVec.ofNat 64 n
-
 private def patternLocation (sq flip side ply : String) :
     Except String (Square.Square × Bits × Bool) := do
-  let index ← patternNatural sq
-  let bits ← patternBits flip
-  let side ← patternNatural side
-  let ply ← patternNatural ply
-  unless side < 2 && Eval.PatternUpdate.updateAllowed ply bits do throw "invalid pattern update"
-  if h : index < 64 then return (⟨index, h⟩, bits, side == 1)
-  else throw "invalid pattern update square"
+  let placed ← parseSquare "pattern update square" sq
+  let bits ← parseU64 "pattern bitboard" flip
+  let opponentMoves ← parseFlag "pattern update side" side
+  let ply ← parseNat "pattern feature value" ply
+  unless Eval.PatternUpdate.updateAllowed ply bits do throw "invalid pattern update"
+  return (placed, bits, opponentMoves)
 
 open Eval.PatternUpdate in
 private def checkPatternFeatureCase (line : String) : Except String Unit := do
   match (line.splitOn " ").filter (· != "") with
   | ["geometry", index, coords] =>
-    let index ← patternNatural index
-    let actual ← (coords.splitOn ",").mapM patternNatural
+    let index ← parseNat "pattern feature value" index
+    let actual ← (coords.splitOn ",").mapM (parseNat "pattern feature value")
     if hi : index < 32 then
       unless pattern ⟨index, hi⟩ == actual do throw s!"pattern geometry disagrees: {line}"
     else throw "invalid pattern index"
   | ["board", player, opponent, sq, flip, side, ply, p₀, o₀, p₁, o₁] =>
-    let b : Board := ⟨← patternBits player, ← patternBits opponent⟩
+    let b : Board := ⟨← parseU64 "pattern bitboard" player, ← parseU64 "pattern bitboard" opponent⟩
     let (placed, flipped, opponentMoves) ← patternLocation sq flip side ply
     let actor := moverBoard opponentMoves b
     if (actor.player &&& actor.opponent) != 0 || (actor.player ||| actor.opponent).getLsbD placed.val ||
@@ -1013,90 +989,204 @@ private def checkPatternFeatureCase (line : String) : Except String Unit := do
         throw s!"wrapping pattern update disagrees at lane {i.val}: {line}"
   | _ => throw s!"invalid pattern feature case: {line}"
 
-private def runPatternFeatureCases (path : String) : IO UInt32 := do
+private def checkStabilityCase (table : Stability.Edge.EdgeTable) (line : String) :
+    Except String Unit := do
+  let tag :: fields := line.splitOn " " | throw s!"missing stability case tag: {line}"
+  let word := BitVec.ofNat 64
+  let byte := BitVec.ofNat 8
+  if tag == "cut" then
+    let [p, o, n, alpha, margin, cutoff] := fields | throw s!"invalid cutoff case: {line}"
+    let p := word (← parseNat "stability value" p)
+    let o := word (← parseNat "stability value" o)
+    let value ← parseInt "disc score" alpha
+    let alpha : Stability.Cutoff.DiscScore := ⟨value⟩
+    let expected := Stability.Cutoff.cutoffAtEmptyCount p o (← parseNat "stability value" n) alpha
+    let enough := Stability.Cutoff.hasEnoughOpponentDiscsForCutoff
+      (Stability.Cutoff.popcount o) alpha
+    let expectedMargin := if alpha.value < 6 then "-" else boolBit enough
+    unless expectedMargin == margin && ((expected.map (toString ·.value)).getD "-") == cutoff do
+      throw s!"stability cutoff disagrees: {line}"
+    return
+  let values ← fields.mapM (parseNat "stability value")
+  let agrees : Bool :=
+    match tag, values with
+    | "table", [p, o, index, stable] =>
+      decide (p < 256 ∧ o < 256) &&
+        Stability.Edge.edgeIndex (byte p) (byte o) == index &&
+        (Stability.Edge.edgeStabilityOcc table (byte p) (byte o)).toNat == stable
+    | "move", [p, o, sq, bit, nextP, nextO] =>
+      if valid : sq < 8 then
+        let (p', o') := Stability.Edge.applyEdgeMove ⟨sq, valid⟩ (byte p) (byte o)
+        (Stability.Edge.bit8 sq).toNat == bit && p'.toNat == nextP && o'.toNat == nextO
+      else false
+    | "pack", [p, a, h] =>
+      (Stability.Semantics.packA1A8 (word p)).toNat == a &&
+        (Stability.Semantics.packH1H8 (word p)).toNat == h
+    | "unpack", [x, a, h] =>
+      (Stability.Semantics.unpackA2A7 (byte x)).toNat == a &&
+        (Stability.Semantics.unpackH2H7 (byte x)).toNat == h
+    | "board", [p, o, edge, h, v, d7, d9, intersection, stable] =>
+      let p := word p
+      let o := word o
+      let full := Stability.getFullLines (p ||| o)
+      (Stability.Semantics.getStableEdge table p o).toNat == edge &&
+        full == ⟨word h, word v, word d7, word d9⟩ && full.intersection.toNat == intersection &&
+        (Stability.Semantics.getStableDiscs p o).toNat == stable
+    | "contact", [central, seed, h, v, d7, d9, stable] =>
+      (Stability.getStableByContact (word central) (word seed)
+        ⟨word h, word v, word d7, word d9⟩).toNat == stable
+    | _, _ => false
+  unless agrees do throw s!"stability case disagrees: {line}"
+
+private def runStabilityCases (path : String) : IO UInt32 := do
   let cases ← IO.FS.lines path
-  unless cases.size == 2592 do throw (IO.userError "expected 2592 pattern feature cases")
+  let table := Stability.Edge.initEdgeStability
+  let mut tables := 0
+  let mut moves := 0
   for line in cases do
-    IO.ofExcept (checkPatternFeatureCase line)
-  (← IO.getStdout).putStrLn s!"{cases.size} pattern feature cases, 0 mismatches"
+    IO.ofExcept (checkStabilityCase table line)
+    if line.startsWith "table " then tables := tables + 1
+    if line.startsWith "move " then moves := moves + 1
+  unless tables == 65536 && moves == 17496 && cases.size == 105280 do
+    throw (IO.userError s!"incomplete stability fixture: {tables} entries, {moves} moves, {cases.size} cases")
+  (← IO.getStdout).putStrLn s!"{cases.size} stability cases, 0 mismatches"
   return 0
+
+private def checkSyncPrimitiveCase (line : String) : Except String Unit := do
+  let input :: observed := line.splitOn "|" | throw s!"missing synchronization input: {line}"
+  match input.splitOn " " with
+  | ["mask", raw, first, second] =>
+    let start ← parseU64 "mask" raw
+    let a ← parseSquare "mask index" first
+    let b ← parseSquare "mask index" second
+    let first := (Threading.AtomicBitSet.Update.set a).apply start
+    let booked := (Threading.AtomicBitSet.Update.set b).apply first
+    let afterFirst := (Threading.AtomicBitSet.Update.reset a).apply booked
+    let finished := (Threading.AtomicBitSet.Update.reset b).apply afterFirst
+    let cleared := Threading.AtomicBitSet.Update.clear.apply finished
+    let expected := [0, booked, afterFirst, finished, cleared].map fun bits =>
+      let count := Threading.AtomicBitSet.count bits
+      let empty := boolBit (Threading.AtomicBitSet.none bits)
+      s!"{bits.toNat} {count} {empty}"
+    unless observed == expected do
+      throw s!"atomic bitset disagrees for {input}: {observed} vs {expected}"
+  | ["guard", transfer, published, read] =>
+    unless (transfer == "0" || transfer == "1") && observed.isEmpty && published == read do
+      throw s!"guard handoff disagrees: {line}"
+  | _ => throw s!"invalid synchronization row: {line}"
+
+private def runSyncPrimitiveCases (path : String) : IO UInt32 := do
+  let cases ← IO.FS.lines path
+  let masks := cases.countP (·.startsWith "mask ")
+  let guards := cases.countP (·.startsWith "guard ")
+  unless masks == 4096 && guards == 8 && cases.size == masks + guards do
+    throw (IO.userError "missing synchronization primitive cases")
+  for line in cases do
+    IO.ofExcept (checkSyncPrimitiveCase line)
+  (← IO.getStdout).putStrLn s!"{masks} atomic bitset traces and {guards} lock handoffs, 0 mismatches"
+  return 0
+
+private def caseCommands : List (String × (String → IO UInt32)) := [
+  ("activation-cases", runHeaderCaseFile "activation backend" activationHeader
+    (fun (fused, scRelu) => checkActivationCase fused scRelu)),
+  ("move-cases", runHeaderCaseFile "move generation backend" moveCasesHeader checkMoveCase),
+  ("endgame-timing-cases", runCaseFile "endgame timing" checkEndgameTimingCase),
+  ("time-settings-cases", runCaseFile "time settings" checkTimeSettingsCase),
+  ("fixed-endgame-cases", runHeaderCaseFile "fixed endgame ladder" fixedEndgameHeader
+    (fun _ => checkFixedEndgameCase)),
+  ("game-analysis-cases", runCaseFile "game analysis" checkGameAnalysisCase),
+  ("obf-cases", runCaseFile "OBF" checkObfCase),
+  ("empty-list-cases", runCaseFile "empty list" checkEmptyListCase),
+  ("search-counter-cases", runCaseFile "search counter" checkCounterCase),
+  ("board-hash-cases", runCaseFile "board hash" checkBoardHashCase),
+  ("move-storage-cases", runCaseFile "move storage" checkMoveStorageCase),
+  ("move-generation-cases", runHeaderCaseFile "move generation" moveGenerationHeader
+    checkMoveGenerationCase),
+  ("tt-save-cases", runCaseFileWith "TT save" checkTtSaveCase (some 1008)
+    (some "TT snapshot, lookup and save cases")),
+  ("stability-cases", runStabilityCases),
+  ("sync-primitive-cases", runSyncPrimitiveCases),
+  ("stop-token-cases", runCaseFile "stop token" checkStopTokenCase),
+  ("in-flight-cases", runCaseFileWith "in-flight" checkInFlightCase none
+    (some "in-flight slot cases")),
+  ("endgame-probcut-cases", runCaseFile "endgame ProbCut" checkEndgameProbCutCase),
+  ("midgame-probcut-cases", runCaseFile "midgame ProbCut" checkMidgameProbCutCase),
+  ("pv-stack-cases", runCaseFile "PV stack" checkPvStackCase),
+  ("midgame-aspiration-cases", runCaseFile "midgame aspiration" checkMidgameAspirationCase),
+  ("endgame-aspiration-cases", runCaseFile "endgame aspiration" checkEndgameAspirationCase),
+  ("lazy-smp-cases", runCaseFile "Lazy SMP" checkLazySmpCase),
+  ("lmr-cases", runCaseFile "LMR" checkLmrCase),
+  ("split-report-cases", runCaseFileWith "split report" checkSplitReportCase (some 4704) none),
+  ("finite-score-cases", runCaseFile "finite score" checkFiniteScoreCase),
+  ("eval-cache-cases", runCaseFile "evaluation cache" checkEvalCacheCase),
+  ("aligned-buffer-cases", runCaseFile "aligned buffer" checkAlignedBufferCase),
+  ("large-page-cases", runCaseFileWith "Windows large-page" checkLargePageCase none
+    (some "Windows large-page cases with modeled Win32 replies")),
+  ("weight-stream-cases", runCaseFile "weight stream" checkWeightStreamCase),
+  ("pattern-feature-cases", runCaseFileWith "pattern feature" checkPatternFeatureCase
+    (some 2592) none),
+  ("flip-scalar-cases", runFlipScalarCases)
+]
 
 def main (args : List String) : IO UInt32 := do
   let stdout ← IO.getStdout
-  if let cmd :: rest := args then
-    if cmd == "move-bound-cnf" || cmd == "move-bound-check" then
-      let index := rest.head?.bind (·.toNat?)
-      if let some bound := index then
-        if bound < 64 then
-          let formula := LegalMoves.MoveBound.dimacsFormula bound
-          match cmd, rest with
-          | "move-bound-cnf", [_] =>
-            stdout.putStr formula.dimacs
-            return 0
-          | "move-bound-check", [_, path] =>
-            let proof ← Std.Tactic.BVDecide.LRAT.loadLRATProof path
-            if Std.Tactic.BVDecide.LRAT.check proof formula then
-              stdout.putStrLn s!"LRAT verified: at most {bound} legal moves"
-              return 0
-            (← IO.getStderr).putStrLn "LRAT rejected for this move bound"
-            return 1
-          | _, _ => pure ()
-      (← IO.getStderr).putStrLn "usage: revmodel move-bound-cnf <bound 0..63> or move-bound-check <bound 0..63> <proof.lrat>"
-      return 2
-  if args == ["unicode-whitespace"] then
-    stdout.putStrLn (String.intercalate " " (Square.unicodeWhitespaceScalars.map toString))
-    return 0
-  if args == ["registry"] then
+  match args with
+  | ["registry"] =>
     stdout.putStrLn (toJson entries).compress
     return 0
-  if args == ["utf8-square-chunks"] then
-    stdout.putStrLn (utf8ChunkDiagnostic [])
-    for first in [:256] do
-      stdout.putStrLn (utf8ChunkDiagnostic [BitVec.ofNat 8 first])
-    for first in [:256] do
-      for second in [:256] do
-        stdout.putStrLn (utf8ChunkDiagnostic [BitVec.ofNat 8 first, BitVec.ofNat 8 second])
-    return 0
-  if let ["activation-cases", path] := args then
-    return ← runActivationCases path
-  if let ["move-cases", path] := args then
-    return ← runMoveCases path
-  if let ["endgame-timing-cases", path] := args then
-    return ← runEndgameTimingCases path
-  if let ["endgame-probcut-cases", path] := args then
-    return ← runEndgameProbCutCases path
-  if let ["midgame-probcut-cases", path] := args then
-    return ← runMidgameProbCutCases path
-  if let ["pv-stack-cases", path] := args then
-    return ← runPvStackCases path
-  if let ["midgame-aspiration-cases", path] := args then
-    return ← runMidgameAspirationCases path
-  if let ["lazy-smp-cases", path] := args then
-    return ← runLazySmpCases path
-  if let ["finite-score-cases", path] := args then
-    return ← runFiniteScoreCases path
-  if let ["eval-cache-cases", path] := args then
-    return ← runEvalCacheCases path
-  if let ["aligned-buffer-cases", path] := args then
-    return ← runAlignedBufferCases path
-  if let ["pattern-feature-cases", path] := args then
-    return ← runPatternFeatureCases path
-  if let ["flip-scalar-cases", path] := args then
-    return ← runFlipScalarCases path
-  if let some name := args.head? then
-    if ["flip-scalar-cases", "move-cases", "activation-cases", "endgame-timing-cases",
-        "endgame-probcut-cases", "midgame-probcut-cases", "pv-stack-cases",
-        "midgame-aspiration-cases", "lazy-smp-cases", "finite-score-cases",
-        "eval-cache-cases", "aligned-buffer-cases", "pattern-feature-cases"].contains name then
+  | ["move-bound-cnf", boundText] =>
+    if let some bound := boundText.toNat? then
+      if bound < 64 then
+        stdout.putStr (LegalMoves.MoveBound.dimacsFormula bound).dimacs
+        return 0
+    (← IO.getStderr).putStrLn "usage: revmodel move-bound-cnf <bound 0..63> or move-bound-check <bound 0..63> <proof.lrat>"
+    return 2
+  | ["move-bound-check", boundText, path] =>
+    if let some bound := boundText.toNat? then
+      if bound < 64 then
+        let formula := LegalMoves.MoveBound.dimacsFormula bound
+        let proof ← Std.Tactic.BVDecide.LRAT.loadLRATProof path
+        if Std.Tactic.BVDecide.LRAT.check proof formula then
+          stdout.putStrLn s!"LRAT verified: at most {bound} legal moves"
+          return 0
+        (← IO.getStderr).putStrLn "LRAT rejected for this move bound"
+        return 1
+    (← IO.getStderr).putStrLn "usage: revmodel move-bound-cnf <bound 0..63> or move-bound-check <bound 0..63> <proof.lrat>"
+    return 2
+  | "move-bound-cnf" :: _ | "move-bound-check" :: _ =>
+    (← IO.getStderr).putStrLn "usage: revmodel move-bound-cnf <bound 0..63> or move-bound-check <bound 0..63> <proof.lrat>"
+    return 2
+  | ["perft-root", depth] =>
+    if let some n := depth.toNat? then
+      if n ≤ 9 then
+        stdout.putStrLn (toString (Perft.count ⟨false, false⟩ ⟨false, false, false⟩ Perft.root n))
+        return 0
+    (← IO.getStderr).putStrLn "usage: revmodel perft-root <depth 0..9>"
+    return 2
+  | "perft-root" :: _ =>
+    (← IO.getStderr).putStrLn "usage: revmodel perft-root <depth 0..9>"
+    return 2
+  | ["pvs-trace-check", path] =>
+    return ← PvsParallel.TraceCheck.runFile path
+  | ["pvs-trace-check", path, depth] =>
+    if let some n := depth.toNat? then
+      if n ≤ 64 then return ← PvsParallel.TraceCheck.runFile path n
+    IO.eprintln "pvs-trace-check: expected a threshold depth from 0 to 64"
+    return 1
+  | "pvs-trace-check" :: _ =>
+    (← IO.getStderr).putStrLn "usage: revmodel pvs-trace-check <path>"
+    return 2
+  | [name, path] =>
+    if let some run := caseCommands.lookup name then
+      return ← run path
+    (← IO.getStderr).putStrLn s!"unknown command: {name}"
+    return 2
+  | name :: _ =>
+    if (caseCommands.lookup name).isSome then
       (← IO.getStderr).putStrLn s!"usage: revmodel {name} <path>"
       return 2
-  let stdin ← IO.getStdin
-  repeat
-    let line ← stdin.getLine
-    if line.isEmpty then break
-    match runCase line.trimAscii.toString with
-    | .ok output => stdout.putStrLn output
-    | .error message =>
-      (← IO.getStderr).putStrLn message
-      return 1
-  return 0
+    (← IO.getStderr).putStrLn s!"unknown command: {name}"
+    return 2
+  | [] =>
+    (← IO.getStderr).putStrLn "usage: revmodel <command> [args...]"
+    return 2

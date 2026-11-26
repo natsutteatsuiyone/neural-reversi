@@ -94,10 +94,30 @@ structure Witness (search : Trials Payload) (i fuel : Nat) (result : Accepted Pa
   completed : result.trial.aborted = false
   inside : result.alpha < result.trial.score ∧ result.trial.score < result.beta
 
-theorem runWith_witness (search : Trials Payload) (sound : TrialSound search value)
+private theorem widen_bounded {alpha beta score delta a b : Int}
+    (lower : -32767 ≤ alpha) (alphaUpper : alpha ≤ 32767) (upper : beta ≤ 32767)
+    (positive : 0 < delta) (step : widen score alpha beta delta = some (a, b)) :
+    -32767 ≤ a ∧ a ≤ 32767 ∧ b ≤ 32767 := by
+  unfold widen at step
+  split at step
+  · cases step
+    constructor
+    · exact Int.le_max_right _ _
+    · constructor <;> omega
+  · split at step
+    · cases step
+      refine ⟨Int.le_trans lower (Int.le_max_right _ _), ?_, Int.min_le_right _ _⟩
+      omega
+    · contradiction
+
+theorem runWith_witness (search : Trials Payload)
     (window : Window alpha beta) (positive : 0 < delta)
     (returns : runWith search fuel i alpha beta delta = some result) :
     Witness search i fuel result := by
+  have lower := window.lower
+  have upper := window.upper
+  have alphaUpper : alpha ≤ 32767 := by have := window.ordered; omega
+  clear window
   induction fuel generalizing i alpha beta delta with
   | zero => simp [runWith] at returns
   | succ fuel ih =>
@@ -108,13 +128,15 @@ theorem runWith_witness (search : Trials Payload) (sound : TrialSound search val
       | none =>
         rw [step] at returns
         cases Option.some.inj returns
-        exact ⟨Nat.le_refl _, by change i < i + (fuel + 1); omega, window, rfl, stopped, widen_none step⟩
+        have inside := widen_none step
+        exact ⟨Nat.le_refl _, by change i < i + (fuel + 1); omega,
+          ⟨lower, by change alpha < beta; omega, upper⟩, rfl, stopped, inside⟩
       | some next =>
         obtain ⟨a, b⟩ := next
         rw [step] at returns
-        have trial := sound i alpha beta window stopped
+        obtain ⟨aLower, aUpper, bUpper⟩ := widen_bounded lower alphaUpper upper positive step
         obtain ⟨first, last, valid, same, completed, inside⟩ :=
-          ih (nextWindow window trial.lower trial.upper positive step) (by omega) returns
+          ih (by omega) returns aLower bUpper aUpper
         exact ⟨by omega, by omega, valid, same, completed, inside⟩
     · simp [stopped] at returns
 
@@ -239,7 +261,7 @@ theorem acceptedContract_proven : AcceptedContract := by
   | none => rw [found] at projected; cases projected
   | some result =>
     rw [found] at projected
-    exact ⟨result, rfl, runWith_witness search sound window (by decide) found, Option.some.inj projected⟩
+    exact ⟨result, rfl, runWith_witness search window (by decide) found, Option.some.inj projected⟩
 
 example :
     runWith (fun i _ _ => ⟨if i = 0 then 4 else 0, (), i == 1⟩) 11 0 (-1) 1 256 = none := rfl

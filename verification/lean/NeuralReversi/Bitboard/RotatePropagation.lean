@@ -38,8 +38,6 @@ theorem rotateExpanded_right (o mask p : Bits) (d : Nat)
     maskedOpponent_ror_eq_shr o mask _ d dw gaps,
     maskedPre_ror_eq_shr o mask _ d tw preGaps,expandedRight]
 
-open NeuralReversi.Simd.X86
-
 def rotateLane (h p : Bits) (d doubled : Nat) : Bits :=
   let first := h &&& p.rotateLeft d
   let two := ternaryWord first h (first.rotateLeft d) 0xf8

@@ -1,0 +1,51 @@
+import NeuralReversi.PvsParallel.SerialTable.Trial
+
+namespace NeuralReversi.PvsParallel.SerialTable.Test
+
+open PvsBoardTree (Position)
+
+private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def pool : EndgameSearch.CacheHistory.Pool :=
+  ⟨1,64,by decide,Board.Hash.hash false,0,⟨0,⟨0,0⟩⟩,⟨0,⟨0,0⟩⟩⟩
+private def c : SerialScout.Config := ⟨.aarch64 true false,false,false,true,pool.address⟩
+private def l : Layout := ⟨16,by decide,false⟩
+-- The fast key and the native ordering evaluator both choose C8 on this position.
+-- The comparison checks the resulting publications, including the child board.
+private def source : SerialExecution.Inputs mc fc := fun _ _ =>
+  ⟨fun _ => none,[],[],[],[],fun _ => .fast,fun m => ⟨63-m.val.val,by omega⟩⟩
+private def root : SerialRecursion.RootInput := ⟨fun _ => 0,fun records => ⟨records,.refl _⟩,fun _ => []⟩
+private def b : Position := ⟨⟨0xf3d7ffffffff8d00,0x0028000000000000⟩,by unfold Board.wellFormed; decide⟩
+
+private def showMemory (s : Memory l) : IO Unit := do
+  for (pos,e) in s.tt.history do
+    IO.println s!"WRITE {pos.val.player.toNat} {pos.val.opponent.toNat} {(TranspositionTable.Packing.pack false e).toNat}"
+  for h : i in [:s.tt.image.slots.size] do
+    let slot := s.tt.image.slots[i]
+    if slot.seq ||| slot.player ||| slot.opponent ||| slot.data != 0 then
+      IO.println s!"SLOT {i} {slot.seq.toNat} {slot.player.toNat} {slot.opponent.toNat} {slot.data.toNat}"
+
+private def scout (pos : Position) (a z : BitVec 32) (before : Memory l) : IO (Memory l) := do
+  let ctx := SerialRootExecution.context pos a z
+  let frame := {ctx with request := {ctx.request with pv := false}}
+  let some (k,v,after) := Stack.run pool c source 0 frame before | throw <| IO.userError "scout"
+  IO.println s!"RESULT {k+1} {v}"
+  showMemory after
+  return after
+
+def compare : IO Unit := do
+  let fresh := Memory.empty l 0 pool
+  let some rows := AspirationMir.NativeRootBirth.started mc fc b false (fun _ => none) | throw <| IO.userError "birth"
+  let s : AspirationMir.SerialStack.State := ⟨0,0,⟨BitVec.ofInt 32 (-32767),32767,0⟩,rows⟩
+  let some (k,ans,next) := Trial.trial pool c b source root s fresh | throw <| IO.userError "root"
+  IO.println s!"RESULT {k+1} {ans.value}"
+  showMemory next
+  let warm ← scout b 0 1 fresh
+  let _ ← scout b 0 1 warm
+  let child := PvsBoardTree.play mc fc b (⟨58,by decide⟩ : PvsBoardTree.GeneratedSquare mc b.val)
+  let seeded ← scout child.val (BitVec.ofInt 32 (-1)) 0 fresh
+  let _ ← scout b 0 1 seeded
+
+end NeuralReversi.PvsParallel.SerialTable.Test
+
+def main := NeuralReversi.PvsParallel.SerialTable.Test.compare

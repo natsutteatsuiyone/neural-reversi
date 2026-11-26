@@ -98,9 +98,9 @@ theorem TTRead.source (read : TTRead history board entry) : (board, entry) ∈ h
   cases read with
   | lookup matched => exact matched.source
   | probe attempts slot matched hit =>
-    obtain ⟨attempt, present, payload, _⟩ :=
+    obtain ⟨attempt, present, payload, occupied⟩ :=
       TranspositionTable.ProbeRetry.contract_proven.2 _ attempts slot entry hit
-    exact matched attempt present payload
+    exact matched attempt present payload occupied
 
 def ReadContract : Prop :=
   ∀ (history : History) board entry, FiniteHistory history → TTRead history board entry →

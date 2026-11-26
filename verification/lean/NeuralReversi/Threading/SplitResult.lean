@@ -55,8 +55,61 @@ private theorem Merge.lower (merge : Merge value alpha beta seed reports final)
 def slots (start len : Nat) : List Nat :=
   List.range' start (len - start)
 
+theorem mem_slots : i ∈ slots start len ↔ start ≤ i ∧ i < len := by
+  simp only [slots, List.mem_range', Nat.one_mul]
+  constructor
+  · rintro ⟨offset, beforeEnd, rfl⟩
+    omega
+  · intro ⟨afterStart, beforeEnd⟩
+    exact ⟨i - start, by omega, by omega⟩
+
 def nodeValue (value : Nat → Int) (start len : Nat) (prefixValue : Int) : Int :=
   bestValue value (slots start len) prefixValue
+
+theorem bestValue_append (value : Move → Int) (first rest : List Move) (seed : Int) :
+    bestValue value (first ++ rest) seed = bestValue value rest (bestValue value first seed) := by
+  induction first generalizing seed with
+  | nil => rfl
+  | cons move tail ih => exact ih (max seed (value move))
+
+theorem suffixLabels (first rest : List Move) (fallback : Move) :
+    ((slots first.length (first ++ rest).length).map
+      (fun i => (first ++ rest)[i]?.getD fallback)) = rest := by
+  apply List.ext_getElem
+  · simp [slots]
+  · intro i _ hi
+    simp only [List.getElem_map, slots, List.getElem_range', Nat.one_mul]
+    rw [List.getElem?_append_right (by omega)]
+    simp [List.getElem?_eq_getElem hi]
+
+theorem partitionLabels (first rest : List Move) (fallback : Move) (value : Move → Int) (seed : Int) :
+    nodeValue (fun i => value ((first ++ rest)[i]?.getD fallback))
+      first.length (first ++ rest).length (bestValue value first seed) =
+      bestValue value (first ++ rest) seed := by
+  rw [nodeValue, ← PvsMoveLoop.bestValue_map, suffixLabels, bestValue_append]
+
+theorem Merge.bound_of_coverage (merge : Merge value alpha beta seed reports final)
+    (base : Bound prefixValue alpha beta seed)
+    (caps : ∀ i ∈ slots start len, value i ≤ scoreMax) (cap : prefixValue ≤ scoreMax)
+    (valid : ∀ report ∈ reports, report.index ∈ slots start len)
+    (covered : beta ≤ final ∨ scoreMax ≤ final ∨
+      ∀ i ∈ slots start len, ∃ report ∈ reports, report.index = i) :
+    Bound (nodeValue value start len prefixValue) alpha beta final := by
+  constructor
+  · intro low
+    rcases covered with high | maximal | allDone
+    · omega
+    · exact Int.le_trans (PvsMoveLoop.bestValue_le value _ _ _ cap caps) maximal
+    · apply PvsMoveLoop.bestValue_le
+      · exact Int.le_trans (base.1 (Int.lt_of_le_of_lt merge.seed_le low)) merge.seed_le
+      · intro index member
+        obtain ⟨report, published, same⟩ := allDone index member
+        exact same ▸ merge.upper low published
+  · apply merge.lower
+    · intro higher
+      exact Int.le_trans (base.2 higher) (PvsMoveLoop.bestValue_ge_seed value _ _)
+    · intro report member
+      exact PvsMoveLoop.bestValue_ge_move value _ _ (valid report member)
 
 def SplitResultContract : Prop :=
   ∀ (w len : Nat) (start last : BitVec w) (issued : List (BitVec w))
@@ -74,26 +127,13 @@ def SplitResultContract : Prop :=
 theorem splitResultContract_proven : SplitResultContract := by
   intro w len start last issued value prefixValue seed alpha beta final reports capacity claims
     base caps cap merge valid covered
-  constructor
-  · intro low
-    rcases covered with ⟨exhausted, allDone⟩ | high | maximal
-    · have allIssued := (MoveList.Concurrent.exhaustionContract_proven w len start last issued
-        capacity claims exhausted).1
-      apply PvsMoveLoop.bestValue_le
-      · exact Int.le_trans (base.1 (Int.lt_of_le_of_lt merge.seed_le low)) merge.seed_le
-      · intro index member
-        have issuedIndex : index ∈ issued.map BitVec.toNat := by
-          rw [allIssued]
-          exact member
-        obtain ⟨report, published, same⟩ := allDone index issuedIndex
-        exact same ▸ merge.upper low published
-    · omega
-    · exact Int.le_trans (PvsMoveLoop.bestValue_le value _ _ _ cap caps) maximal
-  · apply merge.lower
-    · intro higher
-      exact Int.le_trans (base.2 higher) (PvsMoveLoop.bestValue_ge_seed value _ _)
-    · intro report member
-      exact PvsMoveLoop.bestValue_ge_move value _ _ (valid report member)
+  apply merge.bound_of_coverage base caps cap valid
+  rcases covered with ⟨exhausted, allDone⟩ | high | maximal
+  · have allIssued := (MoveList.Concurrent.exhaustionContract_proven w len start last issued
+      capacity claims exhausted).1
+    exact Or.inr (Or.inr (by simpa only [allIssued, slots] using allDone))
+  · exact Or.inl high
+  · exact Or.inr (Or.inl maximal)
 
 example :
     Claims 1 (0#32) [0#32] (1#32) ∧ advance 1 (1#32) = none ∧

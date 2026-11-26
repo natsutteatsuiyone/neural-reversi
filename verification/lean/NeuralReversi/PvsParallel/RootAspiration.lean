@@ -77,6 +77,48 @@ structure LineSound (values : Square → Int) (roots : List Square) (idx : Nat) 
   maximal : ∀ other ∈ roots.drop idx, values other ≤ line.pick.score
   remaining : (line.order.drop (idx + 1)).Perm ((roots.drop idx).erase line.pick.square)
 
+theorem line_of_interior {mc : X86Config} {fc : Root.FlipConfig} {board : Position}
+    (inside : idx < roots.length) {accepted : Accepted (Square → Int)}
+    (interior : accepted.alpha < accepted.trial.score ∧ accepted.trial.score < accepted.beta)
+    (report : SoundAttempt mc fc board roots idx accepted.alpha accepted.beta accepted.trial.score
+      accepted.trial.payload) :
+    ∃ line, finish roots idx accepted = some line ∧
+      line.pick.score = accepted.trial.score ∧
+      accepted.trial.payload line.pick.square = line.pick.score ∧
+      LineSound (Root.squareValue mc fc board) roots idx line := by
+  have exactScore := report.1.exact interior.1 interior.2
+  obtain ⟨head, tail, sorted, selected⟩ := report.2 interior.1 interior.2
+  let ordered := sortFrom roots idx accepted.trial.payload
+  let line : Line := ⟨⟨head, accepted.trial.score⟩, ordered⟩
+  obtain ⟨order, fixed, remaining, _, _⟩ :=
+    RootOrder.sortContract_proven roots idx accepted.trial.payload (Nat.le_of_lt inside)
+  refine ⟨line, ?_, rfl, selected.2.1.trans exactScore.symm, ?_⟩
+  · simp only [finish, sorted]
+    rfl
+  · have exactPick := exactScore.trans selected.2.2.1.symm
+    refine ⟨order, fixed, ?_, selected.1, exactPick, ?_, ?_⟩
+    · change (ordered.drop idx).head? = some head
+      rw [sorted]
+      rfl
+    · intro other member
+      change Root.squareValue mc fc board other ≤ accepted.trial.score
+      rw [exactPick]
+      exact selected.2.2.2.1 other member
+    · change (ordered.drop (idx + 1)).Perm ((roots.drop idx).erase head)
+      rw [List.drop_add_one_eq_tail_drop, sorted]
+      rw [sorted] at remaining
+      simpa only [List.erase_cons_head, List.tail_cons] using remaining.erase head
+
+theorem line_of_accepted {mc : X86Config} {fc : Root.FlipConfig} {board : Position}
+    (inside : idx < roots.length) (witness : Aspiration.Witness search start fuel accepted)
+    (report : SoundAttempt mc fc board roots idx accepted.alpha accepted.beta accepted.trial.score
+      accepted.trial.payload) :
+    ∃ line, finish roots idx accepted = some line ∧
+      line.pick.score = accepted.trial.score ∧
+      accepted.trial.payload line.pick.square = line.pick.score ∧
+      LineSound (Root.squareValue mc fc board) roots idx line :=
+  line_of_interior inside witness.inside report
+
 def LineContract : Prop :=
   ∀ (mc : X86Config) (fc : Root.FlipConfig) (board : Position) (roots : List Square) (idx : Nat)
     (alpha beta : Int) (search : Search),
@@ -98,32 +140,13 @@ theorem lineContract_proven : LineContract := by
   obtain ⟨low, high⟩ := Root.value_range covers (fc := fc) inside
   have lo : -32767 < value := by change -32767 < Root.value mc fc board roots idx; unfold PvsMoveLoop.scoreMax at low; omega
   have hi : value < 32767 := by change Root.value mc fc board roots idx < 32767; unfold PvsMoveLoop.scoreMax at high; omega
-  obtain ⟨accepted, found, witness, exactScore⟩ := Aspiration.acceptedContract_proven
+  obtain ⟨accepted, found, witness, _⟩ := Aspiration.acceptedContract_proven
     _ search value alpha beta numeric lo hi window uninterrupted
   have report := sound accepted.index accepted.alpha accepted.beta witness.window
     (witness.source ▸ witness.completed)
   rw [← witness.source] at report
-  obtain ⟨head, tail, sorted, selected⟩ := report.2 witness.inside.1 witness.inside.2
-  let ordered := sortFrom roots idx accepted.trial.payload
-  let line : Line := ⟨⟨head, accepted.trial.score⟩, ordered⟩
-  obtain ⟨order, fixed, remaining, _, _⟩ :=
-    RootOrder.sortContract_proven roots idx accepted.trial.payload (Nat.le_of_lt inside)
-  refine ⟨line, accepted, found, witness, ?_, rfl, selected.2.1.trans exactScore.symm, ?_⟩
-  · simp only [runLine, found, Option.bind_some, finish, sorted]
-    rfl
-  · have exactPick := exactScore.trans selected.2.2.1.symm
-    refine ⟨order, fixed, ?_, selected.1, exactPick, ?_, ?_⟩
-    · change (ordered.drop idx).head? = some head
-      rw [sorted]
-      rfl
-    · intro other member
-      change Root.squareValue mc fc board other ≤ accepted.trial.score
-      rw [exactPick]
-      exact selected.2.2.2.1 other member
-    · change (ordered.drop (idx + 1)).Perm ((roots.drop idx).erase head)
-      rw [List.drop_add_one_eq_tail_drop, sorted]
-      rw [sorted] at remaining
-      simpa only [List.erase_cons_head, List.tail_cons] using remaining.erase head
+  obtain ⟨line, finished, eq, score, chosen⟩ := line_of_accepted inside witness report
+  exact ⟨line, accepted, found, witness, by simpa [runLine, found] using finished, eq, score, chosen⟩
 
 theorem aborted_line (search : Search) (roots : List Square) (idx : Nat)
     (aborted : (search 0 alpha beta).aborted = true) :

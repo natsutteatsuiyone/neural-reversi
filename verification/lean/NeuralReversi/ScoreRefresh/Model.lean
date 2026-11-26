@@ -50,7 +50,7 @@ def value (score : Score) : Word := score.raw
 def rawAssertion : String :=
   "assertion failed: raw_value >= -Self::INF.0 && raw_value <= Self::INF.0"
 def discAssertion : String :=
-  "assertion failed: disc_diff.value() >= -DISC_SCORE_INF.value() && disc_diff.value() <= DISC_SCORE_INF.value()"
+  "assertion failed: disc_diff.value() >= -DISC_SCORE_INF.value() &&\n    disc_diff.value() <= DISC_SCORE_INF.value()"
 
 def fromRaw (checked : Bool) (raw : Word) : Except String Score :=
   if checked && decide (raw.toInt < -32767 ∨ raw.toInt > 32767) then .error rawAssertion

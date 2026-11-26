@@ -127,6 +127,17 @@ theorem orderContract_proven : OrderContract := by
   obtain ⟨hi, upper, tie⟩ := (List.maxIdxOn_eq_iff _).mp (index_eq value first rest).symm
   exact ⟨hi, rfl, upper, tie⟩
 
+def RemainingContract : Prop :=
+  ∀ (α : Type) (value : α → Int32) first rest cursor len,
+    cursor + (first :: rest).length = len →
+    cursor + 1 + (takeBest value first rest).2.length = len ∧ len - (cursor + 1) = rest.length
+
+theorem remainingContract_proven : RemainingContract := by
+  intro α value first rest cursor len partition
+  rw [remainder_length]
+  simp only [List.length_cons] at partition
+  omega
+
 example :
     (ordered Prod.snd ([(0, -1), (1, 1), (2, -1), (3, 1)] : List (Nat × Int32))).map Prod.fst =
       [1, 3, 2, 0] := by decide +kernel

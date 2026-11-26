@@ -1,8 +1,9 @@
 //! Table of the endgame child positions being searched.
 //!
 //! A serial move loop searches a fresh sibling before a child another thread
-//! is searching, as in ABDADA. A claim is only a scheduling hint, never a
-//! score or a bound: a hash collision loses a hint, never search work.
+//! is searching, as in ABDADA. Claims guide the order in which the serial
+//! move loop considers children. A slot collision suppresses the hint for
+//! the new claimant. Boards with identical hashes share a hint.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -20,7 +21,7 @@ pub(in crate::search) struct InFlightTable {
 pub(in crate::search) enum Claim<'a> {
     /// This thread advertises the child until the claim is dropped.
     Owned(&'a AtomicU64),
-    /// Another thread is searching the same child.
+    /// The slot was observed with a claim for the same 64-bit hash.
     Busy,
     /// Nothing is advertised: claims are off, or another position holds the slot.
     Untracked,

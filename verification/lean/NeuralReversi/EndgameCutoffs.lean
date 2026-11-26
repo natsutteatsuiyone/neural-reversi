@@ -1,6 +1,7 @@
 import NeuralReversi.EndgameStability
 import NeuralReversi.EndgameTreeCache
 import NeuralReversi.Board.Move.Wipeout
+import NeuralReversi.EndgameSearch.Thresholds
 
 namespace NeuralReversi.EndgameCutoffs
 
@@ -76,7 +77,7 @@ def beforeMoves (fc : FlipConfig) (b : Board.Board) (history : List Store)
       | none =>
         if table = .deep then
           if moves.any (wipesOut fc b) then some 64
-          else if 12 ≤ (Board.emptyCount b).toNat ∧ 2 ≤ moves.length then
+          else if EndgameSearch.Thresholds.minEcEtcEmpties ≤ (Board.emptyCount b).toNat ∧ 2 ≤ moves.length then
             EndgameCache.enhancedCutoff (entryFor address history table) alpha
               (moves.map fun sq => Board.place b (Flip.Dispatch.resultValue fc sq b.player b.opponent) sq)
           else none

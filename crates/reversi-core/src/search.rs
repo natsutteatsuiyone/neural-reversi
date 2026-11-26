@@ -424,8 +424,12 @@ fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use crate::level::Level;
+    use crate::player_color::PlayerColor;
     use crate::score::Score;
     use crate::search::counters::SearchCounters;
     use crate::search::time_control::TimeControlMode;
@@ -477,6 +481,64 @@ mod tests {
     fn search_for_tests() -> Search {
         let shared = SearchSharedResources::from_eval(Eval::shared_for_tests(), 0, Some(1));
         Search::from_shared_resources(&shared)
+    }
+
+    #[test]
+    fn timed_midgame_handoff_reuses_an_interrupted_search() {
+        // FFO #9 has 15 empties. G7 and A4 both score -8.
+        let board = Board::from_string(
+            "--XOXX--O-OOXXXX-OOOXXXX-XOXXXOXXXOXOOOXOXXOXOXX--OXOO----OOOO--",
+            PlayerColor::White,
+        )
+        .unwrap();
+        let mut search = search_for_tests();
+        let pool = search.thread_pool();
+        let timed = || SearchRunOptions::with_time(TimeControlMode::Infinite);
+        let earlier = search.run(
+            &board,
+            &timed().callback(move |progress| {
+                if progress.depth == 7 && !progress.is_endgame {
+                    pool.abort_search();
+                }
+            }),
+        );
+        assert_eq!(earlier.depth(), 7);
+        assert!(!earlier.is_endgame());
+
+        // Level1 has written the endgame tables, but the saved midgame line
+        // remains the public result until Level2 completes.
+        let pool = search.thread_pool();
+        let saw_level1 = Arc::new(AtomicBool::new(false));
+        let seen = saw_level1.clone();
+        let after_handoff = search.run(
+            &board,
+            &timed().callback(move |p| {
+                if p.is_endgame && p.probability == Selectivity::Level1.probability() {
+                    seen.store(true, Ordering::Relaxed);
+                    pool.abort_search();
+                }
+            }),
+        );
+        assert!(saw_level1.load(Ordering::Relaxed));
+        assert_eq!(after_handoff.depth(), 15);
+        assert!(!after_handoff.is_endgame());
+
+        let progress = Arc::new(Mutex::new(Vec::new()));
+        let events = progress.clone();
+        let result = search.run(
+            &board,
+            &timed().callback(move |p| events.lock().unwrap().push((p.depth, p.is_endgame))),
+        );
+        let events = progress.lock().unwrap();
+        assert!(
+            events
+                .windows(2)
+                .any(|pair| pair == [(15, false), (15, true)])
+        );
+        assert!(result.is_endgame());
+        assert_eq!(result.selectivity(), Selectivity::None);
+        assert!(matches!(result.best_move(), Some(Square::G7 | Square::A4)));
+        assert_eq!(result.score().unwrap().value(), -8 * 256);
     }
 
     #[test]

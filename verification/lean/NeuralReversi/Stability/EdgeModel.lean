@@ -38,10 +38,15 @@ def applyEdgeMove (x : Fin 8) (player opponent : Byte) : State :=
       flipRight left.1 left.2 (x.val + 1) (8 - (x.val + 1)) else left
   else left
 
-def edgeIndex (p o : Byte) : Nat := p.toNat * 256 + o.toNat
+def edgeLookupIndex (p occ : Byte) : Nat := occ.toNat * 256 + p.toNat
+
+def edgeIndex (p o : Byte) : Nat := edgeLookupIndex p (p ||| o)
+
+def edgeStabilityOcc (table : EdgeTable) (p occ : Byte) : Byte :=
+  table[edgeLookupIndex p occ]?.getD 0
 
 def edgeStability (table : EdgeTable) (p o : Byte) : Byte :=
-  table[edgeIndex p o]?.getD 0
+  edgeStabilityOcc table p (p ||| o)
 
 def emptyAt (p o : Byte) (x : Fin 8) : Bool := (p ||| o) &&& bit8 x.val == 0
 

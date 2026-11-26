@@ -15,7 +15,7 @@ theorem auditUnprefixedReplacement : auditUnprefixedSource = auditUnprefixedTarg
 #eval show CommandElabM Unit from do
   let env ← getEnv
   let baseline ← auditProjectCSimp env
-  unless baseline == 2 do throwError "Ownership regression baseline differs"
+  unless baseline == expectedProjectCSimp.length do throwError "Ownership regression baseline differs"
   let fixtureModule := `NeuralReversi.AuditPrivateFixture
   unless declarationOwnedBy env [fixtureModule] `unprefixedImportedAuditProof do
     throwError "Unprefixed imported project proof was missed"

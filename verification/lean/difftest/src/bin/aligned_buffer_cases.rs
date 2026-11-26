@@ -14,6 +14,7 @@ mod aligned_buffer;
 
 use aligned_buffer::AlignedBuffer;
 use constants::CACHE_LINE_SIZE;
+use flip_scalar_difftest::{csv, run_buffered};
 
 static BYTES: AtomicUsize = AtomicUsize::new(0);
 static ALLOCATED: AtomicUsize = AtomicUsize::new(0);
@@ -202,16 +203,6 @@ fn fixture(
         End::Panic(i) => ("panic", i),
         End::DropPanic => ("drop-panic", count),
     };
-    let as_list = |xs: &[usize]| {
-        if xs.is_empty() {
-            "-".into()
-        } else {
-            xs.iter()
-                .map(usize::to_string)
-                .collect::<Vec<_>>()
-                .join(",")
-        }
-    };
     writeln!(
         out,
         "f {} {count} {kind} {stop} {} {} {} {allocated} {freed} {large_freed} {} {}",
@@ -219,8 +210,8 @@ fn fixture(
         panic_at_drop.unwrap_or(count),
         usize::from(completed),
         usize::from(result.is_err()),
-        as_list(&contents),
-        as_list(&drops.borrow())
+        csv(&contents),
+        csv(drops.borrow().iter())
     )
 }
 
@@ -269,18 +260,19 @@ fn main() -> io::Result<()> {
             hook(info);
         }
     }));
-    let mut stdout = io::BufWriter::new(io::stdout().lock());
-    layouts(&mut stdout)?;
-    for large in [false, true] {
-        for count in 0..=12 {
-            fixture(&mut stdout, large, count, End::Complete, None)?;
-            fixture(&mut stdout, large, count, End::DropPanic, None)?;
-            for i in 0..count {
-                fixture(&mut stdout, large, count, End::Short(i), None)?;
-                fixture(&mut stdout, large, count, End::Panic(i), None)?;
-                fixture(&mut stdout, large, count, End::Complete, Some(i))?;
+    run_buffered(|stdout| {
+        layouts(stdout)?;
+        for large in [false, true] {
+            for count in 0..=12 {
+                fixture(stdout, large, count, End::Complete, None)?;
+                fixture(stdout, large, count, End::DropPanic, None)?;
+                for i in 0..count {
+                    fixture(stdout, large, count, End::Short(i), None)?;
+                    fixture(stdout, large, count, End::Panic(i), None)?;
+                    fixture(stdout, large, count, End::Complete, Some(i))?;
+                }
             }
         }
-    }
-    stdout.flush()
+        Ok(())
+    })
 }

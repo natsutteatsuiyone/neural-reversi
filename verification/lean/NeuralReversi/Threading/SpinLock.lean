@@ -10,13 +10,15 @@ inductive Operation where
   | release (event : Event)
   deriving DecidableEq
 
-inductive Legal : Option Event → List Operation → Prop
-  | stop : Legal holder []
-  | acquired : Legal (some event) rest → Legal none (.acquire event :: rest)
-  | released : SequencedBefore held event → Legal none rest → Legal (some held) (.release event :: rest)
+inductive Legal (history : History) : Option Event → List Operation → Prop
+  | stop : Legal history holder []
+  | acquired : Legal history (some event) rest → Legal history none (.acquire event :: rest)
+  | released : HappensBefore history held event → Legal history none rest →
+      Legal history (some held) (.release event :: rest)
 
-private theorem suffix_legal (left right : List Operation) (legal : Legal holder (left ++ right)) :
-    ∃ current, Legal current right := by
+private theorem suffix_legal (left right : List Operation)
+    (legal : Legal history holder (left ++ right)) :
+    ∃ current, Legal history current right := by
   induction left generalizing holder with
   | nil => exact ⟨holder, legal⟩
   | cons op left ih =>
@@ -45,7 +47,7 @@ structure Modifications (history : History) where
     history.otherSync (writes.get head).event read.event
 
 structure Trace (history : History) extends Modifications history where
-  legal : Legal none operations
+  legal : Legal history none operations
 
 def ExclusiveContract : Prop :=
   ∀ (history : History) (trace : Modifications history) (a b : Event)
@@ -69,6 +71,20 @@ theorem exclusiveContract_proven : ExclusiveContract := by
       Fin trace.writes.length) = read.source := Fin.ext previous.symm
   rw [← same, held] at free
   cases free
+
+def LifecycleContract : Prop :=
+  ∀ history (trace : Trace history) event rest,
+    trace.operations ≠ .release event :: rest ∧
+    (trace.operations = .acquire event :: rest → Legal history (some event) rest)
+
+theorem lifecycleContract_proven : LifecycleContract := by
+  intro history trace event rest
+  refine ⟨?_, ?_⟩ <;> intro first
+  · have legal := first ▸ trace.legal
+    cases legal
+  · have legal := first ▸ trace.legal
+    cases legal with
+    | acquired remaining => exact remaining
 
 private theorem after_unlock (trace : Trace history) (left right : List Operation) (u a : Event)
     (adjacent : trace.operations = left ++ (.release u :: .acquire a :: right)) :
@@ -98,7 +114,7 @@ private theorem after_unlock (trace : Trace history) (left right : List Operatio
 
 private theorem lock_chain (trace : Trace history) (left middle right : List Operation) (u a : Event)
     (split : trace.operations = left ++ (.release u :: (middle ++ .acquire a :: right)))
-    (valid : Legal none (middle ++ .acquire a :: right)) : HappensBefore history u a := by
+    (valid : Legal history none (middle ++ .acquire a :: right)) : HappensBefore history u a := by
   match middle with
   | [] => exact after_unlock trace left right u a split
   | .acquire entering :: rest =>
@@ -114,7 +130,7 @@ private theorem lock_chain (trace : Trace history) (left middle right : List Ope
             u entering (by simpa only [List.cons_append] using split)
           have later := lock_chain trace (left ++ [.release u, .acquire entering]) remaining right
             leaving a (by simpa only [List.append_assoc, List.cons_append, List.nil_append] using split) tailLegal
-          exact .trans first (.trans (.sequenced inside) later)
+          exact .trans first (.trans inside later)
   | .release _ :: _ => cases valid
 termination_by middle.length
 

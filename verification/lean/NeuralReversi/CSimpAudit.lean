@@ -6,6 +6,9 @@ namespace NeuralReversi.Audit
 open Lean Elab Command
 
 def expectedProjectCSimp : List (Name × Name × Name) := [
+  (`NeuralReversi.Flip.Scalar.shiftCount32,
+   `NeuralReversi.Flip.Scalar.shiftCount32Fast,
+   `NeuralReversi.Flip.Scalar.shiftCount32_exec),
   (`NeuralReversi.Simd.X86.ternaryWord,
    `NeuralReversi.Simd.X86.ternaryWordFast,
    `NeuralReversi.Simd.X86.ternaryWord_exec),

@@ -1,0 +1,131 @@
+open AspirationMir AspirationMir.SerialTable
+
+private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+
+private def playLegal (p : Board.Board) (n : Nat) : Option Board.Board := do
+  if legal : n < 64 then
+    guard ((Board.getMoves mc p).getLsbD n)
+    let sq : Bitboard.Square := ⟨n,legal⟩
+    return Board.place p (Flip.Dispatch.resultValue fc sq p.player p.opponent) sq
+  else none
+
+example : (GAME : List Nat).foldlM playLegal Board.newBoard = some b.val := by decide +kernel
+example : EndgameTreeCache.discValue mc fc b.val = 40 := by decide +kernel
+
+private theorem even : ∀ a, NativeTableWrites.Journal.Even (execution.memory a) := fun a => by
+  change ((slotSample a).atRank .sequence 0).2 &&& 1 = 0
+  simp [SerialMemory.Sample.atRank,slotSample,sample,initial]
+private abbrev Store := CallJournal.Operand calls endian (CallJournal.observed execution even)
+private def save (k expected : Nat) (v : Int) (sq : Bitboard.Square) (lvl : Selectivity) (gen : BitVec 8) : Store :=
+  let a : CallJournal.StoreArgs := ⟨b,⟨BitVec.ofInt 32 v⟩,.exact,1,some sq,lvl,gen,true,true⟩
+  .save k a ⟨BitVec.ofNat 64 expected,0,⟨0,0,0⟩,BitVec.ofNat 64 expected⟩
+    (fun _ nonexact _ _ _ _ => (nonexact rfl).elim)
+private def operands : Nat → Store
+SAVES
+  | _ => .clear
+private def es := instrumented operands label
+private def decode := CallJournal.decode mc fc calls endian (CallJournal.observed execution even) (es.map Joint.Event.engineEvent)
+private def state := decode.get (by decide +kernel)
+private def pvAt : Nat → Nat → List Bitboard.Square
+PVINPUTS
+  | _,_ => []
+private def rootOrder (opened : Nat) : SerialRecursion.RootInput :=
+  ⟨fun _ => 0,fun xs => ⟨xs,.refl _⟩,fun sq => pvAt opened sq.val⟩
+
+private theorem bounded : ∀ i : Fin es.length, Joint.origin es i < SeqLock.modulus := by decide +kernel
+private theorem nowrap : PhysicalCalls.NoWrap (witnessed operands) := by
+  intro _ _ _ _ _ _ _ _ _ _ _
+  suffices small : ∀ i, Joint.origin es i < SeqLock.modulus by
+    change Joint.origin es _ < Joint.origin es _ + SeqLock.modulus
+    exact Nat.lt_of_lt_of_le (small _) (Nat.le_add_left ..)
+  intro i
+  by_cases h : i < es.length
+  · exact bounded ⟨i,h⟩
+  · simp [Joint.origin,List.getElem?_eq_none (Nat.le_of_not_gt h),SeqLock.modulus]
+
+private def raw : PhysicalCalls.Raw mc fc where
+  calls := calls
+  endian := endian
+  records := records
+  memory := execution
+  init := even
+  resident := fun _ => .zero
+  events := es
+  state := state
+  replay := (Option.some_get _).symm
+  recorded := by rfl
+  order := by
+    intro a i j edge
+    change (slotSample a).key i < (slotSample a).key j ∧ j < (slotSample a).limit at edge
+    exact (slotSample a).ordered rfl edge.1 edge.2
+  atomics := witnessed operands
+  nowrap := nowrap
+  pool := ⟨4,64,by decide,Board.Hash.hash false,0,⟨0,0,0⟩,⟨0,0,0⟩⟩
+  checked := true
+  owners := {
+    pv := fun _ => ⟨fun _ => .skip,fun m => m.val,fun _ => (false,false)⟩
+    scout := fun _ => ⟨fun _ => .skip,fun m => m.val,⟨fun _ _ => false,fun _ _ => false⟩⟩
+    pvSplit := fun _ _ _ _ _ => ⟨64,fun _ _ _ => none⟩
+    scoutSplit := fun _ _ _ _ _ _ => none }
+  root := fun f =>
+    let owner := state.choices.find? (fun c => c.stamp == f.chosen)
+    ⟨fun _ => none,false,rootOrder ((owner.map CallJournal.Choice.opening).getD 0),fun _ => (false,false)⟩
+  rootSplits := fun _ _ _ _ => none
+private def feed (e : JournalEntry.Execution mc fc) : JournalRoot.Feed e b :=
+  fun _ owner _ _ => some ⟨fun _ => none,false,rootOrder owner.entered,fun _ => (false,false),rootMinimumSplitDepth,64,by decide,fun _ => none⟩
+private def sorting : PublicationMir.SliceSort where
+  byReverseKey k rows := rows.mergeSort (fun a b => decide (k b ≤ k a))
+  permutation _ _ := List.mergeSort_perm ..
+  ordered k rows := by
+    let cmp := fun (a b : RootMoveStorage.Row) => decide (k b ≤ k a)
+    have trans (a b c) (ab : cmp a b) (bc : cmp b c) : cmp a c := by
+      simp only [cmp,decide_eq_true_eq] at ab bc ⊢
+      omega
+    have total (a b) : cmp a b || cmp b a := by
+      simp only [cmp,Bool.or_eq_true,decide_eq_true_eq]
+      exact Int.le_total _ _
+    exact (List.pairwise_mergeSort trans total rows).imp of_decide_eq_true
+private def result (receiver : Nat) (base : Int) :=
+  raw.run b receiver (fun _ => base) (fun ok => feed (raw.execution ok))
+    true MultiPublic.unlimited 5 false (fun _ => none) sorting NODES (fun _ => .noLegalMove)
+private def report : SearchFallback.Report := ⟨⟨PUBSQUARE,RESULT,[PUBLICPV]⟩,[⟨PUBSQUARE,RESULT,[PUBLICPV]⟩],⟨PUBDEPTH,PUBLEVEL⟩,true,NODES⟩
+
+
+example : (state.frames.length,state.weakChildren.length,state.exactFrames.length) = (14,6,2) := by rfl
+example : raw.covered = true := by decide +kernel
+
+deriving instance DecidableEq for SearchFallback.Report
+deriving instance DecidableEq for PublicationMir.SearchResult
+
+private theorem replayed : result RECEIVER COLD = some (.bestMove report,5) := by decide +kernel
+
+private theorem publicScore : report.best.score = 256 * EndgameTreeCache.discValue mc fc b.val ∧
+    MultiRows.ReportExact mc fc b report := by
+  have ranked (last : Nat) : MultiPublic.unlimited.ordered last := by
+    constructor
+    · intro i _ step
+      exact Nat.le_refl _
+    · intro step
+      simp [MultiPublic.unlimited]
+  have proved := PhysicalCalls.from_checked_frames mc fc raw b RECEIVER (fun _ => COLD)
+    (fun ok => feed (raw.execution ok)) true MultiPublic.unlimited 5 false (fun _ => none)
+    sorting NODES (fun _ => .noLegalMove) report 5 (by decide) (ranked _) replayed rfl rfl
+  exact ⟨proved.1,proved.2 rfl⟩
+
+-- The same complete words read by this physical probe were packed by the registered first-run root.
+example : (calls 1).origin = .store (some CHOSEN) b (Packing.unpack endian SELECTED) ∧
+    snapshot.metadata = SELECTED ∧
+    Joint.seedAt es RECEIVER b = some (FINISH,.hit 0 (Packing.unpack endian SELECTED)) ∧
+    SeedTable.estimate mc fc (fun _ => COLD) b (.hit 0 (Packing.unpack endian SELECTED)) = BASE := by
+  exact ⟨rfl,rfl,rfl,rfl⟩
+
+-- All later root saves selected the same numeric score. The later publications
+-- still cannot be the source of this earlier seed read.
+example : ∀ k : Fin 7, 2 ≤ k → ¬(execution.memory address).hb ((calls k).event 5) (ev 0) := by
+  have future : ∀ k : Fin 7, 2 ≤ k → ev 0 < (calls k).event 5 := by decide +kernel
+  intro k second wrong
+  exact Nat.lt_asymm (future k second) (raw.order _ _ _ wrong)
+
+#print axioms publicScore
+#print axioms publication

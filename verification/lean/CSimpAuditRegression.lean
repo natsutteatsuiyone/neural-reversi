@@ -8,14 +8,16 @@ open Lean Elab Command NeuralReversi.Audit
 #eval show CommandElabM Unit from do
   let env ← getEnv
   let count ← auditProjectCSimp env
-  unless count == 2 do throwError "Repeated valid registration changed the active count"
+  unless count == expectedProjectCSimp.length do throwError "Repeated valid registration changed the active count"
   let state := Lean.Compiler.CSimp.ext.getState env
   let source := `NeuralReversi.Simd.X86.ternaryWord
   let missing := `NeuralReversi.Simd.X86.ternarylogicEpi64
   let some entry := state.map.find? source | throwError "Missing baseline word mapping"
+  let map₁ := expectedProjectCSimp.foldl (fun (active : Std.HashMap Name Lean.Compiler.CSimp.Entry) (key, _, _) =>
+    if key == missing then active else (state.map.find? key).elim active (active.insert key)) {}
   let staged : SMap Name Lean.Compiler.CSimp.Entry := {
     stage₁ := false
-    map₁ := ({} : Std.HashMap Name Lean.Compiler.CSimp.Entry).insert source entry
+    map₁
     map₂ := ({} : PHashMap Name Lean.Compiler.CSimp.Entry).insert source entry }
   let altered := Lean.Compiler.CSimp.ext.modifyState env fun s => { s with map := staged }
   unless (Lean.Compiler.CSimp.ext.getState altered).map.find? missing |>.isNone do

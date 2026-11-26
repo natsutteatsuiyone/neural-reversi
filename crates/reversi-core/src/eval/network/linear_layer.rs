@@ -45,8 +45,9 @@ impl<
 {
     /// Loads weights and biases from binary format.
     ///
-    /// Format: `OUTPUT_DIMS` biases (little-endian `i32`) followed by row-major
-    /// signed weights (`i8`) for each output neuron.
+    /// Reads `OUTPUT_DIMS` little-endian `i32` biases followed by that many
+    /// rows of `PADDED_INPUT_DIMS` signed `i8` weights. The input padding
+    /// in each row is consumed from the stream and discarded.
     ///
     /// `PADDED_INPUT_DIMS` must be a multiple of 4 for correct weight repacking.
     pub fn load<R: Read>(reader: &mut R) -> io::Result<Self> {

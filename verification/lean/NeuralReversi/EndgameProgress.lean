@@ -6,14 +6,86 @@ open SearchPublication (Attempt Stamp Completed Row Snapshot capture finish next
 
 def ladder : List Nat := [1, 2, 3, 4, 5]
 
-def depthAllowed (timed : Bool) (depthFor : Nat → Nat) (empties selectivity : Nat) : Bool :=
-  timed || decide (empties ≤ depthFor selectivity)
+def fixedStepAllowed (cap : Nat) (depthFor : Nat → Nat) (empties selectivity : Nat) : Bool :=
+  decide (selectivity ≤ cap ∧ empties ≤ depthFor selectivity)
+
+def endSelectivity (cap : Nat) (depthFor : Nat → Nat) (empties : Nat) : Option Nat :=
+  (ladder.takeWhile (fixedStepAllowed cap depthFor empties)).getLast?
+
+def capAllows (cap selectivity : Nat) : Bool :=
+  decide (selectivity ≤ cap)
 
 def reached (allowed keep : Nat → Bool) : List Nat → List Nat
   | [] => []
   | level :: rest =>
     if allowed level then level :: (if keep level then reached allowed keep rest else [])
     else []
+
+private theorem takeWhile_last_cutoff (allowed : Nat → Bool) (levels : List Nat)
+    (ordered : levels.Pairwise (· < ·)) :
+    (levels.takeWhile allowed) =
+      levels.takeWhile (fun level => (levels.takeWhile allowed).getLast?.any
+        (fun cap => capAllows cap level)) := by
+  induction levels with
+  | nil => rfl
+  | cons level rest ih =>
+    have sorted := List.pairwise_cons.mp ordered
+    by_cases admitLevel : allowed level = true
+    · rw [List.takeWhile_cons_of_pos admitLevel]
+      cases tail : (rest.takeWhile allowed).getLast? with
+      | none =>
+        have empty : rest.takeWhile allowed = [] := List.getLast?_eq_none_iff.mp tail
+        rw [empty]
+        have admitHead : capAllows level level = true := by simp [capAllows]
+        simp only [List.getLast?_singleton, Option.any_some, List.takeWhile_cons_of_pos admitHead]
+        cases rest with
+        | nil => rfl
+        | cons next after =>
+          have nextGreater : level < next := sorted.1 next (by simp)
+          simp [capAllows, Nat.not_le_of_gt nextGreater]
+      | some last =>
+        have lastInPrefix : last ∈ rest.takeWhile allowed :=
+          List.mem_of_mem_getLast? (by simp [tail])
+        have lastInRest := List.takeWhile_subset allowed lastInPrefix
+        have admitHead : capAllows last level = true := by
+          simp [capAllows, Nat.le_of_lt (sorted.1 last lastInRest)]
+        have tailEq := ih sorted.2
+        simp only [tail, Option.any_some] at tailEq
+        rw [List.getLast?_cons, tail]
+        simp only [Option.getD_some, Option.any_some, List.takeWhile_cons_of_pos admitHead]
+        rw [tailEq]
+    · simp [admitLevel]
+
+private theorem reached_takeWhile (allowed keep : Nat → Bool) (levels : List Nat) :
+    reached allowed keep levels = reached (fun _ => true) keep (levels.takeWhile allowed) := by
+  induction levels with
+  | nil => rfl
+  | cons level rest ih =>
+    by_cases admitted : allowed level = true <;> simp [reached, admitted, ih]
+
+def FixedLadderContract : Prop :=
+  ∀ (cap : Nat) (depthFor : Nat → Nat) (empties : Nat) (keep : Nat → Bool),
+    reached (fixedStepAllowed cap depthFor empties) keep ladder =
+      reached (fun level => (endSelectivity cap depthFor empties).any
+        (fun last => capAllows last level)) keep ladder
+
+theorem fixedLadderContract_proven : FixedLadderContract := by
+  intro cap depthFor empties keep
+  rw [reached_takeWhile (fixedStepAllowed cap depthFor empties),
+    reached_takeWhile (fun level =>
+      (endSelectivity cap depthFor empties).any (fun last => capAllows last level))]
+  exact congrArg (reached (fun _ => true) keep)
+    (takeWhile_last_cutoff (fixedStepAllowed cap depthFor empties) ladder (by decide))
+
+theorem endSelectivity_eq_none_iff (cap : Nat) (depthFor : Nat → Nat) (empties : Nat) :
+    endSelectivity cap depthFor empties = none ↔ cap < 1 ∨ depthFor 1 < empties := by
+  simp [endSelectivity, ladder, List.takeWhile_cons, fixedStepAllowed]
+  omega
+
+theorem endSelectivity_mem_ladder {cap : Nat} {depthFor : Nat → Nat} {empties last : Nat}
+    (chosen : endSelectivity cap depthFor empties = some last) : last ∈ ladder := by
+  apply List.takeWhile_subset (fixedStepAllowed cap depthFor empties)
+  exact List.mem_of_mem_getLast? (by simpa [endSelectivity] using chosen)
 
 abbrev Clock := Nat → Nat
 abbrev Continue := Nat → Nat → Bool
@@ -218,11 +290,11 @@ private theorem runNormal_marks (minimum depth : Nat) (allowed : Nat → Bool) (
     simpa [runNormal, next, index, List.append_assoc] using result
 
 def NormalRunContract : Prop :=
-  ∀ (minimum depth : Nat) (timed : Bool) (depthFor : Nat → Nat) (keep : Continue) (previous : List Clock)
+  ∀ (minimum depth cap : Nat) (keep : Continue) (previous : List Clock)
     (last : Clock) (rows : Nat → Nat → List Row) (finalRows : List Row) (inherited : Completed),
-    (timed = true ∨ depth ≤ depthFor 1) → StableBudget keep →
+    1 ≤ cap → StableBudget keep →
     (∀ earlier ∈ previous, ClockOrder earlier last) →
-    let allowed := depthAllowed timed depthFor depth
+    let allowed := capAllows cap
     let times := previous ++ [last]
     inherited.marks.length = times.length →
     let state := runNormal minimum depth allowed keep rows times 0 (SearchPublication.beginPhase inherited)
@@ -233,11 +305,8 @@ def NormalRunContract : Prop :=
       (final < minimum → finish minimum state (.normal ⟨depth, final⟩ finalRows) = state.last)
 
 theorem normalRunContract_proven : NormalRunContract := by
-  intro minimum depth timed depthFor keep previous last rows finalRows inherited entry budget later allowed times count state
-  have first : allowed 1 = true := by
-    rcases entry with timedSearch | deepEnough
-    · simp [allowed, depthAllowed, timedSearch]
-    · simp [allowed, depthAllowed, deepEnough]
+  intro minimum depth cap keep previous last rows finalRows inherited entry budget later allowed times count state
+  have first : allowed 1 = true := by simp [allowed, capAllows, entry]
   have marks : state.marks = times.map (lineStamp minimum depth allowed keep) := by
     change (runNormal minimum depth allowed keep rows times 0 (SearchPublication.beginPhase inherited)).marks = _
     simpa only [List.nil_append, List.length_nil] using

@@ -193,8 +193,8 @@ mod imp {
         let alloc_size = size.checked_next_multiple_of(page_size)?;
         let mut mem = ptr::null_mut();
 
-        // SAFETY: `mem` is a live out-parameter and the kernel-reported page
-        // size is a power of two and therefore a valid alignment.
+        // SAFETY: `mem` is a live out-parameter. Invalid alignments are
+        // reported by `posix_memalign` as errors.
         if unsafe { libc::posix_memalign(&mut mem, page_size, alloc_size) } != 0 {
             return None;
         }

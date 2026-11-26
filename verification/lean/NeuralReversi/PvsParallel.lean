@@ -1,18 +1,20 @@
+import NeuralReversi.EndgameSearch.Direct
 import NeuralReversi.EndgameSearch.Cancellation
 import NeuralReversi.PvsParallel.Cutoffs
 import NeuralReversi.PvsParallel.Prefix
 import NeuralReversi.Threading.SplitReturn
+import NeuralReversi.Threading.SplitWindow.Stores
 
 namespace NeuralReversi.PvsParallel
 
 open Aspiration (SoundResult Window)
-open PvsMoveLoop (Bound ChildSearch Tree bestValue bestValue_map minimax scoreInf scoreMax)
+open PvsMoveLoop (Bound ChildSearch ScanCalls Tree bestValue bestValue_map minimax scoreInf scoreMax)
 open Threading
 open AtomicWord (Read Write signed32At)
 open Threading.CutoffVisibility (History)
 open Threading.SplitCompletion (Activation Retirement)
 open Threading.SplitResult (Report slots)
-open Threading.SplitWindow (AlphaRead Matches State reSearch selectReport)
+open Threading.SplitWindow (AlphaRead BestStoreWindow State StoreWindow reSearch selectReport)
 open Threading.SplitReturn (Dispatches LocalCutoff ReportSteps checked stateAfter)
 open ScoreRefresh (Score fromDiscDiff toDiscDiff)
 
@@ -23,18 +25,17 @@ private theorem childAt_mem {moves : List Tree} {i : Nat} (inside : i < moves.le
     childAt moves i ∈ moves := by
   simp [childAt, List.getElem?_eq_getElem inside]
 
+theorem childAt_map (child : Move → Tree) (labels : List Move) (fallback : Move) {i : Nat}
+    (inside : i < labels.length) :
+    childAt (labels.map child) i = child (labels[i]?.getD fallback) := by
+  simp [childAt, List.getElem?_map, List.getElem?_eq_getElem inside]
+
 private theorem range_children (moves : List Tree) :
     (List.range moves.length).map (childAt moves) = moves := by
   apply List.ext_getElem
   · simp
   · intro i _ inside
     simp [childAt, List.getElem?_eq_getElem inside]
-
-private theorem bestValue_append (value : Move → Int) (first rest : List Move) (seed : Int) :
-    bestValue value (first ++ rest) seed = bestValue value rest (bestValue value first seed) := by
-  induction first generalizing seed with
-  | nil => rfl
-  | cons move tail ih => exact ih (max seed (value move))
 
 private theorem partition_value (moves : List Tree) (start : Nat) (inside : start ≤ moves.length) :
     let value := fun i => -minimax (childAt moves i)
@@ -45,7 +46,7 @@ private theorem partition_value (moves : List Tree) (start : Nat) (inside : star
     rw [List.range_eq_range', List.range_eq_range', List.range'_eq_append_iff]
     exact ⟨start, inside, rfl, by simp [slots]⟩
   unfold SplitResult.nodeValue
-  rw [← bestValue_append, ← order, ← bestValue_map (fun child => -minimax child) (childAt moves),
+  rw [← SplitResult.bestValue_append, ← order, ← bestValue_map (fun child => -minimax child) (childAt moves),
       range_children]
 
 private theorem ordered_value (head : Tree) (tail moves : List Tree) (order : moves.Perm (head :: tail)) :
@@ -63,7 +64,7 @@ structure ReportReads (history : History) (pv : Bool) (beta : Int) (initial : St
   scout : Int
   wide : Int
   probe : AlphaRead history scoutLoad first last
-  matched : Matches writes first last pv beta initial (earlier.map Report.score)
+  stores : StoreWindow writes first last pv beta initial (earlier.map Report.score)
   reread : reSearch pv (signed32At writes scoutLoad.source) scout = true →
     AlphaRead history wideLoad first last
   selected : report = selectReport pv report.index (signed32At writes scoutLoad.source)
@@ -96,27 +97,112 @@ structure SplitExecution (len : Nat) (pv : Bool) (original beta score : Int) whe
   valid : ∀ r ∈ reports, r.index ∈ slots start.toNat len
   dispatches : Dispatches history wait.read.event activation.actions activation.owner len last
     (issued.map BitVec.toNat) reports check (LocalCutoff pv beta entry reports)
-  read : SplitReturn.Observation.ScoreRead history result lastScore wait.read.event
-  stored : signed32At writes lastScore = (stateAfter pv beta entry reports).best
+  read : SplitReturn.Observation.ScoreRead history wait result lastScore
+  bestStores : BestStoreWindow writes lastScore entry.best (reports.map Report.score)
   accepted : checked check.stopped (signed32At writes result.source) = some score
   reportReads : ∀ earlier report later, reports = earlier ++ report :: later →
     ReportReads history pv beta entry earlier report
+  reportPublications : ∀ earlier report later (same : reports = earlier ++ report :: later),
+    let reads := reportReads earlier report later same
+    { publication : SplitReturn.Observation.ReportPublication activation //
+      report ∈ (dispatches.work publication.worker).reports ∧
+      publication.acquired = reads.probe.acquire ∧
+      ∀ needed, publication.acquired = (reads.reread needed).acquire }
+
+structure SplitExecution.MoveRead (split : SplitExecution len pv alpha beta score)
+    (encode : Option Move → BitVec 8) (moveAt : Nat → Option Move) (seed picked : Option Move) where
+  writes : List Write
+  load : Read writes
+  last : Fin writes.length
+  order : SplitReturn.Observation.ScoreRead split.history split.wait load last
+  afterScore : AtomicWord.SequencedBefore split.result.event load.event
+  stores : SplitWindow.MoveStoreWindow encode moveAt pv beta split.entry seed split.reports picked writes last
+
+theorem SplitExecution.MoveRead.value
+    (read : SplitExecution.MoveRead split encode moveAt seed picked) :
+    (read.writes.get read.load.source).value.setWidth 8 = encode picked := by
+  have source := (SplitReturn.Observation.scoreReadContract_proven split.history read.writes read.load
+    read.last split.wait read.order).1
+  rw [source]
+  exact read.stores.lastValue
+
+def SplitMoveReadContract : Prop :=
+  ∀ (Move : Type) len pv alpha beta score (split : SplitExecution len pv alpha beta score)
+    (encode : Option Move → BitVec 8) (moveAt : Nat → Option Move) (seed picked : Option Move)
+    (read : SplitExecution.MoveRead split encode moveAt seed picked),
+    (read.writes.get read.load.source).value.setWidth 8 = encode picked ∧
+      (picked = seed ∨ ∃ report ∈ split.reports, picked = moveAt report.index)
+
+theorem splitMoveReadContract_proven : SplitMoveReadContract := by
+  intro Move len pv alpha beta score split encode moveAt seed picked read
+  exact ⟨read.value, read.stores.member⟩
 
 abbrev Search := Tree → Bool → Int → Int → Int → Prop
 
-def ChildCalls (completed : Search) (child : Move → Tree) (moves : List Move)
-    (observe : ChildSearch Move) : Prop :=
-  ∀ move ∈ moves, ∀ pv a b, Window a b → (pv = false → b = a + 1) →
-    completed (child move) pv a b (observe move pv a b)
+structure ReportUse where
+  history : History
+  load : AtomicWord.Event
+  next : AtomicWord.Event
+  ownerRead : AtomicWord.Event
+  handoff : CutoffVisibility.HappensBefore history next ownerRead
 
-inductive Execution (completed : Search) : Search
-  | leaf : Execution completed (.leaf score) pv alpha beta score.val
-  | pass : completed child pv (-beta) (-alpha) score →
-      Execution completed (.pass child) pv alpha beta (-score)
+inductive ChildUse where
+  | serial
+  | report (use : ReportUse)
+
+abbrev ChildResults := ChildUse → Search
+
+def SplitExecution.reportUse (split : SplitExecution len pv alpha beta score)
+    (earlier : List Report) (report : Report) (later : List Report)
+    (same : split.reports = earlier ++ report :: later) (wide : Bool) : ChildUse := by
+  let reads := split.reportReads earlier report later same
+  let recorded := split.reportPublications earlier report later same
+  let publication := recorded.val
+  let loaded := if wide then reads.wideLoad.event else reads.scoutLoad.event
+  have visible := publication.beforeOwnerRead split.wait split.read.beforeLoad
+  by_cases retry : wide = false ∧ reSearch pv reads.alpha reads.scout = true
+  · let reread := reads.reread retry.2
+    have beforeLock := reread.beforeAcquire
+    have sameLock : publication.acquired = reread.acquire := recorded.property.2.2 retry.2
+    rw [← sameLock] at beforeLock
+    exact .report ⟨split.history, loaded, reads.wideLoad.event, split.result.event,
+      .trans (.sequenced beforeLock) visible⟩
+  · exact .report ⟨split.history, loaded, publication.acquired, split.result.event, visible⟩
+
+def ReportCalls (completed : ChildResults) (moves : List Tree)
+    (split : SplitExecution moves.length pv alpha beta score) : Prop :=
+  ∀ earlier report later (same : split.reports = earlier ++ report :: later),
+    let reads := split.reportReads earlier report later same
+    let child := childAt moves report.index
+    completed (split.reportUse earlier report later same false) child false (-(reads.alpha + 1)) (-reads.alpha)
+      reads.scout ∧
+      (reSearch pv reads.alpha reads.scout = true →
+        completed (split.reportUse earlier report later same true) child true (-beta) (-reads.fresh) reads.wide)
+
+theorem ReportCalls.weaken (calls : ReportCalls source moves split)
+    (lift : ∀ stage tree pv alpha beta score, source stage tree pv alpha beta score →
+      target stage tree pv alpha beta score) : ReportCalls target moves split := by
+  intro earlier report later same
+  obtain ⟨scout, wide⟩ := calls earlier report later same
+  exact ⟨lift _ _ _ _ _ _ scout, fun retry => lift _ _ _ _ _ _ (wide retry)⟩
+
+abbrev Exit := Bitboard.Moves.X86Config → Flip.Dispatch.X86Config →
+  PvsBoardTree.Position → Bool → Int → Int → Int → Prop
+
+inductive ExecutionWithUses (exit : Exit) (completed : ChildResults) : Search
+  | leaf : ExecutionWithUses exit completed (.leaf score) pv alpha beta score.val
+  | pass : completed .serial child pv (-beta) (-alpha) score →
+      ExecutionWithUses exit completed (.pass child) pv alpha beta (-score)
   | cutoff (mc : Bitboard.Moves.X86Config) (fc : Flip.Dispatch.X86Config)
       (board : PvsBoardTree.Position) :
-      Cutoffs.Execution mc fc board pv alpha beta score →
-      Execution completed (PvsBoardTree.build mc fc board) pv alpha beta score
+      exit mc fc board pv alpha beta score →
+      ExecutionWithUses exit completed (PvsBoardTree.build mc fc board) pv alpha beta score
+  | direct (target : Flip.Dispatch.TargetConfig) (bmi2 : Bool)
+      (mc : Bitboard.Moves.X86Config) (fc : Flip.Dispatch.X86Config) (board : PvsBoardTree.Position)
+      (alpha beta raw : Score) (checked : Bool) :
+      EndgameSearch.Direct.Returned target bmi2 mc fc board alpha checked raw →
+      ExecutionWithUses exit completed (PvsBoardTree.build mc fc board) false
+        alpha.raw.toInt beta.raw.toInt raw.raw.toInt
   | shallow (target : Flip.Dispatch.TargetConfig) (bmi2 : Bool)
       (mc : Bitboard.Moves.X86Config) (fc : Flip.Dispatch.X86Config) (address : EndgameTreeCache.Address)
       (board : PvsBoardTree.Position) (alpha beta raw : Score)
@@ -126,24 +212,77 @@ inductive Execution (completed : Search) : Search
        let result := EndgameSearch.Cancellation.run mc fc opts board (toDiscDiff alpha).raw.toInt state
        fromDiscDiff overflowChecks ⟨BitVec.ofInt 32 (result.score.getD 0)⟩ = .ok raw ∧
          EndgameSearch.Cancellation.publish result aborted raw = some raw) →
-      Execution completed (PvsBoardTree.build mc fc board) false alpha.raw.toInt beta.raw.toInt raw.raw.toInt
-  | sequential (moves : List Tree) (order : moves.Perm (head :: tail))
-      (observe : ChildSearch Tree) :
-      ChildCalls completed id moves observe →
-      Execution completed (.turn head tail) pv alpha beta
+      ExecutionWithUses exit completed (PvsBoardTree.build mc fc board) false
+        alpha.raw.toInt beta.raw.toInt raw.raw.toInt
+  | sequential (moves : List Move) (child : Move → Tree) (order : (moves.map child).Perm (head :: tail))
+      (observe : ChildSearch Move) :
+      ScanCalls (fun move => completed .serial (child move)) observe pv beta moves true alpha (-scoreInf) →
+      ExecutionWithUses exit completed (.turn head tail) pv alpha beta
         (PvsMoveLoop.scan pv observe beta moves true alpha (-scoreInf))
   | split (moves : List Tree) (order : moves.Perm (head :: tail))
       (observe : ChildSearch Nat) (split : SplitExecution moves.length pv alpha beta score) :
       Prefix.run pv observe beta (List.range split.start.toNat) true ⟨alpha, -scoreInf⟩ =
         some split.entry →
-      ChildCalls completed (childAt moves) (List.range split.start.toNat) observe →
-      (∀ earlier report later (same : split.reports = earlier ++ report :: later),
-        let calls := split.reportReads earlier report later same
-        let child := childAt moves report.index
-        completed child false (-(calls.alpha + 1)) (-calls.alpha) calls.scout ∧
-          (reSearch pv calls.alpha calls.scout = true →
-            completed child true (-beta) (-calls.fresh) calls.wide)) →
-      Execution completed (.turn head tail) pv alpha beta score
+      ScanCalls (fun index => completed .serial (childAt moves index)) observe pv beta
+        (List.range split.start.toNat) true alpha (-scoreInf) →
+      ReportCalls completed moves split →
+      ExecutionWithUses exit completed (.turn head tail) pv alpha beta score
+
+abbrev ExecutionWith (exit : Exit) (completed : Search) := ExecutionWithUses exit (fun _ => completed)
+
+abbrev Execution := ExecutionWith Cutoffs.Execution
+
+theorem ExecutionWithUses.ofSerialRun (child : Move → Tree)
+    (order : (q.pending.map child).Perm (head :: tail)) (first : q.idx = 0)
+    (trace : Prefix.Serial.Run (fun move => completed .serial (child move)) observe pv beta q
+      ⟨alpha, -scoreInf⟩ visited remaining (.returned score)) :
+    ExecutionWithUses exit completed (.turn head tail) pv alpha beta score := by
+  obtain ⟨permutation, _, reproduced⟩ := trace.reproduced
+  have scanEvidence : PvsMoveLoop.scan pv observe beta (visited ++ remaining.pending) true alpha (-scoreInf) = score ∧
+      ScanCalls (fun move => completed .serial (child move)) observe pv beta
+        (visited ++ remaining.pending) true alpha (-scoreInf) := by
+    simpa [Prefix.Serial.Reproduced, first] using reproduced
+  rw [← scanEvidence.1]
+  exact .sequential _ child ((permutation.map child).trans order) observe scanEvidence.2
+
+theorem ExecutionWithUses.ofSerialHandoff (child : Move → Tree) (fallback : Move)
+    (order : (q.pending.map child).Perm (head :: tail)) (first : q.idx = 0)
+    (split : SplitExecution ((visited ++ remaining.pending).map child).length pv alpha beta score)
+    (beginAt : split.start.toNat = remaining.idx)
+    (trace : Prefix.Serial.Run (fun move => completed .serial (child move)) observe pv beta q
+      ⟨alpha, -scoreInf⟩ visited remaining (.handoff split.entry))
+    (reports : ReportCalls completed ((visited ++ remaining.pending).map child) split) :
+    ExecutionWithUses exit completed (.turn head tail) pv alpha beta score := by
+  let labels := visited ++ remaining.pending
+  let atIndex := fun i : Nat => labels[i]?.getD fallback
+  have indexed := trace.handoffOrdered (target := fun i => completed .serial (childAt (labels.map child) i))
+    first labels fallback rfl (by
+      intro i inside p a b s used
+      rwa [childAt_map child labels fallback inside])
+  rw [← beginAt] at indexed
+  exact .split _ ((trace.reproduced.1.map child).trans order) (fun i => observe (atIndex i)) split
+    indexed.1 indexed.2 reports
+
+def SerialExecutionContract : Prop :=
+  ∀ (Move : Type) (exit : Exit) (completed : ChildResults) (child : Move → Tree)
+    (head : Tree) (tail : List Tree) (observe : ChildSearch Move) (pv : Bool) (alpha beta score : Int)
+    (q remaining : PvsPostpone.Queue Move) (visited : List Move),
+    (q.pending.map child).Perm (head :: tail) → q.idx = 0 →
+    (Prefix.Serial.Run (fun move => completed .serial (child move)) observe pv beta q
+      ⟨alpha, -scoreInf⟩ visited remaining (.returned score) →
+      ExecutionWithUses exit completed (.turn head tail) pv alpha beta score) ∧
+    (∀ split : SplitExecution ((visited ++ remaining.pending).map child).length pv alpha beta score,
+      split.start.toNat = remaining.idx →
+      Prefix.Serial.Run (fun move => completed .serial (child move)) observe pv beta q
+        ⟨alpha, -scoreInf⟩ visited remaining (.handoff split.entry) →
+      ReportCalls completed ((visited ++ remaining.pending).map child) split →
+      ExecutionWithUses exit completed (.turn head tail) pv alpha beta score)
+
+theorem serialExecutionContract_proven : SerialExecutionContract := by
+  intro Move exit completed child head tail observe pv alpha beta score q remaining visited order first
+  obtain ⟨fallback, _, _⟩ := List.mem_map.mp (order.mem_iff.mpr (by simp : head ∈ head :: tail))
+  exact ⟨ExecutionWithUses.ofSerialRun child order first,
+    fun split => ExecutionWithUses.ofSerialHandoff child fallback order first split⟩
 
 def Follows (completed : Search) : Prop :=
   ∀ tree pv alpha beta score, completed tree pv alpha beta score →
@@ -191,9 +330,11 @@ theorem split_bounds (split : SplitExecution moves.length pv alpha beta score)
     intro earlier report later same
     let read := split.reportReads earlier report later same
     obtain ⟨scout, wide⟩ := calls earlier report later same
+    have storedAlpha := SplitWindow.storeContract_proven read.writes read.first read.last pv alpha beta
+      split.entry (earlier.map Report.score) read.stores window cap
     have matched := SplitWindow.publishedReportContract_proven split.history read.writes
       read.scoutLoad read.wideLoad read.first read.last pv alpha beta split.entry (earlier.map Report.score)
-      value report.index read.scout read.wide read.probe read.reread read.matched window cap null
+      value report.index read.scout read.wide read.probe read.reread storedAlpha window cap null
       (by simpa only [value, Int.neg_neg, ReportReads.alpha] using scout)
       (by simpa only [value, Int.neg_neg, ReportReads.alpha, ReportReads.fresh] using wide)
     rw [← read.selected] at matched
@@ -204,7 +345,7 @@ theorem split_bounds (split : SplitExecution moves.length pv alpha beta score)
     split.width moves.length split.start split.last split.issued pv split.check alpha beta prefixValue
     split.entry value split.reports split.writes split.result split.lastScore score split.capacity split.claims
     window cap null seed prefixCap (fun i _ => valueCap i) steps split.valid split.dispatches split.read
-    split.stored split.accepted
+    split.bestStores split.accepted
   rw [partition_value moves split.start.toNat split.startValid] at result
   exact ⟨result, steps⟩
 
@@ -228,6 +369,8 @@ private theorem execution_sound (completed : Search) (tree : Tree) (pv : Bool) (
   | cutoff mc fc board exit =>
     exact bound_sound (PvsBoardTree.build mc fc board) window
       (Cutoffs.contract_proven mc fc board pv alpha beta score null exit)
+  | direct _ _ mc fc board _ beta _ _ call =>
+    exact bound_sound (PvsBoardTree.build mc fc board) window (call.bound beta (null rfl))
   | shallow target bmi2 mc fc address board alpha beta raw state overflowChecks aborted aligned cache accepted =>
     obtain ⟨_, _, _, score, converted, _, valid⟩ :=
       EndgameSearch.Cancellation.boundaryContract_proven target bmi2 mc fc address board alpha beta state
@@ -235,35 +378,39 @@ private theorem execution_sound (completed : Search) (tree : Tree) (pv : Bool) (
     have same := Except.ok.inj (accepted.1.symm.trans converted)
     cases same
     exact valid accepted.2
-  | sequential moves order observe calls =>
+  | sequential moves child order observe calls =>
     rename_i head tail
-    rw [← ordered_value head tail moves order]
-    apply PvsMoveLoop.contract_proven Tree pv observe (fun t => -minimax t) moves alpha beta
+    have value := bestValue_map (fun tree => -minimax tree) child moves (-scoreInf)
+    rw [ordered_value head tail _ order] at value
+    rw [value]
+    apply PvsMoveLoop.selectedContract_proven _ pv observe (fun m => -minimax (child m))
+      (fun m => completed (child m)) moves alpha beta
     · intro empty
       have len := order.length_eq
       simp [empty] at len
     · exact window
     · exact null
-    · intro child _
-      have := (PvsMoveLoop.minimax_range child).1
+    · intro m _
+      have := (PvsMoveLoop.minimax_range (child m)).1
       omega
-    · intro child member cp a b w narrow
+    · exact calls
+    · intro m member cp a b s w narrow returned
       simpa only [Int.neg_neg] using
-        children child (Tree.earlier ⟨child, order.mem_iff.mp member⟩) cp a b _ w narrow
-          (calls child member cp a b w narrow)
+        children (child m) (Tree.earlier ⟨_, order.mem_iff.mp (List.mem_map_of_mem member)⟩)
+          cp a b s w narrow returned
   | split moves order observe split continued prefixCalls reportCalls =>
     rename_i head tail
     let value := fun i => -minimax (childAt moves i)
     have smaller (i : Nat) (inside : i < moves.length) :
         sizeOf (childAt moves i) < sizeOf (Tree.turn head tail) :=
       Tree.earlier ⟨_, order.mem_iff.mp (childAt_mem inside)⟩
-    have headSound := Prefix.contract_proven Nat pv observe value (List.range split.start.toNat) alpha beta
-      split.entry window null continued
+    have headSound := Prefix.selectedContract_proven Nat pv observe value (List.range split.start.toNat)
+      (fun index => completed (childAt moves index)) alpha beta split.entry window null continued
       (fun index _ => by have := (PvsMoveLoop.minimax_range (childAt moves index)).1; dsimp only [value]; omega)
-      (fun index member cp a b w narrow => by
+      prefixCalls (fun index member cp a b s w narrow returned => by
         have inside := Nat.lt_of_lt_of_le (List.mem_range.mp member) split.startValid
         simpa only [value, Int.neg_neg] using
-          children _ (smaller index inside) cp a b _ w narrow (prefixCalls index member cp a b w narrow))
+          children _ (smaller index inside) cp a b s w narrow returned)
     have bound := (split_bounds split headSound.1 headSound.2.1 headSound.2.2.1 headSound.2.2.2 (by
       intro earlier report later same
       obtain ⟨scout, wide⟩ := reportCalls earlier report later same
@@ -336,6 +483,7 @@ theorem sequential_follows :
     change Execution _ _ _ _ _ (PvsMoveLoop.scan pv (fun child => PvsMoveLoop.run child.val) beta
       (head :: tail).attach true alpha (-scoreInf))
     rw [scan_map Subtype.val, List.attach_map_subtype_val]
-    exact .sequential (head :: tail) (List.Perm.refl _) PvsMoveLoop.run (fun _ _ _ _ _ _ _ => rfl)
+    exact .sequential (head :: tail) id (by simp) PvsMoveLoop.run
+      (ScanCalls.ofAll (by intros; rfl))
 
 end NeuralReversi.PvsParallel

@@ -1,0 +1,97 @@
+import NeuralReversi.PvsParallel.SplitSchedulerMir.Syntax
+
+namespace NeuralReversi.PvsParallel.SplitSchedulerMir
+
+def ownerPhases : List Phase := [.init, .idle, .finalize, .best, .picked, .returned]
+def initPhases : List Phase := [.clear, .mark, .seed, .seedMove, .seedAlpha, .assign]
+def workerPhases : List Phase := [.dispatch, .release]
+def dispatchModes : List Mode := [.NonPV, .PV, .Root]
+
+def idle : Fin 80 → Op 80 := fun pc => #[
+  .any [1],
+  .any [2],
+  .any [3],
+  .any [4],
+  .any [5],
+  .any [6],
+  .any [7],
+  .shutdown 9 8,
+  .any [78],
+  .any [10, 18],
+  .any [11],
+  .any [12],
+  .any [13],
+  .any [14],
+  .any [15],
+  .mask 17 16,
+  .any [78],
+  .any [18],
+  .any [19],
+  .any [20],
+  .any [21],
+  .any [22],
+  .any [23],
+  .any [40, 24],
+  .any [25],
+  .any [26],
+  .any [27],
+  .any [28],
+  .any [29],
+  .any [30],
+  .any [33, 32, 31],
+  .any [],
+  .any [34],
+  .any [37],
+  .any [35],
+  .any [36],
+  .any [38],
+  .any [38],
+  .any [39],
+  .any [19],
+  .any [41],
+  .any [42],
+  .any [43],
+  .any [45, 44],
+  .any [76],
+  .any [50, 46],
+  .any [47],
+  .any [49, 48],
+  .any [51],
+  .any [],
+  .any [51],
+  .any [52],
+  .any [53],
+  .any [54],
+  .any [55],
+  .any [56],
+  .any [57],
+  .any [58],
+  .any [59],
+  .any [60],
+  .shutdown 62 61,
+  .any [74],
+  .any [63],
+  .any [64],
+  .any [65],
+  .any [67, 66],
+  .any [74],
+  .any [68],
+  .any [69],
+  .any [70],
+  .any [71],
+  .any [73],
+  .any [],
+  .any [57],
+  .any [75],
+  .any [77],
+  .any [77],
+  .any [4],
+  .any [79],
+  .done
+][pc.val]!
+
+def awaiting (pc : Fin 80) : Bool := #[
+  true, true, true, true, true, true, true, true, false, true, true, true, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, true, true, true, true, true, false, true, true, true, true, true, false, false
+][pc.val]!
+
+end NeuralReversi.PvsParallel.SplitSchedulerMir

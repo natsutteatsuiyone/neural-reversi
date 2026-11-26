@@ -181,6 +181,26 @@ theorem produced_enumSafe {e : EntryData} (produced : Produced e) : EnumSafe e :
   | @keepMoveOf e other _ _ ih ihOther => exact withBestMoveOf_enumSafe e other ih ihOther
   | @penalize e _ _ ih => exact penalized_enumSafe e ih
 
+def RepresentationContract : Prop :=
+  (∀ bigEndian raw, pack bigEndian (unpack bigEndian raw) = raw ∧
+    LayoutAt bigEndian raw (unpack bigEndian raw)) ∧
+  (∀ bigEndian entry, unpack bigEndian (pack bigEndian entry) = entry ∧
+    LayoutAt bigEndian (pack bigEndian entry) entry)
+
+theorem representationContract_proven : RepresentationContract :=
+  ⟨fun endian raw => ⟨pack_unpack endian raw, unpack_layout endian raw⟩,
+    fun endian entry => ⟨unpack_pack endian entry, pack_layout endian entry⟩⟩
+
+def DiscriminantContract : Prop :=
+  (∀ move, decodeBestMove (encodeBestMove move) = move) ∧
+  (∀ bigEndian entry, Produced entry → EnumSafe (unpack bigEndian (pack bigEndian entry)))
+
+theorem discriminantContract_proven : DiscriminantContract := by
+  refine ⟨decodeBestMove_encodeBestMove, ?_⟩
+  intro endian entry produced
+  rw [unpack_pack]
+  exact produced_enumSafe produced
+
 theorem withBestMove_canCut (e : EntryData) (move : Option (Fin 64)) (checked : Bool)
     (beta : Score) (depth : Depth) (selectivity : Selectivity) (requireEndgame : Bool) :
     canCut checked (withBestMove e move) beta depth selectivity requireEndgame =

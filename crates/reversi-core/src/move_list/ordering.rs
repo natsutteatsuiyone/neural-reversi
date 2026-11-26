@@ -144,10 +144,9 @@ impl MoveList {
         }
 
         // Depth-0 shallow scoring probes the eval cache for `next` itself
-        // (deeper sort searches evaluate grandchildren instead). Callers only
-        // reach this path with `depth >= crate::search::LMR_MIN_DEPTH` in
-        // midgame (or `ENDGAME_MIN_SORT_DEPTH` in endgame), so `next` can never
-        // be a terminal position.
+        // (deeper sort searches evaluate grandchildren instead). The PVS
+        // caller orders moves only with at least two remaining candidates,
+        // so the child ply still has an entry in the main network.
         let use_cached_child_eval =
             sort_depth == 0 && Eval::should_use_main_network(ctx.eval_mode, ctx.ply() + 1);
 

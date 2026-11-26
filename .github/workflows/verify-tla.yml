@@ -1,30 +1,51 @@
 name: Verify TLA+ models
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
     paths:
       - verification/tla/**
       - .github/workflows/verify-tla.yml
+      - crates/reversi-core/src/search.rs
       - crates/reversi-core/src/search/threading/thread.rs
       - crates/reversi-core/src/search/threading/split_point.rs
       - crates/reversi-core/src/search/threading/pool.rs
+      - crates/reversi-core/src/search/threading/abort.rs
+      - crates/reversi-core/src/search/threading/in_flight.rs
+      - crates/reversi-core/src/search/stop.rs
       - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/search/midgame.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp.rs
+      - crates/reversi-core/src/search/time_control.rs
+      - crates/reversi-core/src/transposition_table.rs
       - crates/reversi-core/src/util/bitset.rs
       - crates/reversi-core/src/util/spinlock.rs
+      - crates/reversi-core/src/move_list.rs
       - crates/reversi-core/src/move_list/iterator.rs
+      - crates/reversi-core/src/move_list/move_array.rs
   pull_request:
     branches: [ main ]
     paths:
       - verification/tla/**
       - .github/workflows/verify-tla.yml
+      - crates/reversi-core/src/search.rs
       - crates/reversi-core/src/search/threading/thread.rs
       - crates/reversi-core/src/search/threading/split_point.rs
       - crates/reversi-core/src/search/threading/pool.rs
+      - crates/reversi-core/src/search/threading/abort.rs
+      - crates/reversi-core/src/search/threading/in_flight.rs
+      - crates/reversi-core/src/search/stop.rs
       - crates/reversi-core/src/search/pvs.rs
+      - crates/reversi-core/src/search/midgame.rs
+      - crates/reversi-core/src/search/midgame/lazy_smp.rs
+      - crates/reversi-core/src/search/time_control.rs
+      - crates/reversi-core/src/transposition_table.rs
       - crates/reversi-core/src/util/bitset.rs
       - crates/reversi-core/src/util/spinlock.rs
+      - crates/reversi-core/src/move_list.rs
       - crates/reversi-core/src/move_list/iterator.rs
+      - crates/reversi-core/src/move_list/move_array.rs
 
 permissions:
   contents: read
@@ -34,7 +55,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  split-point:
+  verify-tla:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -48,8 +69,8 @@ jobs:
         java -version
         python3 --version
 
-    - name: Check the model
-      run: python3 verification/tla/split-point/check.py
+    - name: Check all TLA+ models
+      run: python3 verification/tla/check.py
 
     - name: Check that every mutant is caught
-      run: python3 verification/tla/split-point/check.py --mutants
+      run: python3 verification/tla/check.py --mutants

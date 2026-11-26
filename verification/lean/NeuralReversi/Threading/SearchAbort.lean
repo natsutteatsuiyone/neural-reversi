@@ -17,7 +17,7 @@ private def highMask : BitVec 64 := BitVec.allOnes 32 ++ (0 : BitVec 32)
 private def lowMask : BitVec 64 := (0 : BitVec 32) ++ BitVec.allOnes 32
 
 def begin (word : BitVec 64) : BitVec 64 :=
-  word + ((1 : BitVec 32) ++ (0 : BitVec 32))
+  (generation word + 1) ++ generation word
 
 def request (word : BitVec 64) : BitVec 64 :=
   (word &&& highMask) ||| (word >>> (32 : Nat))
@@ -39,19 +39,6 @@ private theorem high_word (word : BitVec 64) :
     word >>> (32 : Nat) = (0 : BitVec 32) ++ generation word := by
   rw [BitVec.ushiftRight_eq_extractLsb'_of_lt (by decide)]
   rfl
-
-private theorem packed_begin (epoch marker : BitVec 32) :
-    begin (epoch ++ marker) = (epoch + 1) ++ marker := by
-  apply BitVec.eq_of_toNat_eq
-  unfold begin
-  rw [BitVec.toNat_add, BitVec.toNat_append_eq_mul_add epoch marker,
-    BitVec.toNat_append_eq_mul_add (1 : BitVec 32) (0 : BitVec 32),
-    BitVec.toNat_append_eq_mul_add (epoch + 1) marker, BitVec.toNat_add]
-  have epochBound : epoch.toNat < 4294967296 := epoch.isLt
-  have markerBound : marker.toNat < 4294967296 := marker.isLt
-  change (epoch.toNat * 4294967296 + marker.toNat + 4294967296) % 18446744073709551616 =
-    ((epoch.toNat + 1) % 4294967296) * 4294967296 + marker.toNat
-  omega
 
 private theorem packed_high_mask (epoch marker : BitVec 32) :
     (epoch ++ marker) &&& highMask = epoch ++ (0 : BitVec 32) := by
@@ -94,48 +81,28 @@ theorem request_stops (word : BitVec 64) : Stopped (request word) := by
 
 def GenerationWordContract : Prop :=
   ∀ word : BitVec 64,
-    generation (begin word) = generation word + 1 ∧ requested (begin word) = requested word ∧
+    generation (begin word) = generation word + 1 ∧ requested (begin word) = generation word ∧
     generation (request word) = generation word ∧ Stopped (request word) ∧
     (∀ target, if generation word = target then requestFor word target = some (request word)
       else requestFor word target = none) ∧
-    (Stopped (begin word) ↔ generation word + 1 = requested word) ∧
-    (Stopped word → ¬ Stopped (begin word))
+    ¬ Stopped (begin word)
 
 theorem generationWordContract_proven : GenerationWordContract := by
   intro word
-  have starts : begin word = (generation word + 1) ++ requested word := calc
-    begin word = begin (generation word ++ requested word) := congrArg begin (halves word).symm
-    _ = _ := packed_begin (generation word) (requested word)
   have stops : request word = generation word ++ generation word := calc
     request word = request (generation word ++ requested word) := congrArg request (halves word).symm
     _ = _ := packed_request (generation word) (requested word)
-  have newGeneration : generation (begin word) = generation word + 1 := by
-    rw [starts]
-    exact BitVec.extractLsb'_append_eq_left
-  have marker : requested (begin word) = requested word := by
-    rw [starts]
-    exact BitVec.extractLsb'_append_eq_right
-  have stoppedNext : Stopped (begin word) ↔ generation word + 1 = requested word := by
-    rw [stopped_iff, newGeneration, marker]
-  refine ⟨newGeneration, marker, ?_, request_stops word, ?_, stoppedNext, ?_⟩
+  refine ⟨BitVec.extractLsb'_append_eq_left, BitVec.extractLsb'_append_eq_right, ?_,
+    request_stops word, ?_, ?_⟩
   · rw [stops]
     exact BitVec.extractLsb'_append_eq_left
   · intro target
     by_cases same : generation word = target
     · simp [requestFor, request, high_word, ← same]
     · simp [requestFor, same]
-  · intro previous current
-    have same := (stopped_iff word).1 previous
-    have again := (stoppedNext.1 current).trans same.symm
-    exact (by decide : (1 : BitVec 32) ≠ 0) (BitVec.add_right_eq_self.mp again)
-
-example : ¬ Stopped (BitVec.allOnes 32 ++ 0#32) ∧ Stopped (begin (BitVec.allOnes 32 ++ 0#32)) := by
-  rw [packed_begin, packed_stopped, packed_stopped]
-  constructor
-  · intro same
-    exact (by decide : 32 ≠ 0) (BitVec.zero_eq_allOnes_iff.mp same.symm)
-  · rw [← BitVec.neg_one_eq_allOnes]
-    simp
+  · rw [begin, packed_stopped]
+    intro same
+    exact (by decide : (1 : BitVec 32) ≠ 0) (BitVec.add_right_eq_self.mp same)
 
 structure FailedSplitCheck (history : History) {writes : List Write} (read : Read writes)
     (panicAbort : Fin writes.length) (last : Nat) : Prop where

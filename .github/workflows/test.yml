@@ -36,6 +36,11 @@ jobs:
     - name: Run tests
       run: cargo test --workspace --locked
 
+    # Windows covers x86_64 and the Windows-only paths; the ARM runner covers aarch64.
+    - name: Check the endgame MIR against its Lean proof inputs
+      if: runner.os == 'Windows' || runner.arch == 'ARM64'
+      run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} verification/lean/scripts/check_endgame_mir.py
+
   rust-test-x86-simd:
     runs-on: ubuntu-latest
 

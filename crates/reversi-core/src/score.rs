@@ -160,7 +160,7 @@ impl Score {
         DiscScore(self.0 >> Self::SCALE_BITS)
     }
 
-    /// Converts to a floating-point disc difference with full precision.
+    /// Converts to a floating-point disc difference, including fractional disc values.
     #[inline(always)]
     pub fn to_disc_diff_f32(self) -> f32 {
         (self.0 as f32) / (Self::SCALE as f32)

@@ -157,6 +157,19 @@ theorem retained_prefix_initialized (values : Nat → α) (keep : Nat → Bool) 
   have exactSlot := spec.2.1 i bound
   simpa only [Nat.zero_add, List.getElem?_eq_getElem bound] using exactSlot
 
+def RetainContract : Prop :=
+  ∀ (α : Type) (values : Nat → α) (keep : Nat → Bool) (n : Nat) (mem : Memory α),
+    Readable mem values 0 n → n ≤ 35 →
+    let out := compact keep n 0 0 mem
+    SafeTrace values keep n 0 0 mem ∧
+    out.len = (selected values keep n 0).length ∧ out.len ≤ n ∧ out.len ≤ 35 ∧
+    (∀ i, i < out.len → out.memory i = (selected values keep n 0)[i]?) ∧
+    (∀ i, n ≤ i → out.memory i = mem i)
+
+theorem retainContract_proven : RetainContract := by
+  intro α values keep n mem init capacity
+  exact retain_contract values keep n mem init capacity
+
 example : (compact (fun i => decide (i ≠ 0)) 3 0 0 (fun i => some (10 + i))).len = 2 := rfl
 example : (compact (fun i => decide (i ≠ 0)) 3 0 0 (fun i => some (10 + i))).memory 0 = some 11 := rfl
 example : (compact (fun i => decide (i ≠ 0)) 3 0 0 (fun i => some (10 + i))).memory 1 = some 12 := rfl

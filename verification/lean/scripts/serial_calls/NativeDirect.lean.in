@@ -1,0 +1,121 @@
+import NeuralReversi.PvsParallel.Interleaving.JournalCoverageFixture
+import NeuralReversi.PvsParallel.Interleaving.WriterStamps
+import NeuralReversi.PvsParallel.Interleaving.GraphInstructions
+import NeuralReversi.PvsParallel.Interleaving.ColdGraph
+
+namespace NeuralReversi.PvsParallel.Interleaving.NativeDirect
+
+open TranspositionTable
+open AspirationMir.SerialTable
+open NativeTableWrites.Journal (Record)
+open JournalCoverageFixture (board)
+
+set_option maxRecDepth 16384
+set_option maxHeartbeats 16000000
+
+private def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+private def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+private def word (v : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 v⟩
+private def enter (step : Nat) (n : EndgameSearch.CacheOwner.Node) : Joint.Event Op :=
+  .engine (.localCall 0 (.entry step 0 n .none none) none)
+private def exit (step opening : Nat) (n : EndgameSearch.CacheOwner.Node) (v : Option ScoreRefresh.Score) :
+    Joint.Event Op := .engine (.localCall 0 (.leave step opening n none v) none)
+private def trial (step depth : Nat) (level : Selectivity) (idx : Nat) (alpha beta : Int) (cut : Bool)
+    (rows : List RootMoveStorage.Row) : Joint.Event Op :=
+  .rootEnter 0 step 0 .none ⟨board.val,BitVec.ofNat 32 depth,word alpha,word beta,true,level,true,cut,some idx⟩ rows
+private def tape : Joint.Tape Op := EVENTS
+private def frames := (tape (Op := Unit)).filterMap (fun ev => match ev.engineEvent with
+  | .localCall w event _ => some (w,event)
+  | _ => none)
+private def records := frames.map (fun (w,e) => Record.localCall w e)
+private def physical := (tape (Op := Unit)).map PhysicalReadback.rawEvent
+private def writerArgs (_ : Nat) : WriterStamps.Operands := ⟨⟨0,0⟩,⟨0,rfl⟩,.clear,false⟩
+private def calls := WriterStamps.restamp writerArgs physical
+private def untyped := WriterStamps.run mc fc writerArgs false physical
+private def recordedState := untyped.get (by decide)
+private theorem noWriter (s : NativeTableWrites.Journal.Site) : .writer s ∉ recordedState.records := by
+  change .writer s ∉ records
+  simp [records]
+private theorem wordZero (r : Nat) : Joint.word physical r = 0 := by
+  rcases r with INDICES <;> rfl
+
+private def snapshot : PhysicalReadback.Prefix mc fc :=
+  WriterStamps.physical mc fc writerArgs false physical (ColdGraph.graph physical) (s := recordedState)
+    (Eq.symm (Option.some_get _)) (ColdGraph.rules calls false recordedState.records physical noWriter
+      (fun r _ _ _ _ => wordZero r))
+
+example : GraphInstructions.check snapshot.graph snapshot.calls snapshot.endian snapshot.state.records
+    snapshot.events = true := by decide +kernel
+
+private theorem init (a : FrameTableReads.Address) : NativeTableWrites.Journal.Even (snapshot.memory.memory a) := by
+  change (0 : BitVec 64) &&& 1 = 0
+  decide
+private theorem resident (a : FrameTableReads.Address) :
+    Entry.Resident mc fc false ((snapshot.memory.slot a (init a)).payloadAt 0) := .zero
+private abbrev Op := CallJournal.Operand calls false (CallJournal.observed snapshot.memory init)
+private abbrev captured := tape (Op := Op)
+private theorem aligned : captured.map PhysicalReadback.rawEvent = snapshot.events := rfl
+private def actual := snapshot.attach captured
+-- Compare the observed slot address with the native probe's allocation and board hash.
+-- The raw trace's dummy source label survives only in the input to attachment.
+private def seedLoads : Option (List (Bool × Nat × Option Nat × Nat)) := do
+  let .enter _ args ← (physical[2]? : Option (Joint.Event Unit)) | none
+  let slot := FrameTableReads.slotAt args.allocation args.clusters (Board.Hash.hash false board.val) 0
+  return captured.zipIdx.filterMap fun (e,r) => do
+    let some (.load a _ _) := e.op | none
+    return (decide (a = slot),Joint.origin captured r,snapshot.graph.source a r,Joint.origin actual r)
+
+example : seedLoads = some [(true,99,some physical.length,0),(true,99,some (physical.length+3),0),
+    (true,99,some physical.length,0)] := by rfl
+
+private def decode := CallJournal.decode mc fc calls false (CallJournal.observed snapshot.memory init)
+  (captured.map Joint.Event.engineEvent)
+private def state := decode.get (by decide)
+private def pvAt : Nat → Nat → List Bitboard.Square
+PVINPUTS
+  | _, _ => []
+private def order (opened : Nat) : SerialRecursion.RootInput :=
+  ⟨fun _ => 0,fun xs => ⟨xs,.refl _⟩,fun sq => pvAt opened sq.val⟩
+private def raw : PhysicalCalls.Raw mc fc :=
+  snapshot.toRaw init resident captured aligned state (Eq.symm (Option.some_get _))
+    (fun _ _ h => h.2.2.1) (snapshot.noWrap_of_length captured aligned (by decide))
+    ⟨4,64,by decide,Board.Hash.hash false,0,⟨0,0,0⟩,⟨0,0,0⟩⟩ true {
+      pv := fun _ => ⟨fun _ => .skip,fun m => m.val,fun _ => (false,false)⟩
+      scout := fun _ => ⟨fun _ => .skip,fun m => m.val,⟨fun _ _ => false,fun _ _ => false⟩⟩
+      pvSplit := fun _ _ _ _ _ => ⟨64,fun _ _ _ => none⟩
+      scoutSplit := fun _ _ _ _ _ _ => none }
+    (fun _ => ⟨fun _ => none,false,order 0,fun _ => (false,false)⟩) (fun _ _ _ _ => none)
+private def feed (e : JournalEntry.Execution mc fc) : JournalRoot.Feed e board :=
+  fun _ owner _ _ => some ⟨fun _ => none,false,order owner.entered,fun _ => (false,false),rootMinimumSplitDepth,64,by decide,fun _ => none⟩
+private def sorting : PublicationMir.SliceSort where
+  byReverseKey k rows := rows.mergeSort (fun a b => decide (k b ≤ k a))
+  permutation _ _ := List.mergeSort_perm ..
+  ordered k rows := by
+    let cmp := fun (a b : RootMoveStorage.Row) => decide (k b ≤ k a)
+    have trans (a b c) (ab : cmp a b) (bc : cmp b c) : cmp a c := by
+      simp only [cmp,decide_eq_true_eq] at ab bc ⊢
+      omega
+    have total (a b) : cmp a b || cmp b a := by
+      simp only [cmp,Bool.or_eq_true,decide_eq_true_eq]
+      exact Int.le_total _ _
+    exact (List.pairwise_mergeSort trans total rows).imp of_decide_eq_true
+private def result (receiver : Nat) (base : Int) :=
+  raw.run board receiver (fun _ => base) (fun ok => feed (raw.execution ok))
+    true MultiPublic.unlimited 5 false (fun _ => none) sorting NODES (fun _ => .noLegalMove)
+private def report : SearchFallback.Report := ⟨BEST,[ALTERNATIVE],⟨DEPTH,LEVEL⟩,true,NODES⟩
+
+example : (state.frames.length,state.weakChildren.length,state.exactFrames.length) = (TRIALS,0,1) := by rfl
+example : raw.covered = !BAD := by decide +kernel
+
+deriving instance DecidableEq for SearchFallback.Report
+deriving instance DecidableEq for PublicationMir.SearchResult
+
+private theorem replayed : result RECEIVER (BASE) =
+    (if BAD then none else some (.bestMove report,TRIALS)) := by decide +kernel
+
+CONSEQUENCE
+
+#guard (result (RECEIVER+1) (BASE)).isNone
+#guard (result RECEIVER (BASE+1)).isNone
+
+end NeuralReversi.PvsParallel.Interleaving.NativeDirect

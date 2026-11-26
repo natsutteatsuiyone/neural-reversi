@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 
-use crate::SplitMix64;
+use flip_scalar_difftest::SplitMix64;
+
 use crate::activations::{screlu, screlu_store_order, sqr_clipped_and_clipped_relu_16};
 use crate::align::Align64;
 
@@ -75,9 +76,9 @@ fn make_input<const SIZE: usize>(case: usize, rng: &mut SplitMix64) -> Align64<[
         } else if case == EDGES.len() {
             7680 + 68 * i as i32
         } else if case.is_multiple_of(2) {
-            (rng.next() % 50_000) as i32 - 25_000
+            (rng.next_u64() % 50_000) as i32 - 25_000
         } else {
-            rng.next() as i32
+            rng.next_u64() as i32
         }
     }))
 }

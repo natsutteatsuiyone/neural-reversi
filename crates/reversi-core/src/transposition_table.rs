@@ -372,9 +372,7 @@ impl TTEntry {
         let data = TTEntryData::from_u64(raw);
 
         if data.bound == Bound::None as u8 {
-            // Empty entries are physically all-zero. A real board never has
-            // (player, opponent) == (0, 0), so callers can check occupancy
-            // before board equality without creating a false hit.
+            // Callers use only the sequence and occupancy of unused slots.
             fence(Ordering::Acquire);
             let seq2 = self.seq.load(Ordering::Relaxed);
             if seq1 != seq2 {
@@ -403,8 +401,7 @@ impl TTEntry {
     /// Board mismatches are returned immediately without SeqLock validation.
     /// This can lose a race with a concurrent writer and report a false miss,
     /// which is safe for a read-only TT lookup. Candidate hits are still
-    /// SeqLock-validated before returning metadata, so this never creates a
-    /// false hit.
+    /// SeqLock-validated before returning metadata from an occupied slot.
     #[inline(always)]
     fn read_for_lookup(&self, board_player: u64, board_opponent: u64) -> Option<TTEntryData> {
         let seq1 = self.seq.load(Ordering::Acquire);
@@ -422,7 +419,8 @@ impl TTEntry {
         fence(Ordering::Acquire);
         let seq2 = self.seq.load(Ordering::Relaxed);
         if seq1 == seq2 {
-            return Some(TTEntryData::from_u64(raw));
+            let data = TTEntryData::from_u64(raw);
+            return data.is_occupied().then_some(data);
         }
 
         None
@@ -430,18 +428,20 @@ impl TTEntry {
 
     /// Stores a result if it wins the replacement policy.
     ///
-    /// Exact bounds always replace. A different board also replaces, since the
-    /// caller already chose this slot as the cluster victim. For the same board,
-    /// non-exact results replace when depth regression is at most two plies (four with higher
-    /// selectivity), or generation changed. If `data` has no best move, the
-    /// existing move is preserved for same-board non-exact updates.
+    /// Exact bounds and different boards bypass the depth and generation checks.
+    /// For the same board, non-exact results replace when depth regression is at
+    /// most two plies (four with higher selectivity), or generation changed. If
+    /// `data` has no best move, the existing move is preserved for same-board
+    /// non-exact updates.
+    ///
+    /// A write can be dropped if every attempt contends with another writer.
     #[inline(always)]
     pub(crate) fn save(&self, board: &Board, data: TTEntryData) {
         let new_player = board.player().bits();
         let new_opponent = board.opponent().bits();
 
-        // Exact entries always replace and never preserve the old best move, so
-        // they only need the sequence word before claiming the slot.
+        // Exact entries bypass replacement checks, so they only need the
+        // sequence word before claiming the slot.
         if data.bound == Bound::Exact as u8 {
             self.save_exact(new_player, new_opponent, data);
             return;
@@ -501,7 +501,9 @@ impl TTEntry {
     /// for this board. Gives up on any concurrent change.
     #[inline(always)]
     fn penalize(&self, player: u64, opponent: u64, expected: TTEntryData) {
-        debug_assert!(expected.depth > 0, "penalize needs a positive depth");
+        if expected.depth == 0 {
+            return;
+        }
         let Some((stored_player, stored_opponent, seq, stored_data)) = self.try_load_snapshot()
         else {
             return;
@@ -537,8 +539,7 @@ impl TTEntry {
         }
     }
 
-    /// Clears the slot through the SeqLock, preserving exclusive write access
-    /// and sequence monotonicity for concurrent readers and writers.
+    /// Attempts to clear the slot through the SeqLock.
     #[inline(always)]
     fn clear_shared(&self) {
         let empty = TTEntryData::from_u64(0);
@@ -678,11 +679,10 @@ impl TranspositionTable {
         }
     }
 
-    /// Clears all entries of a table that other threads may be using.
+    /// Attempts to clear every entry of a table that other threads may be using.
     ///
-    /// Each occupied slot is cleared through the SeqLock, so a concurrent
-    /// search may keep or lose entries without ever observing a torn entry or
-    /// losing writer exclusion.
+    /// Each slot is cleared through the SeqLock. A slot may keep its contents
+    /// if all attempts contend with a writer.
     pub fn clear_shared(&self) {
         for entry in self.entries.iter() {
             entry.clear_shared();
@@ -693,15 +693,19 @@ impl TranspositionTable {
     ///
     /// # Safety
     ///
-    /// No thread may write to the table for the duration of the call.
+    /// Writes to this table on other threads must be synchronized with this
+    /// call. Prior writes must happen before it starts, and later writes must
+    /// happen after it returns. The entry copy reads the atomic fields
+    /// non-atomically.
     pub unsafe fn duplicate(&self) -> Self {
         let len = self.entries.len();
-        let entries = AlignedBuffer::<TTEntry>::zeroed(len);
-        // SAFETY: no concurrent writers exist for the duration of this call.
+        let mut entries = AlignedBuffer::<TTEntry>::zeroed(len);
+        // SAFETY: the buffers are disjoint and equally sized. The caller orders
+        // writes to the source before or after the copy.
         unsafe {
             std::ptr::copy_nonoverlapping(
                 self.entries.as_ptr(),
-                entries.as_ptr() as *mut TTEntry,
+                entries.as_mut_slice().as_mut_ptr(),
                 len,
             );
         }
@@ -922,7 +926,7 @@ impl TranspositionTable {
     }
 
     /// Lowers by one ply the depth of the entry for `board` at a slot returned
-    /// by [`probe`](Self::probe), unless the slot no longer holds `expected`.
+    /// by [`probe`](Self::probe) if the slot still holds `expected` at positive depth.
     ///
     /// The shallower depth lets a later same-board store replace the entry and
     /// makes it a cheaper victim for other boards.

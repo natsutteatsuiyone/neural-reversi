@@ -170,12 +170,14 @@ theorem value_range (covers : Covers mc b roots) (inside : idx < roots.length) :
     rw [← tree_value present]
     exact PvsMoveLoop.minimax_range _
 
+theorem choices_zero (covers : Covers mc b roots) : choices mc b roots 0 = legalSquares mc b.val := by
+  apply List.filter_eq_self.mpr
+  intro m mem
+  exact (mask_bit _ _).mpr (by simpa using covers.mem_iff.mpr (List.mem_map_of_mem mem))
+
 theorem value_zero (covers : Covers mc b roots) (inside : 0 < roots.length) :
     value mc fc b roots 0 = PvsBoardTree.minimax mc fc b := by
-  have selected : choices mc b roots 0 = legalSquares mc b.val := by
-    apply List.filter_eq_self.mpr
-    intro m mem
-    exact (mask_bit _ _).mpr (by simpa using covers.mem_iff.mpr (List.mem_map_of_mem mem))
+  have selected := choices_zero covers
   cases legal : legalSquares mc b.val with
   | nil =>
     have length : roots.length = 0 := by rw [covers.length_eq, legal]; rfl
