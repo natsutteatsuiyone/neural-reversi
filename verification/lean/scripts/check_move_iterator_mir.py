@@ -132,7 +132,7 @@ def check_iterator(dump):
          call("_2 = core::slice::<impl [MaybeUninit<move_list::Move>]>::as_ptr(move _3)", 1, 3)],
         [call("_0 = std::ptr::const_ptr::<impl *const MaybeUninit<move_list::Move>>::cast::<move_list::Move>(move _2)", 2, 3)],
         ["return;"], ["unwind"]])
-    access = cfg(ARRAY + "get_unchecked_ref")
+    access = graph(source(ARRAY + "get_unchecked_ref").replace(" = core::panicking::panic(", " = panic("))
     enabled = access[0][0]
     if enabled not in ("_4 = const true;", "_4 = const false;"):
         raise ValueError("MoveArray::get_unchecked_ref: unexpected debug guard")
