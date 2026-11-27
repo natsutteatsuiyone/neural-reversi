@@ -109,7 +109,6 @@ struct ReversiApp {
     session: Session,
     history_scroll: ElementRef,
     log_scroll: ElementRef,
-    panel_drag: Option<PanelDrag>,
     analysis_view: AnalysisView,
     copied_until: Option<Instant>,
     modal: Option<Modal>,
@@ -127,6 +126,7 @@ struct ReversiApp {
 
 #[derive(Clone)]
 struct FocusEntry {
+    token: u64,
     id: String,
     scope: Option<Modal>,
     element: ElementRef,
@@ -136,6 +136,7 @@ struct FocusEntry {
 
 #[derive(Default)]
 struct FocusRegistry {
+    next_token: u64,
     entries: Vec<FocusEntry>,
     return_to: Option<String>,
 }
@@ -190,7 +191,6 @@ impl Ui {
                 session,
                 history_scroll: element_ref(),
                 log_scroll: element_ref(),
-                panel_drag: None,
                 analysis_view: AnalysisView::default(),
                 copied_until: None,
                 modal: None,

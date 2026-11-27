@@ -302,22 +302,11 @@ fn splitter(ui: Ui, axis: PanelDrag) -> View {
                     Cursor::ColResize
                 })
                 .claim_touches(TouchClaim::on_start())
-                .on_responder_grant(move |event: &ResponderEvent| {
-                    ui.update(|app| app.panel_drag = Some(axis));
-                    pressed(event);
-                })
+                .on_responder_grant(pressed)
                 .on_responder_move(pressed)
-                .on_responder_release(move |_: &ResponderEvent| {
-                    ui.update(|app| {
-                        app.panel_drag = None;
-                        app.save();
-                    })
-                })
+                .on_responder_release(move |_: &ResponderEvent| ui.update(super::ReversiApp::save))
                 .on_responder_terminate(move |_: &ResponderEvent| {
-                    ui.update(|app| {
-                        app.panel_drag = None;
-                        app.save();
-                    })
+                    ui.update(super::ReversiApp::save)
                 }),
         )
         .child(when(

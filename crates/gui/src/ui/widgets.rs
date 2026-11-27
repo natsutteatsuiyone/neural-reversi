@@ -24,20 +24,22 @@ pub(super) fn focusable(
     let element = element_ref();
     let id = id.to_owned();
     let scope = ui.scope;
-    ui.focus_registry.with(|registry| {
+    let token = ui.focus_registry.with(|registry| {
+        registry.next_token = registry.next_token.wrapping_add(1);
+        let token = registry.next_token;
         registry.entries.push(FocusEntry {
-            id: id.clone(),
+            token,
+            id,
             scope,
             element,
             enabled: Rc::new(enabled),
             activate: Rc::new(activate),
-        })
+        });
+        token
     });
     cleanup(move || {
         ui.focus_registry.try_with(|registry| {
-            registry
-                .entries
-                .retain(|entry| entry.id != id || entry.scope != scope)
+            registry.entries.retain(|entry| entry.token != token);
         });
     });
     element

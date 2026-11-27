@@ -4,7 +4,8 @@ use nsh_base::button;
 use nsh_core::prelude::*;
 
 use super::assets::icon;
-use super::{BLUE, GOLD, SECONDARY, Ui, color, rgba};
+use super::widgets::focusable;
+use super::{ACCENT, BLUE, GOLD, SECONDARY, Ui, color, rgba};
 
 pub(super) struct Notification {
     message: String,
@@ -265,7 +266,14 @@ pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
                         .child(when(
                             move || ui.read(|app| app.notification.is_dismissible()),
                             move || {
+                                let focus = focusable(
+                                    ui,
+                                    "notification-close",
+                                    move || ui.read(|app| app.notification.is_dismissible()),
+                                    move || ui.update(|app| app.notification.clear()),
+                                );
                                 button()
+                                    .element_ref(&focus)
                                     .accessibility_label(move || Some(tr!("close")))
                                     .size_6()
                                     .flex_shrink_0()
@@ -273,7 +281,19 @@ pub(super) fn render_notification(ui: Ui) -> impl IntoElement {
                                     .justify_center()
                                     .rounded(px(6.))
                                     .bg(rgba(0))
-                                    .hover(|s| s.bg(rgba(0xffffff1a)))
+                                    .hover(|s| {
+                                        s.bg(move || {
+                                            if dark() {
+                                                rgba(0xffffff1a)
+                                            } else {
+                                                rgba(0x00000014)
+                                            }
+                                        })
+                                    })
+                                    .style_when(
+                                        move || ui.is_focus_visible("notification-close"),
+                                        |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+                                    )
                                     .on_press(move || ui.update(|app| app.notification.clear()))
                                     .child(icon("x.svg", 14., SECONDARY))
                             },

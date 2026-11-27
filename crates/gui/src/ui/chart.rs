@@ -56,42 +56,61 @@ fn scores(ui: Ui) -> Vec<ChartPoint> {
     })
 }
 
+const CHART_FONT: &str = if cfg!(target_os = "windows") {
+    "12px Segoe UI"
+} else {
+    "12px sans-serif"
+};
+
 pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
-    let width = signal(0_f32);
+    let chart_size = signal(size(px(0.), px(0.)));
     let hovered = move || ui.read(|app| app.analysis_view.hover);
     view()
-        .h(px(198.))
+        .flex_1()
+        .min_h_0()
         .w_full()
-        .flex_shrink_0()
         .relative()
         .rounded(px(10.))
         .border_1()
         .border_color(rgba(0xffffff1a))
         .bg(rgba(0xffffff0d))
-        .on_layout(move |bounds: &Bounds<Points>| width.set(bounds.size.width.0))
+        .on_layout(move |bounds: &Bounds<Points>| chart_size.set(bounds.size))
         .on_mouse_move(move |event: &MouseEvent| {
-            let plot_width = (width.get_untracked() - 70.).max(1.);
-            let number = (((event.position.x.0 - 52.) / plot_width * MOVE_SPAN).round() as usize)
-                .saturating_add(1);
-            ui.update(|app| {
-                app.analysis_view.hover = app
-                    .session
-                    .game()
-                    .history
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, r)| r.square.is_some())
-                    .take(number)
-                    .last()
-                    .map(|(index, _)| index);
-                app.analysis_view.pointer = Some(event.page_position);
-            });
+            let plot_width = (chart_size.get_untracked().width.0 - 70.).max(1.);
+            let raw = ((event.position.x.0 - 52.) / plot_width * MOVE_SPAN).round();
+            let next_hover = if event.position.x.0 < 44. || raw < 0. {
+                None
+            } else {
+                ui.app.with(|app| {
+                    app.session
+                        .game()
+                        .history
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, r)| r.square.is_some())
+                        .nth(raw as usize)
+                        .map(|(index, _)| index)
+                })
+            };
+            let next_pointer = next_hover.map(|_| event.page_position);
+            if ui.app.with(|app| {
+                app.analysis_view.hover != next_hover || app.analysis_view.pointer != next_pointer
+            }) {
+                ui.update(|app| {
+                    app.analysis_view.hover = next_hover;
+                    app.analysis_view.pointer = next_pointer;
+                });
+            }
         })
         .on_mouse_leave(move |_: &MouseEvent| {
-            ui.update(|app| {
-                app.analysis_view.hover = None;
-                app.analysis_view.pointer = None;
-            })
+            if ui.app.with(|app| {
+                app.analysis_view.hover.is_some() || app.analysis_view.pointer.is_some()
+            }) {
+                ui.update(|app| {
+                    app.analysis_view.hover = None;
+                    app.analysis_view.pointer = None;
+                });
+            }
         })
         .on_press(move || {
             let index = ui.read(|app| {
@@ -111,7 +130,8 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
         .child(
             canvas(move || {
                 let scores = scores(ui);
-                let plot_width = (width.get() - 70.).max(0.);
+                let bounds = chart_size.get();
+                let plot_width = (bounds.width.0 - 70.).max(0.);
                 let (low, high) = y_domain(
                     scores
                         .iter()
@@ -119,7 +139,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                 );
                 let y = |score: f32| (high - score) / (high - low);
                 let zero = y(0.);
-                let plot_height = 140.;
+                let plot_height = (bounds.height.0 - 44.).max(40.);
                 let at =
                     |x: f32, y: f32| point(px(52. + plot_width * x), px(13. + plot_height * y));
                 let mut painter = Painter::new()
@@ -176,7 +196,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                         .move_to(52., 13. + plot_height * y(tick))
                         .line_to(52. + plot_width, 13. + plot_height * y(tick))
                         .stroke()
-                        .font("12px Segoe UI")
+                        .font(CHART_FONT)
                         .text_align(CanvasTextAlign::Right)
                         .text_baseline(CanvasTextBaseline::Middle)
                         .fill_color(rgba(0xffffff80))
@@ -211,7 +231,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                             .line_dash(&[px(dash), px(dash)])
                             .begin_path()
                             .move_to(52. + plot_width * x, 13.)
-                            .line_to(52. + plot_width * x, 153.)
+                            .line_to(52. + plot_width * x, 13. + plot_height)
                             .stroke();
                     }
                 }
@@ -274,7 +294,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                     }
                 }
                 painter = painter
-                    .font("12px Segoe UI")
+                    .font(CHART_FONT)
                     .text_align(CanvasTextAlign::Center)
                     .text_baseline(CanvasTextBaseline::Top)
                     .fill_color(rgba(0xffffff80));
@@ -282,7 +302,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                     painter = painter.fill_text(
                         &number.to_string(),
                         52. + plot_width * move_x(number),
-                        161.,
+                        13. + plot_height + 8.,
                     );
                 }
                 painter.finish()
@@ -310,6 +330,7 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                     })
                     .align(nsh_core::overlay::Align::Start)
                     .offset(px(0.))
+                    .pointer_events(PointerEvents::None)
                     .child(
                         view()
                             .px_3()
@@ -386,93 +407,137 @@ pub(super) fn render_chart(ui: Ui) -> impl IntoElement {
                                         .text_size(px(12.))
                                         .line_height(nsh_core::LineHeight::Multiple(1.5))
                                         .text_color(color(SECONDARY))
-                                        .child(text(move || {
-                                            ui.read(|app| {
-                                                let Some(index) = app.analysis_view.hover else {
-                                                    return String::new();
-                                                };
-                                                let Some(analysis) =
-                                                    app.session.analyses().get(&index)
-                                                else {
-                                                    return String::new();
-                                                };
-                                                let Some(record) =
-                                                    app.session.game().history.get(index)
-                                                else {
-                                                    return String::new();
-                                                };
-                                                if Some(analysis.best_move) == record.square {
-                                                    return String::new();
-                                                }
-                                                let score = if record.player == PlayerColor::White {
-                                                    -analysis.best_score
-                                                } else {
-                                                    analysis.best_score
-                                                };
-                                                format!(
-                                                    "{} {} ({})",
-                                                    tr!("best"),
-                                                    analysis.best_move,
-                                                    display_score(score, ScorePrecision::Tenth)
-                                                )
-                                            })
-                                        }))
-                                        .child(text(move || {
-                                            ui.read(|app| {
-                                                app.analysis_view
-                                                    .hover
-                                                    .and_then(|index| {
-                                                        app.session.analyses().get(&index)
-                                                    })
-                                                    .filter(|a| !a.pv.is_empty())
-                                                    .map_or_else(String::new, |a| {
+                                        .child(when(
+                                            move || {
+                                                ui.read(|app| {
+                                                    let Some(index) = app.analysis_view.hover
+                                                    else {
+                                                        return false;
+                                                    };
+                                                    let (Some(analysis), Some(record)) = (
+                                                        app.session.analyses().get(&index),
+                                                        app.session.game().history.get(index),
+                                                    ) else {
+                                                        return false;
+                                                    };
+                                                    Some(analysis.best_move) != record.square
+                                                })
+                                            },
+                                            move || {
+                                                text(move || {
+                                                    ui.read(|app| {
+                                                        let Some(index) = app.analysis_view.hover
+                                                        else {
+                                                            return String::new();
+                                                        };
+                                                        let (Some(analysis), Some(record)) = (
+                                                            app.session.analyses().get(&index),
+                                                            app.session.game().history.get(index),
+                                                        ) else {
+                                                            return String::new();
+                                                        };
+                                                        let score = if record.player
+                                                            == PlayerColor::White
+                                                        {
+                                                            -analysis.best_score
+                                                        } else {
+                                                            analysis.best_score
+                                                        };
                                                         format!(
-                                                            "{}: {}",
-                                                            tr!("pv_line"),
-                                                            format_pv(&a.pv)
+                                                            "{} {} ({})",
+                                                            tr!("best"),
+                                                            analysis.best_move,
+                                                            display_score(
+                                                                score,
+                                                                ScorePrecision::Tenth
+                                                            )
                                                         )
                                                     })
-                                            })
-                                        }))
-                                        .child(
-                                            text(move || {
+                                                })
+                                            },
+                                        ))
+                                        .child(when(
+                                            move || {
                                                 ui.read(|app| {
                                                     app.analysis_view
                                                         .hover
                                                         .and_then(|index| {
                                                             app.session.analyses().get(&index)
                                                         })
-                                                        .filter(|a| {
-                                                            loss_color(tenth_score(a.score_loss))
-                                                                .is_some()
-                                                        })
-                                                        .map_or_else(String::new, |a| {
-                                                            format!(
-                                                                "{} {:.1}",
-                                                                tr!("loss"),
-                                                                tenth_score(a.score_loss)
-                                                            )
-                                                        })
+                                                        .is_some_and(|a| !a.pv.is_empty())
                                                 })
-                                            })
-                                            .text_color(move || {
-                                                ui.read(|app| {
-                                                    color(
+                                            },
+                                            move || {
+                                                text(move || {
+                                                    ui.read(|app| {
                                                         app.analysis_view
                                                             .hover
                                                             .and_then(|index| {
                                                                 app.session.analyses().get(&index)
                                                             })
-                                                            .and_then(|a| {
-                                                                loss_color(tenth_score(
-                                                                    a.score_loss,
-                                                                ))
+                                                            .map_or_else(String::new, |a| {
+                                                                format!(
+                                                                    "{}: {}",
+                                                                    tr!("pv_line"),
+                                                                    format_pv(&a.pv)
+                                                                )
                                                             })
-                                                            .unwrap_or(SECONDARY),
-                                                    )
+                                                    })
                                                 })
-                                            }),
-                                        )
+                                            },
+                                        ))
+                                        .child(when(
+                                            move || {
+                                                ui.read(|app| {
+                                                    app.analysis_view
+                                                        .hover
+                                                        .and_then(|index| {
+                                                            app.session.analyses().get(&index)
+                                                        })
+                                                        .is_some_and(|a| {
+                                                            loss_color(tenth_score(a.score_loss))
+                                                                .is_some()
+                                                        })
+                                                })
+                                            },
+                                            move || {
+                                                text(move || {
+                                                    ui.read(|app| {
+                                                        app.analysis_view
+                                                            .hover
+                                                            .and_then(|index| {
+                                                                app.session.analyses().get(&index)
+                                                            })
+                                                            .map_or_else(String::new, |a| {
+                                                                format!(
+                                                                    "{} {:.1}",
+                                                                    tr!("loss"),
+                                                                    tenth_score(a.score_loss)
+                                                                )
+                                                            })
+                                                    })
+                                                })
+                                                .text_color(move || {
+                                                    ui.read(|app| {
+                                                        color(
+                                                            app.analysis_view
+                                                                .hover
+                                                                .and_then(|index| {
+                                                                    app.session
+                                                                        .analyses()
+                                                                        .get(&index)
+                                                                })
+                                                                .and_then(|a| {
+                                                                    loss_color(tenth_score(
+                                                                        a.score_loss,
+                                                                    ))
+                                                                })
+                                                                .unwrap_or(SECONDARY),
+                                                        )
+                                                    })
+                                                })
+                                            },
+                                        ))
                                 },
                             )),
                     )

@@ -196,21 +196,22 @@ fn candidate_row(ui: Ui, square: usize) -> impl IntoElement {
         )
 }
 
+fn solver_settings(app: &super::ReversiApp, draft: bool) -> &crate::settings::Settings {
+    if draft { &app.draft } else { &app.settings }
+}
+
 pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
-    let options = move |app: &super::ReversiApp| {
-        if draft {
-            app.draft.clone()
-        } else {
-            app.settings.clone()
-        }
-    };
     let prefix = if draft { "draft" } else { "solver" };
     view()
+        .w_full()
+        .min_w_0()
         .flex_row()
         .flex_wrap()
         .gap_6()
         .child(
             view()
+                .min_w_0()
+                .max_w(percentage(1_f32))
                 .flex_col()
                 .gap_2()
                 .child(
@@ -220,19 +221,85 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(color(SECONDARY)),
                 )
-                .child(radio_group().flex_row().flex_wrap().gap_3().children(
-                    Selectivity::ENDGAME_LADDER.into_iter().enumerate().map(
-                        move |(index, selectivity)| {
-                            let id = format!("{prefix}-selectivity-{index}");
+                .child(
+                    radio_group()
+                        .min_w_0()
+                        .max_w(percentage(1_f32))
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_3()
+                        .children(Selectivity::ENDGAME_LADDER.into_iter().enumerate().map(
+                            move |(index, selectivity)| {
+                                let id = format!("{prefix}-selectivity-{index}");
+                                let focus_id = id.clone();
+                                let focus = focusable(
+                                    ui,
+                                    &id,
+                                    || true,
+                                    move || ui.action(Action::Selectivity(index)),
+                                );
+                                let selected = move || {
+                                    ui.read(|app| {
+                                        solver_settings(app, draft).solver_selectivity == index
+                                    })
+                                };
+                                radio()
+                                    .element_ref(&focus)
+                                    .checked(selected)
+                                    .style_when(
+                                        move || ui.is_focus_visible(&focus_id),
+                                        |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+                                    )
+                                    .on_change(move |checked: &bool| {
+                                        if *checked {
+                                            ui.focus(&id);
+                                            ui.action(Action::Selectivity(index));
+                                        }
+                                    })
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .text_size(px(12.))
+                                    .line_height(nsh_core::LineHeight::Multiple(1.4285714))
+                                    .text_color(rgba(0xffffffeb))
+                                    .child(radio_dot(selected))
+                                    .child(text(format!("{}%", selectivity.probability())))
+                            },
+                        )),
+                ),
+        )
+        .child(
+            view()
+                .min_w_0()
+                .max_w(percentage(1_f32))
+                .flex_col()
+                .gap_2()
+                .child(
+                    text(move || tr!("mode"))
+                        .text_size(px(12.))
+                        .line_height(nsh_core::LineHeight::Multiple(1.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(color(SECONDARY)),
+                )
+                .child(
+                    radio_group()
+                        .min_w_0()
+                        .max_w(percentage(1_f32))
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_3()
+                        .children([false, true].into_iter().map(move |multi| {
+                            let id = format!("{prefix}-multi-{multi}");
                             let focus_id = id.clone();
                             let focus = focusable(
                                 ui,
                                 &id,
                                 || true,
-                                move || ui.action(Action::Selectivity(index)),
+                                move || ui.action(Action::MultiPv(multi)),
                             );
-                            let selected =
-                                move || ui.read(|app| options(app).solver_selectivity == index);
+                            let selected = move || {
+                                ui.read(|app| solver_settings(app, draft).solver_multi_pv == multi)
+                            };
                             radio()
                                 .element_ref(&focus)
                                 .checked(selected)
@@ -243,7 +310,7 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                                 .on_change(move |checked: &bool| {
                                     if *checked {
                                         ui.focus(&id);
-                                        ui.action(Action::Selectivity(index));
+                                        ui.action(Action::MultiPv(multi));
                                     }
                                 })
                                 .flex_row()
@@ -253,58 +320,15 @@ pub(super) fn solver_options(ui: Ui, draft: bool) -> impl IntoElement {
                                 .line_height(nsh_core::LineHeight::Multiple(1.4285714))
                                 .text_color(rgba(0xffffffeb))
                                 .child(radio_dot(selected))
-                                .child(text(format!("{}%", selectivity.probability())))
-                        },
-                    ),
-                )),
-        )
-        .child(
-            view()
-                .flex_col()
-                .gap_2()
-                .child(
-                    text(move || tr!("mode"))
-                        .text_size(px(12.))
-                        .line_height(nsh_core::LineHeight::Multiple(1.5))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(color(SECONDARY)),
-                )
-                .child(radio_group().flex_row().flex_wrap().gap_3().children(
-                    [false, true].into_iter().map(move |multi| {
-                        let id = format!("{prefix}-multi-{multi}");
-                        let focus_id = id.clone();
-                        let focus =
-                            focusable(ui, &id, || true, move || ui.action(Action::MultiPv(multi)));
-                        let selected = move || ui.read(|app| options(app).solver_multi_pv == multi);
-                        radio()
-                            .element_ref(&focus)
-                            .checked(selected)
-                            .style_when(
-                                move || ui.is_focus_visible(&focus_id),
-                                |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
-                            )
-                            .on_change(move |checked: &bool| {
-                                if *checked {
-                                    ui.focus(&id);
-                                    ui.action(Action::MultiPv(multi));
-                                }
-                            })
-                            .flex_row()
-                            .items_center()
-                            .gap(px(6.))
-                            .text_size(px(12.))
-                            .line_height(nsh_core::LineHeight::Multiple(1.4285714))
-                            .text_color(rgba(0xffffffeb))
-                            .child(radio_dot(selected))
-                            .child(text(move || {
-                                if multi {
-                                    tr!("all_moves")
-                                } else {
-                                    tr!("best_move_only")
-                                }
-                            }))
-                    }),
-                )),
+                                .child(text(move || {
+                                    if multi {
+                                        tr!("all_moves")
+                                    } else {
+                                        tr!("best_move_only")
+                                    }
+                                }))
+                        })),
+                ),
         )
 }
 
@@ -318,7 +342,7 @@ fn radio_dot(selected: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
             if selected() {
                 color(ACCENT)
             } else {
-                rgba(0xffffff0f)
+                rgba(0xffffff33)
             }
         })
         .bg(move || if selected() { color(ACCENT) } else { rgba(0) })

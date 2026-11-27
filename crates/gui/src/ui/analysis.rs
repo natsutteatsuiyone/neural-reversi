@@ -65,14 +65,16 @@ pub(super) fn animated_icon(
         ])
         .looped(None)
     };
+    let running = animation.clone();
     effect(move || {
-        animation.stop();
+        running.stop();
         if !reduce_motion() {
-            drop(animation.start());
+            drop(running.start());
         } else {
             value.set(if rotate { 0. } else { 1. });
         }
     });
+    cleanup(move || animation.stop());
     view()
         .size(px(side))
         .flex_shrink_0()
@@ -96,9 +98,15 @@ pub(super) fn render_analysis_header(ui: Ui) -> impl IntoElement {
         || true,
         move || ui.action(Action::AnalysisPanel),
     );
-    button()
+    view()
         .element_ref(&focus)
-        .accessibility_label(move || tr!("ai_analysis"))
+        .role(AccessibilityRole::Button)
+        .label(move || tr!("ai_analysis"))
+        .accessibility_state(move || AccessibilityState {
+            expanded: Some(ui.read(|app| app.analysis_open())),
+            ..AccessibilityState::default()
+        })
+        .cursor_pointer()
         .h_10()
         .flex_shrink_0()
         .flex_row()
@@ -110,7 +118,14 @@ pub(super) fn render_analysis_header(ui: Ui) -> impl IntoElement {
         .border_color(rgba(0xffffff1a))
         .bg(color(PANEL))
         .hover(|s| s.bg(rgba(0xffffff0d)))
-        .on_press(move || ui.action(Action::AnalysisPanel))
+        .style_when(
+            move || ui.is_focus_visible("analysis-panel"),
+            |s| s.inset_ring(px(2.)).inset_ring_color(color(ACCENT)),
+        )
+        .on_press(move || {
+            ui.focus("analysis-panel");
+            ui.action(Action::AnalysisPanel);
+        })
         .child(activity_icon(ui, Activity::Move))
         .child(
             single_line_text(move || tr!("ai_analysis"), 12. * 20. / 14.)
@@ -544,7 +559,7 @@ fn render_thinking_log(ui: Ui) -> impl IntoElement {
         )
         .child(
             scroll()
-                .element_ref(&ui.read(|app| app.log_scroll))
+                .element_ref(&ui.app.with(|app| app.log_scroll))
                 .flex_1()
                 .min_h_0()
                 .child(

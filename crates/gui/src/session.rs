@@ -49,6 +49,9 @@ impl Candidates {
     }
 
     fn record(&mut self, progress: Progress, best_only: bool) {
+        if progress.square.is_none() {
+            return;
+        }
         if best_only {
             self.items = vec![progress];
         } else if let Some(candidate) = self
@@ -264,17 +267,18 @@ impl Session {
                         Mode::Solver { stopped, .. } => *stopped = true,
                     }
                 }
-                EventKind::Progress(progress) => {
-                    let best_only =
-                        self.activity == Some(Activity::Solver) && !settings.solver_multi_pv;
-                    self.mode
-                        .candidates_mut()
-                        .record(progress.clone(), best_only);
-                    if self.activity == Some(Activity::Move) {
+                EventKind::Progress(progress) => match self.activity {
+                    Some(Activity::Move) => {
                         self.record_log_iteration(progress);
                         self.updates.push(Update::Logged);
                     }
-                }
+                    Some(Activity::Hint | Activity::Solver) => {
+                        let best_only =
+                            self.activity == Some(Activity::Solver) && !settings.solver_multi_pv;
+                        self.mode.candidates_mut().record(progress, best_only);
+                    }
+                    _ => {}
+                },
                 EventKind::Analysis(analysis) => {
                     self.analyses.insert(analysis.move_index, analysis);
                 }
@@ -388,6 +392,9 @@ impl Session {
     }
 
     pub fn enter_solver(&mut self, position: Position, settings: &Settings) {
+        if !self.ready {
+            return;
+        }
         self.cancel(settings);
         let game = Game::new(position);
         let live = match std::mem::replace(
@@ -417,6 +424,9 @@ impl Session {
     }
 
     pub fn exit_solver(&mut self, settings: &Settings) {
+        if !self.ready {
+            return;
+        }
         self.cancel(settings);
         if let Mode::Solver { live, .. } = std::mem::replace(
             &mut self.mode,
@@ -433,6 +443,9 @@ impl Session {
     }
 
     pub fn solver_options_changed(&mut self, settings: &Settings) {
+        if !self.ready {
+            return;
+        }
         self.cancel(settings);
         if let Mode::Solver { stopped, cache, .. } = &mut self.mode {
             *stopped = false;
@@ -491,6 +504,9 @@ impl Session {
     }
 
     pub fn toggle_pause(&mut self, settings: &Settings) {
+        if !self.ready {
+            return;
+        }
         if let Mode::Solver { stopped, .. } = &mut self.mode {
             *stopped = self.activity == Some(Activity::Solver);
             if *stopped {
@@ -531,6 +547,9 @@ impl Session {
     }
 
     pub fn navigate(&mut self, cursor: usize, settings: &Settings) {
+        if !self.ready {
+            return;
+        }
         let solving = self.is_solving();
         if !solving && matches!(self.activity, Some(Activity::Move | Activity::Analysis)) {
             return;
@@ -1140,5 +1159,56 @@ mod tests {
         run_until(&mut session, &settings, |s| s.activity().is_none());
         assert!(session.candidates_complete());
         assert!(!session.candidates().is_empty());
+    }
+
+    #[test]
+    fn actions_before_ready_do_not_drop_startup_initialization() {
+        let settings = Settings {
+            game_mode: GameMode::Human,
+            hash_size: 16,
+            ..Settings::default()
+        };
+        let mut session = Session::new(&settings);
+        assert!(!session.is_ready());
+        session.toggle_pause(&settings);
+        session.navigate(0, &settings);
+        session.enter_solver(Position::initial(), &settings);
+        session.solver_options_changed(&settings);
+        session.exit_solver(&settings);
+
+        run_until(&mut session, &settings, Session::is_ready);
+        assert!(session.is_ready());
+        assert!(!session.is_solving());
+        assert_eq!(session.activity(), None);
+    }
+
+    #[test]
+    fn move_progress_does_not_pollute_candidates() {
+        let settings = Settings {
+            game_mode: GameMode::Human,
+            hash_size: 16,
+            ..Settings::default()
+        };
+        let mut session = Session::new(&settings);
+        run_until(&mut session, &settings, Session::is_ready);
+
+        session.activity = Some(Activity::Move);
+        let progress = Progress {
+            square: Some(Square::D3),
+            score: Score::from_disc_diff(DiscScore::new(2)),
+            depth: 6,
+            target_depth: 10,
+            probability: 100,
+            nodes: 100,
+            nps: 1000.0,
+            pv: "d3".into(),
+            is_endgame: false,
+        };
+        session
+            .engine
+            .emit_for_test(session.run_id, EventKind::Progress(progress.clone()));
+        session.tick(&settings, Instant::now());
+        assert!(session.candidates().is_empty());
+        assert_eq!(session.log(), &[progress]);
     }
 }

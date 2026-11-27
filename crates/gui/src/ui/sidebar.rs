@@ -129,7 +129,7 @@ pub(super) fn render_sidebar(ui: Ui) -> impl IntoElement {
                 )
                 .child(
                     scroll()
-                        .element_ref(&ui.read(|app| app.history_scroll))
+                        .element_ref(&ui.app.with(|app| app.history_scroll))
                         .flex_1()
                         .min_h_0()
                         .w_full()

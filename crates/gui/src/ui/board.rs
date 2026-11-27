@@ -161,32 +161,40 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
         computed(move || (cell_side.get() * 0.84 * pixel_ratio()).round() / pixel_ratio());
     let ring = computed(move || (cell_side.get() * 0.05 * pixel_ratio()).round() / pixel_ratio());
     let progress = signal(1_f32);
-    let started = stored(None::<Instant>);
+    let motion_trigger =
+        computed(move || state.with(|state| (state.last_key, state.motion.is_some())));
     let identity = stored(None::<(Position, usize)>);
+    // Shadow blur and spread are not channels of NSH's native animation graph.
     effect(move || {
-        let (key, animate) = state.with(|state| (state.last_key, state.motion.is_some()));
+        let (key, animate) = motion_trigger.get();
         if identity.get() != key {
             identity.replace(key);
             if animate && key.is_some() && !reduce_motion() {
-                started.replace(Some(Instant::now()));
+                let begin = nsh_core::time::now();
                 progress.set(0.);
+                spawn(async move {
+                    loop {
+                        next_frame().await;
+                        if reduce_motion() {
+                            progress.set(1.);
+                            break;
+                        }
+                        let elapsed = (nsh_core::time::now()
+                            .saturating_duration_since(begin)
+                            .as_secs_f32()
+                            / 0.4)
+                            .min(1.);
+                        progress.set(elapsed);
+                        if elapsed >= 1. {
+                            break;
+                        }
+                    }
+                });
             } else {
-                started.replace(None);
                 progress.set(1.);
             }
-        } else if !animate {
-            started.replace(None);
+        } else if !animate || reduce_motion() {
             progress.set(1.);
-        }
-    });
-    // Shadow blur and spread are not channels of NSH's native animation graph.
-    set_interval(Duration::from_millis(16), move || {
-        if let Some(begin) = started.get() {
-            let elapsed = (begin.elapsed().as_secs_f32() / 0.4).min(1.);
-            progress.set(if reduce_motion() { 1. } else { elapsed });
-            if elapsed >= 1. || reduce_motion() {
-                started.replace(None);
-            }
         }
     });
     let reference = focusable(
@@ -514,7 +522,7 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
     {
         board = board
             .child(
-                board_label(column, 0., 0., 0.)
+                board_label()
                     .left(move || layout_px(rim.get() + index as f32 * cell_side.get()))
                     .top(move || layout_px(rim.get() - cell_side.get() * 0.65))
                     .w(move || layout_px(cell_side.get()))
@@ -527,7 +535,7 @@ pub(super) fn render_board(ui: Ui, side: Memo<f32>) -> View {
                     ),
             )
             .child(
-                board_label(row, 0., 0., 0.)
+                board_label()
                     .left(move || layout_px(rim.get() - cell_side.get() * 0.65))
                     .top(move || layout_px(rim.get() + index as f32 * cell_side.get()))
                     .w(move || layout_px(cell_side.get() * 0.3))
@@ -561,20 +569,12 @@ pub(super) fn board_key(ui: Ui, key: &str) -> bool {
     }
 }
 
-pub(super) fn board_label(label: &'static str, width: f32, height: f32, font_size: f32) -> View {
+fn board_label() -> View {
     view()
         .absolute()
-        .w(px(width))
-        .h(px(height))
         .items_center()
         .justify_center()
         .text_color(color(0xa0a0b0))
-        .child((font_size > 0.).then(|| {
-            text(label)
-                .font_weight(FontWeight::NORMAL)
-                .text_size(px(font_size))
-                .line_height(px(height))
-        }))
 }
 
 fn thinking(cell_side: Memo<f32>) -> View {

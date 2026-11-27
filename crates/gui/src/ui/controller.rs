@@ -59,8 +59,10 @@ impl Ui {
         if next != previous {
             if next.is_some() {
                 set_timeout(Duration::from_millis(1), move || {
-                    self.focused.set(None);
-                    self.focus_step(false);
+                    if self.read(|app| app.modal) == next {
+                        self.focused.set(None);
+                        self.focus_step(false);
+                    }
                 });
             } else if let Some(id) = self
                 .focus_registry

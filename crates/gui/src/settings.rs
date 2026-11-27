@@ -221,9 +221,9 @@ impl Settings {
     }
 
     fn bound_values(&mut self) {
-        self.ai_level = self.ai_level.min(MAX_LEVEL);
-        self.hint_level = self.hint_level.min(MAX_LEVEL);
-        self.analysis_level = self.analysis_level.min(MAX_LEVEL);
+        self.ai_level = self.ai_level.clamp(1, MAX_LEVEL);
+        self.hint_level = self.hint_level.clamp(1, MAX_LEVEL);
+        self.analysis_level = self.analysis_level.clamp(1, MAX_LEVEL);
         self.game_time_limit = self.game_time_limit.clamp(1, 86_400);
         self.hash_size = self.hash_size.clamp(1, 16_384);
         self.solver_selectivity = self.solver_selectivity.min(ENDGAME_STEPS - 1);
@@ -299,6 +299,16 @@ mod tests {
         assert_eq!(
             (settings.right_panel_size, settings.bottom_panel_size),
             (18.0, 70.0)
+        );
+        let zero_levels =
+            Settings::decode(r#"{"aiLevel":0,"hintLevel":0,"analysisLevel":0}"#).unwrap();
+        assert_eq!(
+            (
+                zero_levels.ai_level,
+                zero_levels.hint_level,
+                zero_levels.analysis_level
+            ),
+            (1, 1, 1)
         );
         assert!(Settings::decode("{").is_err());
         assert!(Settings::decode(r#"{"state":{},"version":3}"#).is_err());

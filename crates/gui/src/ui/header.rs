@@ -260,7 +260,7 @@ fn settings_contents(ui: Ui) -> impl IntoElement {
                             .text_color(rgba(0xffffffeb))
                             .on_touch(move |_: &nsh_core::TouchEvent| ui.keyboard_focus.set(false))
                             .on_mouse_enter(move |_: &MouseEvent| {
-                                ui.update(|app| app.menu_hover_generation += 1)
+                                ui.app.with(|app| app.menu_hover_generation += 1)
                             })
                             .child(match section {
                                 0 => slider::render_level_slider(ui, SliderKind::HintLevel)
@@ -443,11 +443,11 @@ fn hover_section(ui: Ui, section: Option<usize>) {
     });
     if let Some(generation) = generation {
         set_timeout(Duration::from_millis(300), move || {
-            ui.update(|app| {
-                if app.menu_hover_generation == generation && app.modal == Some(Modal::Settings) {
-                    app.menu_section = section;
-                }
-            })
+            if ui.app.with(|app| {
+                app.menu_hover_generation == generation && app.modal == Some(Modal::Settings)
+            }) {
+                ui.update(|app| app.menu_section = section);
+            }
         });
     }
 }
@@ -468,9 +468,18 @@ pub(super) fn focused_key(ui: Ui, key: &str) -> bool {
             }
         }
         "right" => {
+            const FIRST: [&str; 3] = ["slider-hint-level", "hash-size-64", "menu-language-auto"];
             for (index, id) in SECTIONS.into_iter().enumerate() {
                 if ui.is_focused(id) {
                     ui.action(Action::MenuSection(Some(index)));
+                    let target = FIRST[index];
+                    set_timeout(Duration::from_millis(1), move || {
+                        if ui.read(|app| {
+                            app.modal == Some(Modal::Settings) && app.menu_section == Some(index)
+                        }) {
+                            ui.focus(target);
+                        }
+                    });
                     break;
                 }
             }

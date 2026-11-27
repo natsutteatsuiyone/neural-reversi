@@ -7,7 +7,6 @@ pub(super) struct LicenseViewer {
     pub(super) third_party: bool,
     pub(super) lines: Vec<SharedString>,
     pub(super) scroll: ElementRef,
-    metrics: ScrollEvent,
     scroll_drag: Option<(f32, f32)>,
 }
 
@@ -23,7 +22,6 @@ impl LicenseViewer {
             third_party: false,
             lines: Vec::new(),
             scroll: element_ref(),
-            metrics: ScrollEvent::default(),
             scroll_drag: None,
         }
     }
@@ -35,8 +33,6 @@ impl LicenseViewer {
             .map(SharedString::from)
             .collect();
         self.scroll_drag = None;
-        self.metrics.offset = point(px(0.), px(0.));
-        self.metrics.content_size.height = px(self.lines.len() as f32 * 18.);
         self.scroll.scroll_to_offset(px(0.), false);
     }
 
@@ -44,40 +40,46 @@ impl LicenseViewer {
         self.scroll_drag = None;
     }
 
-    fn viewport(&self, height: f32) -> f32 {
-        if self.metrics.size.height.0 > 0. {
-            self.metrics.size.height.0
+    fn viewport(metrics: &ScrollEvent, height: f32) -> f32 {
+        if metrics.size.height.0 > 0. {
+            metrics.size.height.0
         } else {
             (height - 24.).max(0.)
         }
     }
 
-    fn maximum(&self, height: f32) -> f32 {
-        (self.metrics.content_size.height.0 - self.viewport(height)).max(0.)
+    fn maximum(metrics: &ScrollEvent, height: f32) -> f32 {
+        (metrics.content_size.height.0 - Self::viewport(metrics, height)).max(0.)
     }
 
-    fn thumb(&self, height: f32) -> (f32, f32) {
-        let maximum = self.maximum(height);
+    fn thumb(metrics: &ScrollEvent, height: f32) -> (f32, f32) {
+        let maximum = Self::maximum(metrics, height);
         let track = (height - 36.).max(0.);
         let length = (track * (height / (height + maximum).max(1.)))
             .max(18.)
             .min(track);
         let fraction = if maximum > 0. {
-            (self.metrics.offset.y.0 / maximum).clamp(0., 1.)
+            (metrics.offset.y.0 / maximum).clamp(0., 1.)
         } else {
             0.
         };
         (18. + (track - length) * fraction, length)
     }
 
-    fn press(&mut self, local_y: f32, page_y: f32, height: f32) -> Option<f32> {
-        let (top, length) = self.thumb(height);
-        let offset = self.metrics.offset.y.0;
+    fn press(
+        &mut self,
+        metrics: &ScrollEvent,
+        local_y: f32,
+        page_y: f32,
+        height: f32,
+    ) -> Option<f32> {
+        let (top, length) = Self::thumb(metrics, height);
+        let offset = metrics.offset.y.0;
         if (top..=top + length).contains(&local_y) {
             self.scroll_drag = Some((page_y, offset));
             None
         } else {
-            let page = self.viewport(height);
+            let page = Self::viewport(metrics, height);
             let delta = if local_y < 15. {
                 -40.
             } else if local_y > height - 15. {
@@ -87,18 +89,18 @@ impl LicenseViewer {
             } else {
                 page
             };
-            Some((offset + delta).clamp(0., self.maximum(height)))
+            Some((offset + delta).clamp(0., Self::maximum(metrics, height)))
         }
     }
 
-    fn drag(&mut self, page_y: f32, height: f32) -> Option<f32> {
+    fn drag(&mut self, metrics: &ScrollEvent, page_y: f32, height: f32) -> Option<f32> {
         let (start, offset) = self.scroll_drag?;
-        let (_, length) = self.thumb(height);
+        let (_, length) = Self::thumb(metrics, height);
         let travel = height - 36. - length;
         if travel <= 0. {
             return None;
         }
-        let maximum = self.maximum(height);
+        let maximum = Self::maximum(metrics, height);
         Some((offset + (page_y - start) / travel * maximum).clamp(0., maximum))
     }
 }
@@ -124,7 +126,17 @@ fn license_text(third_party: bool) -> &'static str {
 }
 
 pub(super) fn render_about_dialog(ui: Ui) -> View {
-    let scroll_reference = ui.read(|a| a.license.scroll);
+    let scroll_reference = ui.app.with(|a| a.license.scroll);
+    let license_tab = computed(move || ui.read(|a| (a.license.third_party, a.license.lines.len())));
+    let metrics = signal(ScrollEvent::default());
+    effect(move || {
+        let (_, lines) = license_tab.get();
+        metrics.set(ScrollEvent {
+            offset: point(px(0.), px(0.)),
+            content_size: size(px(0.), px(lines as f32 * 18.)),
+            ..ScrollEvent::default()
+        });
+    });
     view()
         .w_full()
         .min_w_0()
@@ -166,10 +178,11 @@ pub(super) fn render_about_dialog(ui: Ui) -> View {
                 .overflow_hidden()
                 .child(
                     virtual_list(
-                        move || ui.read(|a| a.license.lines.len()),
+                        move || license_tab.get().1,
                         move |at| {
                             text(move || {
-                                ui.read(|a| {
+                                license_tab.get();
+                                ui.app.with(|a| {
                                     a.license.lines.get(at.index()).cloned().unwrap_or_default()
                                 })
                             })
@@ -187,20 +200,19 @@ pub(super) fn render_about_dialog(ui: Ui) -> View {
                     .w_full()
                     .scrollbar(false)
                     .estimated_item_size(px(18.))
-                    .keys(move || ui.read(|a| (0..a.license.lines.len()).collect::<Vec<_>>()))
                     .on_scroll(move |event: &ScrollEvent| {
-                        if ui.read(|a| a.license.metrics != *event) {
-                            ui.update(|a| a.license.metrics = *event);
+                        if metrics.get_untracked() != *event {
+                            metrics.set(*event);
                         }
                     }),
                 )
-                .child(render_license_scrollbar(ui)),
+                .child(render_license_scrollbar(ui, metrics)),
         )
 }
 
-fn render_license_scrollbar(ui: Ui) -> View {
+fn render_license_scrollbar(ui: Ui, metrics: Signal<ScrollEvent>) -> View {
     let height = signal(0_f32);
-    let scroll_reference = ui.read(|a| a.license.scroll);
+    let scroll_reference = ui.app.with(|a| a.license.scroll);
     let scroll_to = move |offset: Option<f32>| {
         if let Some(offset) = offset {
             scroll_reference.scroll_to_offset(px(offset), false);
@@ -216,22 +228,32 @@ fn render_license_scrollbar(ui: Ui) -> View {
         .claim_touches(TouchClaim::on_start().ask(|request: &ClaimRequest| request.claim()))
         .keep_touches(true)
         .on_responder_grant(move |event: &ResponderEvent| {
-            let offset = ui.update(|a| {
-                a.license
-                    .press(event.location.y.0, event.page.y.0, height.get_untracked())
+            let current = metrics.get_untracked();
+            let offset = ui.app.with(|a| {
+                a.license.press(
+                    &current,
+                    event.location.y.0,
+                    event.page.y.0,
+                    height.get_untracked(),
+                )
             });
             scroll_to(offset);
         })
         .on_responder_move(move |event: &ResponderEvent| {
-            let offset = ui.update(|a| a.license.drag(event.page.y.0, height.get_untracked()));
+            let current = metrics.get_untracked();
+            let offset = ui.app.with(|a| {
+                a.license
+                    .drag(&current, event.page.y.0, height.get_untracked())
+            });
             scroll_to(offset);
         })
-        .on_responder_release(move |_: &ResponderEvent| ui.update(|a| a.license.end_drag()))
-        .on_responder_terminate(move |_: &ResponderEvent| ui.update(|a| a.license.end_drag()))
+        .on_responder_release(move |_: &ResponderEvent| ui.app.with(|a| a.license.end_drag()))
+        .on_responder_terminate(move |_: &ResponderEvent| ui.app.with(|a| a.license.end_drag()))
         .child(
             canvas(move || {
                 let height = height.get();
-                let (top, length) = ui.read(|a| a.license.thumb(height));
+                let current = metrics.get();
+                let (top, length) = LicenseViewer::thumb(&current, height);
                 let mut painter = Painter::new()
                     .fill_color(color(0xfcfcfc))
                     .fill_rect(0., 0., 15., height)
