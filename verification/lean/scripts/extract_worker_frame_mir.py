@@ -190,7 +190,7 @@ def render(dump):
         if pc==detached:checked(failedBefore,'abandon detach can publish false before failed=true')
         todo.extend((dst,failedBefore) for dst in edges(cfg[pc][-1]))
     cfg,raw=effects[TH+'run_helper_job-{impl#0}-drop']
-    panic,=[pc for pc,ls in cfg.items() if ' = panicking() ->' in ls[-1]]
+    panic,=[pc for pc,ls in cfg.items() if re.search(r' = (?:(?:std::)?thread::)?panicking\(\) ->', ls[-1])]
     chk,=edges(cfg[panic][-1]);cond=re.fullmatch(r'switchInt\(move (_\d+)\) -> \[0: bb(\d+), otherwise: bb(\d+)\];',cfg[chk][-1])
     checked(cond and re.fullmatch(CALL,cfg[panic][-1])[1]==cond[1],'helper panic branch')
     for branch,expected in [(int(cond[2]),False),(int(cond[3]),True)]:

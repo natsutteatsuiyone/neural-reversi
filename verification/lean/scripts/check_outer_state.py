@@ -14,8 +14,11 @@ def eval_body(path, inputs, active=False, empty=False):
             return "unit"
         if s=="SearchResult::NoLegalMove":
             return "noLegal"
-        if s in ("Selectivity::Level1","Option::<(u32, Selectivity)>::None","Option::<&RootMove>::None"):
+        if s in ("Selectivity::Level1","Option::<(u32, Selectivity)>::None","Option::<&RootMove>::None",
+                 "Option::<Iteration>::None"):
             return s
+        if m:=re.fullmatch(r"CompletedState \{ lines: (move _\d+), last: (move _\d+) \}",s):
+            return ("newState",expr(m[1]),expr(m[2]))
         if m:=re.fullmatch(r"const (\d+)_usize",s):
             return int(m[1])
         if m:=re.fullmatch(r"(?:copy |move |&mut |&)(_\d+)|(?:copy |move |&mut |&)\(\*(_\d+)\)",s):
@@ -67,6 +70,8 @@ def eval_body(path, inputs, active=False, empty=False):
         "estimate_aspiration_base_score":(["ctx","board"],"base"),
         "SearchTask::pv_count":(["task","count"],"nLines"),
         "CompletedState::new":(["nLines"],"completed"),
+        "std::vec::from_elem_global::<Option<(u32, Selectivity)>>":
+            (["Option::<(u32, Selectivity)>::None","count"],"freshLines"),
         "solve_root":(["ctx","task","thread","base","completed","Selectivity::Level1","last"],"solved"),
         "<Vec<Option<(u32, Selectivity)>> as DerefMut>::deref_mut":(["lines"],"slice"),
         "<Vec<Option<(u32, Selectivity)>> as Deref>::deref":(["lines"],"slice"),
@@ -102,6 +107,11 @@ def eval_body(path, inputs, active=False, empty=False):
                 result=int(active)
                 actions.append("all")
             else:
+                if fn in (
+                    "vec::from_elem_global::<Option<(u32, Selectivity)>>",
+                    "alloc::vec::from_elem_global::<Option<(u32, Selectivity)>>",
+                ):
+                    fn = "std::vec::from_elem_global::<Option<(u32, Selectivity)>>"
                 expect,result=calls[fn]
             checked(args==expect,f"{fn} expected {expect}, got {args}")
             env[m[1]]=result
@@ -114,7 +124,8 @@ def eval_body(path, inputs, active=False, empty=False):
         elif m:=re.fullmatch(GOTO,end):
             pc=int(m[1] or m[2])
         elif m:=re.fullmatch(r"drop\((_\d+)\) -> \[return: bb(\d+), unwind: bb\d+\];",end):
-            checked(env[m[1]] in ("completed","ctx","roots","task","row"),"unhandled destructor")
+            checked(env[m[1]] in ("completed","ctx","roots","task","row","freshLines",
+                                  "Option::<Iteration>::None"),"unhandled destructor")
             pc=int(m[2])
         elif end=="return;":
             return actions,env["_0"]
@@ -130,6 +141,8 @@ def check(dump):
     checked(eval_body(path("endgame-search_root"),["task","last","thread"])==(["solve_root"],"solved"),"direct entry")
     for multi in (False,True):
         checked(eval_body(path("{impl#0}-pv_count"),["task","count"],active=multi)==([],"count" if multi else 1),"PV count")
+    checked(eval_body(path("result-{impl#1}-new"),["count"])==
+            ([],("newState","freshLines","Option::<Iteration>::None")),"completion-state construction")
     checked(eval_body(path("result-{impl#1}-begin_phase"),["completed"])==(["core::slice::<impl [Option<(u32, Selectivity)>]>::fill"],"unit"),"phase start")
     checked(eval_body(path("result-{impl#1}-line_completed-{closure#0}"),["closure","lineStamp"])==
             ([],"compared"),"line-stamp equivalence")
@@ -140,3 +153,74 @@ def check(dump):
     for idx,arg,result in [(0,"previousIndex","previousRow"),(1,"row","previousScore"),(2,"clock","clockStop"),(3,"time","timeout")]:
         checked(eval_body(path(f"endgame-solve_root-{{closure#{idx}}}"),["closure",arg])==([],result),"ladder callback")
 
+
+def render_completion(dump, repo):
+    """Compose the checked stamp operations with the extracted publication calls.
+
+    Vec construction/fill/indexing, tuple equality and Iterator::all use their
+    standard semantics. The outer Option represents a normal return, including
+    the index and best-move bounds checks; the inner Option is the Rust return
+    value of line_completed and must not erase its stamp update on None.
+    """
+    check(dump)
+    return """import NeuralReversi.OuterMir.Program
+
+namespace NeuralReversi.OuterMir.Completion
+
+open PublicationMir (Iteration SliceSort SearchResult)
+open RootMoveStorage (Row)
+
+structure State where
+  marks : List (Option (Nat × Nat))
+  last : Option Iteration
+
+def new (count : Nat) : State :=
+  ⟨List.replicate count none, none⟩
+
+def beginPhase (state : State) : State :=
+  ⟨List.replicate state.marks.length none, state.last⟩
+
+def iterationCompleted (sort : SliceSort) (rows : List Row) (depth level : Nat)
+    (endgame : Bool) (state : State) : Option (State × Row) := do
+  let (last, best) ← PublicationMir.record sort rows depth level endgame
+  return (⟨state.marks, last⟩, best)
+
+def lineCompleted (sort : SliceSort) (rows : List Row) (idx depth level : Nat)
+    (endgame : Bool) (state : State) : Option (State × Option Row) := do
+  if idx < state.marks.length then
+    let (marks, ready) := lineStamp state.marks idx depth level
+    let marked : State := ⟨marks, state.last⟩
+    if ready then
+      let (saved, best) ← iterationCompleted sort rows depth level endgame marked
+      return (saved, some best)
+    else
+      return (marked, none)
+  else
+    none
+
+def intoResult (state : State) (nodes : Nat) (fallback : Unit → SearchResult) : Option SearchResult :=
+  PublicationMir.intoResult state.last nodes fallback
+
+end NeuralReversi.OuterMir.Completion
+"""
+
+
+def check_mutants(dump):
+    """A zero-line constructor must not establish the single-PV invariant."""
+    source = (dump / "reversi_core.search-result-{impl#1}-new.SimplifyCfg-initial.after.mir").read_text(
+        encoding="utf-8")
+    call = r"((?:(?:std|alloc)::)?vec::from_elem_global::<Option<\(u32, Selectivity\)>>\((?:move|copy) _\d+, )((?:move|copy) _\d+)(\))"
+    checked(len(re.findall(call, source)) == 1, "ambiguous constructor count mutation")
+    mutant = re.sub(call, lambda m: m[1] + "const 0_usize" + m[3], source)
+
+    class Mutant:
+        def read_text(self, encoding):
+            return mutant
+
+    try:
+        checked(eval_body(Mutant(), ["count"]) ==
+                ([], ("newState", "freshLines", "Option::<Iteration>::None")),
+                "completion-state construction")
+    except ValueError:
+        return 1
+    raise ValueError("accepted completion-state constructor with zero lines")

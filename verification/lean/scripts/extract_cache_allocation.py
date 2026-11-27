@@ -81,7 +81,12 @@ def evaluate(body, registers, size, positive):
                     body[5][1].startswith('_18 = const b"') and body[5][2:5] ==
                     ["_17 = &(*_18);","_20 = &_14;","_19 = &(*_20);"] and
                     re.fullmatch(r"_11 = Arguments::<'_>::new::<\d+, 1>\(move _17, move _19\) -> \[return: bb6, unwind: bb11\];",body[5][5]) and
-                    body[6] == ["_10 = panic_fmt(move _11) -> bb11;"],"too-small allocation must panic")
+                    # All three names denote rustc's panic formatting entry point;
+                    # keep the prepared argument and unwind destination exact.
+                    body[6] in (["_10 = panic_fmt(move _11) -> bb11;"],
+                                ["_10 = std::rt::panic_fmt(move _11) -> bb11;"],
+                                ["_10 = core::panicking::panic_fmt(move _11) -> bb11;"]),
+                    "too-small allocation must panic")
             return "none"
         for stmt in stmts:
             m=re.fullmatch(r"(_\d+) = (.+);",stmt)
@@ -92,7 +97,11 @@ def evaluate(body, registers, size, positive):
             args=[val(a) for a in args.split(", ")] if args else []
             if name=="std::mem::size_of::<RawEntry>" and not args:
                 result=str(size)
-            elif name=="std::vec::from_elem_global::<RawEntry>":
+            elif name in (
+                "std::vec::from_elem_global::<RawEntry>",
+                "vec::from_elem_global::<RawEntry>",
+                "alloc::vec::from_elem_global::<RawEntry>",
+            ):
                 value,count=args
                 result=f"(Array.replicate {count} {value})"
             elif name=="Vec::<RawEntry>::into_boxed_slice":

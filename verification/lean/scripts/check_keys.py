@@ -148,7 +148,11 @@ def sequence(path, kind, args, length=0, greater=False, returns="unit"):
             elif fn == "MoveArray::len":
                 checked(values == ["array"], "unexpected initialized length")
                 result = "length"
-            elif fn == "std::slice::from_raw_parts_mut::<'_, move_list::Move>":
+            elif fn in (
+                "std::slice::from_raw_parts_mut::<'_, move_list::Move>",
+                "slice::from_raw_parts_mut::<'_, move_list::Move>",
+                "core::slice::from_raw_parts_mut::<'_, move_list::Move>",
+            ):
                 checked(values == ["base", "length"], "initialized slice differs")
                 result = "wholeSlice"
             elif fn == "core::slice::<impl [MaybeUninit<move_list::Move>]>::as_mut_ptr":

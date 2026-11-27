@@ -19,6 +19,7 @@ SUITE_NAMES = (
     "stop-abort",
     "transposition-table",
     "parallel-move-list",
+    "endgame-result",
 )
 
 

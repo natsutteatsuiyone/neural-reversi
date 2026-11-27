@@ -12,6 +12,7 @@ open SerialTermination (Entry Allowed)
 open TranspositionTable (Selectivity)
 open PvsBoardTree (Position)
 open AspirationMir.SerialStack (State)
+open AspirationMir.SmallRoot (Answer)
 open RootMoveStorage (Row)
 
 abbrev Poll := Nat → Frame → Request → Bool
@@ -201,24 +202,37 @@ private def rootCode (idx : Nat) (c : SerialScout.Config) (b : Position) (base :
   Root.frame mc fc b ctx.request.depth c.paired (base s.opening ctx).memory s.rows idx
     (Trial.ordering m base b root s) s.regs.alpha s.regs.beta
 
-/-- A polled root executes the same frame and before-child probe as the corresponding
-    uninterrupted trial. On an observed stop it keeps the last child's physical state. -/
-def trialAt (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+/-- Retain the completion marker and physical root rows of the polled execution.
+    A stopped child has no root answer; its last physical memory is still retained. -/
+def outcomeAt (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
     (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
-    (s : State) (prior : Memory l) : Option (Memory l) := do
+    (s : State) (prior : Memory l) : Option (Nat × Option Answer × Memory l) := do
   let ctx := SerialRootExecution.context b s.regs.alpha s.regs.beta
   let child := fun i f m => runFuel p c base level screen poll (Board.playRank mc f.request.board.val + 1) i f m
-  let (_,value,n) ← interpret mc fc poll child ctx true s.opening prior (rootCode idx c b base root s prior)
+  let (k,value,n) ← interpret mc fc poll child ctx true s.opening prior (rootCode idx c b base root s prior)
   match value with
-  | none => return n
-  | some out => return n.apply (prior.tt.image.slot b) out.proposal level
+  | none => return (k,none,n)
+  | some out => return (k,some out.answer,n.apply (prior.tt.image.slot b) out.proposal level)
 
-theorem trialAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+/-- The previous memory-only interface is exactly the projection of the richer
+    result; clients concerned only with cache and TT preservation remain unchanged. -/
+def trialAt (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+    (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
+    (s : State) (prior : Memory l) : Option (Memory l) :=
+  (outcomeAt idx p c b base root level screen poll s prior).map (fun out => out.2.2)
+
+/-- Arbitrary polls preserve memory validity. Whenever an answer survives, the
+    exact same root answer, closing activation and physical memory occur in the
+    corresponding uninterrupted executable trial; no no-stop premise is needed. -/
+theorem outcomeAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
     (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
     (s : State) (prior : Memory l) (addr : c.address = p.address) (ok : ReadyMemory p mc fc prior)
     (cover : PvsParallel.Root.Covers mc b (s.rows.map Row.square)) (pos : idx < s.rows.length)
     (window : Aspiration.Window s.regs.alpha.toInt s.regs.beta.toInt) :
-    ∃ after, trialAt idx p c b base root level screen poll s prior = some after ∧ ReadyMemory p mc fc after := by
+    ∃ k answer after, outcomeAt idx p c b base root level screen poll s prior = some (k,answer,after) ∧
+      ReadyMemory p mc fc after ∧ ∀ ans, answer = some ans →
+        (if level.val = 5 then MultiExact.trial idx p c b base root s prior
+          else MultiWeak.trial idx p c b base root level screen s prior) = some (k,ans,after) := by
   let ctx := SerialRootExecution.context b s.regs.alpha s.regs.beta
   let code := rootCode idx c b base root s prior
   let child := fun i (f : Frame) (m : Memory l) => runFuel p c base level screen poll (Board.playRank mc f.request.board.val + 1) i f m
@@ -237,13 +251,13 @@ theorem trialAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Pos
       exact ⟨f,last,v,post,pushed,run,valid,same⟩) s.opening prior ok true
   cases value with
   | none =>
-    refine ⟨n,?_,safe⟩
+    refine ⟨k,none,n,?_,safe,by simp⟩
     change (interpret mc fc poll child ctx true s.opening prior code).bind _ = _
     rw [ran]; rfl
   | some out =>
     have original := (done_ out rfl).2
     let post := n.apply (prior.tt.image.slot b) out.proposal level
-    refine ⟨post,?_,?_⟩
+    refine ⟨k,some out.answer,post,?_,?_⟩
     · change (interpret mc fc poll child ctx true s.opening prior code).bind _ = _
       rw [ran]; rfl
     · by_cases exactLevel : level.val = 5
@@ -257,7 +271,7 @@ theorem trialAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Pos
         obtain ⟨j,ans,next,computed,_,good⟩ := MultiExact.trial_returns idx p c b base root s prior addr ok cover pos window
         rw [returned] at computed
         cases computed
-        exact good
+        exact ⟨good,fun ans same => by cases same; simpa only [exactLevel,ite_true] using returned⟩
       · have weak : level.val < 5 := by have := level.isLt; omega
         have returned : MultiWeak.trial idx p c b base root level screen s prior = some (k,out.answer,post) := by
           simp only [whole,normal,exactLevel,ite_false] at original
@@ -268,16 +282,64 @@ theorem trialAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Pos
         obtain ⟨j,ans,next,computed,good,_⟩ := MultiWeak.trial_returns idx p c addr b base root level weak screen s prior ok cover pos window
         rw [returned] at computed
         cases computed
-        exact good
+        exact ⟨good,fun ans same => by cases same; simpa only [exactLevel,ite_false] using returned⟩
 
-/-- Observing no stop anywhere executes the original trial and leaves identical physical
-    memory, whether the chosen level is selective or exact. -/
-theorem trialAt_uninterrupted (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+/-- A completed polled run supplies its corresponding ordinary execution as a
+    conclusion, so downstream publication proofs need not assume a certificate. -/
+theorem outcomeAt_completed (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+    (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
+    (s : State) (prior : Memory l) (k : Nat) (ans : Answer) (after : Memory l)
+    (addr : c.address = p.address) (ok : ReadyMemory p mc fc prior)
+    (cover : PvsParallel.Root.Covers mc b (s.rows.map Row.square)) (pos : idx < s.rows.length)
+    (window : Aspiration.Window s.regs.alpha.toInt s.regs.beta.toInt)
+    (ran : outcomeAt idx p c b base root level screen poll s prior = some (k,some ans,after)) :
+    ReadyMemory p mc fc after ∧
+      (if level.val = 5 then MultiExact.trial idx p c b base root s prior
+        else MultiWeak.trial idx p c b base root level screen s prior) = some (k,ans,after) := by
+  obtain ⟨j,value,post,run,good,whole⟩ :=
+    outcomeAt_returns idx p c b base root level screen poll s prior addr ok cover pos window
+  rw [ran] at run
+  cases run
+  exact ⟨good,whole ans rfl⟩
+
+/-- At full selectivity an accepted polled outcome has the existing root write
+    and minimax-bound certificate, obtained from its execution rather than supplied
+    by the caller. This statement applies to every root suffix index. -/
+theorem outcomeAt_exact (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+    (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
+    (s : State) (prior : Memory l) (k : Nat) (ans : Answer) (after : Memory l)
+    (addr : c.address = p.address) (ok : ReadyMemory p mc fc prior)
+    (cover : PvsParallel.Root.Covers mc b (s.rows.map Row.square)) (pos : idx < s.rows.length)
+    (window : Aspiration.Window s.regs.alpha.toInt s.regs.beta.toInt) (full : level.val = 5)
+    (ran : outcomeAt idx p c b base root level screen poll s prior = some (k,some ans,after)) :
+    MultiExact.Certified mc fc b idx s ans ∧ ReadyMemory p mc fc after ∧
+      MultiExact.trial idx p c b base root s prior = some (k,ans,after) := by
+  obtain ⟨good,whole⟩ := outcomeAt_completed idx p c b base root level screen poll s prior k ans after
+    addr ok cover pos window ran
+  rw [ite_eq_left full] at whole
+  obtain ⟨j,answer,post,run,cert,_⟩ := MultiExact.trial_returns idx p c b base root s prior addr ok cover pos window
+  rw [whole] at run
+  cases run
+  exact ⟨cert,good,whole⟩
+
+theorem trialAt_returns (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+    (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)
+    (s : State) (prior : Memory l) (addr : c.address = p.address) (ok : ReadyMemory p mc fc prior)
+    (cover : PvsParallel.Root.Covers mc b (s.rows.map Row.square)) (pos : idx < s.rows.length)
+    (window : Aspiration.Window s.regs.alpha.toInt s.regs.beta.toInt) :
+    ∃ after, trialAt idx p c b base root level screen poll s prior = some after ∧ ReadyMemory p mc fc after := by
+  obtain ⟨k,answer,after,ran,good,_⟩ := outcomeAt_returns idx p c b base root level screen poll s prior addr ok cover pos window
+  exact ⟨after,by simp [trialAt,ran],good⟩
+
+/-- With no observed stop the entire root answer, not just its memory projection,
+    agrees with the original exact or selective trial. -/
+theorem outcomeAt_uninterrupted (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
     (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen)
     (s : State) (prior : Memory l) :
-    trialAt idx p c b base root level screen (fun _ _ _ => false) s prior =
+    outcomeAt idx p c b base root level screen (fun _ _ _ => false) s prior =
       (if level.val = 5 then MultiExact.trial idx p c b base root s prior
-        else MultiWeak.trial idx p c b base root level screen s prior).map (fun out => out.2.2) := by
+        else MultiWeak.trial idx p c b base root level screen s prior).map
+          (fun (k,answer,after) => (k,some answer,after)) := by
   let ctx := SerialRootExecution.context b s.regs.alpha s.regs.beta
   let code := rootCode idx c b base root s prior
   let whole : Stack.Child l := fun i f m => normal p c base level screen (Board.playRank mc f.request.board.val + 1) i f m
@@ -297,6 +359,14 @@ theorem trialAt_uninterrupted (idx : Nat) (p : Pool) (c : SerialScout.Config) (b
     unfold MultiWeak.trial
     change ((Stack.interpret (mc := mc) (fc := fc) (WeakStack.run p c base level screen) s.opening ctx prior code).map completed).bind _ = (((Stack.interpret (mc := mc) (fc := fc) (WeakStack.run p c base level screen) s.opening ctx prior code).bind _).map _)
     cases Stack.interpret (mc := mc) (fc := fc) (WeakStack.run p c base level screen) s.opening ctx prior code <;> rfl
+
+theorem trialAt_uninterrupted (idx : Nat) (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
+    (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen)
+    (s : State) (prior : Memory l) :
+    trialAt idx p c b base root level screen (fun _ _ _ => false) s prior =
+      (if level.val = 5 then MultiExact.trial idx p c b base root s prior
+        else MultiWeak.trial idx p c b base root level screen s prior).map (fun out => out.2.2) := by
+  simp only [trialAt,outcomeAt_uninterrupted,Option.map_map,Function.comp_def]
 
 def trial (p : Pool) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc)
     (root : SerialRecursion.RootInput) (level : Selectivity) (screen : WeakStack.Screen) (poll : Poll)

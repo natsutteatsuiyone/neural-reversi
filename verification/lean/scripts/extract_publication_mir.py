@@ -149,7 +149,10 @@ def translate(blocks, method, inputs, variant=None):
         args = [v.text for v in values]
         if name == "RootMoves::snapshot":
             return Value("rows", f"(snapshot {args[0]})")
-        if name == "std::slice::<impl [RootMove]>::sort_by_key::<Reverse<Score>, CLOSURE>":
+        # Match the same two rustc spellings already accepted for the root sort;
+        # the receiver, key closure and subsequent effects are still checked.
+        if name in ("std::slice::<impl [RootMove]>::sort_by_key::<Reverse<Score>, CLOSURE>",
+                    "slice::<impl [RootMove]>::sort_by_key::<Reverse<Score>, CLOSURE>"):
             ptr, key = values
             checked(ptr.place in env and key.kind == "closure", "sort receiver or key")
             env[ptr.place] = Value("rows", f"(sort.byReverseKey {key.text} {ptr.text})")

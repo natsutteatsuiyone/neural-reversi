@@ -13,14 +13,15 @@ These models check hand-written protocol specifications under small bounds rathe
 | [`stop-abort`](stop-abort/README.md) | `StopAbort.tla` | `search/stop.rs`, `search/threading/{abort.rs,pool.rs}`, `search/time_control.rs` | Scoped `StopToken` attachment, timer aborts, and wrapping `AbortState` generations |
 | [`transposition-table`](transposition-table/README.md) | `TranspositionTable.tla` | `transposition_table.rs` | Lock-free SeqLock concurrent probe, save, clear, and replacement protocol |
 | [`parallel-move-list`](parallel-move-list/README.md) | `ConcurrentMoveList.tla` | `move_list/{iterator.rs,move_array.rs}`, `search/threading/in_flight.rs`, `search/pvs.rs` | Weak-CAS `ConcurrentMoveIterator`, `InFlightTable` slot ownership, and bounded `Busy` postponement |
+| [`endgame-result`](endgame-result/README.md) | `EndgameResult.tla` | `search/pvs.rs`, `search/threading/{thread.rs,split_point.rs}` | Split search values, stale-alpha PV re-search, locked result publication, cancellation, and owner readback |
 
 ## Run
 
 Run from the repository root with Java 11 or later and Python 3.10 or later on `PATH`:
 
 ```bash
-python3 verification/tla/check.py                          # clean check across all 5 suites
-python3 verification/tla/check.py --mutants                # run every mutant across all 5 suites
+python3 verification/tla/check.py                          # clean check across all 6 suites
+python3 verification/tla/check.py --mutants                # run every mutant across all 6 suites
 python3 verification/tla/check.py --deep                   # run deep bounds where configured
 python3 verification/tla/check.py --all                    # clean + deep + all mutants
 python3 verification/tla/check.py --suite stop-abort --all # run one suite
@@ -43,7 +44,7 @@ npm exec --yes --package=@informalsystems/quint@0.34.0 -- python3 verification/t
 ## Shared files
 
 - [`tlc_runner.py`](tlc_runner.py): Shared `SuiteSpec`, `tla2tools.jar` fetcher/verifier, PlusCal translator, TLC runner, and mutant matcher.
-- [`check.py`](check.py): Top-level runner that dynamically loads `SUITE` from all five TLA+ suites.
+- [`check.py`](check.py): Top-level runner that dynamically loads `SUITE` from all six TLA+ suites.
 - [`trace.py`](trace.py): Pretty-prints a TLC counterexample one step per line (`python3 verification/tla/trace.py target/tla/<suite>/<run>/tlc.out`).
 - [`quint_tlc.py`](quint_tlc.py): Shared Quint-to-TLA+ compiler, TLC witness extractor, and Lean replay helper used by [`lean-witnesses/`](lean-witnesses/README.md).
 

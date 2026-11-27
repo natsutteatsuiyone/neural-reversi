@@ -65,7 +65,7 @@ def render(dump, repo):
             return "jump", [int(m[1])]
         if line == "return;":
             return "done", []
-        checked(re.fullmatch(r'_\d+ = panic\(const ".+"\) -> bb\d+;', line), f"unknown terminator at bb{pc}: {line}")
+        checked(re.fullmatch(r'_\d+ = (?:core::panicking::)?panic\(const ".+"\) -> bb\d+;', line), f"unknown terminator at bb{pc}: {line}")
         return "jump", []
 
     nodes = {pc: instruction(pc, lines[-1]) for pc, lines in cfg.items()}

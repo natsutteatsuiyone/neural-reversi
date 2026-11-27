@@ -1,4 +1,4 @@
-"""Translate the non-aborted endgame ladder, including normal and time-limit returns."""
+"""Translate the endgame ladder, including its separate abort and clock checks."""
 
 import itertools
 import re
@@ -28,7 +28,7 @@ CAPTURE = "CompletedState::iteration_completed"
 FINISH = "CompletedState::into_result"
 
 
-def execute(cfg, names, start, stops, options):
+def execute(cfg, names, start, stops, options, *, before_abort=False, after_abort=False, polled=False):
     timer, cb, have_row, have_pv, have_level, above, reportable, stop, timeout = options
     env = {"_1": ("ref", "ctx"), "_2": ("ref", "task"), "_3": ("ref", "arc"), "_4": "base",
            "_5": "completed", "_6": "minimum", "_7": "last"}
@@ -44,6 +44,10 @@ def execute(cfg, names, start, stops, options):
         env[names["ladder"]] = "enumerated"
     events = []
     pc = start
+
+    def effect(name):
+        if polled:
+            events.append(name)
 
     def ref(value):
         checked(isinstance(value, tuple) and value[0] == "ref", f"not a reference {value}")
@@ -134,7 +138,9 @@ def execute(cfg, names, start, stops, options):
             "<Score as Add>::add": (["reply","const search::endgame::INTER_SELECTIVITY_DELTA"],"high"),
             "<Score as Ord>::min": (["high","const score::Score::INF"],"nextBeta"),
             "<Arc<threading::thread::Thread> as Deref>::deref": (["arc"],("ref","thread")),
-            "threading::thread::Thread::is_search_aborted": (["thread"],0),
+            "threading::thread::Thread::is_search_aborted":
+                (["thread"],int(before_abort if pc == names["before_abort"] else after_abort)),
+            "record_abort": (["time" if timer else "none"],"unit"),
             SORT: (["roots"],"unit"), MARK: (["completed","ctx","depth",1],"maybeCaptured"),
             "RootMoves::current_pv": (["roots"],"rowOption" if have_row else "none"),
             "SearchProgress::from_iteration": (["ctx","row","depth","depth","reply","nodes",1],"progress"),
@@ -149,7 +155,18 @@ def execute(cfg, names, start, stops, options):
             checked(vals==expected,f"{fn} expected {expected}, got {vals}")
             if fn in (QUERY,MARK,CAPTURE):
                 checked(env["sel"]=="level", "reported selectivity not the current level")
-            if fn in (QUERY,SORT,MARK,CAPTURE,FINISH,"RootMoves::set_pv_idx","CompletedState::begin_phase"):
+            if polled:
+                projected = {
+                    QUERY: "query", SORT: "sortRows", MARK: "lineCompleted",
+                    CAPTURE: "iterationCompleted", FINISH: "returnResult",
+                    "RootMoves::set_pv_idx": "setPvIndex",
+                    "CompletedState::begin_phase": "beginPhase",
+                    "threading::thread::Thread::is_search_aborted": "pollAbort",
+                    "record_abort": "recordAbort",
+                }
+                if fn in projected:
+                    events.append(projected[fn])
+            elif fn in (QUERY,SORT,MARK,CAPTURE,FINISH,"RootMoves::set_pv_idx","CompletedState::begin_phase"):
                 events.append(fn)
             return result
         if fn.startswith("Option::<&TimeManager>::map::<EndgameClock"):
@@ -164,9 +181,11 @@ def execute(cfg, names, start, stops, options):
         if m := re.fullmatch(r"Option::<&EndgameClock<'_>>::is_some_and::<(\{closure@[^}]+\})>",fn):
             checked(vals==["clockRef" if timer else "none",("closure",m[1],("step",names["step"]))],
                     "clock observed wrong level")
+            effect("clockCheck")
             return int(timer and stop)
         if m := re.fullmatch(r"Option::<&TimeManager>::is_some_and::<(\{closure@[^}]+\})>",fn):
             checked(vals==["time" if timer else "none",("closure",m[1],None)],"time poll")
+            effect("timeCheck")
             return int(timer and timeout)
         raise ValueError(f"bb{pc} unknown {fn} {vals}")
 
@@ -182,7 +201,14 @@ def execute(cfg, names, start, stops, options):
             where=place(m[1])
             env[where]=expr(m[2])
             if where == "sel":
-                events.append(("set",env[where]))
+                if polled:
+                    checked(env[where] in ("Selectivity::None", "level"), "unknown selectivity write")
+                    events.append("prepareEndgame" if env[where] == "Selectivity::None" else "setLevel")
+                else:
+                    events.append(("set",env[where]))
+            if polled and where == names["beta"] and env[where] == "nextBeta":
+                checked(env[names["alpha"]] == "nextAlpha", "next beta precedes next alpha")
+                events.append("nextWindow")
         if m:=re.fullmatch(CALL,end):
             env[m[1]]=call(m[2],m[3])
             pc=int(m[4])
@@ -202,6 +228,36 @@ def execute(cfg, names, start, stops, options):
         else:
             raise ValueError(f"bb{pc} unsupported {end}")
     raise ValueError("loop did not reach a cutpoint")
+
+
+def normal_successors(cfg, pc):
+    checked(pc in cfg, f"unknown basic block bb{pc}")
+    end = cfg[pc][-1]
+    if m := re.fullmatch(CALL, end):
+        return (int(m[4]),)
+    if m := re.fullmatch(r"switchInt\(move _\d+\) -> \[((?:\d+: bb\d+, )*otherwise: bb\d+)\];", end):
+        return tuple(int(target) for target in re.findall(r": bb(\d+)", m[1]))
+    if m := re.fullmatch(GOTO, end):
+        return (int(m[1] or m[2]),)
+    if m := re.fullmatch(r"drop\(_\d+\) -> \[return: bb(\d+), unwind: bb\d+\];", end):
+        return (int(m[1]),)
+    if end in ("return;", "unreachable;"):
+        return ()
+    raise ValueError(f"bb{pc} unsupported {end}")
+
+
+def reachable(cfg, start, blocked):
+    seen = set()
+    stack = [start]
+    while stack:
+        pc = stack.pop()
+        if pc in seen or pc in blocked:
+            continue
+        seen.add(pc)
+        for target in normal_successors(cfg, pc):
+            if target not in seen and target not in blocked:
+                stack.append(target)
+    return seen
 
 
 def locations(cfg,source):
@@ -225,11 +281,27 @@ def locations(cfg,source):
     (_,follow),=drops
     next_drop=re.fullmatch(r"drop\(_\d+\) -> \[return: bb(\d+), unwind: bb\d+\];",cfg[follow][-1])
     checked(next_drop,"missing full level iterator drop")
-    return names,heads[ITER_PV],heads[ITER_SEL],int(next_drop[1])
+    lines, levels, after = heads[ITER_PV], heads[ITER_SEL], int(next_drop[1])
+    aborts = {n for n, body in cfg.items()
+              if (m := re.fullmatch(CALL, body[-1])) and m[2] == "threading::thread::Thread::is_search_aborted"}
+    checked(len(aborts) == 2, "expected the two solve_root abort observations")
+    before_aborts = aborts & reachable(cfg, levels, {lines, after})
+    after_aborts = aborts & reachable(cfg, after, {lines, levels})
+    checked(len(before_aborts) == 1 and len(after_aborts) == 1
+            and before_aborts.isdisjoint(after_aborts)
+            and (before_aborts | after_aborts) == aborts,
+            "ambiguous solve_root abort observations")
+    (names["before_abort"],) = before_aborts
+    (names["after_abort"],) = after_aborts
+    return names, lines, levels, after
 
 
 def check_ladder(dump):
     source=(dump/(ROOT+"solve_root"+PASS)).read_text(encoding="utf-8")
+    check_ladder_source(source)
+
+
+def check_ladder_source(source):
     checked(source.startswith("// MIR for `search::endgame::solve_root` after SimplifyCfg-initial\n"), "wrong solve_root")
     cfg=blocks(source)
     names,lines,levels,after=locations(cfg,source)
@@ -262,6 +334,103 @@ def check_ladder(dump):
         opts=(timed,False,False,False,False,False,False,False,timeout)
         out,seen,_=execute(cfg,names,after,stops,opts)
         checked((out,seen)==(("return",[FINISH]) if timed and timeout else ("line",[])),"wrong end of line")
+
+
+def polled_paths(source):
+    """Extract the effects between loop cutpoints, including both abort reads.
+
+    Callback presence, a current PV row and the optional timer are explored in
+    the real CFG. They are removed from the table only after their projections
+    agree. The two abort observations remain independent; no latch assumption
+    is used by the extractor.
+    """
+    checked(source.startswith("// MIR for `search::endgame::solve_root` after SimplifyCfg-initial\n"),
+            "wrong solve_root")
+    cfg = blocks(source)
+    names, lines, levels, after = locations(cfg, source)
+    stops = {lines: "line", levels: "level", after: "afterLine"}
+    paths = {}
+
+    def record(kind, key, start, options, before=False, later=False):
+        out, effects, env = execute(cfg, names, start, stops, options,
+                                    before_abort=before, after_abort=later, polled=True)
+        actual = ("returned" if out == "return" else out, tuple(effects))
+        item = (kind, key)
+        if item in paths:
+            checked(paths[item] == actual, f"{kind}{key}: erased inputs change the control effects")
+        else:
+            paths[item] = actual
+        return env
+
+    for timer, callback in itertools.product((False, True), repeat=2):
+        env = record("entry", (), 0, (timer, callback, False, False, False, False, False, False, False))
+        checked(env["mode"] == "EvalMode::Small" and env[names["lines"]] == "range",
+                "wrong polled entry state")
+
+    for timer, callback, row, have_line, publish in itertools.product((False, True), repeat=5):
+        env = record("line", (have_line, publish), lines,
+                     (timer, callback, row, have_line, False, False, publish, False, False))
+        if have_line:
+            checked(env[names["ladder"]] == "enumerated"
+                    and [env[names[n]] for n in ("alpha", "beta")] == ["alpha", "beta"],
+                    "bad polled line entry")
+
+    for timer, callback, row, item, above, publish, stop, abort in itertools.product((False, True), repeat=8):
+        env = record("level", (item, above, publish, abort, timer and stop), levels,
+                     (timer, callback, row, True, item, above, publish, stop, False), before=abort)
+        if item and not above:
+            checked([env[names[n]] for n in ("alpha", "beta")] == ["nextAlpha", "nextBeta"],
+                    "polled query did not update the next-level window")
+
+    for timer, timeout, abort in itertools.product((False, True), repeat=3):
+        record("afterLine", (abort, timer and timeout), after,
+               (timer, False, False, False, False, False, False, False, timeout), later=abort)
+
+    checked(len(paths) == 41, f"expected 41 projected cutpoint cases, saw {len(paths)}")
+    return paths
+
+
+def render_polled(dump, _repo):
+    source = (dump / (ROOT + "solve_root" + PASS)).read_text(encoding="utf-8")
+    paths = polled_paths(source)
+
+    def transition(path):
+        next_, effects = path
+        return "⟨." + next_ + ", [" + ", ".join("." + effect for effect in effects) + "]⟩"
+
+    def table(name, kind, count):
+        keys = list(itertools.product((False, True), repeat=count))
+        typ = " × ".join(["Bool"] * count)
+        rows = ["  ((" + ", ".join(str(b).lower() for b in key) + "), "
+                + transition(paths[(kind, key)]) + ")" for key in keys]
+        return [f"def {name} : List (({typ}) × Transition) := [", ",\n".join(rows) + "]", ""]
+
+    return "\n".join([
+        "import NeuralReversi.OuterMir.Program", "",
+        "namespace NeuralReversi.OuterMir.Polled", "",
+        "/-- Generated from the normal edges of the pinned `solve_root` MIR.",
+        "    Separate inputs retain the two independently observed abort values. -/",
+        "inductive Cutpoint where", "  | entry | line | level | afterLine | returned",
+        "deriving DecidableEq, Repr", "",
+        "inductive Effect where",
+        "  | beginPhase | prepareEndgame | setPvIndex | setLevel | query | nextWindow",
+        "  | pollAbort | recordAbort | sortRows | lineCompleted | clockCheck",
+        "  | iterationCompleted | timeCheck | returnResult",
+        "deriving DecidableEq, Repr", "",
+        "structure Transition where", "  next : Cutpoint", "  effects : List Effect",
+        "deriving DecidableEq, Repr", "",
+        "def entry : Transition := " + transition(paths[("entry", ())]), "",
+        *table("lineTable", "line", 2),
+        *table("levelTable", "level", 5),
+        *table("afterLineTable", "afterLine", 2),
+        "def lineStep (hasLine reportable : Bool) : Option Transition :=",
+        "  lineTable.lookup (hasLine, reportable)", "",
+        "def levelStep (hasLevel aboveCap reportable beforeAbort clockStop : Bool) : Option Transition :=",
+        "  levelTable.lookup (hasLevel, aboveCap, reportable, beforeAbort, clockStop)", "",
+        "def afterLineStep (afterAbort timeout : Bool) : Option Transition :=",
+        "  afterLineTable.lookup (afterAbort, timeout)", "",
+        "end NeuralReversi.OuterMir.Polled", "",
+    ])
 
 
 def ladder_constants(dump, repo):

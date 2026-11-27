@@ -56,6 +56,12 @@ def normal_blocks(source, callbacks):
     cleanup = set(re.findall(r"^    (bb\d+) \(cleanup\): \{", source, re.M))
     def compact(line):
         line = line.replace(" = core::panicking::panic(", " = panic(")
+        # rustc also prints re-exported standard-library methods with or without
+        # `std::`/`alloc::`. Keep type arguments, operands and control edges intact.
+        line = re.sub(r" = (?:alloc::)?slice::<impl \[RootMove\]>::sort_by_key::<",
+                      " = std::slice::<impl [RootMove]>::sort_by_key::<", line)
+        line = re.sub(r" = (?:alloc::)?boxed::box_assume_init_into_vec_unsafe::<",
+                      " = std::boxed::box_assume_init_into_vec_unsafe::<", line)
         for span, name in callbacks.items():
             line = line.replace(span, name)
         if m := re.fullmatch(r"(.+) -> \[return: bb(\d+), unwind: (bb\d+)\];", line):

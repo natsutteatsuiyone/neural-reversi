@@ -134,11 +134,13 @@ import NeuralReversi.Threading.SplitOwnerStack
 import NeuralReversi.Threading.SplitShutdown
 import NeuralReversi.Threading.ArcDrop
 import NeuralReversi.Threading.SearchAbort
+import NeuralReversi.Threading.SearchAbort.Persistent
 import NeuralReversi.SearchFallback
 import NeuralReversi.Threading.SplitBorrow
 import NeuralReversi.Threading.SplitStartup
 import NeuralReversi.Threading.SplitResult
 import NeuralReversi.Threading.SplitWindow
+import NeuralReversi.Threading.SplitWindow.Regression
 import NeuralReversi.Threading.SplitWindow.Stores
 import NeuralReversi.Threading.SplitReturn
 import NeuralReversi.Solve34.TreeBridge
@@ -153,6 +155,8 @@ import NeuralReversi.PvsParallel.TableReads
 import NeuralReversi.PvsParallel.SlotJournal
 import NeuralReversi.ExactEndgameScore
 import NeuralReversi.PublicationMir.ExactScore
+import NeuralReversi.PublicationMir.InterruptedExact
+import NeuralReversi.OuterMir.Polled
 import NeuralReversi.AspirationMir.SerialEntry
 import NeuralReversi.AspirationMir.SerialExact
 import NeuralReversi.AspirationMir.SerialMoveStorage
@@ -163,6 +167,8 @@ import NeuralReversi.AspirationMir.SerialTable.OnePlySeed
 import NeuralReversi.AspirationMir.SerialTable.MidgameHandoff
 import NeuralReversi.AspirationMir.SerialTable.MidgameSession
 import NeuralReversi.AspirationMir.SerialTable.MultiHistory
+import NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.Uninterrupted
+import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir
 import NeuralReversi.PvsParallel.SerialTable.Prefix
 import NeuralReversi.PvsParallel.SerialTable.Fallback
 import NeuralReversi.AspirationMir.SerialCache.Warm
@@ -1423,6 +1429,12 @@ def entries : List Entry := [
   property := "NeuralReversi.Threading.SearchAbort.GenerationWordContract"
   theoremName := "NeuralReversi.Threading.SearchAbort.generationWordContract_proven"
   notes := "Starting a search increments the high generation modulo 2^32 and writes the previous generation to the low marker. The new search always starts active, including at wraparound. A request copies the current generation into the marker. A request for a different generation has no update." },
+{ id := "threading.abort-observation-persistence"
+  functions := ["AbortState::request_abort", "AbortState::request_abort_for", "AbortState::is_aborted"]
+  status := "proven"
+  property := "NeuralReversi.Threading.SearchAbort.Persistent.Contract"
+  theoremName := "NeuralReversi.Threading.SearchAbort.Persistent.contract_proven"
+  notes := "For two sequenced reads of the same generation word, read-read coherence and an intervening modification-order interval containing only abort requests or unchanged words preserve an observed stop. Arbitrarily many updates and stale targeted requests are allowed. A begin_search reset is excluded explicitly; identifying native active-request intervals and helper-job flags is outside this contract." },
 { id := "threading.stop-token-registration"
   functions := ["StopToken::stop", "StopToken::attach", "StopAttachment::drop"]
   status := "proven"
@@ -1525,6 +1537,18 @@ def entries : List Entry := [
   property := "NeuralReversi.Threading.SplitWindow.CutoffWitnessContract"
   theoremName := "NeuralReversi.Threading.SplitWindow.cutoffWitnessContract_proven"
   notes := "A locked report that marks its own split cutoff establishes a score at or above beta or the legal score ceiling. The best-score update preserves this threshold through every later report." },
+{ id := "threading.split-stale-alpha-retry-regression"
+  functions := ["search_split_point", "SplitPointState::alpha"]
+  status := "proven"
+  property := "NeuralReversi.Threading.SplitWindow.Regression.StaleAlphaRetryContract"
+  theoremName := "NeuralReversi.Threading.SplitWindow.Regression.staleAlphaRetryContract_proven"
+  notes := "For any alpha < scout <= fresh < true value < beta, the scout is a sound lower bound, but skipping PV re-search after comparing it with fresh alpha produces an unsound final bound. The existing old-alpha guard retries and selects the sound wide result. This is an abstract score counterexample family, not a native board witness." },
+{ id := "threading.split-scaled-retry-witness"
+  functions := ["search_split_point"]
+  status := "proven"
+  property := "NeuralReversi.Threading.SplitWindow.Regression.ScaledWitness"
+  theoremName := "NeuralReversi.Threading.SplitWindow.Regression.scaledWitness_proven"
+  notes := "Concrete two/four/six-disc witness in the engine's 256-scaled units. The two-disc scout cannot be discarded just because a sibling has raised alpha to four discs." },
 { id := "threading.split-claim-coverage"
   functions := ["search_split_point", "Thread::search_active_split_point", "Thread::idle_loop"]
   status := "proven"
@@ -1847,6 +1871,42 @@ def entries : List Entry := [
   property := "NeuralReversi.PublicationMir.ExactScore.Contract"
   theoremName := "NeuralReversi.PublicationMir.ExactScore.contract_proven"
   notes := "A returned BestMove marked endgame and Selectivity::None has raw score 256 times disc minimax, given the maximum of the captured rows or the admitted publication and read of the reported exact TT entry. All other exits need no score witness." },
+{ id := "search.interrupted-exact-public-score"
+  functions := ["endgame::solve_root", "CompletedState::line_completed", "CompletedState::into_result"]
+  status := "proven"
+  property := "NeuralReversi.PublicationMir.InterruptedExact.Contract"
+  theoremName := "NeuralReversi.PublicationMir.InterruptedExact.contract_proven"
+  notes := "For a matched single-PV completion history, exact attempts derive their row maxima from completed root-trial certificates. Any number of aborted attempts preserves the saved score; an exact-tagged interrupted public return satisfies minimax without a final RowScores assumption. The no-snapshot TT fallback still requires a sound table history; mapping every Rust stop execution to the modeled history remains outside this theorem." },
+{ id := "search.endgame-aspiration-polled-mir"
+  functions := ["endgame::aspiration_search", "widen_aspiration_window"]
+  status := "proven"
+  property := "NeuralReversi.AspirationMir.Polled.Contract"
+  theoremName := "NeuralReversi.AspirationMir.Polled.contract_proven"
+  notes := "The generated aspiration MIR returns its actual last query word for arbitrary abort observations. A non-aborted return lies inside the accepted window. If only non-aborted query words are finite, it returns in at most twelve root calls; stopped words need no numerical bound." },
+{ id := "search.endgame-polled-attempt-mir-witness"
+  functions := ["endgame::aspiration_search", "endgame::search_root"]
+  status := "proven"
+  property := "NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir.Contract"
+  theoremName := "NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir.contract_proven"
+  notes := "A valid executable serial attempt constructs its own reached call sequence, actual before/after memories, twelve-call bound and a generated-MIR Returns witness. Completed receipts retain their derived numerical guarantees and are the same call as the MIR return. The unconditional witness uses child interruption OR the supplied root poll; identifying that effective abort with the native root poll requires the separate reached-state Coherent premise." },
+{ id := "search.endgame-outer-abort-mir-projection"
+  functions := ["endgame::solve_root", "CompletedState::line_completed", "CompletedState::into_result"]
+  status := "proven"
+  property := "NeuralReversi.OuterMir.Polled.AbortContract"
+  theoremName := "NeuralReversi.OuterMir.Polled.abort_contract_proven"
+  notes := "The generated outer MIR segments retain both abort observations and interpret their snapshot effects. When these observations are sequenced reads of the persistent global abort word in one active request, their composition leaves the entire completion state unchanged and returns its extracted intoResult, for arbitrary live query rows. This justifies the immediate-stop publication projection at these cutpoints; helper flags, whole-run refinement and parallel execution remain separate obligations." },
+{ id := "search.endgame-polled-serial-public-score"
+  functions := ["endgame::search_root", "endgame::solve_root", "endgame::aspiration_search", "CompletedState::into_result", "tt_move"]
+  status := "proven"
+  property := "NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.Contract"
+  theoremName := "NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.cold"
+  notes := "The executable serial single-PV driver returns for every modeled stop schedule from a cold table and a mobile board with at most 35 empties. Every exact-tagged return has the minimax score. Polled root outcomes construct the completed certificates; aspiration retries and levels carry actual memory; only accepted completions replace the saved snapshot; a missing snapshot probes the resulting physical TT. No supplied completion history, saved row bound, fallback result or global mobility certificate is required. Native execution refinement, parallel splits and interrupted Multi-PV publication remain outside this theorem." },
+{ id := "search.endgame-polled-no-stop-exact-score"
+  functions := ["endgame::search_root", "endgame::solve_root", "endgame::aspiration_search", "CompletedState::into_result"]
+  status := "proven"
+  property := "NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.Uninterrupted.Contract"
+  theoremName := "NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.Uninterrupted.cold_exact"
+  notes := "With no observed stop and requested selectivity 5, the same polled serial driver actually publishes an exact-tagged minimax result. This rules out satisfying the public safety contract merely by always returning an unmarked fallback. The cold-board capacity and model boundaries are the same as the companion polled public-score contract." },
 { id := "search.endgame-serial-small-public-score"
   functions := ["endgame::search_root", "endgame::solve_root", "endgame::aspiration_search", "CompletedState::into_result"]
   status := "proven"

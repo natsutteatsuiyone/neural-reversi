@@ -233,7 +233,7 @@ def render(dump, repo, *, fields=False):
                             "empty iterator has an effect")
                     return ".exhausted"
                 return end("stopped" if "stopped" in seen else "cutoff")
-            elif re.fullmatch(r'_\d+ = panic\(const ".+"\) -> bb\d+;',term) and phase=="search":
+            elif re.fullmatch(r'_\d+ = (?:core::panicking::)?panic\(const ".+"\) -> bb\d+;',term) and phase=="search":
                 return "none"
             else:
                 raise ValueError(f"bb{pc}: {term}")

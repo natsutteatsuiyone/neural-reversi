@@ -71,9 +71,15 @@ def check(dump):
         cfg = blocks(source)
         checked(cfg.keys() == set(range(len(expected))), f"{function}: unexpected normal move-list blocks")
         for pc, wanted in enumerate(expected):
-            actual = [line for line in ordinary(cfg[pc]) if not re.fullmatch(
-                r"FakeRead\(ForLet\(None\), _\d+\);|"
-                r"AscribeUserType\(_\d+, o, UserTypeProjection \{ base: UserType\(\d+\), projs: \[\] \}\);", line)]
+            actual = [
+                re.sub(r" = (?:core::)?slice::from_raw_parts::", " = std::slice::from_raw_parts::", line)
+                for line in ordinary(cfg[pc])
+                if not re.fullmatch(
+                    r"FakeRead\(ForLet\(None\), _\d+\);|"
+                    r"AscribeUserType\(_\d+, o, UserTypeProjection \{ base: UserType\(\d+\), projs: \[\] \}\);",
+                    line,
+                )
+            ]
             checked(actual == wanted, f"{function}: bb{pc} changes serial move-list data flow: {actual}")
 
 

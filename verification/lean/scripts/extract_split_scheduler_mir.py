@@ -5,7 +5,7 @@ from functools import cache
 from mir_common import run_extractor_cli, blocks, CALL, GOTO, checked
 
 def edges(term):
-    if term in ('return;', 'unreachable;') or re.fullmatch(r'_\d+ = (?:panic|panic_fmt)\(.+\) -> bb\d+;', term):
+    if term in ('return;', 'unreachable;') or re.fullmatch(r'_\d+ = (?:(?:core::panicking::)?panic|(?:(?:std::rt|core::panicking)::)?panic_fmt)\(.+\) -> bb\d+;', term):
         return []
     if m := re.fullmatch(GOTO, term):
         return [int(m[1] or m[2])]

@@ -15,6 +15,8 @@ import check_move_iterator_mir
 import check_cutoff_poll_mir
 import check_move_generation_mir
 import check_result_guards_mir
+import check_outer_abort_mir
+import check_outer_state
 import check_serial_move_list_mir
 import check_serial_leaf_restore_mir
 import check_serial_child_calls_mir
@@ -120,6 +122,11 @@ def check_inputs(dump, repo, write=False):
     print(f"checked timed midgame handoff and rejected {check_midgame_handoff_mir.check(dump)} MIR mutants")
     check_result_guards_mir.check(dump)
     print(f"checked public result guards and rejected {check_result_guards_mir.check_mutants(dump)} MIR mutants")
+    print(f"checked {check_outer_abort_mir.check(dump)} polled outer cases and rejected "
+          f"{check_outer_abort_mir.check_mutants(dump)} MIR mutants")
+    check_outer_state.check(dump)
+    print(f"checked completion-state construction and rejected "
+          f"{check_outer_state.check_mutants(dump)} MIR mutants")
     check_move_generation_mir.check(dump)
     print(f"checked move generation and rejected {check_move_generation_mir.check_mutants(dump)} MIR mutants")
     print(f"checked fixed solver context effects and rejected {check_serial_leaf_restore_mir.check(dump)} MIR mutants")
@@ -139,6 +146,8 @@ def check_inputs(dump, repo, write=False):
         ("PvsParallel/RootStorageMir/Program.lean", extract_root_rows.render(dump, repo)),
         ("PvsParallel/NativeStopReturns/Program.lean", extract_stop_returns.render(dump)),
         ("OuterMir/Program.lean", extract_outer.render(dump, repo)),
+        ("OuterMir/PolledProgram.lean", extract_outer.render_polled(dump, repo)),
+        ("OuterMir/CompletionProgram.lean", check_outer_state.render_completion(dump, repo)),
         ("EndgameSearch/Direct/Mir/Program.lean", extract_fixed_leaf_mir.verify(dump, repo)),
         ("EndgameSearch/CacheMir/Program.lean", extract_cache.render(dump, repo)),
         ("EndgameSearch/CacheMir/Budgets.lean", extract_cache_budgets.render(dump, repo)),
