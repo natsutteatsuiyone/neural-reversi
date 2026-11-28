@@ -158,6 +158,14 @@ cargo make build-dist gui linux x86-64-v3
 cargo make build-dist all macos apple-m1
 ```
 
+### Profile-guided native builds
+
+```text
+cargo make build-pgo <cli|gui|all>
+```
+
+For local use on the build host. The task builds instrumented `cli` and `search-test` binaries, runs a short endgame and midgame workload from `problem/` to collect profiles, and then runs `build-dist <cli|gui|all> <host platform> native` with the profile applied. Artifacts get a `-pgo` suffix, such as `neural-reversi-cli-<version>-windows-native-pgo.exe`. It needs an `llvm-profdata` that matches the toolchain's LLVM: install it with `rustup component add llvm-tools`, or put one on `PATH`.
+
 ### Native GUI checks
 
 ```bash
