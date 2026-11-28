@@ -3,7 +3,7 @@ import re
 from extract_split_scheduler_mir import Body,edges
 from extract_split_activation_mir import THREAD,RELEASE,field,drop_of,idle_authorization
 from extract_worker_frame_mir import SUFFIX,TH,inspect_fields
-from mir_common import PASS, run_extractor_cli, CALL, checked
+from mir_common import PASS, run_extractor_cli, CALL, checked, iter_mir_texts
 
 def single(b,pattern):
     xs=[(p,re.fullmatch(CALL,ls[-1])) for p,ls in b.cfg.items() if re.search(pattern,ls[-1])]
@@ -75,12 +75,11 @@ def render(dump):
     for pc in drop_of(fin,locked[1]):fin.marks[pc]=['unlock']
     checked(fin.projection()==['lock','false','unlock'],'helper completion protection')
     users=set()
-    for file in dump.glob('*'+SUFFIX):
-        text=file.read_text(encoding='utf8')
-        if re.search(r'\.6: std::sync::Mutex<std::option::Option<std::sync::Arc<dyn for<',text):users.add(file.name.removesuffix(SUFFIX))
+    for file, text in iter_mir_texts(dump, SUFFIX):
+        if '.6: std::sync::Mutex<std::option::Option<std::sync::Arc<dyn for<' in text:
+            users.add(file.name.removesuffix(SUFFIX))
     checked(users=={TH+'idle_loop',TH+'book_helper_job'},'unknown job option mutator')
-    return '\n'.join(['import NeuralReversi.PvsParallel.SlotFrameMir.Live','',
-      'namespace NeuralReversi.PvsParallel.SlotFrameMir','',
+    return '\n'.join(['module', '', '@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SlotFrameMir','',
       'def dispatchWork (searching job : Bool) := searching && !job',
       'def completedHelperBusy := false',
       'def postHelperJob := true','',

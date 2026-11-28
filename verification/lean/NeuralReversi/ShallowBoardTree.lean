@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameCutoffs
-import NeuralReversi.ShallowSearch
+module
+public import NeuralReversi.EndgameCutoffs
+public import NeuralReversi.ShallowSearch
+
+@[expose] public section
 
 namespace NeuralReversi.ShallowBoardTree
 

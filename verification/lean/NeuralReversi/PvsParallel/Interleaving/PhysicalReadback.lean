@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
-import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
-import NeuralReversi.PvsParallel.Interleaving.WriterErasure
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
+public import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
+public import NeuralReversi.PvsParallel.Interleaving.WriterErasure
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
 

@@ -1,4 +1,6 @@
-import Std
+module
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Scalar
 
@@ -7,6 +9,16 @@ abbrev Word := BitVec 64
 def leadingZeros32 (x : Word) : BitVec 32 := BitVec.ofNat 32 x.clz.toNat
 
 def shiftCount32 (x : Word) : BitVec 32 := 64#32 - 1#32 - leadingZeros32 x
+
+def shiftCount32Fast (x : Word) : BitVec 32 :=
+  if x = 0 then -1 else BitVec.ofNat 32 x.toNat.log2
+
+def flipRightValue (mask player notOpponent : Word) : Word :=
+  let x := notOpponent &&& mask
+  if x = 0 then 0
+  else
+    let flank := 1#64 <<< shiftCount32 x
+    if flank &&& player ≠ 0 then mask &&& ~~~(flank ||| (flank - 1#64)) else 0
 
 def flipLeft (mask player notOpponent : Word) : Word :=
   let x := notOpponent &&& mask

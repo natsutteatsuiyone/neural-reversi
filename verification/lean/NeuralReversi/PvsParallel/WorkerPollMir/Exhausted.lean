@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.WorkerPollMir.Dispatch
-import NeuralReversi.PvsParallel.NativeSplit
+module
+public import NeuralReversi.PvsParallel.WorkerPollMir.Dispatch
+public import NeuralReversi.PvsParallel.NativeSplit
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 

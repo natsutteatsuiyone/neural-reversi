@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.NestedRetention
-import NeuralReversi.PvsParallel.Interleaving.TaskAncestry
+module
+public import NeuralReversi.PvsParallel.Interleaving.NestedRetention
+public import NeuralReversi.PvsParallel.Interleaving.TaskAncestry
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.TaskRetention
 
@@ -9,7 +12,7 @@ open CutoffVisibility (History HappensBefore FlagRead)
 open SplitCompletion (Action RetainedThrough)
 open TaskAncestry (Generation)
 
-private def put [DecidableEq α] (f : α → β) (k : α) (v : β) (x : α) := if x=k then v else f x
+def put [DecidableEq α] (f : α → β) (k : α) (v : β) (x : α) := if x=k then v else f x
 
 structure Dispatch where
   gen : Generation
@@ -39,7 +42,7 @@ def empty : State := ⟨fun _ => none,fun _ => none,fun _ => [],fun _ => none,fu
 
 abbrev Address := Nat → Nat → Option Nat
 
-private def task (s : State) (e : Event) : Joint.TaskWord → Option State
+def task (s : State) (e : Event) : Joint.TaskWord → Option State
   | .copyParent slot word => do
     let ptr := s.active e.worker
     guard (ptr.map Generation.slot == word)
@@ -71,7 +74,7 @@ private def task (s : State) (e : Event) : Joint.TaskWord → Option State
     return {s with active := put s.active e.worker (call.map Dispatch.gen)}
   | _ => some s
 
-private def step (addr : Address) (s : State) : Joint.Event Op → Option State
+def step (addr : Address) (s : State) : Joint.Event Op → Option State
   | .taskWord w t op => task s ⟨w,t⟩ op
   | .splitWord w t (.mark k) => do
     let slot ← addr w k
@@ -90,13 +93,13 @@ private def step (addr : Address) (s : State) : Joint.Event Op → Option State
     return {s with calls := put s.calls w tail}
   | _ => some s
 
-private def site : Joint.Event Op → Option Event
+def site : Joint.Event Op → Option Event
   | .taskWord w t _ | .splitWord w t _ => some ⟨w,t⟩
   | .engine (.localCall w (.entry t _ .dispatch ..) _)
   | .engine (.localCall w (.leave t _ .dispatch ..) _) => some ⟨w,t⟩
   | _ => none
 
-private def tick (addr : Address) (s : State) (row : Joint.Event Op) : Option State := do
+def tick (addr : Address) (s : State) (row : Joint.Event Op) : Option State := do
   let some e := site row | return s
   guard ((s.previous e.worker).all (· < e.step))
   let next ← step addr s row
@@ -107,7 +110,7 @@ def capture (addr : Address) (es : Joint.Tape Op) : Option State := es.foldlM (t
 def atEvent (addr : Address) (clock : Event → Nat) (es : Joint.Tape Op) (e : Event) :=
   capture addr (es.filter fun row => (site row).any (fun s => clock s ≤ clock e))
 
-private def actor : Action → Nat
+def actor : Action → Nat
   | .book w _ | .finish w _ => w.val
 
 def physical (g : NestedRetention.Generation h) : List MaskOp :=
@@ -201,7 +204,7 @@ theorem Credit.pass {g : NestedRetention.Generation h} (c : Credit clock g inner
     omega
   exact g.pass causal cut c.who c.actorAt ((membership_at g c.who n bound).symm.trans c.enrolled) kept
 
-private def sameGeneration (i : Input h) (parent : Generation) (g : NestedRetention.Generation h) : Bool :=
+def sameGeneration (i : Input h) (parent : Generation) (g : NestedRetention.Generation h) : Bool :=
   i.address g.slot.1.val g.slot.2 == some parent.slot && g.slot.1 == g.mask.owner &&
     parent.mark == (g.writes.get g.mask.mark).event && parent.mark.worker == g.mask.owner.val
 
@@ -254,16 +257,16 @@ structure Era (h : History) (r : FlagRead h.flags) (g : NestedRetention.Generati
   initialized : HappensBefore h flags.clear r.event
   next : ∀ x ∈ flags.future, x.value = false → SequencedBefore g.wait x.event
 
-private structure Prepared (child : Generation) where
+structure Prepared (child : Generation) where
   tasks : TaskAncestry.Journal
   view : TaskAncestry.Window child
   full : State
 
-private def fromLoad (v : TaskAncestry.View) (r : FlagRead flags) (row : TaskAncestry.Read) : Bool :=
+def fromLoad (v : TaskAncestry.View) (r : FlagRead flags) (row : TaskAncestry.Read) : Bool :=
   row.view.path == v.path && row.view.reset == v.reset && row.field.slot == r.slot &&
     v.path.contains row.field && row.word == r.value && row.source == ((flags r.slot).get r.source).event
 
-private def prepare (i : Input h) (es : Joint.Tape Op) (child : Generation) (poll : Event)
+def prepare (i : Input h) (es : Joint.Tape Op) (child : Generation) (poll : Event)
     (scan : SplitReturn.Observation.AncestorScan h) : Option (Prepared child) := do
   let tasks ← TaskAncestry.capture i.address es
   let w ← TaskAncestry.window tasks child poll scan.event
@@ -276,7 +279,7 @@ private def prepare (i : Input h) (es : Joint.Tape Op) (child : Generation) (pol
 
 /-- The selected generation comes from the load address and the saved task
     path. Reads-from is left to coherence; it need not identify the generation. -/
-private def one (i : Input h) (es : Joint.Tape Op) (p : Prepared child)
+def one (i : Input h) (es : Joint.Tape Op) (p : Prepared child)
     (scan : SplitReturn.Observation.AncestorScan h) (r : FlagRead h.flags)
     (era : (g : NestedRetention.Generation h) → Option (Era h r g))
     (causal : ∀ x y, HappensBefore h x y → i.clock x < i.clock y) :
@@ -322,17 +325,17 @@ namespace Regression
 
 open SlotFrameMir RawProjection
 
-private def addr : Address := fun owner bank => some (64*owner+bank)
-private def a : Generation := ⟨0,⟨0,2⟩⟩
-private def b : Generation := ⟨64,⟨1,12⟩⟩
-private def c : Generation := ⟨128,⟨2,22⟩⟩
+def addr : Address := fun owner bank => some (64*owner+bank)
+def a : Generation := ⟨0,⟨0,2⟩⟩
+def b : Generation := ⟨64,⟨1,12⟩⟩
+def c : Generation := ⟨128,⟨2,22⟩⟩
 
-private def push (w t : Nat) : Joint.Event Unit :=
+def push (w t : Nat) : Joint.Event Unit :=
   .engine (.localCall w (.entry t 0 .dispatch .none none) none)
-private def pop (w t opening : Nat) : Joint.Event Unit :=
+def pop (w t opening : Nat) : Joint.Event Unit :=
   .engine (.localCall w (.leave t opening .dispatch none none) none)
-private abbrev tw (w t : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w t op
-private abbrev sw (w t : Nat) (op : Joint.SplitWord) : Joint.Event Unit := .splitWord w t op
+abbrev tw (w t : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w t op
+abbrev sw (w t : Nat) (op : Joint.SplitWord) : Joint.Event Unit := .splitWord w t op
 
 def tape : Joint.Tape Unit :=
   [tw 0 1 (.copyParent 0 none),sw 0 2 (.mark 0),tw 0 3 (.install 0 none),tw 0 4 (.ownerActive 0),
@@ -348,11 +351,11 @@ def tape : Joint.Tape Unit :=
    tw 1 56 (.restore 64 (some 0)),tw 1 57 (.clearTask 64),pop 1 70 10,
    tw 1 71 (.detach 0),sw 1 75 (.maskRmw 0 0 1 false 2 0)]
 
-private def edges : List (Event × Event) :=
+def edges : List (Event × Event) :=
   [(⟨0,10⟩,⟨0,80⟩),(⟨1,75⟩,⟨0,80⟩),(⟨1,20⟩,⟨1,55⟩),(⟨2,50⟩,⟨1,55⟩)]
-private def history : History := ⟨[],fun _ => [],[],[],fun x y => (x,y) ∈ edges⟩
+def history : History := ⟨[],fun _ => [],[],[],fun x y => (x,y) ∈ edges⟩
 
-private theorem time {x y : Event} (hb : HappensBefore history x y) : x.step < y.step := by
+theorem time {x y : Event} (hb : HappensBefore history x y) : x.step < y.step := by
   induction hb with
   | sequenced sb => exact sb.2
   | synchronized i => exact Fin.elim0 i
@@ -361,7 +364,7 @@ private theorem time {x y : Event} (hb : HappensBefore history x y) : x.step < y
     exact of_decide_eq_true (List.all_eq_true.mp ok _ mem)
   | trans _ _ first later => exact Nat.lt_trans first later
 
-private def checkedGeneration (raw : RawMask ws) (closed : ClosedAfterFirst raw)
+def checkedGeneration (raw : RawMask ws) (closed : ClosedAfterFirst raw)
     (actors : ∀ j w e, raw.actions.get j = .finish w e → e.worker = w.val)
     (wait : Event) (src : Fin (words raw).length) (zero : ((words raw).get src).value = 0)
     (last : ∀ j : Fin (words raw).length, j.val ≤ src.val)
@@ -388,12 +391,12 @@ private def checkedGeneration (raw : RawMask ws) (closed : ClosedAfterFirst raw)
     readWrite := fun i hb => False.elim ((Nat.not_lt_of_ge (Nat.le_of_lt (earlier i))) (time hb))
     synchronize := fun i _ seq => sync i seq.1 }
 
-private def gen0 : Mask.Generation :=
+def gen0 : Mask.Generation :=
   ⟨fun n => 1+n, fun _ _ lt => by omega, [.book 1 ⟨0,5⟩,.finish 0 ⟨0,10⟩,.finish 1 ⟨1,75⟩]⟩
-private def gen1 : Mask.Generation :=
+def gen1 : Mask.Generation :=
   ⟨fun n => 11+n, fun _ _ lt => by omega, [.book 2 ⟨1,15⟩,.finish 1 ⟨1,20⟩,.finish 2 ⟨2,50⟩]⟩
 
-private theorem actors_of (raw : RawMask ws)
+theorem actors_of (raw : RawMask ws)
     (ok : ∀ j : Fin raw.actions.length, (raw.actions.get j).release = true →
       (raw.actions.get j).event.worker = actor (raw.actions.get j)) :
     ∀ j w e, raw.actions.get j = .finish w e → e.worker=w.val := by
@@ -401,17 +404,17 @@ private theorem actors_of (raw : RawMask ws)
   have eq := ok j (by rw [found];rfl)
   rw [found] at eq; exact eq
 
-private def outer : NestedRetention.Generation history :=
+def outer : NestedRetention.Generation history :=
   checkedGeneration (Mask.raw [] 0 gen0 []) (by unfold ClosedAfterFirst; decide) (actors_of _ (by decide))
     ⟨0,80⟩ ⟨3,by decide⟩ (by decide) (by decide) (by unfold SequencedBefore; decide) (by decide) (by decide)
-private def middle : NestedRetention.Generation history :=
+def middle : NestedRetention.Generation history :=
   checkedGeneration (Mask.raw [] 1 gen1 []) (by unfold ClosedAfterFirst; decide) (actors_of _ (by decide))
     ⟨1,55⟩ ⟨3,by decide⟩ (by decide) (by decide) (by unfold SequencedBefore; decide) (by decide) (by decide)
 
-private def inputs : Input history := ⟨addr, Event.step,fun g =>
+def inputs : Input history := ⟨addr, Event.step,fun g =>
   if g=a then some outer else if g=b then some middle else none⟩
 
-private def check (es : Joint.Tape Unit) (target : Generation) (finish site : Event) (path : List Generation) :=
+def check (es : Joint.Tape Unit) (target : Generation) (finish site : Event) (path : List Generation) :=
   (capture addr es).bind fun full => route inputs es full target finish c site path
 
 private def recovered := do
@@ -423,11 +426,11 @@ theorem through_two_owners : RetainedThrough history ⟨2,34⟩ ⟨0,80⟩ := by
   have joined : recovered.isSome := by decide +kernel
   exact (recovered.get joined).held (fun _ _ => time) .here
 
-private def missingBook := tape.filter fun row => match row with
+def missingBook := tape.filter fun row => match row with
   | .splitWord 1 15 (.maskRmw ..) => false
   | _ => true
 
-private def wrongOld := tape.map fun row => match row with
+def wrongOld := tape.map fun row => match row with
   | .splitWord 1 15 (.maskRmw 1 0 2 true _ stored) => sw 1 15 (.maskRmw 1 0 2 true 0 stored)
   | _ => row
 

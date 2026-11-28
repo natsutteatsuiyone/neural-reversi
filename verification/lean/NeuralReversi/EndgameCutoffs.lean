@@ -1,7 +1,10 @@
-import NeuralReversi.EndgameStability
-import NeuralReversi.EndgameTreeCache
-import NeuralReversi.Board.Move.Wipeout
-import NeuralReversi.EndgameSearch.Thresholds
+module
+public import NeuralReversi.EndgameStability
+public import NeuralReversi.EndgameTreeCache
+public import NeuralReversi.Board.Move.Wipeout
+public import NeuralReversi.EndgameSearch.Thresholds
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameCutoffs
 
@@ -10,7 +13,7 @@ open Bitboard.Moves (X86Config)
 open EndgameCache (CacheRange)
 open EndgameTreeCache (Table Store Address discValue soundHistory entryFor)
 
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 
 def wipesOut (fc : FlipConfig) (b : Board.Board) (sq : Bitboard.Square) : Bool :=
   Flip.Dispatch.resultValue fc sq b.player b.opponent == b.opponent

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Roster
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Roster
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 
@@ -7,7 +10,7 @@ open AtomicWord (Event Read Write SequencedBefore ReadWindow)
 open CutoffVisibility (History HappensBefore)
 open SplitCompletion (Activation Retirement Action)
 
-private def ownerWord (u : Worker) (e : Event) : Write := ⟨e,BitVec.ofNat 64 u.val,false,false⟩
+def ownerWord (u : Worker) (e : Event) : Write := ⟨e,BitVec.ofNat 64 u.val,false,false⟩
 
 /-- The first protected initialization and reuses in the same thread's physical
     bank publish the same owner ID. Earlier word contents may be arbitrary. -/

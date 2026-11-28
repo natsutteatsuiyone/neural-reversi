@@ -1,4 +1,7 @@
-import NeuralReversi.Game.History.VecProperties
+module
+public import NeuralReversi.Game.History.VecProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Game.History.VecView
 

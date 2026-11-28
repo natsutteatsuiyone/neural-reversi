@@ -1,5 +1,8 @@
-import NeuralReversi.Eval.InputLayer.Layout
-import NeuralReversi.AlignedBuffer.Allocation
+module
+public import NeuralReversi.Eval.InputLayer.Layout
+public import NeuralReversi.AlignedBuffer.Allocation
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.MainScratch
 

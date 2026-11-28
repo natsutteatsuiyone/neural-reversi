@@ -1,8 +1,12 @@
-import NeuralReversi.PvsParallel.Interleaving.BoardFrame
-import NeuralReversi.PvsParallel.DeepLeafMir
-import NeuralReversi.EndgameSearch.Direct.Mir
-import NeuralReversi.PvsParallel.GeneralOwnerMir
-import NeuralReversi.PvsParallel.SerialPvCalls
+module
+public import NeuralReversi.PvsParallel.Interleaving.BoardFrame
+public import NeuralReversi.PvsParallel.Interleaving.CausalReads
+public import NeuralReversi.PvsParallel.DeepLeafMir
+public import NeuralReversi.EndgameSearch.Direct.Mir
+public import NeuralReversi.PvsParallel.GeneralOwnerMir
+public import NeuralReversi.PvsParallel.SerialPvCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.NativeNodes
 

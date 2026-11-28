@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.SeedTable
-import NeuralReversi.PvsParallel.Interleaving.Interior
-import NeuralReversi.PvsParallel.Interleaving.RootProgram
+module
+public import NeuralReversi.PvsParallel.Interleaving.SeedTable
+public import NeuralReversi.PvsParallel.Interleaving.Interior
+public import NeuralReversi.PvsParallel.Interleaving.RootProgram
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SeedHistory
 

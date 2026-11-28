@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.Direct
-import NeuralReversi.EndgameSearch.EmptyState
+module
+public import NeuralReversi.EndgameSearch.Direct
+public import NeuralReversi.EndgameSearch.EmptyState
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.Direct
 

@@ -1,11 +1,14 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
-import NeuralReversi.PvsParallel.NativeFrames.Returns
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+public import NeuralReversi.PvsParallel.NativeFrames.Returns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
 
 open NativeFrames (Event Record)
 
-private def afterSearch (left reset : Nat) : List Event → Bool
+def afterSearch (left reset : Nat) : List Event → Bool
   | .leave dispatch _ .dispatch none none :: tail =>
       decide (left < dispatch ∧ dispatch < reset) && tail.head?.all (fun e => reset < e.step)
   | _ => false

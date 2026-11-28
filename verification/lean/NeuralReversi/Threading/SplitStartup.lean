@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitPublication
+module
+public import NeuralReversi.Threading.SplitPublication
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitStartup
 

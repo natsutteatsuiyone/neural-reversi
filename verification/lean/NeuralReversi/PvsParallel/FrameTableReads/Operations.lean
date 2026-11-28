@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.FrameTableReads
-import NeuralReversi.TranspositionTable.ReaderMir.Cluster
+module
+public import NeuralReversi.PvsParallel.FrameTableReads
+public import NeuralReversi.TranspositionTable.ReaderMir.Cluster
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations
 

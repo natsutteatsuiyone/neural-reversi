@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitWindow.Stores
+module
+public import NeuralReversi.Threading.SplitWindow.Stores
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 

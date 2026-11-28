@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 namespace NeuralReversi.PvsParallel
 
 inductive RootEntry where

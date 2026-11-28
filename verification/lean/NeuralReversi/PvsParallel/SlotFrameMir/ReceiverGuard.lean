@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.ReceiverMemory
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.ReceiverMemory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.Receiver
 
@@ -63,7 +66,7 @@ structure ObjectOrder (hist : History) (words : Words) (s : Slot) (q : Recheck h
   next : ∀ field : Field, ∀ i : Fin (words s field).length, i.val=(contents field).last.val+1 →
     SplitRebookingMir.AtOrAfter hist book ((words s field).get i).event
 
-private theorem extendSB {a b c : Event} (short : SequencedBefore a b)
+theorem extendSB {a b c : Event} (short : SequencedBefore a b)
     (same : b.worker=c.worker) (order : b.step≤c.step) : SequencedBefore a c :=
   ⟨short.1.trans same,Nat.lt_of_lt_of_le short.2 order⟩
 

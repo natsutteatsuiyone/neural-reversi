@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.IteratorModel
-import NeuralReversi.Bitboard.Counting
+module
+public import NeuralReversi.Bitboard.IteratorModel
+public import NeuralReversi.Bitboard.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialTable.Store
+module
+public import NeuralReversi.PvsParallel.SerialTable.Store
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel
+module
+public import NeuralReversi.PvsParallel
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Root
 

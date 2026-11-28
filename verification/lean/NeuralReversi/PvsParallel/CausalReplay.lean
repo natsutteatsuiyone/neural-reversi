@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootEvidence
-import NeuralReversi.PvsParallel.SlotJournal
+module
+public import NeuralReversi.PvsParallel.RootEvidence
+public import NeuralReversi.PvsParallel.SlotJournal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.CausalReplay
 

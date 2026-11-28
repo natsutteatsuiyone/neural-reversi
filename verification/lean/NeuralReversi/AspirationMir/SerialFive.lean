@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialContext
+module
+public import NeuralReversi.AspirationMir.SerialContext
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialFive
 

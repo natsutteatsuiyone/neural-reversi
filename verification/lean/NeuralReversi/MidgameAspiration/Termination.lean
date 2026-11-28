@@ -1,4 +1,7 @@
-import NeuralReversi.MidgameAspiration.Model
+module
+public import NeuralReversi.MidgameAspiration.Model
+
+@[expose] public section
 
 namespace NeuralReversi.MidgameAspiration
 

@@ -1,21 +1,24 @@
-import NeuralReversi.Flip.Avx512.Properties
-import NeuralReversi.Simd.ZmmModel
+module
+public import NeuralReversi.Flip.Avx512.Properties
+public import NeuralReversi.Simd.ZmmModel
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx512.WidePair
 open NeuralReversi.Simd.X86
 open NeuralReversi.Flip (mask value Square)
 
-private def shuffleI64x2 (a b : Vec512) (imm : BitVec 8) : Vec512 := fun lane =>
+def shuffleI64x2 (a b : Vec512) (imm : BitVec 8) : Vec512 := fun lane =>
   let block := lane.val / 2
   let sel := (imm.toNat / 2 ^ (2 * block)) % 4
   let index : Fin 8 := ⟨2 * sel + lane.val % 2, by dsimp [sel]; omega⟩
   if block < 2 then a index else b index
 
-private def shuffleDwords (a : Vec512) (imm : BitVec 8) : Vec512 := fun lane =>
+def shuffleDwords (a : Vec512) (imm : BitVec 8) : Vec512 := fun lane =>
   let block : Vec128 := fun j => a ⟨2 * (lane.val / 2) + j.val, by omega⟩
   shuffleEpi32 block imm ⟨lane.val % 2, by omega⟩
 
-private def reducePair (flips : Vec512) : Word × Word :=
+def reducePair (flips : Vec512) : Word × Word :=
   let or64 := or512 flips (shuffleDwords flips 0x4e)
   let reduced := or512 or64 (shuffleI64x2 or64 or64 0xb1)
   (reduced 0, extractI64x4 reduced 1 0)
@@ -52,7 +55,7 @@ theorem pairContract_proven : PairContract := by
 
 /-- Cast the low YMM half and insert the high YMM half with immediate 1.
     Every output lane is defined after the insertion. -/
-private def insertUpper (low high : Vec256) : Vec512 := fun i =>
+def insertUpper (low high : Vec256) : Vec512 := fun i =>
   if h : i.val < 4 then low ⟨i.val, h⟩ else high ⟨i.val - 4, by omega⟩
 
 def narrowPair (x0 x1 : Square) (player opponent : Word) : Word × Word :=

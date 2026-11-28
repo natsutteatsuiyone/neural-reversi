@@ -1,6 +1,9 @@
-import NeuralReversi.Flip.Avx2.Model
-import NeuralReversi.Flip.Avx2.Prepared
-import NeuralReversi.Simd.X86Properties
+module
+public import NeuralReversi.Flip.Avx2.Model
+public import NeuralReversi.Flip.Avx2.Prepared
+public import NeuralReversi.Simd.X86Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Simd.X86

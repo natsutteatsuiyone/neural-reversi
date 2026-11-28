@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.MidgameValue
-import NeuralReversi.PvsParallel.SerialTable.MidgameSites
-import NeuralReversi.PvsParallel.SerialTable.MidgameShallow.Masks
+module
+public import NeuralReversi.PvsParallel.SerialTable.MidgameValue
+public import NeuralReversi.PvsParallel.SerialTable.MidgameSites
+public import NeuralReversi.PvsParallel.SerialTable.MidgameShallow.Masks
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameShallow
 
@@ -16,10 +19,10 @@ structure Inputs where
   raw : List Square → Position → Int
   order : List Square → Position → Option EntryData → Square → Nat
 
-private def wipe (fc : Cutoffs.FlipConfig) (b : Position) (sq : Square) : Bool :=
+def wipe (fc : Cutoffs.FlipConfig) (b : Position) (sq : Square) : Bool :=
   Flip.Dispatch.resultValue fc sq b.val.player b.val.opponent == b.val.opponent
 
-private def evalMoves (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def evalMoves (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (b : Position) (beta : Int) (best : Int) : List (GeneratedSquare mc b.val) → Int
   | [] => best
   | sq :: rest =>
@@ -28,12 +31,12 @@ private def evalMoves (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) 
       let v := -(static (ops.raw (sq.val :: path)) (play mc fc b sq).val).val
       if beta ≤ v then v else evalMoves mc fc ops path b beta (max best v) rest
 
-private def visitOne (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def visitOne (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (b : Position) (beta : Int) :=
   let legal := legalSquares mc b.val
   evalMoves mc fc ops path b beta (-32767) (depthOneMasks.flatMap fun mask => legal.filter fun sq => mask.getLsbD sq.val.val)
 
-private def one (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def one (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (b : Position) (a z : Int) : Int :=
   if Board.hasLegalMoves mc b.val then visitOne mc fc ops path b z
   else if Board.hasLegalMoves mc (pass b).val then -(visitOne mc fc ops path (pass b) (-a))
@@ -90,10 +93,10 @@ theorem one_finite (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (op
       unfold PvsMoveLoop.scoreMax at lo hi
       omega
 
-private abbrev Child (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (q : Request) :=
+abbrev Child (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (q : Request) :=
   GeneratedSquare mc q.board.val → (r : Request) → r.pv = false → Aspiration.Window r.alpha r.beta → Plan mc fc r
 
-private def scan (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (q : Request) (sc : q.pv = false)
+def scan (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (q : Request) (sc : q.pv = false)
     (slot : Fin 2) (pv : Bool) (child : Child mc fc q) :
     List (GeneratedSquare mc q.board.val) → GeneratedSquare mc q.board.val → (a : Int) → Aspiration.Window a q.beta →
     Option MidgameValue.Value → Option (GeneratedSquare mc q.board.val) → Plan mc fc q
@@ -115,7 +118,7 @@ private def scan (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (q : 
             ⟨Int.le_trans win.lower (Int.le_max_left ..),by have := win.ordered; omega,win.upper⟩
           scan mc fc q sc slot pv child more next (max a v.val) raised (some nextBest) nextHint
 
-private def withTable (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def withTable (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (q : Request) (sc : q.pv = false) (mobile : Board.hasLegalMoves mc q.board.val = true)
     (win : Aspiration.Window q.alpha q.beta) (child : Child mc fc q) : Plan mc fc q :=
   MidgameValue.probe q.board fun slot entry =>
@@ -139,7 +142,7 @@ where
           exact Bool.noConfusion (mobile.symm.trans (PvsBoardTree.stuck_of_nil (List.length_eq_zero_iff.mp empty.symm))))
       | first :: rest => scan mc fc q sc slot (entry.any TranspositionTable.Access.isPv) child rest first q.alpha win none none
 
-private def playable (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+def playable (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (active : (q : Request) → q.pv = false → Board.hasLegalMoves mc q.board.val = true → Aspiration.Window q.alpha q.beta → Plan mc fc q)
     (q : Request) (sc : q.pv = false) (win : Aspiration.Window q.alpha q.beta) : Plan mc fc q :=
   if here : Board.hasLegalMoves mc q.board.val then active q sc here win
@@ -147,11 +150,11 @@ private def playable (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     .pass (active (MidgameChild.passRequest q) sc other (MidgameScoreRange.reflected win))
   else .terminal
 
-private def oneWord (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def oneWord (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (q : Request) (sc : q.pv = false) : Plan mc fc q :=
   MidgameValue.known sc ⟨_,one_finite mc fc ops path q.board q.alpha q.beta⟩
 
-private def two (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
+def two (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (ops : Inputs) (path : List Square)
     (q : Request) (sc : q.pv = false) (win : Aspiration.Window q.alpha q.beta) : Plan mc fc q :=
   playable mc fc (fun parent scout mobile window => withTable mc fc ops path parent scout mobile window fun sq r s _ =>
     oneWord mc fc ops (sq.val :: path) r s) q sc win

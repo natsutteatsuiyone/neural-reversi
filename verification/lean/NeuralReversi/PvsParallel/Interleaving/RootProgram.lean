@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Publication
-import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootLadder
+public import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootProgram
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.GeneralOwnerMir
+module
+public import NeuralReversi.PvsParallel.GeneralOwnerMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.GeneralOwnerMir.Calls
 

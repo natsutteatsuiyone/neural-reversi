@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeContracts
+module
+public import NeuralReversi.Stability.EdgeContracts
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 set_option linter.unusedSimpArgs false

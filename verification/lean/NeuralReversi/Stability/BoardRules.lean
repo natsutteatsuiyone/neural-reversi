@@ -1,5 +1,8 @@
-import NeuralReversi.Stability.EdgeEncoding
-import NeuralReversi.Board.Move.Documentation
+module
+public import NeuralReversi.Stability.EdgeEncoding
+public import NeuralReversi.Board.Move.Documentation
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

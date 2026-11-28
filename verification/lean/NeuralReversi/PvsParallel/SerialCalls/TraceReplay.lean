@@ -1,21 +1,24 @@
-import NeuralReversi.PvsParallel.SerialCalls.Sites
-import NeuralReversi.PvsParallel.SerialCalls.TraceReplay.Context
+module
+public import NeuralReversi.PvsParallel.SerialCalls.Sites
+public import NeuralReversi.PvsParallel.SerialCalls.TraceReplay.Context
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCalls.TraceReplay
 
-private def position (p o : String) : Option PvsBoardTree.Position := do
+def position (p o : String) : Option PvsBoardTree.Position := do
   let player ← p.toNat?
   let opponent ← o.toNat?
   guard (player < 2^64 && opponent < 2^64)
   let b : Board.Board := ⟨BitVec.ofNat 64 player, BitVec.ofNat 64 opponent⟩
   if h : b.player &&& b.opponent = 0 then some ⟨b, h⟩ else none
 
-private def bit : String → Option Bool
+def bit : String → Option Bool
   | "0" => some false
   | "1" => some true
   | _ => none
 
-private def children : List String → Option (List (Request × Int))
+def children : List String → Option (List (Request × Int))
   | [] => some []
   | p::o::d::pv::cut::a::z::w::rest => do
     let board ← position p o
@@ -51,7 +54,7 @@ theorem replay_iff (calls : List (Request × Int)) (p : Program Request Int) (wo
         · intro h; contradiction
         · intro h; cases h; contradiction
 
-private def check (words : List String) : Option Bool := do
+def check (words : List String) : Option Bool := do
   let kind::p::o::d::pv::cut::first::sq::a::z::v::tail := words | none
   let board ← position p o
   let depth ← d.toNat?

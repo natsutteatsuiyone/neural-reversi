@@ -1,8 +1,11 @@
-import NeuralReversi.Flip.Avx512.Model
-import NeuralReversi.Flip.Avx512.Spec
-import NeuralReversi.Flip.Avx512.Word
-import NeuralReversi.Flip.Properties
-import NeuralReversi.Simd.X86Properties
+module
+public import NeuralReversi.Flip.Avx512.Model
+public import NeuralReversi.Flip.Avx512.Spec
+public import NeuralReversi.Flip.Avx512.Word
+public import NeuralReversi.Flip.Properties
+public import NeuralReversi.Simd.X86Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx512
 open NeuralReversi.Flip

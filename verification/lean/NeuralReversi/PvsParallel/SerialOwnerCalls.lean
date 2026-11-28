@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
-import NeuralReversi.PvsParallel.SerialCalls.Ready
-import NeuralReversi.PvsParallel.RootOwnerMir.Serial
+module
+public import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+public import NeuralReversi.PvsParallel.SerialCalls.Ready
+public import NeuralReversi.PvsParallel.RootOwnerMir.Serial
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialOwnerCalls
 
@@ -14,7 +17,7 @@ abbrev Result (Move : Type) := List (Visit Move) × Snapshot
 
 /-- The two MIR child-call sites, in instruction order. The scout word controls
     whether the second site is reached for this move. -/
-private def one (first : Bool) (m : Move) (a z : Int)
+def one (first : Bool) (m : Move) (a z : Int)
     (next : Visit Move → Int → Program (MoveRequest Move) α) : Program (MoveRequest Move) α :=
   SerialCalls.Sites.ownerWith true first a ⟨m, false, -(a + 1), -a⟩ ⟨m, true, -z, -a⟩
     fun scout wide score => next ⟨m, a, scout, wide⟩ score
@@ -31,7 +34,7 @@ private theorem one_eq (first : Bool) (m : Move) (a z : Int)
       else next ⟨m, a, some scout, none⟩ (-scout) := by
   simp [one, SerialCalls.Sites.ownerWith]
 
-private def loop (square : Move → Square) (beta : Int) :
+def loop (square : Move → Square) (beta : Int) :
     List Move → Nat → Snapshot → List (Visit Move) → Program (MoveRequest Move) (Result Move)
   | [], _, s, rev => .pure (rev.reverse, s)
   | m :: rest, idx, s, rev =>

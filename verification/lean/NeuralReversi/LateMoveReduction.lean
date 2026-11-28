@@ -1,8 +1,11 @@
-import NeuralReversi.Solve2.Control
-import NeuralReversi.Bitboard.CornerProperties
-import NeuralReversi.Board.Move.Model
-import NeuralReversi.Board.MovesModel
-import NeuralReversi.MidgameAspiration.Model
+module
+public import NeuralReversi.Solve2.Control
+public import NeuralReversi.Bitboard.CornerProperties
+public import NeuralReversi.Board.Move.Model
+public import NeuralReversi.Board.MovesModel
+public import NeuralReversi.MidgameAspiration.Model
+
+@[expose] public section
 
 namespace NeuralReversi.LateMoveReduction
 

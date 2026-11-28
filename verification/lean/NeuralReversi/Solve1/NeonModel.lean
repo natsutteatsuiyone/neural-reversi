@@ -1,6 +1,9 @@
-import NeuralReversi.Solve1.NeonParams
-import NeuralReversi.Solve1.ScalarModel
-import NeuralReversi.Solve1.Packed
+module
+public import NeuralReversi.Solve1.NeonParams
+public import NeuralReversi.Solve1.ScalarModel
+public import NeuralReversi.Solve1.Packed
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.Neon
 
@@ -46,7 +49,7 @@ theorem countPacked_eq (s : Nat) (p : Word) :
     pairLookup, laneCounts]
 
 private theorem rankShift_correct_all : ∀ s : Fin 64,
-    rankShift s.val = (Scalar.params s.val).rowShift := by decide
+    rankShift s.val = (Scalar.params s.val).rowShift := by decide +kernel
 
 theorem laneIndex_eq (s : Fin 64) (lane : Fin 4) (p : Word) :
     laneIndex s.val lane p = Scalar.laneIndex s.val lane p := by
@@ -57,13 +60,13 @@ theorem laneIndex_eq (s : Fin 64) (lane : Fin 4) (p : Word) :
   · rfl
 
 private theorem classPos_correct_all : ∀ s : Fin 64, ∀ lane : Fin 4,
-    classPos s.val lane = Scalar.lanePos s.val lane := by decide
+    classPos s.val lane = Scalar.lanePos s.val lane := by decide +kernel
 
 theorem classPos_correct (s : Fin 64) (lane : Fin 4) :
     classPos s.val lane = Scalar.lanePos s.val lane := classPos_correct_all s lane
 
 theorem hasFourth_correct : ∀ s : Fin 64,
-    hasFourth s.val = ((Scalar.params s.val).maskD9 != 0) := by decide
+    hasFourth s.val = ((Scalar.params s.val).maskD9 != 0) := by decide +kernel
 
 private theorem masked_row (p : Word) (shift : Nat) :
     ((p &&& ((255 : Word) <<< shift)) >>> shift).setWidth 8 =
@@ -103,5 +106,24 @@ theorem laneIndex_not_mask (s : Nat) (lane : Fin 4) (p : Word) :
       Scalar.laneIndex s lane (~~~p) := by
   rw [← laneIndex_mask s lane (~~~(p &&& Scalar.laneMask s lane)), not_mask,
     laneIndex_mask]
+
+private theorem row_xor_params : ∀ s : Fin 64,
+    (Scalar.params s.val).rowShift ≤ 56 ∧ laneXor s.val 1 = 255#8 := by decide +kernel
+
+theorem xor_row_all (s : Fin 64) (p : Word) :
+    Scalar.laneIndex s.val 1 p ^^^ laneXor s.val 1 = Scalar.laneIndex s.val 1 (~~~p) := by
+  have ⟨hsh, hxor⟩ := row_xor_params s
+  rw [hxor]
+  change (p >>> (Scalar.params s.val).rowShift).setWidth 8 ^^^ 255#8 =
+    ((~~~p) >>> (Scalar.params s.val).rowShift).setWidth 8
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  have h255 : (255#8).getLsbD i = true := by
+    match i with
+    | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 => decide
+    | _ + 8 => omega
+  have hlt : (Scalar.params s.val).rowShift + i < 64 := by omega
+  simp only [BitVec.getLsbD_xor, BitVec.getLsbD_setWidth, BitVec.getLsbD_ushiftRight,
+    BitVec.getLsbD_not, hi, hlt, h255, decide_true, Bool.true_and, Bool.xor_true]
 
 end NeuralReversi.Solve1.Neon

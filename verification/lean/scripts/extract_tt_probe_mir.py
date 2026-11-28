@@ -209,8 +209,8 @@ def program(body):
             for i, result in enumerate(row):
                 clauses.append(f"  | {pattern(first,'front',result)},{pattern(KINDS[i],'back',result)} => {result}")
     return "\n".join([
-        "import NeuralReversi.TranspositionTable.ReaderMir.ProbeSyntax", "import NeuralReversi.TranspositionTable.Packing", "",
-        "namespace NeuralReversi.TranspositionTable.ReaderMir", "",
+        "module", "public import NeuralReversi.TranspositionTable.ReaderMir.ProbeSyntax", "public import NeuralReversi.TranspositionTable.Packing", "",
+        "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.ReaderMir", "",
         "def bestMove : ProbeRetry.Result → Option (Fin 64)",
         "  | .hit _ data => Packing.decodeBestMove data.bestMove", "  | .miss _ => none", "",
         "def probePass (generation : BitVec 8) : ProbeRetry.Observation → ProbeRetry.Observation → Pass",

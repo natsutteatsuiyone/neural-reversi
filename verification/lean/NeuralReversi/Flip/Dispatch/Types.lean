@@ -1,4 +1,7 @@
-import NeuralReversi.Flip.Types
+module
+public import NeuralReversi.Flip.Types
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Dispatch
 

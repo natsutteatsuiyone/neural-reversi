@@ -1,4 +1,8 @@
-import NeuralReversi.ScaledScore.FloatModel
+module
+public import NeuralReversi.ScaledScore.FloatModel
+
+@[expose] public section
+
 namespace NeuralReversi.ScaledScore
 
 def distance (n : Nat) (q : Int) (unit : Nat) : Nat :=

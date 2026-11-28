@@ -1,5 +1,8 @@
-import NeuralReversi.Game.History.Model
-import NeuralReversi.Board.InitializationModel
+module
+public import NeuralReversi.Game.History.Model
+public import NeuralReversi.Board.InitializationModel
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Initialization
 open NeuralReversi.Game.History

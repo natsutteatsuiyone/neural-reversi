@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
-import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+module
+public import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+public import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CutoffPollFixture
 
@@ -8,17 +11,17 @@ open AtomicWord (Event Write)
 open CutoffVisibility (FlagWrite FlagRead History)
 open TaskAncestry (Generation)
 
-private def parent := 100
-private def child := 200
+def parent := 100
+def child := 200
 private def slots : Nat → Nat → Option Nat
   | 0,0 => some parent | 1,0 => some child | _,_ => none
 
-private def tick (w n : Nat) : Event := ⟨w,n⟩
+def tick (w n : Nat) : Event := ⟨w,n⟩
 private def word (w n : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w n op
 private def split (w n : Nat) : Joint.Event Unit := .splitWord w n (.mark 0)
-private def initial := tick 3 0
-private def oldEpoch := tick 2 33
-private def newEpoch := tick 2 133
+def initial := tick 3 0
+def oldEpoch := tick 2 33
+def newEpoch := tick 2 133
 
 /-- Worker 0 owns the parent; worker 1 creates a child on its behalf. After
     detaching from its parent assignment, worker 0 helps the child. Worker 2
@@ -54,9 +57,9 @@ private def use_ (base : Nat) (stale wrongCall wrongParent reversed : Bool) : Jo
 
 private def records (stale wrongCall wrongParent reversed : Bool) :=
   use_ 0 false false false false ++ use_ 100 stale wrongCall wrongParent reversed
-private def epochs : List Write :=
+def epochs : List Write :=
   [⟨initial,0,false,false⟩,⟨oldEpoch,1,true,true⟩,⟨newEpoch,2,true,true⟩]
-private def fields (slot : Nat) : List FlagWrite :=
+def fields (slot : Nat) : List FlagWrite :=
   if slot = parent then [⟨tick 0 4,false⟩,⟨tick 2 32,true⟩,⟨tick 0 104,false⟩,⟨tick 2 132,true⟩]
   else if slot = child then [⟨tick 1 13,false⟩,⟨tick 1 113,false⟩] else []
 
@@ -131,8 +134,8 @@ end LocalCut
 
 namespace ForeignEmptyPoll
 
-private def t (w n : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w n op
-private def epochs : List Write := [⟨⟨3,0⟩,0,false,false⟩,⟨⟨3,4⟩,1,true,true⟩,⟨⟨2,13⟩,2,true,true⟩]
+def t (w n : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w n op
+def epochs : List Write := [⟨⟨3,0⟩,0,false,false⟩,⟨⟨3,4⟩,1,true,true⟩,⟨⟨2,13⟩,2,true,true⟩]
 private def flags (slot : Nat) : List FlagWrite :=
   if slot == 2 then [⟨⟨2,4⟩,false⟩,⟨⟨2,12⟩,true⟩] else []
 private def hist (early : Bool) : History := {
@@ -142,10 +145,10 @@ private def hist (early : Bool) : History := {
   flagReads := (if early then [⟨2,⟨1,25⟩,⟨0,by decide⟩⟩] else []) ++ [⟨2,⟨1,35⟩,⟨1,by decide⟩⟩]
   otherSync := fun _ _ => False}
 private def mem (early : Bool) : NativeStopReturns.Memory := ⟨hist early,[],[],fun _ => [],fun _ => []⟩
-private def book : Joint.Tape Unit :=
+def book : Joint.Tape Unit :=
   [t 2 1 (.copyParent 2 none),.splitWord 2 2 (.mark 0),t 2 3 (.install 2 none),
    t 2 4 (.storeFlag 2 false),t 2 5 (.ownerActive 2),t 2 8 (.book 1 2)]
-private def tape (early : Bool) : Joint.Tape Unit :=
+def tape (early : Bool) : Joint.Tape Unit :=
   (if early then book else []) ++
   [t 1 21 (.latch false),t 1 23 (.epoch ⟨1,22⟩ ⟨3,4⟩ 1 0),t 1 24 (.beginWalk (if early then some 2 else none))] ++
   (if early then [t 1 25 (.loadFlag 2 false ⟨2,4⟩)] else []) ++
@@ -177,9 +180,9 @@ end ForeignEmptyPoll
 
 namespace Publication
 
-private def releases : List Write := [⟨⟨1,18⟩,1,true,true⟩]
-private def acquire : AtomicWord.Read releases := ⟨⟨2,9⟩,⟨0,by decide⟩,true⟩
-private def h : History := ⟨releases,fun _ => [],[acquire],[],
+def releases : List Write := [⟨⟨1,18⟩,1,true,true⟩]
+def acquire : AtomicWord.Read releases := ⟨⟨2,9⟩,⟨0,by decide⟩,true⟩
+def h : History := ⟨releases,fun _ => [],[acquire],[],
   fun a b => a = ⟨0,10⟩ ∧ b = ⟨1,7⟩⟩
 private def lock : FlagSegment.Transfer h := .handoff ⟨0,10⟩ ⟨1,7⟩ ⟨rfl,rfl⟩
 private def epoch : FlagSegment.Transfer h :=
@@ -208,7 +211,7 @@ private def reach := do
 
 -- The last check is a different-worker pair with no causal path in that direction.
 example : reach = some (false,true,false) ∧ (MaskClock.capture sync timeline.reverse).isNone := by
-  cbv
+  decide +kernel
 
 private def cycle : List (Event × Event) := [(tick 0 10,tick 1 10),(tick 1 10,tick 0 10)]
 private def cyclic : History := ⟨[],fun _ => [],[],[],fun a b => (a,b) ∈ cycle⟩
@@ -232,27 +235,27 @@ private def accepted (ordersReaders : Bool) := do
 
 -- Both readers get true. The older source at the second read is legal until a
 -- handoff between the readers orders the two loads of the same atomic.
-example : accepted false = some true ∧ accepted true = some false := by cbv
+example : accepted false = some true ∧ accepted true = some false := by decide +kernel
 
 end EqualFlags
 
 namespace NestedMask
 
-private abbrev m (w t : Nat) (op : Joint.MaskWord) : Joint.Event Unit := .maskWord w t op
+abbrev m (w t : Nat) (op : Joint.MaskWord) : Joint.Event Unit := .maskWord w t op
 
 -- The dispatch and ancestor registers come from the existing two-parent fixture.
 -- Both owners' real guard operands are interleaved with that same call stream.
-private def tape (source : Event) : Joint.Tape Unit :=
+def tape (source : Event) : Joint.Tape Unit :=
   [m 0 0 (.clear 0),m 1 9 (.clear 0)] ++ (TaskRetention.Regression.tape.flatMap fun row =>
     match row with
     | .taskWord 1 56 (.restore ..) =>
       [m 1 52 (.shutdown 0 false),m 1 53 (.load 0 source 0 true),m 1 54 (.returned 0),row]
     | _ => [row]) ++ [m 0 78 (.shutdown 0 false),m 0 80 (.load 0 ⟨1,75⟩ 0 true),m 0 81 (.returned 0)]
 
-private def edges (source : Event) (keep : Bool) : List (Event × Event) :=
+def edges (source : Event) (keep : Bool) : List (Event × Event) :=
   ((SlotSynchronization.recorded (tape source)).getD []).filter (fun pair =>
     keep || pair != (tick 2 50,tick 1 53))
-private def h (source : Event) (keep : Bool) : History :=
+def h (source : Event) (keep : Bool) : History :=
   ⟨[],fun _ => [],[],[],fun a b => (a,b) ∈ edges source keep⟩
 private def sync (source : Event) (keep : Bool) : MaskClock.Sync (h source keep) := ⟨edges source keep,fun _ _ => Iff.rfl⟩
 private def addr : TaskRetention.Address := fun w bank => some (64*w+bank)
@@ -271,13 +274,13 @@ private def replay (source : Event) (middleRelease : Bool) :
 
 set_option maxRecDepth 16384 in
 theorem throughTwoMasks : SplitCompletion.RetainedThrough (h (tick 2 50) true) (tick 2 34) (tick 0 80) := by
-  have accepted : (replay (tick 2 50) true).isSome := by cbv
+  have accepted : (replay (tick 2 50) true).isSome := by decide +kernel
   exact ((replay (tick 2 50) true).get accepted).down
 
 -- Reading the middle slot's initial zero or dropping the remote release-to-acquire
 -- edge prevents the outer generation from being credited with the inner access.
 set_option maxRecDepth 16384 in
-example : (replay (tick 1 9) true).isNone ∧ (replay (tick 2 50) false).isNone := by cbv
+example : (replay (tick 1 9) true).isNone ∧ (replay (tick 2 50) false).isNone := by decide +kernel
 
 end NestedMask
 
@@ -298,11 +301,11 @@ end LockOrder
 
 namespace EpochReuse
 
-private def t (w n : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w n op
+def t (w n : Nat) (op : Joint.TaskWord) : Joint.Event Unit := .taskWord w n op
 
 -- Write 1 and write 3 both store the exact same 64-bit counter value `1#64`.
 -- A cache hit must match the physical write index `seenSource`, not only the numeric value.
-private def epochs : List Write :=
+def epochs : List Write :=
   [⟨tick 3 0,0,false,false⟩,⟨tick 2 10,1,true,true⟩,⟨tick 2 20,2,true,true⟩,⟨tick 2 30,1,true,true⟩]
 private def flags (slot : Nat) : List FlagWrite :=
   if slot == 2 then [⟨tick 0 4,false⟩] else []
@@ -318,7 +321,7 @@ private def hist (hitIdx : Fin 4) : History where
 
 private def mem (hitIdx : Fin 4) : NativeStopReturns.Memory := ⟨hist hitIdx,[],[],fun _ => [],fun _ => []⟩
 
-private def tape (hitSrc : Event) : Joint.Tape Unit :=
+def tape (hitSrc : Event) : Joint.Tape Unit :=
   [t 0 1 (.copyParent 2 none),.splitWord 0 2 (.mark 0),t 0 3 (.install 2 none),
    t 0 4 (.storeFlag 2 false),t 0 5 (.ownerActive 2),t 0 6 (.book 1 2),
    t 1 11 (.latch false),t 1 13 (.epoch (tick 1 12) (tick 2 10) 1 0),

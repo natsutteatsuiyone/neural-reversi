@@ -1,10 +1,13 @@
-import NeuralReversi.MoveList.Initialization
-import NeuralReversi.Board.Move.Wipeout
-import NeuralReversi.Flip.Avx512.WidePair
+module
+public import NeuralReversi.MoveList.Initialization
+public import NeuralReversi.Board.Move.Wipeout
+public import NeuralReversi.Flip.Avx512.WidePair
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.SmallGenerate
 
-private def batches : Bool → List α → List (List α)
+def batches : Bool → List α → List (List α)
   | _, [] => []
   | false, x :: xs => [x] :: batches false xs
   | true, [x] => [[x]]
@@ -14,7 +17,7 @@ private theorem flatten_batches (paired : Bool) (xs : List α) :
     (batches paired xs).flatten = xs := by
   induction paired, xs using batches.induct <;> simp_all [batches]
 
-private def visit (wipeout : α → Bool) : List (List α) → Bool × List α
+def visit (wipeout : α → Bool) : List (List α) → Bool × List α
   | [] => (true, [])
   | batch :: rest =>
     if batch.any wipeout then (false, []) else
@@ -118,7 +121,7 @@ private theorem candidates_fit (mc : X86Config) (b : Board) :
   obtain ⟨_, player, opponent, _⟩ := (Board.getMoves_exact mc b i).mp bit
   simp [player, opponent]
 
-private def slots (records : List α) (fallback : α) : Initialization.Memory α :=
+def slots (records : List α) (fallback : α) : Initialization.Memory α :=
   Initialization.scalar (fun i => records[i]?.getD fallback) records.length 0 (fun _ => none)
 
 private theorem slots_exact (records : List α) (fallback : α) (i : Nat) :

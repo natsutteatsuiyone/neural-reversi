@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.WorkerPollMir.Exhausted
+module
+public import NeuralReversi.PvsParallel.WorkerPollMir.Exhausted
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 

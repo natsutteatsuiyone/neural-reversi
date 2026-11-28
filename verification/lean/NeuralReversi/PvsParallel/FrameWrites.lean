@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.FrameReturns
-import NeuralReversi.PvsParallel.FrameMove
-import NeuralReversi.TranspositionTable.WriterMir.Events
-import NeuralReversi.EndgameSearch.CacheHistory
+module
+public import NeuralReversi.PvsParallel.FrameReturns
+public import NeuralReversi.PvsParallel.FrameMove
+public import NeuralReversi.TranspositionTable.WriterMir.Events
+public import NeuralReversi.EndgameSearch.CacheHistory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameReturns
 
@@ -11,7 +14,7 @@ open CausalReplay (SearchSave PrefixWriteFrom)
 open PvsBoardTree (Position build)
 open ConcurrentReplay (Action UsedChild)
 
-private abbrev priorReads (log : Log mc fc) (endian : Bool) (call : WriterTrace.Call Nat) :=
+abbrev priorReads (log : Log mc fc) (endian : Bool) (call : WriterTrace.Call Nat) :=
   ConcurrentReplay.ReadAt log.before log.events call.finish endian
 
 structure SavedScore (log : Log mc fc) (call : WriterTrace.Call Nat) (f : Frame) (save : SearchSave) : Prop where

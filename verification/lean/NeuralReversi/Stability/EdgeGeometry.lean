@@ -1,4 +1,8 @@
-import NeuralReversi.Stability.EdgeProjection
+module
+public import NeuralReversi.Stability.EdgeProjection
+
+@[expose] public section
+
 namespace NeuralReversi.Stability.Semantics
 def LineCaptured (line : Fin 8 → Option Color) (c : Color) (a x : Fin 8) : Prop :=
  ∃ d : Direction, d.delta.1 = 0 ∧ ∃ n : Nat, 1 ≤ n ∧ n ≤ 6 ∧

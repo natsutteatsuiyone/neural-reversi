@@ -1,5 +1,7 @@
-import NeuralReversi.Flip.Avx2.Spec
-import NeuralReversi.Flip.ScalarProperties
+module
+public import NeuralReversi.Flip.ScalarProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Flip.Scalar

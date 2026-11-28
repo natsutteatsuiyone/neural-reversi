@@ -1,17 +1,13 @@
-import NeuralReversi.Flip.Model
-import NeuralReversi.Flip.Directional
-import NeuralReversi.Flip.LrmaskProperties
+module
+public import NeuralReversi.Flip.Model
+public import NeuralReversi.Flip.Directional
+public import NeuralReversi.Flip.LrmaskProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip
 open Scalar
 open NeuralReversi.Bitboard.Moves (OnRay)
-
-def value (sq : Square) (player opponent : Word) : Word :=
-  let n := ~~~opponent
-  flipLeft (mask sq 0) player n ||| flipLeft (mask sq 1) player n |||
-    flipLeft (mask sq 2) player n ||| flipLeft (mask sq 3) player n |||
-    flipRightValue (mask sq 4) player n ||| flipRightValue (mask sq 5) player n |||
-    flipRightValue (mask sq 6) player n ||| flipRightValue (mask sq 7) player n
 
 theorem operational_eq_value (checks : Bool) (sq : Square) (player opponent : Word) :
     flip checks sq player opponent = .ok (value sq player opponent) := by

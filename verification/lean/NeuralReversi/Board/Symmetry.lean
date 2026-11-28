@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.GeometryProperties
-import NeuralReversi.Board.GeometryModel
+module
+public import NeuralReversi.Bitboard.GeometryProperties
+public import NeuralReversi.Board.GeometryModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board.Geometry
 open NeuralReversi.Bitboard
@@ -117,12 +120,19 @@ theorem word_geometry (s : Symmetry) (bits : Bits) (i : Nat) (hi : i < 64) :
   · exact rotate180_geometry bits i hi
   · exact rotate270_geometry bits i hi
 
-set_option maxHeartbeats 2000000 in
+private def allSymmetries : List Symmetry :=
+  [.identity, .vertical, .horizontal, .mainDiagonal, .antiDiagonal, .rotate90, .rotate180, .rotate270]
+
+private theorem mem_allSymmetries (s : Symmetry) : s ∈ allSymmetries := by
+  cases s <;> decide
+
+private theorem index_compose_all :
+    ∀ s ∈ allSymmetries, ∀ t ∈ allSymmetries, ∀ i : Fin 64,
+      index t (index s i.val) = index (compose s t) i.val := by decide +kernel
+
 theorem index_compose (s t : Symmetry) (i : Nat) (hi : i < 64) :
-    index t (index s i) = index (compose s t) i := by
-  cases s <;> cases t <;>
-    simp only [compose, index, id, verticalIndex, horizontalIndex, mainDiagonalIndex,
-      antiDiagonalIndex, rotate90Index, rotate180Index, rotate270Index] <;> omega
+    index t (index s i) = index (compose s t) i :=
+  index_compose_all s (mem_allSymmetries s) t (mem_allSymmetries t) ⟨i, hi⟩
 
 theorem word_compose (s t : Symmetry) (bits : Bits) :
     word s (word t bits) = word (compose s t) bits := by

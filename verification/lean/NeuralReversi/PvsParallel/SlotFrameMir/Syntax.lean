@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.WorkerFrameMir.Pending
+module
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Syntax
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

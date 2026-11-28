@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.MovesGeometry
+module
+public import NeuralReversi.Bitboard.MovesGeometry
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

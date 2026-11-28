@@ -1,5 +1,8 @@
-import NeuralReversi.Solve2.Concrete
-import NeuralReversi.Solve2.Guard
+module
+public import NeuralReversi.Solve2.Concrete
+public import NeuralReversi.Solve2.Guard
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 

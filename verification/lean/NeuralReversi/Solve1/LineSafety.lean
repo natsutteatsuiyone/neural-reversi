@@ -1,4 +1,7 @@
-import NeuralReversi.Solve1.LineTable
+module
+public import NeuralReversi.Solve1.LineTable
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.LineSafety
 open LineTable
@@ -29,241 +32,89 @@ def Safe (pos : Fin 8) (line : Byte) : Prop :=
   upperCount pos line + lowerCount pos line ≤ 12 ∧
   (countFlip pos line).toNat = upperCount pos line + lowerCount pos line
 
-private theorem safe_by_chunks (pos : Fin 8)
-    (h0 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 0 + n.val)))
-    (h1 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 1 + n.val)))
-    (h2 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 2 + n.val)))
-    (h3 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 3 + n.val)))
-    (h4 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 4 + n.val)))
-    (h5 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 5 + n.val)))
-    (h6 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 6 + n.val)))
-    (h7 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 7 + n.val)))
-    (h8 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 8 + n.val)))
-    (h9 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 9 + n.val)))
-    (h10 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 10 + n.val)))
-    (h11 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 11 + n.val)))
-    (h12 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 12 + n.val)))
-    (h13 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 13 + n.val)))
-    (h14 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 14 + n.val)))
-    (h15 : ∀ n : Fin 16, Safe pos (BitVec.ofNat 8 (16 * 15 + n.val)))
-    (line : Byte) : Safe pos line := by
-  have bound := line.isLt
-  have eq : BitVec.ofNat 8 (16 * (line.toNat / 16) + line.toNat % 16) = line := by
-    apply BitVec.eq_of_toNat_eq
-    rw [BitVec.toNat_ofNat]
-    omega
-  rw [← eq]
-  generalize hq : line.toNat / 16 = q
-  have small : q < 16 := by omega
-  match q with
-  | 0 => exact h0 ⟨line.toNat % 16, by omega⟩
-  | 1 => exact h1 ⟨line.toNat % 16, by omega⟩
-  | 2 => exact h2 ⟨line.toNat % 16, by omega⟩
-  | 3 => exact h3 ⟨line.toNat % 16, by omega⟩
-  | 4 => exact h4 ⟨line.toNat % 16, by omega⟩
-  | 5 => exact h5 ⟨line.toNat % 16, by omega⟩
-  | 6 => exact h6 ⟨line.toNat % 16, by omega⟩
-  | 7 => exact h7 ⟨line.toNat % 16, by omega⟩
-  | 8 => exact h8 ⟨line.toNat % 16, by omega⟩
-  | 9 => exact h9 ⟨line.toNat % 16, by omega⟩
-  | 10 => exact h10 ⟨line.toNat % 16, by omega⟩
-  | 11 => exact h11 ⟨line.toNat % 16, by omega⟩
-  | 12 => exact h12 ⟨line.toNat % 16, by omega⟩
-  | 13 => exact h13 ⟨line.toNat % 16, by omega⟩
-  | 14 => exact h14 ⟨line.toNat % 16, by omega⟩
-  | 15 => exact h15 ⟨line.toNat % 16, by omega⟩
-  | q + 16 => omega
+private def aboveByte (pos : Fin 8) (line : Byte) : Byte := line >>> (pos.val + 1)
+private def belowByte (pos : Fin 8) (line : Byte) : Byte := line &&& (((1 : Byte) <<< pos.val) - 1)
 
-set_option maxRecDepth 100000
-set_option maxHeartbeats 0
-
-private theorem safe_0_0 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_1 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_2 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_3 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_4 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_5 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_6 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_7 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_8 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_9 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_10 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_11 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_12 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_13 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_14 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_0_15 : ∀ n : Fin 16, Safe ⟨0, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_0 : ∀ line : Byte, Safe ⟨0, by decide⟩ line :=
-  safe_by_chunks ⟨0, by decide⟩
-    safe_0_0 safe_0_1 safe_0_2 safe_0_3 safe_0_4 safe_0_5 safe_0_6 safe_0_7
-    safe_0_8 safe_0_9 safe_0_10 safe_0_11 safe_0_12 safe_0_13 safe_0_14 safe_0_15
-
-private theorem safe_1_0 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_1 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_2 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_3 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_4 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_5 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_6 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_7 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_8 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_9 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_10 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_11 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_12 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_13 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_14 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_1_15 : ∀ n : Fin 16, Safe ⟨1, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_1 : ∀ line : Byte, Safe ⟨1, by decide⟩ line :=
-  safe_by_chunks ⟨1, by decide⟩
-    safe_1_0 safe_1_1 safe_1_2 safe_1_3 safe_1_4 safe_1_5 safe_1_6 safe_1_7
-    safe_1_8 safe_1_9 safe_1_10 safe_1_11 safe_1_12 safe_1_13 safe_1_14 safe_1_15
-
-private theorem safe_2_0 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_1 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_2 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_3 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_4 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_5 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_6 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_7 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_8 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_9 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_10 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_11 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_12 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_13 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_14 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_2_15 : ∀ n : Fin 16, Safe ⟨2, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_2 : ∀ line : Byte, Safe ⟨2, by decide⟩ line :=
-  safe_by_chunks ⟨2, by decide⟩
-    safe_2_0 safe_2_1 safe_2_2 safe_2_3 safe_2_4 safe_2_5 safe_2_6 safe_2_7
-    safe_2_8 safe_2_9 safe_2_10 safe_2_11 safe_2_12 safe_2_13 safe_2_14 safe_2_15
-
-private theorem safe_3_0 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_1 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_2 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_3 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_4 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_5 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_6 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_7 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_8 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_9 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_10 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_11 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_12 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_13 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_14 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_3_15 : ∀ n : Fin 16, Safe ⟨3, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_3 : ∀ line : Byte, Safe ⟨3, by decide⟩ line :=
-  safe_by_chunks ⟨3, by decide⟩
-    safe_3_0 safe_3_1 safe_3_2 safe_3_3 safe_3_4 safe_3_5 safe_3_6 safe_3_7
-    safe_3_8 safe_3_9 safe_3_10 safe_3_11 safe_3_12 safe_3_13 safe_3_14 safe_3_15
-
-private theorem safe_4_0 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_1 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_2 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_3 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_4 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_5 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_6 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_7 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_8 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_9 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_10 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_11 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_12 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_13 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_14 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_4_15 : ∀ n : Fin 16, Safe ⟨4, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_4 : ∀ line : Byte, Safe ⟨4, by decide⟩ line :=
-  safe_by_chunks ⟨4, by decide⟩
-    safe_4_0 safe_4_1 safe_4_2 safe_4_3 safe_4_4 safe_4_5 safe_4_6 safe_4_7
-    safe_4_8 safe_4_9 safe_4_10 safe_4_11 safe_4_12 safe_4_13 safe_4_14 safe_4_15
-
-private theorem safe_5_0 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_1 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_2 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_3 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_4 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_5 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_6 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_7 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_8 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_9 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_10 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_11 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_12 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_13 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_14 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_5_15 : ∀ n : Fin 16, Safe ⟨5, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_5 : ∀ line : Byte, Safe ⟨5, by decide⟩ line :=
-  safe_by_chunks ⟨5, by decide⟩
-    safe_5_0 safe_5_1 safe_5_2 safe_5_3 safe_5_4 safe_5_5 safe_5_6 safe_5_7
-    safe_5_8 safe_5_9 safe_5_10 safe_5_11 safe_5_12 safe_5_13 safe_5_14 safe_5_15
-
-private theorem safe_6_0 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_1 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_2 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_3 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_4 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_5 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_6 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_7 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_8 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_9 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_10 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_11 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_12 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_13 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_14 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_6_15 : ∀ n : Fin 16, Safe ⟨6, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_6 : ∀ line : Byte, Safe ⟨6, by decide⟩ line :=
-  safe_by_chunks ⟨6, by decide⟩
-    safe_6_0 safe_6_1 safe_6_2 safe_6_3 safe_6_4 safe_6_5 safe_6_6 safe_6_7
-    safe_6_8 safe_6_9 safe_6_10 safe_6_11 safe_6_12 safe_6_13 safe_6_14 safe_6_15
-
-private theorem safe_7_0 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 0 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_1 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 1 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_2 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 2 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_3 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 3 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_4 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 4 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_5 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 5 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_6 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 6 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_7 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 7 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_8 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 8 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_9 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 9 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_10 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 10 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_11 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 11 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_12 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 12 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_13 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 13 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_14 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 14 + n.val)) := by unfold Safe; decide +kernel
-private theorem safe_7_15 : ∀ n : Fin 16, Safe ⟨7, by decide⟩ (BitVec.ofNat 8 (16 * 15 + n.val)) := by unfold Safe; decide +kernel
-
-private theorem safe_7 : ∀ line : Byte, Safe ⟨7, by decide⟩ line :=
-  safe_by_chunks ⟨7, by decide⟩
-    safe_7_0 safe_7_1 safe_7_2 safe_7_3 safe_7_4 safe_7_5 safe_7_6 safe_7_7
-    safe_7_8 safe_7_9 safe_7_10 safe_7_11 safe_7_12 safe_7_13 safe_7_14 safe_7_15
+private theorem fast_safe_all : ∀ pos : Fin 8, ∀ n : Fin 256,
+    let line := BitVec.ofNat 8 n.val
+    let a := aboveByte pos line
+    let b := belowByte pos line
+    (a ≠ 0 → fastCtz8 a ≤ 6) ∧
+    (b ≠ 0 → 1 ≤ pos.val ∧ fastClz8 b ≤ 7 ∧ 7 - fastClz8 b < pos.val) ∧
+    (if a = 0 then 0 else 2 * fastCtz8 a) +
+      (if b = 0 then 0 else 2 * (pos.val - 1 - (7 - fastClz8 b))) =
+      2 * reference pos line := by decide +kernel
 
 theorem all_safe (pos : Fin 8) (line : Byte) : Safe pos line := by
-  rcases pos with ⟨p, hp⟩
-  match p with
-  | 0 => exact safe_0 line
-  | 1 => exact safe_1 line
-  | 2 => exact safe_2 line
-  | 3 => exact safe_3 line
-  | 4 => exact safe_4 line
-  | 5 => exact safe_5 line
-  | 6 => exact safe_6 line
-  | 7 => exact safe_7 line
-  | n + 8 => omega
+  have hf := fast_safe_all pos ⟨line.toNat, line.isLt⟩
+  simp only [BitVec.ofNat_toNat, BitVec.setWidth_eq] at hf
+  obtain ⟨ha_bnd, hb_bnd, hsum_fast⟩ := hf
+  let a := aboveByte pos line
+  let b := belowByte pos line
+  have ha_eq : above pos line = a.setWidth 64 := above_eq_setWidth pos line
+  have hb_eq : below pos line = b.setWidth 64 := below_eq_setWidth pos line
+  have ha_zero : above pos line = 0 ↔ a = 0 := by
+    rw [ha_eq]; exact setWidth64_eq_zero_iff a
+  have hb_zero : below pos line = 0 ↔ b = 0 := by
+    rw [hb_eq]; exact setWidth64_eq_zero_iff b
+  have ha_ctz : a ≠ 0 → (above pos line).ctz.toNat = fastCtz8 a := by
+    intro h; rw [ha_eq, setWidth64_ctz_toNat a h]
+  have hb_clz_nat : b ≠ 0 → (below pos line).clz.toNat = 56 + fastClz8 b := by
+    intro h; rw [hb_eq, setWidth64_clz_toNat b h]
+  have hlog_nat : b ≠ 0 → (logIndex pos line).toNat = 7 - fastClz8 b := by
+    intro h
+    have hbb : 1 ≤ pos.val ∧ fastClz8 b ≤ 7 ∧ 7 - fastClz8 b < pos.val := hb_bnd h
+    have ⟨_, hclz, _⟩ := hbb
+    have hclz64 := hb_clz_nat h
+    unfold logIndex
+    rw [BitVec.toNat_sub, hclz64]
+    have h63 : (63 : Usize).toNat = 63 := rfl
+    rw [h63]
+    omega
+  have hupper : upperCount pos line = if a = 0 then 0 else 2 * fastCtz8 a := by
+    unfold upperCount
+    by_cases h : a = 0
+    · rw [ite_eq_left (ha_zero.mpr h), ite_eq_left h]
+    · rw [ite_eq_right (fun h0 => h (ha_zero.mp h0)), ite_eq_right h, ha_ctz h]
+  have hlower : lowerCount pos line = if b = 0 then 0 else 2 * (pos.val - 1 - (7 - fastClz8 b)) := by
+    unfold lowerCount
+    by_cases h : b = 0
+    · rw [ite_eq_left (hb_zero.mpr h), ite_eq_left h]
+    · rw [ite_eq_right (fun h0 => h (hb_zero.mp h0)), ite_eq_right h, hlog_nat h]
+  have hsum : upperCount pos line + lowerCount pos line = 2 * reference pos line := by
+    rw [hupper, hlower]; exact hsum_fast
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · intro hne
+    have ha : a ≠ 0 := fun h => hne (ha_zero.mpr h)
+    have hctz := ha_ctz ha
+    have hle : fastCtz8 a ≤ 6 := ha_bnd ha
+    refine ⟨by omega, ?_⟩
+    rw [BitVec.toNat_setWidth, hctz]
+    omega
+  · intro hne
+    have hb : b ≠ 0 := fun h => hne (hb_zero.mpr h)
+    have hbb : 1 ≤ pos.val ∧ fastClz8 b ≤ 7 ∧ 7 - fastClz8 b < pos.val := hb_bnd hb
+    have ⟨hpos, hclz, hlt⟩ := hbb
+    have hclz64 := hb_clz_nat hb
+    have hlog := hlog_nat hb
+    have hp8 := pos.isLt
+    have h1u : (1 : Usize).toNat = 1 := rfl
+    have h63u : (63 : Usize).toNat = 63 := rfl
+    have hsub1 : (BitVec.ofNat 64 pos.val - 1).toNat = pos.val - 1 := by
+      rw [BitVec.toNat_sub, BitVec.toNat_ofNat, h1u]
+      omega
+    refine ⟨hpos, by omega, by omega, ?_, ?_, ?_, ?_⟩
+    · simp only [BitVec.usubOverflow, BitVec.toNat_ofNat, h1u, decide_eq_false_iff_not]
+      omega
+    · simp only [BitVec.usubOverflow, h63u, hclz64, decide_eq_false_iff_not]
+      omega
+    · simp only [BitVec.usubOverflow, hsub1, hlog, decide_eq_false_iff_not]
+      omega
+    · rw [BitVec.toNat_setWidth, BitVec.toNat_sub, hsub1, hlog]
+      omega
+  · rw [hsum]
+    have := reference_bound pos line
+    omega
+  · rw [countFlip_correct, hsum]
 
 end NeuralReversi.Solve1.LineSafety

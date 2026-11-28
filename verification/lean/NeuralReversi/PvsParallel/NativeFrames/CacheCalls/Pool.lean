@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Registers
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Registers
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls
 
@@ -7,7 +10,7 @@ open EndgameSearch.CacheHistory.NativeTrace (Worker Cursor Activation group_work
 open EndgameSearch.CacheHistory.Payloads (Values completeVisit pendingWorker)
 open NativeFrameCache (project)
 
-private abbrev Item (p : Pool) := (w : Worker p) × Cursor w
+abbrev Item (p : Pool) := (w : Worker p) × Cursor w
 
 /-- A complete invocation has an observed return time. An outstanding
     invocation has an observed opening, but its unexecuted tail may finish later. -/
@@ -17,10 +20,10 @@ structure Plans (p : Pool) where
   finished_at : ∀ v, (finished v).window = ⟨v.worker,v.first,v.last⟩
   pending_at : ∀ w s f, (pending w s f).window.worker = w.ordinal ∧ (pending w s f).window.first = f.first
 
-private def Plans.openBlock (plan : Plans p) (s : Item p) : Option (Block p) :=
+def Plans.openBlock (plan : Plans p) (s : Item p) : Option (Block p) :=
   (s.2.stack.find? (fun f => f.node == .boundary)).map (plan.pending s.1 s.2)
 
-private def Plans.workerBlocks (plan : Plans p) (s : Item p) :=
+def Plans.workerBlocks (plan : Plans p) (s : Item p) :=
   s.2.completed.map plan.finished ++ (plan.openBlock s).toList
 
 def Plans.blocks (plan : Plans p) (c : EndgameSearch.CacheHistory.NativeTrace.Capture p S) :=

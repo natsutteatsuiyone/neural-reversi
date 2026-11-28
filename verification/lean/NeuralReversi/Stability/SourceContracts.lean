@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.Cutoff
+module
+public import NeuralReversi.Stability.Cutoff
+
+@[expose] public section
 
 namespace NeuralReversi.Stability
 

@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.FullLadder
-import NeuralReversi.AspirationMir.SerialTable.PvInterior
-import NeuralReversi.EndgameSearch.SerialWarmCache
+module
+public import NeuralReversi.AspirationMir.SerialTable.FullLadder
+public import NeuralReversi.AspirationMir.SerialTable.PvInterior
+public import NeuralReversi.EndgameSearch.SerialWarmCache
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameHandoff
 

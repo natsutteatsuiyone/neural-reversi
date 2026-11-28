@@ -1,5 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.State
-import NeuralReversi.PvsParallel.SerialTable.Execution
+module
+public import NeuralReversi.PvsParallel.SerialTable.State
+public import NeuralReversi.PvsParallel.SerialTable.Execution
+public import NeuralReversi.PvsParallel.SerialCacheStack.Cells
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.Stack
 

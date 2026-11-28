@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Writes
-import NeuralReversi.PvsParallel.SerialRootExecution
+module
+public import NeuralReversi.PvsParallel.SerialTable.Writes
+public import NeuralReversi.PvsParallel.SerialRootExecution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.Root
 

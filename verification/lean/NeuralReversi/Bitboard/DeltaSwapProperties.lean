@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.DeltaSwapModel
+module
+public import NeuralReversi.Bitboard.DeltaSwapModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

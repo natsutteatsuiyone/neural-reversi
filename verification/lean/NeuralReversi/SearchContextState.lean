@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.EmptyState
-import NeuralReversi.Perft
-import NeuralReversi.Eval.PatternUpdate.Storage
+module
+public import NeuralReversi.EndgameSearch.EmptyState
+public import NeuralReversi.Perft
+public import NeuralReversi.Eval.PatternUpdate.Storage
+
+@[expose] public section
 
 namespace NeuralReversi.SearchContextState
 

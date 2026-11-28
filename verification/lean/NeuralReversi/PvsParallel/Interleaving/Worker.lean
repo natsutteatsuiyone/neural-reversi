@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
+module
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Worker
 

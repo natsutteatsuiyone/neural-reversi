@@ -1,4 +1,8 @@
-import NeuralReversi.Stability.Horizontal
+module
+public import NeuralReversi.Stability.Horizontal
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
 
 theorem horizontal_product_bound (p : Word) :

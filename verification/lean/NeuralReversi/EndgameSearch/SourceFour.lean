@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch
-import NeuralReversi.ScoreRefresh.Properties
-import NeuralReversi.Solve34.Target
+module
+public import NeuralReversi.EndgameSearch
+public import NeuralReversi.ScoreRefresh.Properties
+public import NeuralReversi.Solve34.Target
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch
 
@@ -14,7 +17,7 @@ open ScoreRefresh (DiscScore Score fromDiscDiff toDiscDiff)
 abbrev FourBoards := (b : Position) → (Board.emptyCount b.val).toNat = 4 →
   {ordered : EmptyBoard 4 // ordered.asBoard = b.val}
 
-private theorem cast_asBoard {n m : Nat} (eq : n = m) (b : EmptyBoard n) :
+theorem cast_asBoard {n m : Nat} (eq : n = m) (b : EmptyBoard n) :
     (eq ▸ b : EmptyBoard m).asBoard = b.asBoard := by
   cases eq
   rfl

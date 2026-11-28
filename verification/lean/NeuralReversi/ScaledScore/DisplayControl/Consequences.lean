@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayControl.Properties
+module
+public import NeuralReversi.ScaledScore.DisplayControl.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore.DisplayControl
 open NeuralReversi.ScaledScore (magnitudeChunks displayChunks)

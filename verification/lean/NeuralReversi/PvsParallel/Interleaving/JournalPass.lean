@@ -1,5 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalPrefix
-import NeuralReversi.PvsParallel.Interleaving.CallReturns
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalPrefix
+public import NeuralReversi.PvsParallel.Interleaving.CallReturns
+meta import NeuralReversi.PvsParallel.Interleaving.CallReturns
+meta import NeuralReversi.PvsParallel.Interleaving.JournalPrefix
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalPass
 
@@ -11,17 +16,17 @@ open CausalTable (Frame Lookups)
 open NativeNodes (Returns)
 open CallReturns (Row Activation)
 
-private abbrev Prior (frames : List Frame) (f : Frame) := CausalTable.returned (· < ·) frames f.chosen
+abbrev Prior (frames : List Frame) (f : Frame) := CausalTable.returned (· < ·) frames f.chosen
 
 structure Result (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (frames : List Frame)
     (reads : Lookups) (f : Frame) : Prop where
   exact : Nested.Body mc fc (Prior frames f) reads f.board f.pv f.alpha f.beta f.score
   weak : WeakFrame.Frame mc fc (Prior frames f) reads f.board f.pv f.alpha f.beta f.score
 
-private def oneReturn (child : Frame) (at_ : Nat) (depth : Depth) (cut : Bool) : Returns :=
+def oneReturn (child : Frame) (at_ : Nat) (depth : Depth) (cut : Bool) : Returns :=
   ⟨[child],fun _ => depth,fun _ => cut,fun i j => decide (i < j),at_,fun _ _ _ _ _ _ => some 0⟩
 
-private theorem inside (frames : List Frame) (member : child ∈ frames) :
+theorem inside (frames : List Frame) (member : child ∈ frames) :
     (oneReturn child at_ depth cut).InPrefix (CausalTable.returned (· < ·) frames at_) := by
   intro b pv a z v used
   obtain ⟨g,h,t,ret,lt,vals⟩ := used
@@ -31,7 +36,7 @@ private theorem inside (frames : List Frame) (member : child ∈ frames) :
 
 /-- Replay the native owner with exactly one available return. A move or split
     branch cannot borrow a second result from an unrelated frame. -/
-private def verify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (fs : List Frame)
+def verify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (fs : List Frame)
     (reads : Lookups) (f : Frame) (g : Frame) (mem : g ∈ fs) (d : Depth) (a z : Score)
     (cut checked : Bool) (full : ExactDepth.Full f.board d)
     (slots : f.alpha = a.raw.toInt ∧ f.beta = z.raw.toInt)
@@ -65,13 +70,13 @@ private def verify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (fs
         exact .scout d a z false checked cut blank [] rows x (inside fs mem) mode tie schedule split full (by decide)
           ⟨fun _ _ hit => by contradiction,fun _ h => (List.not_mem_nil h).elim⟩ run,weak⟩ else .rejected
 
-private def quiet (es : Joint.Tape Op) (worker start stop : Nat) :=
+def quiet (es : Joint.Tape Op) (worker start stop : Nat) :=
   es.zipIdx.all fun (e,t) =>
     e.worker != worker || !(decide (start < t ∧ t < stop)) || match e with | .engine (.other _) => true | _ => false
 
 /-- Use every activation under the parent, including abandoned calls. The
     worker can issue arbitrary instructions inside the child's lifetime. -/
-private def physical (es : Joint.Tape Op) (state : CallReturns.State) (owner : CallJournal.Choice) :
+def physical (es : Joint.Tape Op) (state : CallReturns.State) (owner : CallJournal.Choice) :
     Option (CallReturns.Entry × CallReturns.Row) := do
   let (a,id) ← state.calls.toList.zipIdx.find? fun (a,_) =>
     a.worker == owner.worker && a.first == owner.opening && a.callee == .pvs

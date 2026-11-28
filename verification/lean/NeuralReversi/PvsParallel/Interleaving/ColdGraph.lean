@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ColdGraph
 

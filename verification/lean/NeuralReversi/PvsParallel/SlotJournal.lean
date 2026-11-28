@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.TableReads
+module
+public import NeuralReversi.PvsParallel.TableReads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotJournal
 

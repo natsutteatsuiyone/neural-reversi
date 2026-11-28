@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.ConcurrentReplay
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.PvsParallel.NonPvMir.Program
+module
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.PvsParallel.NonPvMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ConcurrentReplay
 

@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Packing
+module
+public import NeuralReversi.TranspositionTable.Packing
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Snapshot
 

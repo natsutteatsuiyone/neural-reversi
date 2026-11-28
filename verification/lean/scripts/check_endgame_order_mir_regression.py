@@ -46,7 +46,7 @@ MUTATIONS = {
 }
 
 
-def check(dump, repo):
+def check(dump, repo, *, baseline=None):
     # Derive the mutants from the current values so that tuning them keeps the check valid.
     weight = constants(dump)[1]["squareWeight"]
     depth = endgame_sort_depths(dump)[0]
@@ -60,7 +60,7 @@ def check(dump, repo):
         for (stem, phase), changes in mutations.items()
         for old, new in changes
     ]
-    return check_mir_regression(dump, repo, lambda d, r: (verify(d, r), render_weights(d)), cases)
+    return check_mir_regression(dump, repo, lambda d, r: (verify(d, r), render_weights(d)), cases, baseline=baseline)
 
 
 def main():

@@ -1,5 +1,8 @@
-import NeuralReversi.Solve1.ScalarCounts
-import NeuralReversi.Solve1.Bmi2Verified
+module
+public import NeuralReversi.Solve1.ScalarCounts
+public import NeuralReversi.Solve1.Bmi2Verified
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.Scalar
 

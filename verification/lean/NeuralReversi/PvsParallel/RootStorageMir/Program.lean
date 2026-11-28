@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.RootSuffix.Writes
+module
+public import NeuralReversi.RootMoveStorage
+public import NeuralReversi.MidgameAspiration.Arithmetic
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootStorageMir
 
@@ -27,7 +31,7 @@ def changed (old : Row) (value : Int) (shown : Bool) (slots : Slots) : Row :=
   let squareSum := old.meanSquared + squared
   ⟨old.square, (if shown then value else negInf), (if seed then value else averageSum.tdiv 2), (if seed then squared else squareSum.tdiv 2), (if shown then pvPrefix slots.toList else old.pv)⟩
 
-private instance (bits : Nat) (x : Int) : Decidable (MidgameAspiration.FitsSigned bits x) :=
+instance (bits : Nat) (x : Int) : Decidable (MidgameAspiration.FitsSigned bits x) :=
   inferInstanceAs (Decidable (_ ≤ x ∧ x < _))
 
 def numeric (old : Row) (value : Int) : Bool :=

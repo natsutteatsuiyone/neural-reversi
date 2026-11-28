@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeWorkerFeed
-import NeuralReversi.PvsParallel.SplitWorkerMir.Iterator
+module
+public import NeuralReversi.PvsParallel.NativeWorkerFeed
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Iterator
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorFrames
 
@@ -227,7 +230,7 @@ theorem Posted.index (x : Posted rc s journal stream earlier r seq) : r.index = 
   · contradiction
   · exact congrArg Report.index (Option.some.inj c).symm
 
-private theorem find_claim (key : α → Nat) (xs : List α) (unique : (xs.map key).Nodup)
+theorem find_claim (key : α → Nat) (xs : List α) (unique : (xs.map key).Nodup)
     (member : x ∈ xs) : xs.find? (fun y => key y == key x) = some x := by
   induction xs with
   | nil => contradiction
@@ -238,7 +241,7 @@ private theorem find_claim (key : α → Nat) (xs : List α) (unique : (xs.map k
     · have other : key y ≠ key x := fun same => fresh (same ▸ List.mem_map_of_mem later)
       simp [other,ih distinct later]
 
-private structure Decoded (w : Nat) where
+structure Decoded (w : Nat) where
   op : Write w
   rank : Nat
   lock : Observation
@@ -246,7 +249,7 @@ private structure Decoded (w : Nat) where
   move : Move.Move
   body : Searched
 
-private def decode (rc : List Move.Move) (s : State w) (journal : List Observation) (stream : List Record)
+def decode (rc : List Move.Move) (s : State w) (journal : List Observation) (stream : List Record)
     (ordinal index : Nat) (seq : List (Nat × Report)) : Option (Decoded w) := do
   let (rank,_) ← seq[ordinal]?
   let op ← s.writes.find? (fun op => op.old.toNat == index)

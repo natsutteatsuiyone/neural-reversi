@@ -114,8 +114,8 @@ def render(dump, repo):
     body = read_cfg(dump, "{impl#6}", "seqlock_write",
                     "(_1: &TTEntry, _2: u64, _3: u64, _4: u64, _5: TTEntryData) -> bool")
     return "\n".join([
-        "import NeuralReversi.TranspositionTable.WriterMir.Syntax", "",
-        "namespace NeuralReversi.TranspositionTable.WriterMir", "", "open SeqLock (Word)", "",
+        "module", "public import NeuralReversi.TranspositionTable.WriterMir.Syntax", "",
+        "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.WriterMir", "", "open SeqLock (Word)", "",
         "def writeStable (endian : Bool) (seq : { v : Word // v &&& 1 = 0 })",
         "    (player opponent : Word) (entry : EntryData) (casSuccess : Bool) : List Atom × Bool :=",
         "  if casSuccess then", "    " + stable_write(body, fields, True),

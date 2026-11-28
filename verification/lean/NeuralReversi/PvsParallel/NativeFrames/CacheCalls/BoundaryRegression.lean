@@ -1,6 +1,15 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Reads
-import NeuralReversi.Board.Hash
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Reads
+public import NeuralReversi.Board.Hash
+meta import NeuralReversi.Board.Model
+meta import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+meta import NeuralReversi.EndgameTreeCache
+meta import NeuralReversi.Board.Hash
+meta import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
+meta import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Reads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.BoundaryRegression
 

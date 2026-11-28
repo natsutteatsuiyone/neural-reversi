@@ -1,5 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.CallReturns
-import NeuralReversi.PvsParallel.Interleaving.JournalPass
+module
+public import NeuralReversi.PvsParallel.Interleaving.CallReturns
+public import NeuralReversi.PvsParallel.Interleaving.JournalPass
+meta import NeuralReversi.PvsParallel.Interleaving.CallReturns
+meta import NeuralReversi.PvsParallel.Interleaving.JournalPass
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalPv
 
@@ -10,18 +15,18 @@ open EndgameOrderMir (Heuristic pvOrder)
 open CallReturns (Row Scope Owner)
 open JournalBodies (Check)
 
-private def sameFrame (g f : Frame) := decide (g.chosen = f.chosen ∧ g.returned = f.returned ∧ g.board = f.board ∧
+def sameFrame (g f : Frame) := decide (g.chosen = f.chosen ∧ g.returned = f.returned ∧ g.board = f.board ∧
   g.pv = f.pv ∧ g.alpha = f.alpha ∧ g.beta = f.beta ∧ g.score = f.score)
 
 private theorem sameFrame_iff (g f : Frame) : sameFrame g f = true ↔ g = f := by
   cases g; cases f; simp [sameFrame]
 
-private def sameLevel (s : CallJournal.State Op) (f : Frame) := s.frames.filter (fun g => s.level g == s.level f)
+def sameLevel (s : CallJournal.State Op) (f : Frame) := s.frames.filter (fun g => s.level g == s.level f)
 
 def registry (s : CallJournal.State Op) (f : Frame) :=
   if s.level f = Cutoffs.exactSelectivity then s.exactFrames else s.weakChildren
 
-private def eligible (s : CallJournal.State Op) (f : Frame) (r : Row) :=
+def eligible (s : CallJournal.State Op) (f : Frame) (r : Row) :=
   r.entry.endgame && r.entry.rootLine.isNone && (r.entry.level == (s.level f).val) &&
     (sameLevel s f).any (sameFrame r.frame) && (registry s f).any (sameFrame r.frame)
 
@@ -56,12 +61,12 @@ structure Operands (mc : Bitboard.Moves.X86Config) (b : Position) where
   tie : GeneratedSquare mc b.val → Fin 64
   schedule : Nat → Bool × Bool
 
-private def dispatch (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) :=
+def dispatch (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) :=
   let generated := PvEntryMir.generated mc fc b false (fun _ => none)
   PvEntryMir.dispatch d.toNat (generated.len.getD 0 != 0) (Board.hasLegalMoves mc (PvsBoardTree.pass b).val)
     generated.wipeout.join.isSome
 
-private def run (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def run (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (d : Depth) (cut : Bool) (a z : Int) (op : Operands mc b) (hint : Option Bitboard.Square) :=
   let moves := pvOrder mc fc b op.mode op.tie hint
   let q : PvsPostpone.Queue _ := ⟨0,moves,[]⟩
@@ -116,7 +121,7 @@ def parent (calls : CallReturns.State) (owner : CallJournal.Choice) (f : Frame) 
 /-- Replay a non-root endgame PV owner from the supplied native ordering and scheduling operands.
     A parent reader's own key and closing word select the TT ordering hint. Child returns are
     counted even when an identical board is requested twice; a split or other side call is outside. -/
-private def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op)
+def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op)
     (s : CallJournal.State Op) (f : Frame) (reads : Lookups) (op : Operands mc f.board)
     (probe : Option (Nat × Nat × TranspositionTable.ProbeRetry.Result)) :
     Check (Bodies mc fc s f reads) :=

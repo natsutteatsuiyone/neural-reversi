@@ -1,12 +1,15 @@
-import NeuralReversi.TranspositionTable.ReaderMir.Lookup
-import NeuralReversi.TranspositionTable.ReaderMir.Program
-import NeuralReversi.TranspositionTable.WriterMir.SourceProof
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.Lookup
+public import NeuralReversi.TranspositionTable.ReaderMir.Program
+public import NeuralReversi.TranspositionTable.WriterMir.SourceProof
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir.SequenceCycle
 
 open SeqLock (Word seqWord)
 
-private def image (p o seq metadata : Word) : SeqLock.Snapshot := ⟨p,o,seq,metadata⟩
+def image (p o seq metadata : Word) : SeqLock.Snapshot := ⟨p,o,seq,metadata⟩
 
 /-- One uncontended save. Both the requested CAS and the final payload come
     from the MIR programs for the exact save and the successful writer. -/
@@ -39,7 +42,7 @@ theorem stores_at (exactTag : d.bound = Packing.boundByte .exact) (endian p o s 
     rw [stores,ih,Option.bind_some]
     exact store_at exactTag endian p o _ _ (epoch+n+1) rfl
 
-private def register (s : SeqLock.Snapshot) : SeqLock.Location → Word
+def register (s : SeqLock.Snapshot) : SeqLock.Location → Word
   | .sequence => s.sequence
   | .payload .player => s.player
   | .payload .opponent => s.opponent
@@ -47,16 +50,16 @@ private def register (s : SeqLock.Snapshot) : SeqLock.Location → Word
 
 /-- A sequentially consistent schedule: every load sees the current field.
     The entire writer interval occurs between two reader instructions. -/
-private def samples (actions : List AtomicAction) (cut : Nat) (first last : SeqLock.Snapshot) (pc : Nat) : Word :=
+def samples (actions : List AtomicAction) (cut : Nat) (first last : SeqLock.Snapshot) (pc : Nat) : Word :=
   match actions[pc]? with
   | some (.load loc _) => register (if pc < cut then first else last) loc
   | _ => 0
 
-private def lookupOps : List AtomicAction :=
+def lookupOps : List AtomicAction :=
   [.load .sequence .acquire,.load (.payload .player) .relaxed,.load (.payload .opponent) .relaxed,
    .load (.payload .metadata) .relaxed,.fence .acquire,.load .sequence .relaxed]
 
-private def snapshotOps : List AtomicAction :=
+def snapshotOps : List AtomicAction :=
   [.load .sequence .acquire,.load (.payload .metadata) .relaxed,.load (.payload .player) .relaxed,
    .load (.payload .opponent) .relaxed,.fence .acquire,.load .sequence .relaxed]
 

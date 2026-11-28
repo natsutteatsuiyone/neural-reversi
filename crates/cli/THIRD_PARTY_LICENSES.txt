@@ -9,7 +9,7 @@ Overview
 Apache License 2.0 (74)
 MIT License (25)
 BSD 3-Clause "New" or "Revised" License (4)
-GNU General Public License v3.0 or later (2)
+GNU General Public License v3.0 or later (3)
 Unicode License v3 (1)
 zlib License (1)
 
@@ -2991,6 +2991,7 @@ GNU General Public License v3.0 or later
 
 Applies to:
   * cli 6.3.0
+  * eval-weights 6.3.0
   * reversi-core 6.3.0
 ----------------------------------------------------------------
 

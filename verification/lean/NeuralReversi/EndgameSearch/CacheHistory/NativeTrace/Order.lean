@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
 

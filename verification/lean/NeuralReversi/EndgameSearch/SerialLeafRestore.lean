@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialScout
+module
+public import NeuralReversi.PvsParallel.SerialScout
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.SerialLeafRestore
 
@@ -279,10 +282,10 @@ open PvsParallel.SerialScout (Config)
 open ScoreRefresh (Score toDiscDiff fromDiscDiff)
 open PvsParallel.NonPvMir (sourceRun)
 
-private def serialState (s : EmptyState) (past : List Store) : State :=
+def serialState (s : EmptyState) (past : List Store) : State :=
   ⟨s,past,⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩⟩
 
-private def scaled (checked : Bool) (result : Outcome) : Option Int := do
+def scaled (checked : Bool) (result : Outcome) : Option Int := do
   let score ← (fromDiscDiff checked ⟨BitVec.ofInt 32 (result.score.getD 0)⟩).toOption
   let word ← Cancellation.publish result false score
   return word.raw.toInt
@@ -308,12 +311,6 @@ def leafWith (reader : Reader) (c : Config) (mc : X86Config) (fc : FlipConfig) (
 
 abbrev leaf (c : Config) := leafWith (historyReader c.address) c
 
-open Lean in
-local macro "unfoldLeaf" module:ident field:ident : tactic => do
-  let ns := `NeuralReversi.PvsParallel ++ module.getId
-  let id := mkIdent (mkPrivateNameCore ns (ns ++ field.getId))
-  `(tactic| unfold $id:ident)
-
 private theorem middle_score (c : Config) (mc : X86Config) (fc : FlipConfig) (b : Position) (s : EmptyState)
     (a : Score) (past : List Store) (lo : 4 < s.count.toNat) (hi : s.count.toNat ≤ 6) :
     sourceRun c.target c.bmi2 mc fc c.address past b s.mask s.count s.count a c.checked =
@@ -321,7 +318,7 @@ private theorem middle_score (c : Config) (mc : X86Config) (fc : FlipConfig) (b 
         (ShallowMir.run c.target c.bmi2 mc fc c.address b s (toDiscDiff a).raw.toInt past).score⟩).toOption := by
   have size : s.count.toNat = 5 ∨ s.count.toNat = 6 := by omega
   unfold sourceRun
-  unfoldLeaf NonPvMir withShallow
+  unfold PvsParallel.NonPvMir.withShallow
   rcases size with n|n <;> simp [n,PvsParallel.NonPvMir.dispatch]
 
 private theorem deep_score (c : Config) (mc : X86Config) (fc : FlipConfig) (b : Position) (s : EmptyState)
@@ -331,8 +328,8 @@ private theorem deep_score (c : Config) (mc : X86Config) (fc : FlipConfig) (b : 
     scaled c.checked (DeepRecursionMir.run c.target c.bmi2 c.paired mc fc c.address b (toDiscDiff a).raw.toInt
       (serialState s past)) := by
   unfold PvsParallel.DeepLeafMir.sourceRun
-  unfoldLeaf DeepLeafMir withNws
-  unfoldLeaf DeepLeafMir lookup
+  unfold PvsParallel.DeepLeafMir.withNws
+  unfold PvsParallel.DeepLeafMir.lookup
   simp [PvsParallel.DeepLeafMir.dispatch,serialState,lo,hi]
   rfl
 

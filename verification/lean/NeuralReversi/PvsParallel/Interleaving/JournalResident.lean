@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Nested
-import NeuralReversi.PvsParallel.Interleaving.SeedHistory
+module
+public import NeuralReversi.PvsParallel.Interleaving.Nested
+public import NeuralReversi.PvsParallel.Interleaving.SeedHistory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalResident
 
@@ -109,7 +112,7 @@ theorem Session.final_valid (s : Session mc fc endian) (initial : ∀ a, Valid m
 def Session.drained (s : Session mc fc endian) := ∀ k, Record.writer ⟨k,.cas⟩ ∈ s.records →
   (s.calls k).success = true → Record.writer ⟨k,.finish⟩ ∈ s.records
 
-private def finished (k : Nat) : Record → Bool
+def finished (k : Nat) : Record → Bool
   | .writer ⟨j,.finish⟩ => k == j
   | _ => false
 

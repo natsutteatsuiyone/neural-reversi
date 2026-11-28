@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
-import NeuralReversi.PvsParallel.Interleaving.Drive
+module
+public import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
+public import NeuralReversi.PvsParallel.Interleaving.Drive
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SchedulerReplay
 
@@ -18,13 +21,13 @@ inductive Instruction (w : Nat) where
   | exhausted (worker load : Nat) (failures : List Nat)
   | lock (acquire : Event)
 
-private def maskOf {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
+def maskOf {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
   SlotFrameMir.RawProjection.actions b.generation
 
-private abbrev window {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
+abbrev window {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
   b.owner.exit.clock.atStep (3+b.owner.exit.log.length)
 
-private abbrev slotOf {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
+abbrev slotOf {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :=
   b.flagAddress (b.generation.owner,b.bankIndex)
 
 /-- Only a section whose physical stop test returned true needs the corresponding
@@ -33,7 +36,7 @@ abbrev Stops {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t) :
   (rank : Nat) → (posted : List Tickets.Post) → (poll : Event) →
     Option (StopSchedule.Evidence b.memory b.owner.check (window b) (slotOf b) posted poll)
 
-private def release (complete : List Action) (poll : Event) : Option (StopSchedule.Release complete poll) :=
+def release (complete : List Action) (poll : Event) : Option (StopSchedule.Release complete poll) :=
   (List.finRange complete.length).findSome? fun i =>
     match h : complete.get i with
     | .book .. => none
@@ -42,7 +45,7 @@ private def release (complete : List Action) (poll : Event) : Option (StopSchedu
         some ⟨i,w,e,h,before.1,before.2⟩
       else none
 
-private abbrev seq {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
+abbrev seq {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
     (root cut : Bool) (depth : Nat) (ms : List Action) (locks : List FieldStores.Raw) (s : State t.width) :=
   ScoreOrigin.RunWith t b.memory b.owner.check (window b) (slotOf b) (AlphaOrigin.words b.registers.reports)
     (ScoreOrigin.task t root cut depth) (fun _ _ _ _ _ => True) b.generation.owner (maskOf b)
@@ -50,7 +53,7 @@ private abbrev seq {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operand
 
 /-- Lists remaining at the end must all be empty. Consequently an accepted tape includes
     every effective booking/reset, successful iterator CAS and protected report or discard. -/
-private def walk {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
+def walk {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
     (root cut : Bool) (depth : Nat) (stop : Stops b) (s : State t.width)
     (ms : List Action) (locks : List FieldStores.Raw)
     (bits : List Action) (issued : List (Write t.width)) (packets : List FieldStores.Raw)

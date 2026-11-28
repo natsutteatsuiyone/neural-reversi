@@ -1,5 +1,8 @@
-import NeuralReversi.Solve34.Control
-import NeuralReversi.Solve34.BaseBounds
+module
+public import NeuralReversi.Solve34.Control
+public import NeuralReversi.Solve34.BaseBounds
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 

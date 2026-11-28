@@ -1,4 +1,7 @@
-import NeuralReversi.AlignedBuffer.Allocation
+module
+public import NeuralReversi.AlignedBuffer.Allocation
+
+@[expose] public section
 
 namespace NeuralReversi.LargePages
 
@@ -78,7 +81,7 @@ structure WindowsReply where
   allocated : Bool
   alreadyEnabled : Bool
 
-private def windowsPrefix (bytes : Nat) (os : WindowsReply) : List WindowsCall :=
+def windowsPrefix (bytes : Nat) (os : WindowsReply) : List WindowsCall :=
   [.openToken, .lookup] ++
     (if os.found then [.enable] else []) ++
     (if os.found && os.adjusted then [.lastError] else []) ++

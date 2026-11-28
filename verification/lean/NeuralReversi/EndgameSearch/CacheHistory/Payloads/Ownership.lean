@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Windows
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Windows
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 

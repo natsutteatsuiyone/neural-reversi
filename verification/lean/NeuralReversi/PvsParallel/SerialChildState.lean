@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.EndgameSearch.Cancellation
+module
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.EndgameSearch.Cancellation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialChildState
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Image
-import NeuralReversi.TranspositionTable.WriterMir.StoreProof
+module
+public import NeuralReversi.PvsParallel.SerialTable.Image
+public import NeuralReversi.TranspositionTable.WriterMir.StoreProof
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

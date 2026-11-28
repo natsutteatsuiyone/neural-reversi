@@ -1,5 +1,9 @@
-import NeuralReversi.Bitboard.MovesSpec
-import NeuralReversi.Bitboard.PotentialSpec
+module
+public import NeuralReversi.Bitboard.MovesSpec
+public import NeuralReversi.Bitboard.PotentialSpec
+
+@[expose] public section
+
 namespace NeuralReversi.Bitboard.Moves
 set_option maxHeartbeats 2000000
 

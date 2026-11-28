@@ -1,4 +1,7 @@
-import NeuralReversi.Solve2.Concrete
+module
+public import NeuralReversi.Solve2.Concrete
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 open Solve2

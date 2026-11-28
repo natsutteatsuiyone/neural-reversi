@@ -1,4 +1,7 @@
-import NeuralReversi.Board.Properties
+module
+public import NeuralReversi.Board.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Board.SetPlacement
 open Bitboard

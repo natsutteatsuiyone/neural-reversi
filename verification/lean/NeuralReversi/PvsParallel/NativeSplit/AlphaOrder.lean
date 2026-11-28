@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeSplit
+module
+public import NeuralReversi.PvsParallel.NativeSplit
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeSplit.Tickets
 

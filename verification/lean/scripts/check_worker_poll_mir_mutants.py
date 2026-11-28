@@ -6,8 +6,8 @@ import extract_worker_poll_mir as extract
 from mir_mutants import assert_mutants_rejected
 
 
-def check(dump, repo):
-    expected = extract.render(dump, repo)
+def check(dump, repo, *, baseline=None):
+    expected = extract.render(dump, repo) if baseline is None else baseline
     cases = [
         ("iterator tag", "switchInt(move _22) -> [1: bb7, otherwise: bb98]", "switchInt(move _22) -> [0: bb7, otherwise: bb98]"),
         ("omit the lock", "_95 = SplitPoint::lock(move _96)", "_95 = SplitPoint::state(move _96)"),

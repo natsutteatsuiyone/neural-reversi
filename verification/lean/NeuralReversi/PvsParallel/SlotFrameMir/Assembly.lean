@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Dispatch
-import NeuralReversi.PvsParallel.SlotFrameMir.Previous
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Dispatch
+public import NeuralReversi.PvsParallel.SlotFrameMir.Previous
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

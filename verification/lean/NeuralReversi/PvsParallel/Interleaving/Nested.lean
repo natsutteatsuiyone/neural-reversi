@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
-import NeuralReversi.PvsParallel.Interleaving.RootCausal
+module
+public import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
+public import NeuralReversi.PvsParallel.Interleaving.RootCausal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Nested
 
@@ -29,8 +32,8 @@ abbrev Splits (done_ : ChildRelation M) (pv cut : Bool) (depth width : Nat) (bet
 
 variable {M : Type} {done_ : ChildRelation M}
 
-private def range (entry : State) (beta : Int) := -32767 ≤ entry.alpha ∧ entry.alpha < beta ∧ beta ≤ 32767
-private instance (entry : State) (beta : Int) : Decidable (range entry beta) := inferInstanceAs (Decidable (_ ∧ _ ∧ _))
+def range (entry : State) (beta : Int) := -32767 ≤ entry.alpha ∧ entry.alpha < beta ∧ beta ≤ 32767
+instance (entry : State) (beta : Int) : Decidable (range entry beta) := inferInstanceAs (Decidable (_ ∧ _ ∧ _))
 
 private theorem window (ok : range entry beta) : Window entry.alpha beta := ⟨ok.1,ok.2.1,ok.2.2⟩
 

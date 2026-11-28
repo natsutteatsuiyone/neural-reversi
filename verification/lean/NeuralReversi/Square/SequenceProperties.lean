@@ -1,4 +1,8 @@
-import NeuralReversi.Square.SequenceChunkProperties
+module
+public import NeuralReversi.Square.SequenceChunkProperties
+
+@[expose] public section
+
 namespace NeuralReversi.Square
 set_option maxRecDepth 4096
 set_option maxHeartbeats 2000000

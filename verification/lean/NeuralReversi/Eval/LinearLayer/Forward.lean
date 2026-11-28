@@ -1,5 +1,8 @@
-import NeuralReversi.Eval.LinearLayer.Layout
-import NeuralReversi.Eval.LinearLayer.Dot
+module
+public import NeuralReversi.Eval.LinearLayer.Layout
+public import NeuralReversi.Eval.LinearLayer.Dot
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.LinearLayer
 
@@ -174,9 +177,9 @@ theorem denseForwardContract_proven : DenseForwardContract := by
       sumPrefix_zeroTail paddedTerm inputs (4 * processed) inOk (fun _ hi => ite_eq_right (by omega))
     _ = _ := sumPrefix_congr inputs _ _ (fun _ hi => ite_eq_left hi)
 
-private abbrev Word := BitVec 32
+abbrev Word := BitVec 32
 
-private def reduce : List Word → Word
+def reduce : List Word → Word
   | [] => 0
   | word :: words => word + reduce words
 

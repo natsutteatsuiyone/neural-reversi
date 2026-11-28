@@ -1,4 +1,7 @@
-import NeuralReversi.MidgameAspiration.Termination
+module
+public import NeuralReversi.MidgameAspiration.Termination
+
+@[expose] public section
 
 namespace NeuralReversi.MidgameAspiration
 

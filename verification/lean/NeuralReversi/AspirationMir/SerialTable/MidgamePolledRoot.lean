@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.MidgameRoot
-import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+module
+public import NeuralReversi.AspirationMir.SerialTable.MidgameRoot
+public import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgamePolledRoot
 

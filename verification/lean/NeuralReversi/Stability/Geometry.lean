@@ -1,4 +1,8 @@
-import NeuralReversi.Stability.Model
+module
+public import NeuralReversi.Stability.Model
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
 
 def sameLine (axis : Fin 4) (s t : Nat) : Prop :=

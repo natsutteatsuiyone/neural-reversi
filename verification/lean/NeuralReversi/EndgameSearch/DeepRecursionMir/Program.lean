@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.Cancellation
-import NeuralReversi.EndgameSearch.Thresholds
+module
+public import NeuralReversi.EndgameSearch.Cancellation
+public import NeuralReversi.EndgameSearch.Thresholds
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.DeepRecursionMir
 

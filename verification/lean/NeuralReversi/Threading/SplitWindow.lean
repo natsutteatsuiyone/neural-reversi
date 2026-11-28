@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SplitPublication
-import NeuralReversi.Threading.SplitResult
+module
+public import NeuralReversi.Threading.SplitPublication
+public import NeuralReversi.Threading.SplitResult
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitWindow
 

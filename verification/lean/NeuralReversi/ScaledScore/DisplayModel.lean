@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.FloatRounding
+module
+public import NeuralReversi.ScaledScore.FloatRounding
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore
 

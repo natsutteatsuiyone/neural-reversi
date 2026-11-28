@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.EventOrder
-import NeuralReversi.PvsParallel.Interleaving.WriterSteps
+module
+public import NeuralReversi.PvsParallel.Interleaving.EventOrder
+public import NeuralReversi.PvsParallel.Interleaving.WriterSteps
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.TableEventOrder
 

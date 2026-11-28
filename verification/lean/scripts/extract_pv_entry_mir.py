@@ -117,7 +117,11 @@ def verify(dump, repo):
             actual = positive(body, traits, cut, mobile, opponent, wipes)
             expected = ("wipeout" if wipes else "continue") if mobile else "pass" if opponent else "terminal"
             checked(actual == expected, f"wrong PV branch {actual}")
-    return """namespace NeuralReversi.PvsParallel.PvEntryMir
+    return """module
+
+@[expose] public section
+
+namespace NeuralReversi.PvsParallel.PvEntryMir
 
 inductive Action where
   | zero | terminal | pass | wipeout | continueSearch

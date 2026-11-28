@@ -165,8 +165,8 @@ def render(dump,repo):
     for stem,source in NODES.items():
         for ordinal,(_,target,flow) in enumerate(routing(dump,stem)):
             rows.append(f"  ⟨.{source}, {ordinal}, .{target}, .{flow}⟩")
-    return "\n".join(["import NeuralReversi.EndgameSearch.CacheOwner.Syntax","",
-        "namespace NeuralReversi.EndgameSearch.CacheOwner","",*made,
+    return "\n".join(["module", "public import NeuralReversi.EndgameSearch.CacheOwner.Syntax","",
+        "@[expose] public section", "", "namespace NeuralReversi.EndgameSearch.CacheOwner","",*made,
         "def transfers : List Edge := [",",\n".join(rows)+"]","",
         "end NeuralReversi.EndgameSearch.CacheOwner",""])
 

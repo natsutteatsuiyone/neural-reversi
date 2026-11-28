@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Generation
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Generation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 
@@ -25,7 +28,7 @@ inductive Instruction
   | abandon (taken : Option Slot) (w : Worker)
   deriving DecidableEq
 
-private def replaced [DecidableEq α] (f : α → β) (key : α) (value : β) (x : α) : β :=
+def replaced [DecidableEq α] (f : α → β) (key : α) (value : β) (x : α) : β :=
   if x = key then value else f x
 
 def Resources.exec (r : Resources) (e : Event) : Instruction → Resources

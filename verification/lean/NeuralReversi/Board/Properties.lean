@@ -1,5 +1,8 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

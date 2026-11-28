@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Syntax
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir
 

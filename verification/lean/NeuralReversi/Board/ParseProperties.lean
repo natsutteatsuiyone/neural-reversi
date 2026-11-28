@@ -1,9 +1,11 @@
-import NeuralReversi.Board.ParseModel
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Board.ParseModel
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
+
 namespace NeuralReversi.Board
 open Bitboard
-set_option maxRecDepth 4096
-set_option maxHeartbeats 2000000
 
 def validCell (c : Char) : Bool := c == 'X' || c == 'O' || c == '-'
 def firstInvalid (tokens : List (AnySquare × Char)) := tokens.find? fun t => !validCell t.2
@@ -99,7 +101,7 @@ theorem zip_iter_eq_ofFn (chars : List Char) (hlen : chars.length = 64) :
     Square.iter.zip chars = List.ofFn (fun i : Fin 64 =>
       ((i : AnySquare), chars[i.val]'(by omega))) := by
   apply List.ext_getElem
-  · simp [Square.iter, hlen]
+  · simp only [List.length_zip, Square.iter, List.length_finRange, hlen, List.length_ofFn, Nat.min_self]
   · intro i hi hi2
     simp only [List.getElem_zip, Square.iter, List.getElem_finRange, List.getElem_ofFn]
     rfl

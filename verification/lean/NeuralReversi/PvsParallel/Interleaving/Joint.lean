@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.CallJournal
-import NeuralReversi.PvsParallel.Interleaving.ReaderWindow
-import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+module
+public import NeuralReversi.PvsParallel.Interleaving.CallJournal
+public import NeuralReversi.PvsParallel.Interleaving.ReaderWindow
+public import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Joint
 

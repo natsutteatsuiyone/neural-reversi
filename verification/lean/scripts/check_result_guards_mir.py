@@ -494,8 +494,9 @@ def check_places(source, pattern, expected):
     checked(got == expected.strip().splitlines(), f"changed result data flow in {source.splitlines()[0]}: {got}")
 
 
-def check_function(dump, names, stem):
-    source = read(dump, stem)
+def check_function(dump, names, stem, source=None):
+    if source is None:
+        source = read(dump, stem)
     if stem in RETURN_SLICES:
         check_places(source, *RETURN_SLICES[stem])
     elif stem == "score-{impl#5}-from_raw":
@@ -529,8 +530,6 @@ def check(dump):
 
 
 def check_mutants(dump):
-    from unittest.mock import patch
-
     changes = [
         ("search-midgame-compute_start_depth", "_0 = const 1_u32;", "_0 = const 2_u32;"),
         ("search-strategy-{impl#0}-shallow_search", "0: bb2, 1: bb3", "0: bb3, 1: bb2"),
@@ -577,11 +576,10 @@ def check_mutants(dump):
     for stem, old, new in changes:
         source = read(dump, stem)
         checked(source.count(old) == 1, f"ambiguous or missing {stem} mutant {old}")
-        with patch.dict(check_function.__globals__, {"read": lambda *args: source.replace(old, new)}):
-            try:
-                check_function(dump, names, stem)
-            except ValueError:
-                continue
+        try:
+            check_function(dump, names, stem, source=source.replace(old, new))
+        except ValueError:
+            continue
         raise ValueError(f"accepted {stem} mutation {old}")
     return len(changes)
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
-import NeuralReversi.PvsParallel.SlotFrameMir.RawNative
+module
+public import NeuralReversi.PvsParallel.Interleaving.ObservedJoin
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawNative
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ScoreReuse
 
@@ -65,12 +68,12 @@ private theorem Scores.member (r : Scores) (owner : Clock) (slot guards : Nat) :
   rw [selected]
   exact List.getElem_mem ..
 
-private theorem Scores.window {seed : Int} (r : Scores) (owner : Clock) (slot guards : Nat)
+theorem Scores.window {seed : Int} (r : Scores) (owner : Clock) (slot guards : Nat)
     (events : SplitWindow.BestStores seed replies (r.current owner)) :
     SplitWindow.BestStoreWindow (r.words owner slot guards) (r.last owner slot guards) seed replies :=
   ⟨r.previous,r.current owner,_,rfl,by simp [last,current,Nat.add_assoc],events⟩
 
-private theorem Scores.writer (r : Scores) {g : RawMask mask} (exit : OwnerExit hist g) (gates : GateHistory hist g)
+theorem Scores.writer (r : Scores) {g : RawMask mask} (exit : OwnerExit hist g) (gates : GateHistory hist g)
     (slot : Nat) (clock : Event → Nat) (causal : ∀ x y, HappensBefore hist x y → clock x < clock y)
     (publish : ∀ w ∈ r.improvements, Nonempty (WorkerStore hist clock g (g.owner,slot) w.event)) :
     let writes := r.words exit.timeline slot exit.log.length

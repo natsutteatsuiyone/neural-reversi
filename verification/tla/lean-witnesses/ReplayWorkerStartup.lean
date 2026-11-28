@@ -1,3 +1,4 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.Interleaving.ActivePointer
 import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
 import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup

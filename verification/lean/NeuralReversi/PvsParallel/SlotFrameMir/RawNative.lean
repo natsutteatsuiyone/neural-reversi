@@ -1,6 +1,10 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.RawGuards
-import NeuralReversi.PvsParallel.NativeSplitCalls
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerReturn
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawGuards
+public import NeuralReversi.PvsParallel.SlotFrameMir.Score
+public import NeuralReversi.PvsParallel.NativeSplitCalls
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerReturn
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.RawProjection
 
@@ -22,13 +26,13 @@ theorem normal_credit {g : RawMask ws} (closed : ClosedAfterFirst g)
   obtain ⟨j,eq⟩:=credit g closed p.index (by simpa only [keeps,p.observed] using bit)
   exact ⟨j,eq.trans p.observed⟩
 
-private def lastWrite (pre current post : List Write) (present : current ≠ []) :
+def lastWrite (pre current post : List Write) (present : current ≠ []) :
     Fin (pre ++ current ++ post).length :=
   ⟨pre.length + current.length - 1, by
     have := List.length_pos_iff.mpr present
     simp only [List.length_append]; omega⟩
 
-private theorem lastWrite_end (pre current post : List Write) (present : current ≠ []) :
+theorem lastWrite_end (pre current post : List Write) (present : current ≠ []) :
     (lastWrite pre current post present).val + 1 = pre.length + current.length := by
   have := List.length_pos_iff.mpr present
   simp only [lastWrite]; omega

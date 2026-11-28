@@ -8,6 +8,7 @@ on:
       - verification/lean/**
       - verification/tla/lean-witnesses/*.lean
       - .github/workflows/verify-lean.yml
+      - crates/eval-weights/**
       - crates/reversi-core/src/**
       - crates/reversi-core/build.rs
       - crates/reversi-core/Cargo.toml
@@ -19,6 +20,7 @@ on:
       - verification/lean/**
       - verification/tla/lean-witnesses/*.lean
       - .github/workflows/verify-lean.yml
+      - crates/eval-weights/**
       - crates/reversi-core/src/**
       - crates/reversi-core/build.rs
       - crates/reversi-core/Cargo.toml
@@ -53,16 +55,36 @@ jobs:
         sh "$RUNNER_TEMP/elan-init.sh" -y --no-modify-path --default-toolchain none
         echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
+    - name: Cache elan toolchains
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/.elan/toolchains
+        key: ${{ runner.os }}-elan-${{ hashFiles('verification/lean/lean-toolchain') }}
+
     - name: Cache Lean build artifacts
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: verification/lean/.lake
-        key: ${{ runner.os }}-lean-${{ hashFiles('verification/lean/lean-toolchain', 'verification/lean/lakefile.toml', 'verification/lean/lake-manifest.json') }}-${{ github.sha }}
+        key: ${{ runner.os }}-lean-${{ hashFiles('verification/lean/lean-toolchain', 'verification/lean/lakefile.toml', 'verification/lean/lake-manifest.json') }}-${{ hashFiles('verification/lean/**/*.lean') }}
         restore-keys: |
           ${{ runner.os }}-lean-${{ hashFiles('verification/lean/lean-toolchain', 'verification/lean/lakefile.toml', 'verification/lean/lake-manifest.json') }}-
 
     - name: Install Rust
       run: rustup toolchain install --no-self-update
+
+    - name: Cache difftest Cargo artifacts
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          target/verify-lean/target
+          target/verify-lean/pattern-table-builder
+        key: ${{ runner.os }}-difftest-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('verification/lean/difftest/Cargo.lock') }}-${{ hashFiles('verification/lean/difftest/Cargo.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-difftest-${{ hashFiles('rust-toolchain.toml') }}-${{ hashFiles('verification/lean/difftest/Cargo.lock') }}-
+          ${{ runner.os }}-difftest-${{ hashFiles('rust-toolchain.toml') }}-
 
     - name: Check the proofs, audits, and differential test
       run: python3 verification/lean/check.py

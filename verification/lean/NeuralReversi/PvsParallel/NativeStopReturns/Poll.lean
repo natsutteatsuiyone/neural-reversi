@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.NativeStopReturns.Program
-import NeuralReversi.Threading.CutoffVisibility.StopSource
-import NeuralReversi.Threading.SplitReturn.Observation
+module
+public import NeuralReversi.PvsParallel.NativeStopReturns.Program
+public import NeuralReversi.Threading.CutoffVisibility.StopSource
+public import NeuralReversi.Threading.SplitReturn.Observation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeStopReturns
 

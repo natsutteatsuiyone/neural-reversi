@@ -1,41 +1,21 @@
-import NeuralReversi.Stability.SingleEmpty
+module
+public import NeuralReversi.Stability.CutoffModel
+public import NeuralReversi.Stability.SingleEmpty
+meta import NeuralReversi.Stability.CutoffModel
+meta import NeuralReversi.Stability.SingleEmpty
+meta import NeuralReversi.Stability.EdgeGameBridge
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Cutoff
 
 open NeuralReversi.Stability.Semantics
-
-structure DiscScore where
-  value : Int
-  deriving DecidableEq, Repr
-
-def discScoreMax : DiscScore := ⟨64⟩
-
-def stabilityCutoffDiscMargin : Int := 8
-
-def nwsStabilityThreshold (nEmpties : Fin 64) : Int :=
-  match nEmpties.val with
-  | 0  => 99 | 1  => 99 | 2  => 99 | 3  => 99 | 4  => 6  | 5  => 8  | 6  => 10 | 7  => 12
-  | 8  => 14 | 9  => 16 | 10 => 20 | 11 => 22 | 12 => 24 | 13 => 26 | 14 => 28 | 15 => 30
-  | 16 => 32 | 17 => 34 | 18 => 36 | 19 => 38 | 20 => 40 | 21 => 42 | 22 => 44 | 23 => 46
-  | 24 => 48 | 25 => 48 | 26 => 50 | 27 => 50 | 28 => 52 | 29 => 52 | 30 => 54 | 31 => 54
-  | 32 => 56 | 33 => 56 | 34 => 58 | 35 => 58 | 36 => 60 | 37 => 60 | 38 => 62 | 39 => 62
-  | 40 => 64 | 41 => 64 | 42 => 64 | 43 => 64 | 44 => 64 | 45 => 64 | 46 => 64 | 47 => 64
-  | _  => 99
-
-def popcount (w : Word) : Nat :=
-  (List.finRange 64).countP (fun sq => w.getLsbD sq.val)
 
 def countColor (b : Board) (c : Color) : Nat :=
   (List.finRange 64).countP (fun sq => decide (b (boardSquare sq) = some c))
 
 def countEmpty (b : Board) : Nat :=
   (List.finRange 64).countP (fun sq => decide (b (boardSquare sq) = none))
-
-def hasEnoughOpponentDiscsForCutoff (opponentCount : Nat) (alpha : DiscScore) : Bool :=
-  decide (2 * (opponentCount : Int) ≥
-    discScoreMax.value - alpha.value + 2 * stabilityCutoffDiscMargin)
-
-def singleEmptyMaxShortfall : Int := 4
 
 def cutoffStable (discs other : Word) (alpha : DiscScore) : Word :=
   let stable := getStableDiscs discs other
@@ -309,5 +289,11 @@ theorem sourceCutoffContract_proven : SourceCutoffContract := by
     obtain ⟨score, bound, _, enough⟩ := stabilityCutoff_some_spec result
     exact ⟨score, bound, enough, fun _ _ _ repr value => (stabilityCutoff_sound repr result value).1⟩
   · simp [cutoffAtEmptyCount, inTable]
+
+theorem getStableDiscsExec_eq : getStableDiscsExec = Semantics.getStableDiscs := rfl
+
+theorem singleEmptyStableExec_eq : singleEmptyStableExec = Semantics.singleEmptyStable := rfl
+
+theorem cutoffAtEmptyCountExec_eq : cutoffAtEmptyCountExec = cutoffAtEmptyCount := rfl
 
 end NeuralReversi.Stability.Cutoff

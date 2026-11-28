@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Pool
-import NeuralReversi.PvsParallel.SlotFrameMir.Gate
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Pool
+public import NeuralReversi.PvsParallel.SlotFrameMir.Gate
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

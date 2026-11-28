@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SpinLock
-import NeuralReversi.Threading.SplitCompletion
+module
+public import NeuralReversi.Threading.SpinLock
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitPublication
 

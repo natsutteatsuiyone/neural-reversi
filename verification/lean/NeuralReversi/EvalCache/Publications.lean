@@ -1,4 +1,7 @@
-import NeuralReversi.EvalCache.Probe
+module
+public import NeuralReversi.EvalCache.Probe
+
+@[expose] public section
 
 namespace NeuralReversi.EvalCache
 

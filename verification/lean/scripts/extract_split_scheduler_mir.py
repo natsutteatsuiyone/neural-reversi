@@ -2,7 +2,7 @@
 import re
 from functools import cache
 
-from mir_common import run_extractor_cli, blocks, CALL, GOTO, checked
+from mir_common import run_extractor_cli, blocks, CALL, GOTO, checked, glob_mir, read_mir_text
 
 def edges(term):
     if term in ('return;', 'unreachable;') or re.fullmatch(r'_\d+ = (?:(?:core::panicking::)?panic|(?:(?:std::rt|core::panicking)::)?panic_fmt)\(.+\) -> bb\d+;', term):
@@ -18,9 +18,9 @@ def edges(term):
 class Body:
     def __init__(self, dump, name, roots):
         pattern = '*bitset*-' if name in ('set','reset','none','clear','count') else '*-'
-        files = list(dump.glob(pattern + name + '.SimplifyCfg-initial.after.mir'))
+        files = glob_mir(dump, pattern + name + '.SimplifyCfg-initial.after.mir')
         checked(len(files) == 1, f'{name}: missing or ambiguous body')
-        self.cfg = blocks(files[0].read_text())
+        self.cfg = blocks(read_mir_text(files[0]))
         self.defs = {}
         self.roots = dict(enumerate(roots, 1))
         self.marks = {}
@@ -201,8 +201,8 @@ def render(dump, repo):
         if term=='return;': return '.done'
         return '.any ['+', '.join(map(str,dst))+']'
     def items(xs): return '['+', '.join('.'+x for x in xs)+']'
-    return '\n'.join(['import NeuralReversi.PvsParallel.SplitSchedulerMir.Syntax','',
-        'namespace NeuralReversi.PvsParallel.SplitSchedulerMir','',
+    return '\n'.join(['module', 'public import NeuralReversi.PvsParallel.SplitSchedulerMir.Syntax','',
+        '@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SplitSchedulerMir','',
         'def ownerPhases : List Phase := '+items(owner),
         'def initPhases : List Phase := '+items(init),
         'def workerPhases : List Phase := '+items(worker),

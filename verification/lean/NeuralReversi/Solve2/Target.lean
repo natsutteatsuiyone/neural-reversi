@@ -1,7 +1,10 @@
-import NeuralReversi.Flip.Dispatch.Batch
-import NeuralReversi.Solve1.ScalarVerified
-import NeuralReversi.Solve1.NeonVerified
-import NeuralReversi.Solve2.SourcePipeline
+module
+public import NeuralReversi.Flip.Dispatch.Batch
+public import NeuralReversi.Solve1.ScalarVerified
+public import NeuralReversi.Solve1.NeonVerified
+public import NeuralReversi.Solve2.SourcePipeline
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 
@@ -18,7 +21,7 @@ theorem solve1On_eq (target : TargetConfig) (bmi2 : Bool) (b : Solve1.Bmi2.Board
     solve1On target bmi2 b alpha = Solve1.Bmi2.solve b alpha := by
   cases target <;> simp [solve1On, Solve1.Scalar.solve_eq_bmi2, Solve1.Neon.solve_eq_bmi2]
 
-private def targetOracle (target : TargetConfig) (bmi2 : Bool) (c : Dispatch.Call) : Score :=
+def targetOracle (target : TargetConfig) (bmi2 : Bool) (c : Dispatch.Call) : Score :=
   if h : c.player.getLsbD c.square.val = false then
     solve1On target bmi2 ⟨c.player, c.square, h⟩ c.alpha
   else 0

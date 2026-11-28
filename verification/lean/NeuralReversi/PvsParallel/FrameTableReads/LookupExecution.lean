@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.FrameTableReads.Rounds
-import NeuralReversi.PvsParallel.NativeOwners
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.Rounds
+public import NeuralReversi.PvsParallel.NativeOwners
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations
 

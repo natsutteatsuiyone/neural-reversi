@@ -1,23 +1,26 @@
-import NeuralReversi.Threading.SplitPublication
+module
+public import NeuralReversi.Threading.SplitPublication
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitPublication.Witnesses
 
 open AtomicWord (Event Write Read ReadWindow)
 
-private def searching : List Write :=
+def searching : List Write :=
   [⟨⟨0, 0⟩, 1, true, false⟩, ⟨⟨1, 1⟩, 0, true, false⟩,
    ⟨⟨0, 2⟩, 1, true, false⟩, ⟨⟨1, 4⟩, 0, true, false⟩,
    ⟨⟨0, 5⟩, 1, true, false⟩]
 
-private def idle : Fin searching.length :=
+def idle : Fin searching.length :=
   ⟨1, by decide⟩
 
-private def tryRead (source : Fin searching.length) : Read searching :=
+def tryRead (source : Fin searching.length) : Read searching :=
   ⟨⟨1, 3⟩, source, true⟩
 
-private def old : Fin searching.length := ⟨0, by decide⟩
-private def current : Fin searching.length := ⟨2, by decide⟩
-private def future : Fin searching.length := ⟨4, by decide⟩
+def old : Fin searching.length := ⟨0, by decide⟩
+def current : Fin searching.length := ⟨2, by decide⟩
+def future : Fin searching.length := ⟨4, by decide⟩
 
 def WakeWitnessContract : Prop :=
   (searching.get old).value = 1 ∧

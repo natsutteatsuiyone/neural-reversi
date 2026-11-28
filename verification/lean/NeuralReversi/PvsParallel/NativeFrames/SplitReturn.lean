@@ -1,14 +1,17 @@
-import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+module
+public import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames
 
 open Returns (localEvents)
 
-private def splitReturnAt (step : Nat) : Event → Bool
+def splitReturnAt (step : Nat) : Event → Bool
   | .leave t _ .split none none => t == step
   | _ => false
 
-private def scoreAt (step : Nat) (score : Int) : Event → Bool
+def scoreAt (step : Nat) (score : Int) : Event → Bool
   | .scored t v => t == step && v.raw.toInt == score
   | _ => false
 

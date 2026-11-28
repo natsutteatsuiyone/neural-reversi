@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Local
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Local
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory
 

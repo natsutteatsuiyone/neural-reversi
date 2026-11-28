@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.PatternUpdate.Board
+module
+public import NeuralReversi.Eval.PatternUpdate.Board
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.PatternUpdate
 
@@ -24,7 +27,7 @@ theorem updateGuardContract_proven : UpdateGuardContract := by
   · intro h
     exact ⟨by omega, h.2.2.1⟩
 
-private abbrev Word := BitVec 16
+abbrev Word := BitVec 16
 
 def sideMask (opponentMoves : Bool) : Word := 0 - (BitVec.ofBool opponentMoves).setWidth 16
 

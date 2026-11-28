@@ -1,6 +1,9 @@
-import NeuralReversi.Solve2.BoardBridge
-import NeuralReversi.Solve2.Control
-import NeuralReversi.Solve1.Bmi2Verified
+module
+public import NeuralReversi.Solve2.BoardBridge
+public import NeuralReversi.Solve2.Control
+public import NeuralReversi.Solve1.Bmi2Verified
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 

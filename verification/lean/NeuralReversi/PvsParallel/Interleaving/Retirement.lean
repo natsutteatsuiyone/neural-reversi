@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Tickets
-import NeuralReversi.Threading.SplitCompletion
+module
+public import NeuralReversi.PvsParallel.Interleaving.Tickets
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Retirement
 

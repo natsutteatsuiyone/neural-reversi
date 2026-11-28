@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.ApplyMoveModel
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Bitboard.ApplyMoveModel
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialStack
-import NeuralReversi.PvsParallel.SerialTermination
+module
+public import NeuralReversi.AspirationMir.SerialStack
+public import NeuralReversi.PvsParallel.SerialTermination
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCacheStack
 

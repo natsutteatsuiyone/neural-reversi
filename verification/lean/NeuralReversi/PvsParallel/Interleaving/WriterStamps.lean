@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
-import Std.Data.TreeMap.Lemmas
+module
+public import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
+public import Std.Data.TreeMap.Lemmas
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.WriterStamps
 
@@ -23,7 +26,7 @@ structure Index where
   active : Std.TreeMap Nat (Nat × Nat) := {}
   stamps : Std.TreeMap (Nat × Nat) Nat := {}
 
-private def advance (old : Index) (time : Nat) : Event α → Index
+def advance (old : Index) (time : Nat) : Event α → Index
   | .beginWrite w k _ => {old with active := old.active.insert w (k,0)}
   | .atomic w k =>
     match old.active[w]? with

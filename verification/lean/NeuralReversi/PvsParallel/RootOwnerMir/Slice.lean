@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootOwnerMir
-import NeuralReversi.MoveList.Ordering
+module
+public import NeuralReversi.PvsParallel.RootOwnerMir
+public import NeuralReversi.MoveList.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootOwnerMir.Slice
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialCalls.Sites
-import NeuralReversi.PvsParallel.Replay
+module
+public import NeuralReversi.PvsParallel.SerialCalls.Sites
+public import NeuralReversi.PvsParallel.Replay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCalls.ScoreWords
 

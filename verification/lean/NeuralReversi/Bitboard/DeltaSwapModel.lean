@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.GeometryModel
+module
+public import NeuralReversi.Bitboard.GeometryModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

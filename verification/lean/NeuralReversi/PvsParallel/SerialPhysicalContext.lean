@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialRootExecution
+module
+public import NeuralReversi.PvsParallel.SerialRootExecution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialPhysicalContext
 
@@ -8,7 +11,7 @@ open PvsBoardTree (Position GeneratedSquare play pass)
 open ContextPathMir (Argument Calls Restored leafState)
 open SearchContextState (State Matches)
 
-private def flips (fc : Cutoffs.FlipConfig) (b : Position) (sq : Bitboard.Square) :=
+def flips (fc : Cutoffs.FlipConfig) (b : Position) (sq : Bitboard.Square) :=
   Flip.Dispatch.resultValue fc sq b.val.player b.val.opponent
 
 def childBoard (fc : Cutoffs.FlipConfig) {b : Position} : Argument mc b → Position
@@ -30,7 +33,7 @@ def leave (s : State) : Argument mc b → State
 def sameVisit (sc wide : Request) : Bool :=
   !sc.pv && wide.pv && decide (sc.board = wide.board ∧ sc.depth = wide.depth)
 
-private def retryNext (sc : Request) : List (Tree Request) → Bool
+def retryNext (sc : Request) : List (Tree Request) → Bool
   | .node _ wide _ _ :: _ => sameVisit sc wide
   | [] => false
 

@@ -132,8 +132,11 @@ def render(d, repo):
             checked((actions,out) == expected,"wrong direct root entry branch")
 
     inf = constants(repo.resolve())["const score::Score::INF"]
-    return f"""import NeuralReversi.PvsParallel.PvEntryMir
-import NeuralReversi.RootMoveStorage
+    return f"""module
+public import NeuralReversi.PvsParallel.PvEntryMir
+public import NeuralReversi.RootMoveStorage
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeRootBirth
 

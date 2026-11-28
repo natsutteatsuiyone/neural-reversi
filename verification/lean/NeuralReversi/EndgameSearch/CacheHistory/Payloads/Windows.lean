@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Workers
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Workers
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 

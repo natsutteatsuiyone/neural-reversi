@@ -1,4 +1,5 @@
-import NeuralReversi.Registry
+import NeuralReversi.RegistryEntry
+import NeuralReversi.CSimpAudit
 
 namespace NeuralReversi.Audit
 open Lean Elab Command NeuralReversi
@@ -40,11 +41,12 @@ private def isSafeCtorIdxImplementedBy (env : Environment) (name : Name) (implNa
   | _ => false
 
 def auditRegistryEntries (env : Environment) (registryEntries : List Entry) : CommandElabM Nat := do
-  let mut seen : List String := []
+  let owned := buildOwnershipIndex env projectModules
+  let mut seen : Std.HashSet String := {}
   let mut settled : Nat := 0
   for entry in registryEntries do
-    if entry.id ∈ seen then throwError "duplicate property id: {entry.id}"
-    seen := entry.id :: seen
+    if seen.contains entry.id then throwError "duplicate property id: {entry.id}"
+    seen := seen.insert entry.id
     unless entry.status ∈ ["proven", "refuted"] do
       throwError "{entry.id}: invalid or open status {entry.status}"
     let propName := entry.property.toName
@@ -53,7 +55,7 @@ def auditRegistryEntries (env : Environment) (registryEntries : List Entry) : Co
     unless propInfo.type == mkSort .zero do
       throwError "{entry.id}: property must be a closed Prop"
     let thmName := entry.theoremName.toName
-    unless projectDeclaration env thmName do
+    unless owned.owns env thmName do
       throwError "{entry.id}: {thmName} is not a project declaration"
     let some (.thmInfo thm) := env.find? thmName
       | throwError "{entry.id}: {thmName} must be a theorem"
@@ -68,10 +70,11 @@ def auditRegistryEntries (env : Environment) (registryEntries : List Entry) : Co
 
 def auditProjectDeclarations (modules : List Name := projectModules) : CommandElabM (Nat × Nat) := do
   let env ← getEnv
+  let owned := buildOwnershipIndex env modules
   let mut declCount : Nat := 0
   let mut theoremCount : Nat := 0
   for (name, info) in env.constants.toList do
-    unless declarationOwnedBy env modules name do continue
+    unless owned.owns env name do continue
     declCount := declCount + 1
     if info.isAxiom then throwError "project axiom forbidden: {name}"
     if info.isUnsafe || info.isPartial then
@@ -89,17 +92,5 @@ def auditProjectDeclarations (modules : List Name := projectModules) : CommandEl
       unless axiomName ∈ [``propext, ``Classical.choice, ``Quot.sound] do
         throwError "{name}: unapproved axiom {axiomName}"
   return (theoremCount, declCount)
-
-def runProjectAudit : CommandElabM Unit := do
-  let env ← getEnv
-  for moduleName in projectModules do
-    if moduleName == env.mainModule then continue
-    unless env.header.moduleNames.contains moduleName do
-      throwError "Project module was not imported for audit: {moduleName}"
-  let csimpCount ← NeuralReversi.Audit.auditProjectCSimp env
-  let settled ← auditRegistryEntries env entries
-  let (theoremCount, declCount) ← auditProjectDeclarations
-  logInfo m!"AUDIT {entries.length} entries, {settled} settled, {theoremCount} theorems, {declCount} declarations checked"
-  logInfo m!"CSIMP AUDIT {csimpCount} active project mappings checked"
 
 end NeuralReversi.Audit

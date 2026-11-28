@@ -1,6 +1,10 @@
-import NeuralReversi.Bitboard.MovesCarry
-import NeuralReversi.Bitboard.MovesDirectional
-import NeuralReversi.Bitboard.MovesKernel
+module
+public import NeuralReversi.Bitboard.MovesCarry
+public import NeuralReversi.Bitboard.MovesDirectional
+public import NeuralReversi.Bitboard.MovesKernel
+
+@[expose] public section
+
 namespace NeuralReversi.Bitboard.Moves
 set_option maxRecDepth 4096
 set_option maxHeartbeats 3000000

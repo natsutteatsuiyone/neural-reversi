@@ -1,5 +1,8 @@
-import NeuralReversi.ScoreRefresh.BoardBridge
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.ScoreRefresh.BoardBridge
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.ScoreRefresh.SolveBridge
 

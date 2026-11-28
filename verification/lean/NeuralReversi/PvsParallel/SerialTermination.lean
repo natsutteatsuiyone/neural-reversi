@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialRootExecution
-import NeuralReversi.PvsParallel.SerialPvReady
-import NeuralReversi.PvsParallel.SerialNonPvReady
+module
+public import NeuralReversi.PvsParallel.SerialRootExecution
+public import NeuralReversi.PvsParallel.SerialPvReady
+public import NeuralReversi.PvsParallel.SerialNonPvReady
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTermination
 

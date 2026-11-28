@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.FrameReturns
-import NeuralReversi.PvsParallel.SplitWorkerMir.Correct
+module
+public import NeuralReversi.PvsParallel.FrameReturns
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Correct
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameReturns
 

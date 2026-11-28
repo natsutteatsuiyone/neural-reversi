@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.RootCausal
-import NeuralReversi.PvsParallel.NativeFrames.EntryStream
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Program
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootCausal
+public import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CallReturns
 
@@ -44,15 +47,15 @@ structure State where
   calls : Array Activation := #[]
   tick : Nat := 0
 
-private def State.setWorker (s : State) (w : Nat) (u : Thread) := {s with workers := fun k => if k = w then u else s.workers k}
+def State.setWorker (s : State) (w : Nat) (u : Thread) := {s with workers := fun k => if k = w then u else s.workers k}
 
-private def enter (s : State) (worker opening site : Nat) (callee : Node) (args : Option Args) : Option State := do
+def enter (s : State) (worker opening site : Nat) (callee : Node) (args : Option Args) : Option State := do
   let thread := s.workers worker
   let input ← if callee = .pvs then args.bind Entry.read |>.map some else some none
   let a : Activation := ⟨worker,opening,site,callee,thread.stack.head?,input,none,none,s.tick⟩
   return {(s.setWorker worker ⟨s.calls.size :: thread.stack,opening+1⟩) with calls := s.calls.push a}
 
-private def changeTop (s : State) (worker stamp : Nat) (pop : Bool)
+def changeTop (s : State) (worker stamp : Nat) (pop : Bool)
     (update : Activation → Option Activation) : Option State := do
   let thread := s.workers worker
   let i :: rest := thread.stack | none
@@ -192,7 +195,7 @@ def Scope.slots (s : Scope) : List Slot :=
 
 def Scope.atOrdinal (s : Scope) (n : Nat) := (s.slots[n]?).bind Slot.result
 
-private def normalPrefix : List Slot → List Row
+def normalPrefix : List Slot → List Row
   | [] => []
   | slot :: rest => match slot.result with
     | some r => r :: normalPrefix rest
@@ -565,7 +568,7 @@ def boardPlan (mc : Bitboard.Moves.X86Config) (fc : Root.FlipConfig) (b : Positi
     (plan : Plan (PvsBoardTree.GeneratedSquare mc b.val)) : Plan Position :=
   plan.map fun item => ((PvsBoardTree.play mc fc b item.1).val,item.2)
 
-private def planLookup [DecidableEq M] (plan : Plan M) (m : M) := plan.lookup m
+def planLookup [DecidableEq M] (plan : Plan M) (m : M) := plan.lookup m
 
 private theorem mappedPlan_nodup (f : X → Y) (inj : ∀ {x z}, f x = f z → x = z) (xs : Plan X)
     (unique : (xs.map Prod.fst).Nodup) : ((xs.map (fun e => (f e.1,e.2))).map Prod.fst).Nodup := by

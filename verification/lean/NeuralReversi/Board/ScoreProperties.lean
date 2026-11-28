@@ -1,5 +1,8 @@
-import NeuralReversi.Board.ScoreArithmetic
-import NeuralReversi.Board.Counting
+module
+public import NeuralReversi.Board.ScoreArithmetic
+public import NeuralReversi.Board.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

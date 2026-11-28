@@ -1,4 +1,7 @@
-import NeuralReversi.MoveList.ConcurrentExecution
+module
+public import NeuralReversi.MoveList.ConcurrentExecution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 

@@ -15,11 +15,19 @@ ARGS_BEFORE_INTERPOLATED_MESSAGE = {
     "throwNamedError": 1, "throwNamedErrorAt": 2,
     "logNamedError": 1, "logNamedErrorAt": 2, "dbg_trace": 0,
 }
-INTERPOLATED_PREFIX = re.compile(
-    "(?:" + "|".join(re.escape(name) for name in
-                    sorted(ARGS_BEFORE_INTERPOLATED_MESSAGE, key=len, reverse=True)) + r")(?![\w'!?])"
-)
+_INTERPOLATED_NAMES = sorted(ARGS_BEFORE_INTERPOLATED_MESSAGE, key=len, reverse=True)
+_PREFIX_ALTERNATION = "|".join(re.escape(name) for name in _INTERPOLATED_NAMES)
+INTERPOLATED_PREFIX = re.compile(r"(?:" + _PREFIX_ALTERNATION + r")(?![\w'!?])")
 TRACE_PREFIX = re.compile(r"(?:Macro\.trace|trace)(?![\w'!?])")
+_CODE_COMMON = (
+    r"--|/-|«|r#*\x22|(?:" + _PREFIX_ALTERNATION + r"|Macro\.trace|trace)(?![\w'!?])|'|\x22"
+)
+CODE_TOP_TOKEN = re.compile(_CODE_COMMON)
+CODE_GROUP_TOKEN = re.compile(_CODE_COMMON + r"|[()\[\]{}⟨⟩]")
+BLOCK_COMMENT_TOKEN = re.compile(r"/-|-/")
+STRING_PLAIN_TOKEN = re.compile(r'["\\]')
+STRING_INTERP_TOKEN = re.compile(r'["\\{]')
+WHITESPACE = re.compile(r"\s*")
 GROUPS = {"(": ")", "[": "]", "{": "}", "⟨": "⟩"}
 
 
@@ -28,13 +36,20 @@ class PolicySyntaxError(ValueError):
 
 
 def strip_comments_and_strings(text: str) -> str:
-    result = list(text)
+    parts: list[str] = []
+    copied = 0
     size = len(text)
 
     def mask(start: int, end: int) -> None:
-        for pos in range(start, end):
-            if text[pos] != "\n":
-                result[pos] = " "
+        nonlocal copied
+        if start > copied:
+            parts.append(text[copied:start])
+        segment = text[start:end]
+        if "\n" in segment:
+            parts.append("\n".join(" " * len(line) for line in segment.split("\n")))
+        else:
+            parts.append(" " * (end - start))
+        copied = end
 
     def fail(kind: str, start: int) -> NoReturn:
         line = text.count("\n", 0, start) + 1
@@ -46,26 +61,26 @@ def strip_comments_and_strings(text: str) -> str:
             end = size if end == -1 else end
         else:
             end, depth = start + 2, 1
-            while end < size and depth:
-                if text.startswith("/-", end):
+            while depth:
+                match = BLOCK_COMMENT_TOKEN.search(text, end)
+                if match is None:
+                    fail("block comment", start)
+                if match.group() == "/-":
                     depth += 1
-                    end += 2
-                elif text.startswith("-/", end):
-                    depth -= 1
-                    end += 2
                 else:
-                    end += 1
-            if depth:
-                fail("block comment", start)
+                    depth -= 1
+                end = match.end()
         mask(start, end)
         return end
 
     def trivia(start: int) -> int:
         pos = start
         while pos < size:
-            if text[pos].isspace():
-                pos += 1
-            elif text.startswith(("--", "/-"), pos):
+            ws = WHITESPACE.match(text, pos)
+            if ws is not None and ws.end() > pos:
+                pos = ws.end()
+                continue
+            if text.startswith(("--", "/-"), pos):
                 pos = comment(pos)
             else:
                 break
@@ -78,22 +93,24 @@ def strip_comments_and_strings(text: str) -> str:
         return pos == 0 or not identifier_char(text[pos - 1])
 
     def string(start: int, interpolated: bool) -> int:
-        mask(start, start + 1)
+        scanner = STRING_INTERP_TOKEN if interpolated else STRING_PLAIN_TOKEN
+        seg_start = start
         pos = start + 1
         while pos < size:
-            char = text[pos]
+            match = scanner.search(text, pos)
+            if match is None:
+                break
+            pos = match.start()
+            char = match.group()
             if char == "\\":
-                end = min(pos + 2, size)
-                mask(pos, end)
-                pos = end
+                pos = min(pos + 2, size)
             elif char == '"':
-                mask(pos, pos + 1)
+                mask(seg_start, pos + 1)
                 return pos + 1
-            elif interpolated and char == "{":
-                pos = code(pos + 1, closing="}", opening=pos)
             else:
-                mask(pos, pos + 1)
-                pos += 1
+                mask(seg_start, pos)
+                pos = code(pos + 1, closing="}", opening=pos)
+                seg_start = pos
         fail("interpolated string" if interpolated else "string", start)
 
     def name_end(start: int) -> int:
@@ -150,72 +167,84 @@ def strip_comments_and_strings(text: str) -> str:
         return end + 1
 
     def code(start: int, closing: str | None = None, opening: int = 0) -> int:
+        scanner = CODE_TOP_TOKEN if closing is None else CODE_GROUP_TOKEN
         pos = start
         while pos < size:
-            if text.startswith(("--", "/-"), pos):
+            match = scanner.search(text, pos)
+            if match is None:
+                pos = size
+                break
+            pos = match.start()
+            token = match.group()
+            if token == "--" or token == "/-":
                 pos = comment(pos)
-                continue
-            if text[pos] == "«":
+            elif token == "«":
                 pos = skip_escaped_identifier_unmasked(pos)
-                continue
-            if boundary(pos):
-                raw = RAW_STRING.match(text, pos)
-                if raw:
-                    delimiter = '"' + (raw.group(1) or "")
-                    end = text.find(delimiter, raw.end())
+            elif token == '"':
+                pos = string(pos, interpolated=False)
+            elif token == "'":
+                if boundary(pos):
+                    char = CHARACTER.match(text, pos)
+                    if char:
+                        mask(pos, char.end())
+                        pos = char.end()
+                        continue
+                pos += 1
+            elif token[0] == "r" and token[-1] == '"':
+                if boundary(pos):
+                    delimiter = '"' + "#" * (len(token) - 2)
+                    end = text.find(delimiter, match.end())
                     if end == -1:
                         fail("raw string", pos)
                     end += len(delimiter)
                     mask(pos, end)
                     pos = end
-                    continue
-                prefix = INTERPOLATED_PREFIX.match(text, pos)
-                if prefix and (pos == 0 or text[pos - 1] != "."):
-                    message = prefix.end()
-                    for _ in range(ARGS_BEFORE_INTERPOLATED_MESSAGE[prefix.group()]):
+                else:
+                    pos += 1
+            elif token in ARGS_BEFORE_INTERPOLATED_MESSAGE:
+                if boundary(pos) and (pos == 0 or text[pos - 1] != "."):
+                    message = match.end()
+                    for _ in range(ARGS_BEFORE_INTERPOLATED_MESSAGE[token]):
                         message = argument(message)
                     quote = trivia(message)
                     if quote < size and text[quote] == '"':
                         pos = string(quote, interpolated=True)
-                        continue
-                    pos = quote
-                    continue
-                trace = TRACE_PREFIX.match(text, pos)
-                if trace and (pos == 0 or text[pos - 1] != "."):
-                    bracket = trivia(trace.end())
+                    else:
+                        pos = quote
+                else:
+                    pos += 1
+            elif token == "trace" or token == "Macro.trace":
+                if boundary(pos) and (pos == 0 or text[pos - 1] != "."):
+                    bracket = trivia(match.end())
                     if bracket < size and text[bracket] == "[":
                         message = code(bracket + 1, closing="]", opening=bracket)
                         quote = trivia(message)
                         if quote < size and text[quote] == '"':
                             pos = string(quote, interpolated=True)
-                            continue
-                        pos = quote
-                        continue
-            if text[pos] == "'" and boundary(pos):
-                char = CHARACTER.match(text, pos)
-                if char:
-                    mask(pos, char.end())
-                    pos = char.end()
-                    continue
-            if text[pos] == '"':
-                pos = string(pos, interpolated=False)
-                continue
-            if closing is not None:
-                if text[pos] == closing:
+                        else:
+                            pos = quote
+                    else:
+                        pos = bracket
+                else:
+                    pos += 1
+            else:
+                if token == closing:
                     return pos + 1
-                if text[pos] in GROUPS:
-                    pos = code(pos + 1, closing=GROUPS[text[pos]], opening=pos)
-                    continue
-                if text[pos] in GROUPS.values():
+                if token in GROUPS:
+                    pos = code(pos + 1, closing=GROUPS[token], opening=pos)
+                else:
                     line = text.count("\n", 0, pos) + 1
                     raise PolicySyntaxError(f"line {line}: mismatched interpolation delimiter")
-            pos += 1
         if closing is not None:
             fail("interpolation expression or prefix argument", opening)
         return pos
 
     code(0)
-    return "".join(result)
+    if copied == 0:
+        return text
+    if copied < size:
+        parts.append(text[copied:])
+    return "".join(parts)
 
 
 def lean_files() -> list[tuple[Path, Path]]:

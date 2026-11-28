@@ -1,7 +1,15 @@
-import NeuralReversi.Simd.ZmmModel
-import NeuralReversi.Simd.X86Properties
+module
+public import NeuralReversi.Simd.ZmmModel
+public import NeuralReversi.Simd.X86Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
+theorem ternary512_eq (a b c : Vec512) (imm : BitVec 8) :
+    ternary512 a b c imm = fun i => ternaryWord (a i) (b i) (c i) imm := by
+  funext i
+  exact ternaryWordFast_exact (a i) (b i) (c i) imm
+
 theorem horizontalOr2Zmm_exact (a b : Vec512) :
     horizontalOr2Zmm a b =
       (a 0 ||| a 1 ||| a 2 ||| a 3 ||| a 4 ||| a 5 ||| a 6 ||| a 7,

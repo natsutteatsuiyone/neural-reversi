@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.SerialLeafCache
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+module
+public import NeuralReversi.EndgameSearch.SerialLeafCache
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.SerialWarmCache
 

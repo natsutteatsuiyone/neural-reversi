@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SpinLock
+module
+public import NeuralReversi.Threading.SpinLock
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SpinLock
 

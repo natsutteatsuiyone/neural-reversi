@@ -1,5 +1,8 @@
-import NeuralReversi.Eval.OutputLayer.Arithmetic
-import NeuralReversi.MidgameScoreRange.Domain
+module
+public import NeuralReversi.Eval.OutputLayer.Arithmetic
+public import NeuralReversi.MidgameScoreRange.Domain
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.OutputLayer
 

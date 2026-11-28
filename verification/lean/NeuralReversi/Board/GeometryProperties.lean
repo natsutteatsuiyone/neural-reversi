@@ -1,4 +1,7 @@
-import NeuralReversi.Board.Symmetry
+module
+public import NeuralReversi.Board.Symmetry
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.NativeCacheResult
+module
+public import NeuralReversi.AspirationMir.NativeCacheResult
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeTrials
 
@@ -12,22 +15,22 @@ structure Trial where
   returned : Nat
   score : Word
 
-private structure Open where
+structure Open where
   opening : Nat
   node : Node
 
-private structure Scan where
+structure Scan where
   stack : List Open := []
   entered : Bool := false
   closed : Bool := false
   trials : List Trial := []
 
-private def site (caller callee : Node) (ordinal : Nat) : Bool :=
+def site (caller callee : Node) (ordinal : Nat) : Bool :=
   EndgameSearch.CacheOwner.transfers.any (fun e => e.caller == caller && e.callee == callee && e.site == ordinal)
 
 theorem compiledSites : site .solve .endWindow 0 = true ∧ site .endWindow .pvs 0 = true := by decide
 
-private def Scan.advance (solve opening worker : Nat) (s : Scan) : Record → Option Scan
+def Scan.advance (solve opening worker : Nat) (s : Scan) : Record → Option Scan
   | .table _ => some s
   | .localCall w event =>
     if w != worker then some s else
@@ -112,7 +115,7 @@ structure Result (c : Capture pool) (b : Position) (w line : Nat) (ts : List Tri
   receipt : ∃ t, ts[last.index]? = some t ∧ row.opening = t.opening ∧ row.rawScore.raw = t.score
   found : rootReturn? c b w line (stamp ts last.index) last.alpha last.beta = some row
 
-private def remaining (n : Nat) (m : Machine) : Nat :=
+def remaining (n : Nat) (m : Machine) : Nat :=
   (n - m.issued) * 15 + match m.pc with
   | 0 => 2 | 1 => 1 | 2 => 0 | 3 => 9 | 4 => 8 | 5 => 7 | 6 => 1
   | 7 => 6 | 8 => 5 | 9 => 4 | 10 => 1 | 11 => 2 | _ => 0

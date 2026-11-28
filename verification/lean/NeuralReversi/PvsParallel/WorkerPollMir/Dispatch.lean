@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.WorkerPollMir.Program
+module
+public import NeuralReversi.PvsParallel.WorkerPollMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 open MoveList.ConcurrentTrace (Write State forWorker)

@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialCache
-import NeuralReversi.PvsParallel.SerialCacheStack.Cells
+module
+public import NeuralReversi.AspirationMir.SerialCache
+public import NeuralReversi.PvsParallel.SerialCacheStack.Cells
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialCache.Physical
 

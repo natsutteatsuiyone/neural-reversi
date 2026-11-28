@@ -1,5 +1,8 @@
-import NeuralReversi.Stability.EdgePacking
-import NeuralReversi.Stability.EdgeModel
+module
+public import NeuralReversi.Stability.EdgePacking
+public import NeuralReversi.Stability.EdgeModel
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 set_option linter.unusedSimpArgs false

@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.ConcurrentReplay
-import NeuralReversi.MoveList.Generation
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.PvsParallel.WipeoutExit
+module
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+public import NeuralReversi.MoveList.Generation
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.PvsParallel.WipeoutExit
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ConcurrentReplay
 

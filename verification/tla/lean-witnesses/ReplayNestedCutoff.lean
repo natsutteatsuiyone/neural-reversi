@@ -1,4 +1,6 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.SlotFrameMir.Program
+import NeuralReversi.PvsParallel.WorkerFrameMir.Program
 import NeuralReversi.Threading.SplitReturn.Observation
 
 open Lean NeuralReversi NeuralReversi.PvsParallel NeuralReversi.Threading

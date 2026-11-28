@@ -1,7 +1,10 @@
-import NeuralReversi.AspirationMir.SerialTable.MidgameRows
-import NeuralReversi.AspirationMir.SerialTable.Repeated
-import NeuralReversi.AspirationMir.SerialTable.PvInterior
-import NeuralReversi.MidgameAspiration.Termination
+module
+public import NeuralReversi.AspirationMir.SerialTable.MidgameRows
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+public import NeuralReversi.AspirationMir.SerialTable.PvInterior
+public import NeuralReversi.MidgameAspiration.Termination
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameIterate
 

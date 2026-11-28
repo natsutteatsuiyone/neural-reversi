@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeTableRefinement
+module
+public import NeuralReversi.Stability.EdgeTableRefinement
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 

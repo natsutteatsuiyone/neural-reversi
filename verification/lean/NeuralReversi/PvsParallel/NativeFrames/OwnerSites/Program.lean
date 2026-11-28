@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheOwner.Program
+module
+public import NeuralReversi.EndgameSearch.CacheOwner.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites
 

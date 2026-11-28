@@ -1,7 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.CutClosure
-import NeuralReversi.PvsParallel.Interleaving.MultiSessionCarry
-import NeuralReversi.PvsParallel.Interleaving.SplitTapeReplay
-import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
+module
+public import NeuralReversi.PvsParallel.Interleaving.CutClosure
+public import NeuralReversi.PvsParallel.Interleaving.MultiSessionCarry
+public import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ParallelOperational
 

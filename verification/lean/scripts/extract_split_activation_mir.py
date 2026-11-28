@@ -229,8 +229,8 @@ def render(dump):
     def gate(opened,idle):
         return ' && '.join(x for x,y in [('available',opened),('idle',idle)] if y) or 'true'
     def items(xs): return '['+', '.join('.'+x for x in xs)+']'
-    return '\n'.join(['import NeuralReversi.PvsParallel.SplitActivationMir.Syntax','',
-      'namespace NeuralReversi.PvsParallel.SplitActivationMir','',
+    return '\n'.join(['module', 'public import NeuralReversi.PvsParallel.SplitActivationMir.Syntax','',
+      '@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SplitActivationMir','',
       'def initialOps : List Op := '+items(init_program),
       'def enrollOps : List Op := '+items(book),
       'def releaseOps : List Op := '+items(worker),

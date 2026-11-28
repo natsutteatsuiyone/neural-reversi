@@ -1,5 +1,8 @@
-import NeuralReversi.Eval.PatternUpdate.Encoding
-import NeuralReversi.Bitboard.LeastBit
+module
+public import NeuralReversi.Eval.PatternUpdate.Encoding
+public import NeuralReversi.Bitboard.LeastBit
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.PatternUpdate
 

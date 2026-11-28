@@ -1,5 +1,8 @@
-import NeuralReversi.Solve1.NeonCounts
-import NeuralReversi.Solve1.Bmi2Verified
+module
+public import NeuralReversi.Solve1.NeonCounts
+public import NeuralReversi.Solve1.Bmi2Verified
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.Neon
 

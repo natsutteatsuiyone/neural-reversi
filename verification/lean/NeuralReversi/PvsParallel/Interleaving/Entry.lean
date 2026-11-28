@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.RootNative
-import NeuralReversi.PvsParallel.Interleaving.JournalResident
-import NeuralReversi.PvsParallel.Interleaving.History
-import NeuralReversi.AspirationMir.SerialTable.MultiSession
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootNative
+public import NeuralReversi.PvsParallel.Interleaving.JournalResident
+public import NeuralReversi.PvsParallel.Interleaving.History
+public import NeuralReversi.AspirationMir.SerialTable.MultiSession
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Entry
 

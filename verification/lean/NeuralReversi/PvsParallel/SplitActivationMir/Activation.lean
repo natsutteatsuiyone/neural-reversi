@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SplitActivationMir.Roster
-import NeuralReversi.Threading.SplitStartup
+module
+public import NeuralReversi.PvsParallel.SplitActivationMir.Roster
+public import NeuralReversi.Threading.SplitStartup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitActivationMir
 
@@ -55,7 +58,7 @@ structure ModificationOrder (writes : List Write) (ops : List Command) where
   apply : ∀ n op, ops[n]? = some op →
     writes[offset+n]? = some (op.apply ((writes[offset+n-1]?).map Write.value |>.getD 0))
 
-private theorem at_index (mo : ModificationOrder ws ops) {op : Command} (n : Nat) (h : ops[n]? = some op)
+theorem at_index (mo : ModificationOrder ws ops) {op : Command} (n : Nat) (h : ops[n]? = some op)
     (index : Fin ws.length) (eq : index.val = mo.offset + n) :
     ws.get index = op.apply (((ws[mo.offset+n-1]?).map Write.value).getD 0) := by
   have got := mo.apply n op h

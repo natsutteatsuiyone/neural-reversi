@@ -1,4 +1,7 @@
-import NeuralReversi.PvsBoardTree
+module
+public import NeuralReversi.PvsBoardTree
+
+@[expose] public section
 
 namespace NeuralReversi.PvsBoardTree
 

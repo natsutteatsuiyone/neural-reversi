@@ -1,4 +1,6 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Live
+module
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

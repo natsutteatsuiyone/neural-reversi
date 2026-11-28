@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.Save
-import NeuralReversi.TranspositionTable.WriterTrace
+module
+public import NeuralReversi.TranspositionTable.Save
+public import NeuralReversi.TranspositionTable.WriterTrace
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterMir
 

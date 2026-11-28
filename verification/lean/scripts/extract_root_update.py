@@ -150,7 +150,7 @@ def render_table(table):
 
     fields = [expr([(k, v[i]) for k, v in table.items()], 0) for i in range(5)]
     return "\n".join([
-        "namespace NeuralReversi.PvsParallel.RootUpdateMir", "",
+        "module", "", "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.RootUpdateMir", "",
         "structure Changes where", "  visible : Bool", "  raisesAlpha : Bool", "  raisesBest : Bool",
         "  takesMove : Bool", "  cuts : Bool", "",
         "def changes (" + " ".join(inputs) + " : Bool) : Changes :=",

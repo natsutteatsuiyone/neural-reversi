@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.FrameTableReads.Execution
-import NeuralReversi.PvsParallel.FrameTableReads.LookupExecution
-import NeuralReversi.PvsParallel.FrameTableReads.ProbeExecution
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.Execution
+public import NeuralReversi.PvsParallel.FrameTableReads.LookupExecution
+public import NeuralReversi.PvsParallel.FrameTableReads.ProbeExecution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations.Execution
 

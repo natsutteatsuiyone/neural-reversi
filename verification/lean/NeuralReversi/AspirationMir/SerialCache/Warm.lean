@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialCache.Physical
-import NeuralReversi.EndgameSearch.SerialWarmCache
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Coverage
+module
+public import NeuralReversi.AspirationMir.SerialCache.Physical
+public import NeuralReversi.EndgameSearch.SerialWarmCache
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Coverage
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialCache.Warm
 

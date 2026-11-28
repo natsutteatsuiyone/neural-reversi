@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep
 
@@ -10,7 +13,7 @@ open PvsBoardTree (Position)
 open Bitboard.Moves (X86Config)
 open Flip.Dispatch (TargetConfig)
 
-private def finish (site : Nat) (edge : Edge.mk .deep site .deepStore .deepField ∈ transfers)
+def finish (site : Nat) (edge : Edge.mk .deep site .deepStore .deepField ∈ transfers)
     (b : Position) (a value : Int) (safe : SafeThreshold a) (s : EndgameSearch.Cancellation.State) :
     Program .deep s.history (EndgameSearch.DeepRecursionMir.finish b a value s).state.history := by
   unfold EndgameSearch.DeepRecursionMir.finish
@@ -19,7 +22,7 @@ private def finish (site : Nat) (edge : Edge.mk .deep site .deepStore .deepField
   · exact .done
   · exact .access site (.store .deep b.val a value safe) .deepField edge .done
 
-private def ordered (sub : M → EndgameSearch.Cancellation.State → Outcome) (issued : ∀ m s, Program .deepChild s.history (sub m s).state.history)
+def ordered (sub : M → EndgameSearch.Cancellation.State → Outcome) (issued : ∀ m s, Program .deepChild s.history (sub m s).state.history)
     (beta : Int) (ms : List M) (best : Int) (s : EndgameSearch.Cancellation.State) :
     Program .deep s.history (EndgameSearch.DeepRecursionMir.ordered sub beta ms best s).2.history := by
   cases ms with

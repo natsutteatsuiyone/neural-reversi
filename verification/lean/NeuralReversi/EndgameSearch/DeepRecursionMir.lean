@@ -1,6 +1,10 @@
-import Lean
-import NeuralReversi.EndgameSearch.DeepRecursionMir.Program
-import NeuralReversi.EndgameSearch.ShallowMir
+module
+public import NeuralReversi.EndgameSearch.DeepRecursionMir.Program
+public import NeuralReversi.EndgameSearch.ShallowMir
+import all NeuralReversi.EndgameSearch.Cancellation
+meta import Lean.PrivateName
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.DeepRecursionMir
 
@@ -77,12 +81,12 @@ decreasing_by
 
 private theorem ordered_model {Move : Type} (child : Move → State → Outcome) (a : Int)
     (ms : List Move) (best : Int) (s : State) :
-    ordered child (a+1) ms best s = (cancelDef% scanRaw) child a ms best s := by
+    ordered child (a+1) ms best s = Cancellation.scanRaw child a ms best s := by
   induction ms generalizing best s with
   | nil => rfl
   | cons m ms ih =>
     rw [ordered]
-    unfoldCancel scanRaw
+    unfold Cancellation.scanRaw
     dsimp only [stopped]
     simp only [ih]
 
@@ -104,7 +108,7 @@ private theorem scan_replace {Move : Type} (mc : X86Config) (fc : FlipConfig) (b
 
 private def basicChild (opts : Options mc) (fc : FlipConfig) (b : Position) (a : Int)
     (sq : GeneratedSquare mc b.val) (input : State) : Outcome :=
-  (cancelDef% moveFrame) sq (fun placed =>
+  Cancellation.moveFrame sq (fun placed =>
     let next := (play mc fc b sq).val
     if placed.empties.count.toNat ≤ 6 then
       let r := EndgameSearch.run mc fc opts .shallow next (-(a + 1)) placed.history
@@ -114,7 +118,7 @@ private def basicChild (opts : Options mc) (fc : FlipConfig) (b : Position) (a :
 private theorem basic_valid (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig) (addr : Address)
     (b : Position) (a : Int) (sq : GeneratedSquare mc b.val) (input : State) (safe : SafeThreshold (-(a+1)))
     (aligned : input.empties.matches b) (sound : soundHistory mc fc input.history) :
-    Valid mc fc input a (-discValue mc fc (play mc fc b sq).val.val)
+    Cancellation.Valid mc fc input a (-discValue mc fc (play mc fc b sq).val.val)
       (basicChild (orderedOptions target bmi2 mc fc addr) fc b a sq input) := by
   let opts := orderedOptions target bmi2 mc fc addr
   have correct := orderedOptions_correct target bmi2 mc fc addr
@@ -135,8 +139,8 @@ private theorem frame_agrees (target : TargetConfig) (bmi2 : Bool) (mc : X86Conf
     executeChild sq.val (a+1) input (ShallowMir.run target bmi2 mc fc addr (play mc fc b sq).val) deep =
       basicChild (orderedOptions target bmi2 mc fc addr) fc b a sq input := by
   unfold executeChild basicChild
-  unfoldCancel moveFrame
-  unfoldCancel State.afterPoll
+  unfold Cancellation.moveFrame
+  unfold Cancellation.State.afterPoll
   split
   · rfl
   · let placed : State := { input with polls := input.polls.after, empties := input.empties.remove sq.val }
@@ -197,12 +201,12 @@ private theorem atRank (target : TargetConfig) (bmi2 paired : Bool) (mc : X86Con
             sub m st = spec m st := frame_agrees target bmi2 mc fc addr b a m st nextSafe al good _
             (fun s aligned good => ih _ (play mc fc b m).property _ rfl _ s aligned nextSafe good)
         have valid (m : GeneratedSquare mc b.val) (s : State) (al : s.empties.matches b) (good : soundHistory mc fc s.history) :
-            Valid mc fc s a (-discValue mc fc (play mc fc b m).val.val) (spec m s) :=
+            Cancellation.Valid mc fc s a (-discValue mc fc (play mc fc b m).val.val) (spec m s) :=
           basic_valid target bmi2 mc fc addr b a m s nextSafe al good
         change moves b a s first rest (deepOrder mc fc b) sub =
-          (cancelDef% storeDeep) b a ((cancelDef% scanRaw) spec a ((cancelDef% searchOrder) opts b first rest) (-127) s)
+          Cancellation.storeDeep b a (Cancellation.scanRaw spec a (Cancellation.searchOrder opts b first rest) (-127) s)
         rw [← ordered_model]
-        unfoldCancel searchOrder
+        unfold Cancellation.searchOrder
         cases rest with
         | nil =>
           have bounded := (valid first s aligned sound).2.2.2

@@ -1,6 +1,9 @@
-import NeuralReversi.MidgameScoreRange.Table
-import NeuralReversi.MidgameProbCut
-import NeuralReversi.MidgameAspiration.Termination
+module
+public import NeuralReversi.MidgameScoreRange.Table
+public import NeuralReversi.MidgameProbCut
+public import NeuralReversi.MidgameAspiration.Termination
+
+@[expose] public section
 
 namespace NeuralReversi.MidgameScoreRange
 

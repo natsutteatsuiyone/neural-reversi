@@ -1,4 +1,7 @@
-import NeuralReversi.Board.TextModel
+module
+public import NeuralReversi.Board.TextModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

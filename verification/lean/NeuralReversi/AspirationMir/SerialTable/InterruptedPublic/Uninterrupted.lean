@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.InterruptedPublic
+module
+public import NeuralReversi.AspirationMir.SerialTable.InterruptedPublic
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InterruptedPublic.Uninterrupted
 

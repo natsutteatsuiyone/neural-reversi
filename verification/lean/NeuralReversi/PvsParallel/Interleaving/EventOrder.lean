@@ -1,4 +1,7 @@
-import Std
+module
+import all Init.Data.List.Sort.Basic
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.EventOrder
 

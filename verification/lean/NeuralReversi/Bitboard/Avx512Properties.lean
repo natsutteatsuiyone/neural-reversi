@@ -1,12 +1,15 @@
-import NeuralReversi.Simd.TernaryProperties
-import NeuralReversi.Bitboard.Avx512Model
-import NeuralReversi.Bitboard.Avx2Properties
+module
+public import NeuralReversi.Simd.TernaryProperties
+public import NeuralReversi.Bitboard.Avx512Model
+public import NeuralReversi.Bitboard.Avx2Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86
 
 theorem getMovesAvx512_eq_avx2 (p o : Bits) : getMovesAvx512 p o = getMovesAvx2 p o := by
-  simp only [getMovesAvx512,getMovesAvx2,ternarylogicEpi64_f8]
+  simp only [getMovesAvx512,getMovesAvx2,ternarylogicEpi64Fast_f8]
 
 theorem getMovesAvx512_exact (p o : Bits) (i : Nat) :
     (getMovesAvx512 p o).getLsbD i = true ↔ LegalMove p o i := by

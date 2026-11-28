@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.SplitTapeReplay
+module
+public import NeuralReversi.PvsParallel.Interleaving.SplitTapeReplay
+meta import NeuralReversi.PvsParallel.Interleaving.SplitTapeReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SplitTapeFixture
 

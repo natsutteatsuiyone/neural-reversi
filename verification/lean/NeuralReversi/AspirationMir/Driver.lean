@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.Program
+module
+public import NeuralReversi.AspirationMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

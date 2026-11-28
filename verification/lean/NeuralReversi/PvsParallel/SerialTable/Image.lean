@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Hash
-import NeuralReversi.PvsParallel.Cutoffs
-import NeuralReversi.TranspositionTable.ReaderMir.Cluster
+module
+public import NeuralReversi.Board.Hash
+public import NeuralReversi.PvsParallel.Cutoffs
+public import NeuralReversi.TranspositionTable.ReaderMir.Cluster
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

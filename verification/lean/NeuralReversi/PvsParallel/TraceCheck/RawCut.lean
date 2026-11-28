@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.TraceCheck
+module
+public import NeuralReversi.PvsParallel.TraceCheck
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.TraceCheck
 

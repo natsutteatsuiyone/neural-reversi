@@ -1,7 +1,10 @@
-import NeuralReversi.AspirationMir.SerialTable.EndgamePrefix
-import NeuralReversi.AspirationMir.SerialTable.MidgameInterrupted
-import NeuralReversi.PvsParallel.SerialTable.MidgameNative
-import NeuralReversi.PvsParallel.SerialTable.MidgameHistory
+module
+public import NeuralReversi.AspirationMir.SerialTable.EndgamePrefix
+public import NeuralReversi.AspirationMir.SerialTable.MidgameInterrupted
+public import NeuralReversi.PvsParallel.SerialTable.MidgameNative
+public import NeuralReversi.PvsParallel.SerialTable.MidgameHistory
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameSession
 

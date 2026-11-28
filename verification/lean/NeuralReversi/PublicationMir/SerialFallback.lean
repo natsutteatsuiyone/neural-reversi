@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Fallback
-import NeuralReversi.PublicationMir.InterruptedExact
+module
+public import NeuralReversi.PvsParallel.SerialTable.Fallback
+public import NeuralReversi.PublicationMir.InterruptedExact
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir.SerialFallback
 

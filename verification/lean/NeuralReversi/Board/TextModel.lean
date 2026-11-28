@@ -1,7 +1,10 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Bitboard.SquareModel
-import NeuralReversi.Disc.Model
-import NeuralReversi.Square.Model
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Bitboard.SquareModel
+public import NeuralReversi.Disc.Model
+public import NeuralReversi.Square.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

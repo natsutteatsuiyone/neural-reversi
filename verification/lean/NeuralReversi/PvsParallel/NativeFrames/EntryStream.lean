@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames.Returns
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
+module
+public import NeuralReversi.PvsParallel.NativeFrames.Returns
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace.Order
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.EntryStream
 

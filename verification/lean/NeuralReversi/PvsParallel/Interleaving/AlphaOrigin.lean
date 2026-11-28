@@ -1,5 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
-import NeuralReversi.PvsParallel.SlotFrameMir.RawHandoff
+module
+public import NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawHandoff
+meta import NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
+meta import NeuralReversi.PvsParallel.SlotFrameMir.RawHandoff
+meta import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
 
@@ -101,7 +107,7 @@ structure Addressed (p : PhysicalOwner g hist time slot t) where
 def Addressed.reports (s : Addressed p) : Reports p :=
   ⟨s.pre,s.mutex,s.checked,s.stateLocks,s.started,memory _ _ s.rows s.coherent,s.operands⟩
 
-private def sample (physical : Reports p) (ps : List Tickets.Post)
+def sample (physical : Reports p) (ps : List Tickets.Post)
     (part : t.reports = ps.map Tickets.Post.report ++ r :: tail)
     (got : IteratorReports.Load hist (words physical) t.a.event event word)
     (before : AtomicWord.SequencedBefore event (t.post part).lock.acquired) :
@@ -122,7 +128,7 @@ def wide (physical : Reports p) (ps : List Tickets.Post)
     RawSchedule.Sample hist (words physical) (ScoreOrigin.task t root cut depth) ps :=
   sample physical ps part ((physical.loads part).wide used) ((physical.alpha.finish part).before _ true (fun _ => used))
 
-private def prior (t : NativeSplit.Tickets rc pv beta)
+def prior (t : NativeSplit.Tickets rc pv beta)
     (part : t.reports = earlier ++ r :: tail) :
     { fields : FieldStores.Fields // fields.state = SplitReturn.stateAfter pv beta t.initial.state earlier } := by
   let x := t.post part

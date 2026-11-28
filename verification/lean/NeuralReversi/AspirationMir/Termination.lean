@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.Driver
-import NeuralReversi.Aspiration
+module
+public import NeuralReversi.AspirationMir.Driver
+public import NeuralReversi.Aspiration
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 
@@ -32,7 +35,7 @@ theorem widen_inside (r : WindowRegs) (s : Word) (above : r.alpha.toInt < s.toIn
     (below : s.toInt < r.beta.toInt) : applyWiden r s = some (r, false) := by
   simp [applyWiden, widenCode, Guard.eval, Expr.eval, Int.not_le.mpr above, Int.not_le.mpr below, List.find?]
 
-private def deltaAt (n : Nat) : Int := initialDelta * (2 : Int)^n
+def deltaAt (n : Nat) : Int := initialDelta * (2 : Int)^n
 
 /-- Holds for an extracted `initialDelta` from one disc (256) to 32 discs: eight doublings
     span every finite score, and eleven stay far below Int32 overflow. -/
@@ -147,7 +150,7 @@ theorem ready_widen (ready : Ready n regs) (word : Word) (finite : -32767 < word
 def currentCall (query : Query) (m : Machine) : Call :=
   ⟨m.issued, m.regs.alpha, m.regs.beta, query m.issued m.regs.alpha m.regs.beta⟩
 
-private def afterPoll (query : Query) (m : Machine) : Machine :=
+def afterPoll (query : Query) (m : Machine) : Machine :=
   { m with pc := 7, issued := m.issued + 1, last := currentCall query m, flag := false }
 
 def nextTrial (query : Query) (m : Machine) (after : WindowRegs) : Machine :=

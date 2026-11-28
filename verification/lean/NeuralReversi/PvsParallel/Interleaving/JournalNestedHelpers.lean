@@ -1,5 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
-import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+module
+public import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+public import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+meta import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
 
@@ -12,7 +17,7 @@ def prior (sc : Scope) := CausalTable.returned (fun i j => CallReturns.earlier i
 
 example (sc : Scope) (plan : CallReturns.Plan Position) : (sc.nativePlan plan).prior = prior sc := rfl
 
-private def one (sc : Scope) (r : Receipt sc.rows) (next : Position) (wide : Bool) (lo hi score : Int) :
+def one (sc : Scope) (r : Receipt sc.rows) (next : Position) (wide : Bool) (lo hi score : Int) :
     Option (PLift (prior sc next wide lo hi score)) := do
   let q := if wide then wideQuery r.input else scoutQuery r.input
   let req := CallReturns.queryRequest next q
@@ -27,11 +32,11 @@ private def one (sc : Scope) (r : Receipt sc.rows) (next : Position) (wide : Boo
     else none
   else none
 
-private abbrev Indexed (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+abbrev Indexed (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (b : Position) (moves : List (GeneratedSquare mc b.val)) : PvsMoveLoop.ChildRelation Nat :=
   fun i pv a z v => ∃ m, moves[i]? = some m ∧ BoardFrame.Children mc fc b (prior sc) m pv a z v
 
-private def packet (es : Joint.Tape Op) (sc : Scope) (bank level : Nat) (mark : AtomicWord.Event)
+def packet (es : Joint.Tape Op) (sc : Scope) (bank level : Nat) (mark : AtomicWord.Event)
     (t : NativeSplit.Tickets rc pv beta) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (moves : List (GeneratedSquare mc b.val)) (root : Bool) (k : Nat) (p : FieldStores.Raw) :
     Option (PLift (Uses (Indexed sc mc fc b moves) beta p.input)) := do
@@ -52,7 +57,7 @@ private def packet (es : Joint.Tape Op) (sc : Scope) (bank level : Nat) (mark : 
 
 /-- Both owner paths use the same finite check. Each caller's child relation is obtained by
     substituting the move actually indexed in the scheduler, including at a root chosen score. -/
-private def trace (es : Joint.Tape Op) (sc : Scope) (level : Nat) (mc : Bitboard.Moves.X86Config)
+def trace (es : Joint.Tape Op) (sc : Scope) (level : Nat) (mc : Bitboard.Moves.X86Config)
     (fc : Cutoffs.FlipConfig) (b : Position) (moves : List (GeneratedSquare mc b.val))
     {t : NativeSplit.Tickets rc pv beta} (raw : AlphaOrigin.Capture t root cut depth (fun _ _ _ _ _ => True))
     (castMove : ∀ i wide a z v, Indexed sc mc fc b moves i wide a z v → done_ i wide a z v) :
@@ -103,7 +108,7 @@ abbrev Feed (es : Joint.Tape Op) (sc : Scope) (level : Nat) (mc : Bitboard.Moves
   ∀ (moves : List (GeneratedSquare mc b.val)) (idx : Nat) (entry : SplitWindow.State),
     Option (Capture es sc level mc fc b moves ⟨pv,false,cut,depth,beta,entry⟩ moves.length (BitVec.ofNat width idx))
 
-private def bind (cap : Capture es sc level mc fc b moves task len cursor) :
+def bind (cap : Capture es sc level mc fc b moves task len cursor) :
     Option ((fallback : GeneratedSquare mc b.val) × ObservedJoin.Trace task
       (fun i => BoardFrame.Children mc fc b (prior sc) (moves[i]?.getD fallback)) len cursor) :=
   match cap with
@@ -154,7 +159,7 @@ abbrev RootFeed (es : Joint.Tape Op) (sc : Scope) (level : Nat) (mc : Bitboard.M
     (RootCapture es sc level mc fc b r (RootSchedule.task r (Board.emptyCount b.val).toNat beta false)
       (RootTrial.labels r).length (BitVec.ofNat width r.remaining.idx))
 
-private def rootTrace {world : CausalTable.Values} (cap : RootCapture es sc level mc fc b r task len cursor)
+def rootTrace {world : CausalTable.Values} (cap : RootCapture es sc level mc fc b r task len cursor)
     (included : ∀ b p a z v, prior sc b p a z v → world b p a z v) :
     Option (ObservedJoin.Trace task (RootSchedule.indexed (BoardFrame.Children mc fc b world) r) len cursor) :=
   match cap with

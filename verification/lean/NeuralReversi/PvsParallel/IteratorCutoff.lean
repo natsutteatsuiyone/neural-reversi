@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.IteratorFields
+module
+public import NeuralReversi.PvsParallel.IteratorFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorFields
 

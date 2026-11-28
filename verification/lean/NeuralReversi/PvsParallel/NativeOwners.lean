@@ -1,9 +1,12 @@
-import NeuralReversi.PvsParallel.NativeLeafBranches
-import NeuralReversi.PvsParallel.NativeSplitFrame
-import NeuralReversi.PvsParallel.FrameRows
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Admission
-import NeuralReversi.PvsParallel.GeneralOwnerMir.Calls
-import NeuralReversi.PvsParallel.FrameTableReads.Execution
+module
+public import NeuralReversi.PvsParallel.NativeLeafBranches
+public import NeuralReversi.PvsParallel.NativeSplitFrame
+public import NeuralReversi.PvsParallel.FrameRows
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Admission
+public import NeuralReversi.PvsParallel.GeneralOwnerMir.Calls
+public import NeuralReversi.PvsParallel.FrameTableReads.Execution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeOwners
 

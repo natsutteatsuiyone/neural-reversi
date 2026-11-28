@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Entry
-import NeuralReversi.PvsParallel.Interleaving.Hint
+module
+public import NeuralReversi.PvsParallel.Interleaving.Entry
+public import NeuralReversi.PvsParallel.Interleaving.Hint
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CallJournal
 
@@ -39,7 +42,7 @@ def Choice.frame (f : Choice) (returns : Choice → Option Nat) : Frame :=
 
 def Choice.whole (f : Choice) := f.endgame && f.rootLine.all (· == 0)
 
-private def choice (worker opening stamp : Nat) (parent : Option Nat) (a : NativeFrames.Args) (v : Score) : Option Choice :=
+def choice (worker opening stamp : Nat) (parent : Option Nat) (a : NativeFrames.Args) (v : Score) : Option Choice :=
   if valid : a.board.player &&& a.board.opponent = 0 then
     some ⟨worker,opening,parent,stamp,a.selectivity,a.endgame,a.rootLine,⟨a.board,valid⟩,a.pv,a.cut,a.depth,a.alpha,a.beta,v⟩
   else none
@@ -119,7 +122,7 @@ def localStep (s : State Operand) (time worker : Nat) (e : NativeFrames.Event)
     guard (top.opening == opening && top.node == .pvs)
     return {s with stacks := put s.stacks worker rest}
 
-private def deep (i : EndgameSearch.CacheHistory.Input) : Bool :=
+def deep (i : EndgameSearch.CacheHistory.Input) : Bool :=
   match i.arm with | .deep poll => poll == i.active | _ => false
 
 theorem deep_arm (i : EndgameSearch.CacheHistory.Input) (yes : deep i = true) : i.arm = .deep i.active := by
@@ -236,25 +239,25 @@ def StoreArgs.data (a : StoreArgs) := Packing.newData a.score a.move a.bound a.d
 def StoreArgs.gate (a : StoreArgs) (slot : Nat) :=
   WriterMir.storeInput slot a.board a.score a.bound a.depth a.move a.level a.generation a.phase a.ttPv
 
-private def pickedAt (s : State Operand) (t : Nat) (lv : Selectivity) :=
+def pickedAt (s : State Operand) (t : Nat) (lv : Selectivity) :=
   CausalTable.chosen (· < ·) (s.frames.filter (fun f => s.level f == lv)) t
 
-private def exactAt (s : State Operand) (t : Nat) := CausalTable.chosen (· < ·) s.exactFrames t
+def exactAt (s : State Operand) (t : Nat) := CausalTable.chosen (· < ·) s.exactFrames t
 
 structure Inputs (s : State Operand) (t : Nat) (b : Position) (e : EntryData) : Prop where
   seed : SeedHistory.StoreInput (pickedAt s t) b e
   exact : CausalTable.Input (exactAt s t) b e
 
-private def legalMove (mc : Bitboard.Moves.X86Config) (a : StoreArgs) : Bool :=
+def legalMove (mc : Bitboard.Moves.X86Config) (a : StoreArgs) : Bool :=
   a.move.all (fun sq => (Board.getMoves mc a.board.val).getLsbD sq.val)
 
-private theorem legal_of_test (ok : legalMove mc a = true) : TableReads.LegalChoice a.board a.move := by
+theorem legal_of_test (ok : legalMove mc a = true) : TableReads.LegalChoice a.board a.move := by
   intro m choice
   unfold legalMove at ok
   rw [choice] at ok
   exact (Board.getMoves_exact mc a.board.val m.val).mp ok
 
-private def classified (s : State Operand) (slot t : Nat) (a : StoreArgs)
+def classified (s : State Operand) (slot t : Nat) (a : StoreArgs)
     (owner : Option Choice) (entered : a.gate slot = some (slot,a.board,a.data))
     (legal : TableReads.LegalChoice a.board a.move) : Option (PLift (Inputs s t a.board a.data)) := do
   let f ← owner
@@ -284,7 +287,7 @@ private def classified (s : State Operand) (slot t : Nat) (a : StoreArgs)
     else none
   else none
 
-private def midgame (s : State Operand) (slot t : Nat) (a : StoreArgs) (owner : Option Choice)
+def midgame (s : State Operand) (slot t : Nat) (a : StoreArgs) (owner : Option Choice)
     (entered : a.gate slot = some (slot,a.board,a.data))
     (legal : TableReads.LegalChoice a.board a.move) : Option (PLift (Inputs s t a.board a.data)) := do
   let f ← owner
@@ -301,7 +304,7 @@ private def midgame (s : State Operand) (slot t : Nat) (a : StoreArgs) (owner : 
     return ⟨⟨seed,.weaker a.data weak (TableReads.newHint legal)⟩⟩
   else none
 
-private def inputs (s : State Operand) (mc : Bitboard.Moves.X86Config) (slot t : Nat) (a : StoreArgs) (owner : Option Choice) :
+def inputs (s : State Operand) (mc : Bitboard.Moves.X86Config) (slot t : Nat) (a : StoreArgs) (owner : Option Choice) :
     Option (PLift (Inputs s t a.board a.data)) := do
   if entered : a.gate slot = some (slot,a.board,a.data) then
     if legal : legalMove mc a then
@@ -327,7 +330,7 @@ inductive Operand (c : Calls) (endian : Bool) (seen : Nat → Payload → Prop) 
 abbrev Output (s : State Operand') (c : Calls) (endian : Bool) (seen : Nat → Payload → Prop) (k : Nat) :=
   Table.Operands endian (Inputs s ((c k).event 5)) (seen k) (c k).origin
 
-private def issueOutput (mc : Bitboard.Moves.X86Config) (s : State (Operand c endian seen)) (w : Writer (Operand c endian seen)) :
+def issueOutput (mc : Bitboard.Moves.X86Config) (s : State (Operand c endian seen)) (w : Writer (Operand c endian seen)) :
     Option (PLift (Output s c endian seen w.invocation)) := do
   let k := w.invocation
   match w.raw with
@@ -365,7 +368,7 @@ private def issueOutput (mc : Bitboard.Moves.X86Config) (s : State (Operand c en
         else none
     else none
 
-private def accepted (mc : Bitboard.Moves.X86Config) (s : State (Operand c endian seen)) : Issued (Operand c endian seen) → Bool
+def accepted (mc : Bitboard.Moves.X86Config) (s : State (Operand c endian seen)) : Issued (Operand c endian seen) → Bool
   | .atomic w .finish => (issueOutput mc s w).isSome
   | _ => true
 

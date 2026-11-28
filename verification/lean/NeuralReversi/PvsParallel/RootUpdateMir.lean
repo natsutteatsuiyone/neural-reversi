@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootUpdateMir.Program
-import NeuralReversi.PvsParallel.RootSuffix.Writes
+module
+public import NeuralReversi.PvsParallel.RootUpdateMir.Program
+public import NeuralReversi.PvsParallel.RootSuffix.Writes
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootUpdateMir
 

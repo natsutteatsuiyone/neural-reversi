@@ -1,4 +1,7 @@
-import NeuralReversi.Simd.X86Model
+module
+public import NeuralReversi.Simd.X86Model
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
 

@@ -1,9 +1,12 @@
-import NeuralReversi.PvsParallel.PvEntryMir
-import NeuralReversi.PvsParallel.CausalReplay
-import NeuralReversi.PvsParallel.GeneralNonPvMir.Program
-import NeuralReversi.PvsParallel.TableReads
-import NeuralReversi.MoveList.Ordering
-import NeuralReversi.TranspositionTable.ReaderMir.ProbeProgram
+module
+public import NeuralReversi.PvsParallel.PvEntryMir
+public import NeuralReversi.PvsParallel.CausalReplay
+public import NeuralReversi.PvsParallel.GeneralNonPvMir.Program
+public import NeuralReversi.PvsParallel.TableReads
+public import NeuralReversi.MoveList.Ordering
+public import NeuralReversi.TranspositionTable.ReaderMir.ProbeProgram
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.GeneralNonPvMir
 
@@ -15,7 +18,7 @@ open TranspositionTable (Depth EntryData ProbeRetry.Result)
 open TableReads (ChildLookupFrom ProbeReads ProbeReadsFrom)
 open ExactTableHistory (Publications)
 
-private def parent (b : Position) (depth : Depth) (beta : Score) (checked : Bool)
+def parent (b : Position) (depth : Depth) (beta : Score) (checked : Bool)
     (attempts : List TranspositionTable.ProbeRetry.RawAttempt) : Option Int := do
   let .hit _ entry := TranspositionTable.ProbeRetry.probe
     (attempts.map (TranspositionTable.ProbeRetry.observe (key b))) | none
@@ -38,7 +41,7 @@ private theorem parentExecution (b : Position) (depth : Depth) (alpha beta : Sco
       subst score
       exact .probe attempts slot entry ⟨alpha.raw⟩ ⟨beta.raw⟩ depth checked reads found gate
 
-private def etc (q : PvsEnhancedCutoff.Query) (reads : List (ChildLookupFrom mc fc b source)) : Option Int :=
+def etc (q : PvsEnhancedCutoff.Query) (reads : List (ChildLookupFrom mc fc b source)) : Option Int :=
   (PvsEnhancedCutoff.scan q (reads.map ChildLookupFrom.observation)).map Prod.snd
 
 def runPrefix (mc : X86Config) (fc : FlipConfig) (b : Position) (depth : Depth) (alpha beta : Score)

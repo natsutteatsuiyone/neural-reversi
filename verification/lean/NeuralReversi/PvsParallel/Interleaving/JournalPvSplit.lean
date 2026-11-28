@@ -1,5 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalScoutOwner
-import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalScoutOwner
+public import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.JournalScoutOwner
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalPvSplit
 
@@ -10,14 +15,14 @@ open CallReturns (Scope Owner)
 open EndgameOrderMir (pvOrder)
 open JournalBodies (Check)
 
-private def run (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def run (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (d : Depth) (cut : Bool) (a z : Int) (op : JournalPv.Operands mc b) (hint : Option Bitboard.Square) :=
   let moves := pvOrder mc fc b op.mode op.tie hint
   let q : PvsPostpone.Queue _ := ⟨0,moves,[]⟩
   CallReturns.ownerRun Subtype.val (sc.ownerReplies (CallReturns.pvRequest mc fc b d cut)) op.schedule
     d.toNat rootMinimumSplitDepth z (q.budget+1) 0 0 moves.length q (RootReplay.start a)
 
-private def dispatch (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) :=
+def dispatch (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) :=
   let g := PvEntryMir.generated mc fc b false (fun _ => none)
   PvEntryMir.dispatch d.toNat (g.len.getD 0 != 0) (Board.hasLegalMoves mc (PvsBoardTree.pass b).val) g.wipeout.join.isSome
 
@@ -71,7 +76,7 @@ private theorem replay (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoff
 
 /-- This owner performed its direct recursive calls, entered `Thread::split` at the PVS
     call site, then returned from that split before choosing its score. -/
-private def span (es : Joint.Tape Op) (sc : Scope) (worker after : Nat) : Option Nat := do
+def span (es : Joint.Tape Op) (sc : Scope) (worker after : Nat) : Option Nat := do
   let direct := sc.calls.toList.zipIdx.filter fun (a,_) => a.parent == some sc.parent && decide (a.entered < sc.consumer)
   let (split,id) :: prev := direct.reverse | none
   guard (split.worker = worker ∧ split.callee = .split ∧ split.site = 5 ∧ after < split.entered)
@@ -83,12 +88,12 @@ private def span (es : Joint.Tape Op) (sc : Scope) (worker after : Nat) : Option
   guard (split.entered < closed ∧ closed < sc.consumer)
   return id
 
-private structure Candidate (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+structure Candidate (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (cut : Bool) (depth : Nat) (beta : Int) where
   width : Nat
   splits : Nested.Splits (BoardFrame.Children mc fc b (sc.native .unique).prior) true cut depth width beta
 
-private def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s : CallJournal.State Op) (f : Frame)
+def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s : CallJournal.State Op) (f : Frame)
     (acts : CallReturns.State) (parent : Nat) (reads : Lookups) (d : Depth) (cut : Bool) (op : JournalPv.Operands mc f.board)
     (hint : Option Bitboard.Square) (pv : f.pv = true) (full : ExactDepth.Full f.board d) (w : Aspiration.Window f.alpha f.beta)
     (path : dispatch mc fc f.board d = .continueSearch)
@@ -116,7 +121,7 @@ private def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s 
         simpa only [JournalPv.registry,exact_,↓reduceIte] using (result _ reads reg).1)
     else .rejected
 
-private def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op) (s : CallJournal.State Op)
+def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op) (s : CallJournal.State Op)
     (f : Frame) (reads : Lookups) (op : JournalPv.Operands mc f.board)
     (probe : Option (Nat × Nat × TranspositionTable.ProbeRetry.Result))
     (get : (sc : Scope) → (splitId : Nat) → (cut : Bool) → (depth : Nat) → Option (Candidate sc mc fc f.board cut depth f.beta)) :

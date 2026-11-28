@@ -1,4 +1,7 @@
-import NeuralReversi.Game.Queries.Model
+module
+public import NeuralReversi.Game.Queries.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Queries
 open NeuralReversi.Game.History

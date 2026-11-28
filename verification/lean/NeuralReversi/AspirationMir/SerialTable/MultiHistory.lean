@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiSession
-import NeuralReversi.AspirationMir.SerialTable.MultiPrefix
-import NeuralReversi.AspirationMir.SerialTable.MultiMidgamePrefix
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiSession
+public import NeuralReversi.AspirationMir.SerialTable.MultiPrefix
+public import NeuralReversi.AspirationMir.SerialTable.MultiMidgamePrefix
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiHistory
 

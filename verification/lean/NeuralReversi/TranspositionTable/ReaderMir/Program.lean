@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.ReaderMir.Syntax
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

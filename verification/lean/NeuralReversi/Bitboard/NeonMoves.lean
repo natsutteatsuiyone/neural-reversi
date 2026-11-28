@@ -1,22 +1,25 @@
-import NeuralReversi.Bitboard.DispatchProperties
-import NeuralReversi.Flip.Dispatch.Types
-import NeuralReversi.Flip.Neon.Properties
+module
+public import NeuralReversi.Bitboard.DispatchProperties
+public import NeuralReversi.Flip.Dispatch.Types
+public import NeuralReversi.Flip.Neon.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 set_option maxRecDepth 4096
 open NeuralReversi.Flip.Neon (Vec128 vdupqNU64 vandqU64 vorrqU64 vbcaxqU64
   getLsbD_reverse_eq reverse_and)
 
-private def signedShift (word : Bits) (count : Int) : Bits :=
+def signedShift (word : Bits) (count : Int) : Bits :=
   if 0 ≤ count then word <<< count.toNat else word >>> count.natAbs
 
-private def vshift (words : Vec128) (counts : Int × Int) : Vec128 :=
+def vshift (words : Vec128) (counts : Int × Int) : Vec128 :=
   (signedShift words.1 counts.1, signedShift words.2 counts.2)
 
-private def zip1 (a b : Vec128) : Vec128 := (a.1, b.1)
-private def zip2 (a b : Vec128) : Vec128 := (a.2, b.2)
+def zip1 (a b : Vec128) : Vec128 := (a.1, b.1)
+def zip2 (a b : Vec128) : Vec128 := (a.2, b.2)
 
-private def expandDiagonals (sha3 : Bool) (p h : Bits) : Vec128 :=
+def expandDiagonals (sha3 : Bool) (p h : Bits) : Vec128 :=
   let pv := vdupqNU64 p
   let mv := vdupqNU64 h
   let sh : Int × Int := (7, 9)
@@ -39,7 +42,7 @@ private def expandDiagonals (sha3 : Bool) (p h : Bits) : Vec128 :=
   let fr := vorrqU64 fr (vandqU64 preNeg (vshift fr sh2Neg))
   vorrqU64 (vshift fl sh) (vshift fr shNeg)
 
-private def finishLegal (p o h diagonals : Bits) : Bits :=
+def finishLegal (p o h diagonals : Bits) : Bits :=
   let rp := p.reverse
   let rh := h.reverse
   let horizontal := (h + (h &&& (p <<< (1 : Nat)))) |||

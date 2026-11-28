@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Segments
+module
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Segments
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites
 

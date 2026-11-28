@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SearchAbort
+module
+public import NeuralReversi.Threading.SearchAbort
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitReturn.Observation
 

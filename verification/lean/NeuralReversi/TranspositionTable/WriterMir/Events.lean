@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.WriterMir.StoreProof
+module
+public import NeuralReversi.TranspositionTable.WriterMir.StoreProof
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterMir
 

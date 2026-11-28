@@ -18,15 +18,16 @@ def expectedProjectCSimp : List (Name × Name × Name) := [
 
 def auditProjectCSimp (env : Environment) : CommandElabM Nat := do
   let state := Lean.Compiler.CSimp.ext.getState env
+  let owned := buildOwnershipIndex env projectModules
   let mut count := 0
-  let mut seen : List Name := []
+  let mut seen : Std.HashSet Name := {}
   -- SMap.toList contains both stages, including shadowed duplicate keys.
   for (key, _) in state.map.toList do
-    if key ∈ seen then continue
-    seen := key :: seen
+    if seen.contains key then continue
+    seen := seen.insert key
     let some entry := state.map.find? key | continue
-    unless projectDeclaration env key || projectDeclaration env entry.fromDeclName || projectDeclaration env entry.toDeclName ||
-        projectDeclaration env entry.thmName do continue
+    unless owned.owns env key || owned.owns env entry.fromDeclName || owned.owns env entry.toDeclName ||
+        owned.owns env entry.thmName do continue
     unless key == entry.fromDeclName do throwError "CSIMP map key differs from source"
     unless expectedProjectCSimp.contains (entry.fromDeclName,entry.toDeclName,entry.thmName) do
       throwError "Unexpected active project CSIMP mapping: {entry.thmName}"

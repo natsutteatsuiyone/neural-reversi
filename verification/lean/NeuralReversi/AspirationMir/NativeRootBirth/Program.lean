@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.PvEntryMir
-import NeuralReversi.RootMoveStorage
+module
+public import NeuralReversi.PvsParallel.PvEntryMir
+public import NeuralReversi.RootMoveStorage
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeRootBirth
 

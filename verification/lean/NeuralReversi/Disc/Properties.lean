@@ -1,4 +1,7 @@
-import NeuralReversi.Disc.Model
+module
+public import NeuralReversi.Disc.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Disc
 

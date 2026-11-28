@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialCache.Physical
-import NeuralReversi.AspirationMir.SerialEntry
-import NeuralReversi.EndgameSearch.SerialWarmCache
+module
+public import NeuralReversi.AspirationMir.SerialCache.Physical
+public import NeuralReversi.AspirationMir.SerialEntry
+public import NeuralReversi.EndgameSearch.SerialWarmCache
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialCache.Ladder
 

@@ -1,9 +1,16 @@
-import NeuralReversi.TranspositionTable.ReaderMir.SequenceCycle
-import NeuralReversi.TranspositionTable.ReaderMir.ProbeProgram
-import NeuralReversi.Board.Hash
-import NeuralReversi.AspirationMir.PublicScore
-import NeuralReversi.AspirationMir.NativeTrials
-import NeuralReversi.PvsParallel.RootAspiration
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.SequenceCycle
+public import NeuralReversi.TranspositionTable.ReaderMir.ProbeProgram
+public import NeuralReversi.Board.Hash
+public import NeuralReversi.AspirationMir.PublicScore
+public import NeuralReversi.AspirationMir.NativeTrials
+public import NeuralReversi.PvsParallel.RootAspiration
+meta import NeuralReversi.PvsParallel.Cutoffs
+meta import NeuralReversi.TranspositionTable.Clear
+meta import NeuralReversi.TranspositionTable.ReaderMir.SequenceCycle
+meta import NeuralReversi.Board.Hash
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir.SequenceCycleRegression
 
@@ -12,11 +19,11 @@ open PvsParallel.Cutoffs (exactSelectivity)
 open SeqLock (Word)
 open ReaderMir.SequenceCycle
 
-private def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
-private def fc : Flip.Dispatch.X86Config := ⟨false,false,false⟩
+def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+def fc : Flip.Dispatch.X86Config := ⟨false,false,false⟩
 
-private def first : Position := ⟨⟨0x7f7f676b527a40f8,0x00809894ad85bf07⟩,rfl⟩
-private def last : Position := ⟨⟨0xc0c0f0f4daded280,0x3f3f070b25212d7f⟩,rfl⟩
+def first : Position := ⟨⟨0x7f7f676b527a40f8,0x00809894ad85bf07⟩,rfl⟩
+def last : Position := ⟨⟨0xc0c0f0f4daded280,0x3f3f070b25212d7f⟩,rfl⟩
 private def moveA : GeneratedSquare mc first.val := ⟨63,by decide⟩
 private def moveB : GeneratedSquare mc last.val := ⟨43,by decide⟩
 
@@ -37,15 +44,15 @@ private theorem valueB : minimax mc fc last = -512 := by
   rw [solved last moveB (by decide) (by decide) (by decide)]
   decide
 
-private def scoreA := Packing.newData ⟨6656⟩ (some 63) .exact 1 exactSelectivity 0 true true
-private def scoreB := Packing.newData ⟨-512⟩ (some 43) .exact 1 exactSelectivity 0 true true
+def scoreA := Packing.newData ⟨6656⟩ (some 63) .exact 1 exactSelectivity 0 true true
+def scoreB := Packing.newData ⟨-512⟩ (some 43) .exact 1 exactSelectivity 0 true true
 
 #guard Clear.getClusterIdx (Board.Hash.hash false first.val) 16 == 28
 #guard Clear.getClusterIdx (Board.Hash.hash false last.val) 16 == 28
 #guard match canCut true scoreA ⟨0⟩ 1 exactSelectivity true with | .ok true => true | _ => false
 #guard match canCut true scoreB ⟨0⟩ 1 exactSelectivity true with | .ok true => true | _ => false
 
-private def firstSlot (out : Outcome) : Pass :=
+def firstSlot (out : Outcome) : Pass :=
   let seen := out.returned.map fun s => ((s.player,s.opponent),Packing.unpack false s.metadata)
   probePass 0 (ProbeRetry.classify (last.val.player,last.val.opponent) seen) .busy
 
@@ -64,13 +71,13 @@ theorem wrong_hits :
   · rw [valueA]; decide
   · rw [valueB]; decide
 
-private def firstTrial (seed : EntryData) : AspirationMir.Machine :=
+def firstTrial (seed : EntryData) : AspirationMir.Machine :=
   let w := PvsParallel.RootAspiration.initialWindow 0 seed.score.toInt none
   AspirationMir.NativeTrials.initial (BitVec.ofInt 32 w.1) (BitVec.ofInt 32 w.2)
 
 /-- Feed the other board's returned metadata into the first aspiration window.
     Check the retry loop, row update and public score of the one legal move. -/
-private def SeedResult (b : Position) (square : Bitboard.Square) (seed : EntryData) (expected : Int) : Prop :=
+def SeedResult (b : Position) (square : Bitboard.Square) (seed : EntryData) (expected : Int) : Prop :=
   ∀ paired checked (mem : MoveList.Initialization.Memory Move.Move) (pv : Bitboard.Square → List Bitboard.Square)
     (sort : PublicationMir.SliceSort) (nodes : Nat) (fallback : Unit → PublicationMir.SearchResult),
     ∃ writes value last result,

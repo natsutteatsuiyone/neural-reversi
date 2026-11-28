@@ -256,7 +256,10 @@ def render(dump, repo):
         return choose("shown", *(choose("seed", paths[v,True][key], paths[v,False][key]) for v in (True,False)))
 
     lean = [
-        "import NeuralReversi.PvsParallel.RootSuffix.Writes", "",
+        "module",
+        "public import NeuralReversi.RootMoveStorage",
+        "public import NeuralReversi.MidgameAspiration.Arithmetic", "",
+        "@[expose] public section", "",
         "namespace NeuralReversi.PvsParallel.RootStorageMir", "",
         "open Bitboard (Square)", "open RootMoveStorage (Row)", "",
         f"def capacity : Nat := {length}", "abbrev Slots := Vector (Option Square) capacity",
@@ -272,7 +275,7 @@ def render(dump, repo):
         "  let seed := old.average = negInf", "  let squared := value * (value.natAbs : Int)",
         "  let averageSum := old.average + value", "  let squareSum := old.meanSquared + squared",
         "  ⟨" + ", ".join(term(k) for k in FIELDS) + "⟩", "",
-        "private instance (bits : Nat) (x : Int) : Decidable (MidgameAspiration.FitsSigned bits x) :=",
+        "instance (bits : Nat) (x : Int) : Decidable (MidgameAspiration.FitsSigned bits x) :=",
         "  inferInstanceAs (Decidable (_ ≤ x ∧ x < _))", "",
         "def numeric (old : Row) (value : Int) : Bool :=",
         "  let squared := value * (value.natAbs : Int)",

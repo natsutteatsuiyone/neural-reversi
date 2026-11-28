@@ -1,5 +1,8 @@
-import NeuralReversi.LegalMoves.Preservation
-import NeuralReversi.Bitboard.IteratorProperties
+module
+public import NeuralReversi.LegalMoves.Preservation
+public import NeuralReversi.Bitboard.IteratorProperties
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Capacity
 open Bitboard

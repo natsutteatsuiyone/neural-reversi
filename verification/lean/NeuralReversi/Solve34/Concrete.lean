@@ -1,8 +1,11 @@
-import NeuralReversi.Solve34.BoardBridge
-import NeuralReversi.Solve34.BaseBounds
-import NeuralReversi.Solve34.Control
-import NeuralReversi.Solve34.Terminal
-import NeuralReversi.Solve34.ControlBounds
+module
+public import NeuralReversi.Solve34.BoardBridge
+public import NeuralReversi.Solve34.BaseBounds
+public import NeuralReversi.Solve34.Control
+public import NeuralReversi.Solve34.Terminal
+public import NeuralReversi.Solve34.ControlBounds
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 

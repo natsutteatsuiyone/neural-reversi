@@ -5,9 +5,19 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 
 from extract_root_wipeout import constants
 from mir_common import ASSERT, CALL, GOTO, blocks, checked
+
+
+_SCORE_OPS_LOCK = threading.Lock()
+_SCORE_OPS_CHECKED = set()
+
+
+def seed_score_operators(repo):
+    with _SCORE_OPS_LOCK:
+        _SCORE_OPS_CHECKED.add(Path(repo).resolve())
 
 
 RESET = "RootMoves::reset_scores_from_pv_idx"
@@ -237,7 +247,11 @@ def run(cfg, case, traits, frame=None):
 
 
 def check_score_operators(repo):
-    score = repo / "crates/reversi-core/src/score.rs"
+    key = Path(repo).resolve()
+    with _SCORE_OPS_LOCK:
+        if key in _SCORE_OPS_CHECKED:
+            return
+    score = key / "crates/reversi-core/src/score.rs"
     rust = [f'#[path = r#"{score}"#] mod score;', "use score::Score;"]
     operations = {}
     for name, symbol, compare in [("gt", ">", "sgt"), ("ge", ">=", "sge"), ("lt", "<", "slt")]:
@@ -252,13 +266,15 @@ def check_score_operators(repo):
         src, ir = Path(scratch) / "ops.rs", Path(scratch) / "ops.ll"
         src.write_text("\n".join(rust), encoding="utf-8")
         subprocess.run(["rustc", "--edition=2024", "--crate-type=lib", "-Adead_code", "--emit=llvm-ir",
-                        "-Copt-level=2", str(src), "-o", str(ir)], cwd=repo, check=True)
+                        "-Copt-level=2", str(src), "-o", str(ir)], cwd=key, check=True)
         llvm = ir.read_text(encoding="utf-8")
     for name, (operation, ty) in operations.items():
         body = re.findall(rf"^define [^\n]*@score_{name}\([^\n]*\{{\n(.*?)^\}}", llvm, re.M | re.S)
         checked(len(body) == 1 and body[0].splitlines() == [
             "start:", "  %_0 = " + operation, f"  ret {ty} %_0",
         ], f"unexpected compiled Score::{name} operator")
+    with _SCORE_OPS_LOCK:
+        _SCORE_OPS_CHECKED.add(key)
 
 
 def render(mir, repo):
@@ -297,7 +313,10 @@ def render(mir, repo):
         score, pv, result = next(iter(rows))
         return f"([(square, {lean(score)}, {str(bool(pv)).lower()})], {lean(result)})"
 
-    return f"""import NeuralReversi.Bitboard.SquareModel
+    return f"""module
+public import NeuralReversi.Bitboard.SquareModel
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel
 

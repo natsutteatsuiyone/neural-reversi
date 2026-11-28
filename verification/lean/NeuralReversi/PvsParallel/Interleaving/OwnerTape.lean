@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.AlphaReplay
+module
+public import NeuralReversi.PvsParallel.Interleaving.AlphaReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.OwnerTape
 
@@ -16,7 +19,7 @@ def loads (es : Joint.Tape Op) : List Load := es.filterMap fun row => match row 
     else none
   | _ => none
 
-private theorem order (c : MaskClock.Capture h) (r : Read ws)
+theorem order (c : MaskClock.Capture h) (r : Read ws)
     (ok : AlphaReplay.inOrder c ws r.event r.source.val) : SplitRebookingMir.Coherence h ws r := by
   simp only [AlphaReplay.inOrder,decide_eq_true_eq,← MaskClock.published h c] at ok
   exact ⟨fun i => (ok i).1,fun i => (ok i).2⟩

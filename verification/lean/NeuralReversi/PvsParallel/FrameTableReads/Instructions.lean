@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.FrameTableReads.Operations
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.Operations
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations
 

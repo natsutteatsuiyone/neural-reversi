@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.RotateGeometry
-import NeuralReversi.Simd.TernaryProperties
+module
+public import NeuralReversi.Bitboard.RotateGeometry
+public import NeuralReversi.Simd.TernaryProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86

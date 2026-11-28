@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.WriterTrace
+module
+public import NeuralReversi.TranspositionTable.WriterTrace
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Duplicate
 
@@ -18,11 +21,11 @@ structure Visible (m : Memory Nat) (length : Location → Nat) (sample : Nat) wh
   before : ∀ loc, 0 < index loc → m.hb (m.write loc (index loc)) sample
   latest : ∀ loc j, j ≤ length loc → m.hb (m.write loc j) sample → j ≤ index loc
 
-private def lastBefore (p : Nat → Bool) : Nat → Nat
+def lastBefore (p : Nat → Bool) : Nat → Nat
   | 0 => 0
   | n+1 => if p (n+1) then n+1 else lastBefore p n
 
-private theorem lastBefore_spec (p : Nat → Bool) (n : Nat) :
+theorem lastBefore_spec (p : Nat → Bool) (n : Nat) :
     lastBefore p n ≤ n ∧ (0 < lastBefore p n → p (lastBefore p n) = true) ∧
       ∀ i ≤ n, p i = true → i ≤ lastBefore p n := by
   induction n with

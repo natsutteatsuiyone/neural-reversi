@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootHeaderMir
-import NeuralReversi.PvsParallel.RootUpdateMir
+module
+public import NeuralReversi.PvsParallel.RootHeaderMir
+public import NeuralReversi.PvsParallel.RootUpdateMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.PvSerialMir
 

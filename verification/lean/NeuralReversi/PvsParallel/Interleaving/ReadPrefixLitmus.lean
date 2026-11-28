@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.GraphInstructions
-import NeuralReversi.Board.InitializationModel
+module
+public import NeuralReversi.PvsParallel.Interleaving.GraphInstructions
+public import NeuralReversi.Board.InitializationModel
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ReadPrefixLitmus
 
@@ -12,21 +15,21 @@ open ModificationIndex (decode)
 
 /-- One lookup on worker 1 spans a partial seqlock update by worker 0. The list
     is in happens-before order; a relaxed load can read an incomparable store. -/
-private def addr : Address := ⟨4,0⟩
-private def input : PvsBoardTree.Position := ⟨Board.newBoard,rfl⟩
-private def calls : Calls := fun _ => ⟨addr,⟨0,rfl⟩,.store none input (Packing.unpack false 16777216),true,
+def addr : Address := ⟨4,0⟩
+def input : PvsBoardTree.Position := ⟨Board.newBoard,rfl⟩
+def calls : Calls := fun _ => ⟨addr,⟨0,rfl⟩,.store none input (Packing.unpack false 16777216),true,
   fun pc => if pc = 2 then 6 else pc+1⟩
-private def es : Joint.Tape Unit :=
+def es : Joint.Tape Unit :=
   [.engine (.beginWrite 0 0 ()),.engine (.atomic 0 0),.engine (.atomic 0 0),
    .issue 1 (.load addr .sequence .acquire) 0 0,.issue 1 (.load addr (.payload .player) .relaxed) 0 input.val.player,
    .issue 1 (.load addr (.payload .opponent) .relaxed) 0 0,.engine (.atomic 0 0)]
-private def rs : List Record := [.writer ⟨0,.cas⟩,.writer ⟨0,.fence⟩,.writer ⟨0,.field .player⟩]
-private def graph : Graph :=
+def rs : List Record := [.writer ⟨0,.cas⟩,.writer ⟨0,.fence⟩,.writer ⟨0,.field .player⟩]
+def graph : Graph :=
   ⟨fun _ _ => 0,fun a r => if a = addr then
     match r with | 1 | 3 => some 7 | 4 => some 6 | 5 => some 9 | _ => none
     else none,SB es⟩
 
-private theorem sites : WriterSteps.Facts calls es rs := by
+theorem sites : WriterSteps.Facts calls es rs := by
   let mc : Bitboard.Moves.X86Config := ⟨false,false⟩
   let fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
   let state := (CallJournal.run mc fc calls false (es.map Joint.Event.engineEvent)).get (by decide)
@@ -80,7 +83,7 @@ private theorem edge {u v : Nat} (h : HB graph es u v) :
     all_goals subst i; decide
   rw [← group u (by omega),← group v inside,same]
 
-private theorem rules : Rules graph calls false rs es where
+theorem rules : Rules graph calls false rs es where
   program := fun hb => ⟨Nat.lt_trans hb.1 hb.2.1,hb.2.1,hb⟩
   irrefl := fun _ hb => Nat.lt_irrefl _ (edge hb).1
   trans := by
@@ -124,11 +127,11 @@ private theorem rules : Rules graph calls false rs es where
   writer := GraphInstructions.writers_of_check (by decide +kernel)
   load r := GraphInstructions.loads_of_check (by decide +kernel) r
 
-private def mem := (JournalAtomicGraph.execution sites rules).memory addr
-private def ev (i : Nat) := 3+i
-private def source (i : Nat) := if i = 1 then 1 else 0
-private def lookup := ReaderMir.lookupRun false input.val.player input.val.opponent (mem.readValue ∘ ev)
-private def actions : List ReaderMir.AtomicAction :=
+def mem := (JournalAtomicGraph.execution sites rules).memory addr
+def ev (i : Nat) := 3+i
+def source (i : Nat) := if i = 1 then 1 else 0
+def lookup := ReaderMir.lookupRun false input.val.player input.val.opponent (mem.readValue ∘ ev)
+def actions : List ReaderMir.AtomicAction :=
   [.load .sequence .acquire,.load (.payload .player) .relaxed,.load (.payload .opponent) .relaxed]
 
 private theorem executed : ReaderMir.Realizes mem lookup.1 ev source := by

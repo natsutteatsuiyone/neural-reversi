@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex.Transfer
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex.Transfer
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
 

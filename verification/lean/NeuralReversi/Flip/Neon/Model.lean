@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.LrmaskModel
-import NeuralReversi.Flip.Types
+module
+public import NeuralReversi.Flip.LrmaskModel
+public import NeuralReversi.Flip.Types
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Neon
 open NeuralReversi.Flip (Word Square lrmask)

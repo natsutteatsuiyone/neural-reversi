@@ -1,9 +1,12 @@
-import NeuralReversi.AspirationMir.NativeRootBirth
-import NeuralReversi.PvsParallel.NativeOwners
-import NeuralReversi.PvsParallel.NativeRootOwner
-import NeuralReversi.PvsParallel.NativeTableWrites
-import NeuralReversi.PvsParallel.NativeTableWrites.Allocations
-import NeuralReversi.PvsParallel.NativeStopReturns.Check
+module
+public import NeuralReversi.AspirationMir.NativeRootBirth
+public import NeuralReversi.PvsParallel.NativeOwners
+public import NeuralReversi.PvsParallel.NativeRootOwner
+public import NeuralReversi.PvsParallel.NativeTableWrites
+public import NeuralReversi.PvsParallel.NativeTableWrites.Allocations
+public import NeuralReversi.PvsParallel.NativeStopReturns.Check
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeExecution
 

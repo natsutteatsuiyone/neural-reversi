@@ -2,7 +2,7 @@
 
 from itertools import product
 
-from mir_common import checked, const_value, split_call, blocks
+from mir_common import checked, const_value, glob_mir, split_call, blocks
 from extract_fixed_leaf_mir import constant
 from extract_header import binding, initial, lmr_returns_zero, specialization, transition
 from extract_nonpv_leaf_mir import impl_constant
@@ -28,7 +28,7 @@ def verify(dump, repo):
     line,=[i for i,s in enumerate(source_rows,1) if s=="impl NodeType for NonPV {"]
     identity=f"node_type::<impl at crates/reversi-core/src/search/node_type.rs:{line}:1: {line}:24>::ID"
     candidates=[]
-    for p in dump.glob("reversi_core.search-node_type-*-ID.built.after.mir"):
+    for p in glob_mir(dump, "reversi_core.search-node_type-*-ID.built.after.mir"):
         content=p.read_text(encoding="utf-8").replace("\\","/")
         if content.startswith(f"// MIR for `search::{identity}` after built\n"):
             candidates.append(content)
@@ -84,7 +84,10 @@ def verify(dump, repo):
             checked(calls==[bound,slot,write] and state["_0"]=="best_score","wrong NonPV score storage or return")
             return True
         checked(walk(cfg,end,env,t,0,None,finished),"unknown normal NonPV tail")
-    return f"""import NeuralReversi.PvsParallel.RootHeaderMir.Program
+    return f"""module
+public import NeuralReversi.PvsParallel.RootHeaderMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.GeneralOwnerMir
 

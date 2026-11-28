@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+module
+public import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SnapshotReadback
 
@@ -7,7 +10,7 @@ open SeqLock (Location Word)
 open FrameTableReads (Address)
 open NativeTableWrites.Journal (Calls Record Even)
 
-private def ranks (c : Calls) (endian : Bool) (rs : List Record) (a : Address)
+def ranks (c : Calls) (endian : Bool) (rs : List Record) (a : Address)
     (initial : Location → Word) (loc : Location) (seen : Word) :=
   ReadCandidates.sources c endian rs a loc (initial loc) seen (fun _ => false)
 

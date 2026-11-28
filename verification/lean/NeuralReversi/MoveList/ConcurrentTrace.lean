@@ -1,4 +1,7 @@
-import NeuralReversi.MoveList.Concurrent
+module
+public import NeuralReversi.MoveList.Concurrent
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.ConcurrentTrace
 

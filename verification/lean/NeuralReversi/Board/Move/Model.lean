@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Bitboard.ApplyMoveModel
-import NeuralReversi.Flip.Dispatch.Model
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Bitboard.ApplyMoveModel
+public import NeuralReversi.Flip.Dispatch.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

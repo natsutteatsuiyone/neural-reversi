@@ -1,17 +1,23 @@
-import NeuralReversi.PvsParallel.Interleaving.EventOrder
-import NeuralReversi.MoveList.ConcurrentExecution
-import NeuralReversi.Threading.AtomicWord
+module
+public import NeuralReversi.PvsParallel.Interleaving.EventOrder
+public import NeuralReversi.MoveList.ConcurrentExecution
+public import NeuralReversi.Threading.AtomicWord
+meta import NeuralReversi.MoveList.ConcurrentExecution
+meta import NeuralReversi.PvsParallel.Interleaving.EventOrder
+meta import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.IteratorEventOrder
 
-private def reach (hb : α → α → Prop) (u v : α) := u = v ∨ hb u v
+def reach (hb : α → α → Prop) (u v : α) := u = v ∨ hb u v
 
 /-- A path in the union can be shortened to one strict iterator step between
     two possibly empty HB segments, since HB between tickets respects their ranks. -/
-private def augmented (hb : Fin n → Fin n → Prop) (ticket : Fin k → Fin n) (u v : Fin n) :=
+def augmented (hb : Fin n → Fin n → Prop) (ticket : Fin k → Fin n) (u v : Fin n) :=
   hb u v ∨ ∃ i j, reach hb u (ticket i) ∧ i < j ∧ reach hb (ticket j) v
 
-private instance {hb : Fin n → Fin n → Prop} [DecidableRel hb] {ticket : Fin k → Fin n} :
+instance {hb : Fin n → Fin n → Prop} [DecidableRel hb] {ticket : Fin k → Fin n} :
     DecidableRel (augmented hb ticket) := fun u v => by unfold augmented reach; infer_instance
 
 variable {hb : Fin n → Fin n → Prop} {ticket : Fin k → Fin n}
@@ -234,15 +240,15 @@ example : MoveList.ConcurrentTrace.lastSource 0 [0,2] = claims.length :=
 
 /-- Two workers access two distinct iterators in opposite order. Each
     iterator's tickets satisfy local coherence even though the union cycles. -/
-private def workerHB (u v : Fin 4) := (u = 0 ∧ v = 1) ∨ (u = 2 ∧ v = 3)
-private def x (i : Fin 2) : Fin 4 := if i = 0 then 3 else 0
-private def y (i : Fin 2) : Fin 4 := if i = 0 then 1 else 2
-private def ordered (ticket : Fin 2 → Fin 4) (rank : Fin 4 → Nat) :=
+def workerHB (u v : Fin 4) := (u = 0 ∧ v = 1) ∨ (u = 2 ∧ v = 3)
+def x (i : Fin 2) : Fin 4 := if i = 0 then 3 else 0
+def y (i : Fin 2) : Fin 4 := if i = 0 then 1 else 2
+def ordered (ticket : Fin 2 → Fin 4) (rank : Fin 4 → Nat) :=
   ∀ i j, i < j → rank (ticket i) < rank (ticket j)
-private def lawful (ticket : Fin 2 → Fin 4) :=
+def lawful (ticket : Fin 2 → Fin 4) :=
   (∀ i j, ticket i = ticket j → i = j) ∧ (∀ i j, workerHB (ticket i) (ticket j) → i < j)
 
-private def LocalTrace (xs : List (Nat × Nat)) :=
+def LocalTrace (xs : List (Nat × Nat)) :=
   ∃ s, MoveList.ConcurrentTrace.Execution 3 (1 : BitVec 64) s ∧
     s.writes.map (fun t => (t.worker,t.opening)) = xs
 

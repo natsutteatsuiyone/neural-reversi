@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.ProbeRetry
+module
+public import NeuralReversi.TranspositionTable.ProbeRetry
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

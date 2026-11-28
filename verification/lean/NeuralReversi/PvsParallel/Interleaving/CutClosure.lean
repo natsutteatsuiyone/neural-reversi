@@ -1,7 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.ReadPrefix
-import NeuralReversi.PvsParallel.Interleaving.ReadPrefixLitmus
-import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
-import NeuralReversi.PvsParallel.Interleaving.SnapshotReadback
+module
+public import NeuralReversi.PvsParallel.Interleaving.ReadPrefix
+public import NeuralReversi.PvsParallel.Interleaving.ReadPrefixLitmus
+public import NeuralReversi.PvsParallel.Interleaving.PhysicalReadback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CutClosure
 
@@ -486,7 +488,7 @@ theorem adopted_epoch_before_hit {Op : Type} {g : Graph} {c : Calls} {endian : B
 def stepCut (edges : List (Nat × Nat)) (n k : Nat) : Nat :=
   edges.foldl (fun acc e => if e.2 < acc && e.1 < n then max acc (e.1 + 1) else acc) k
 
-private def iterateCut (edges : List (Nat × Nat)) (n : Nat) : Nat → Nat → Nat
+def iterateCut (edges : List (Nat × Nat)) (n : Nat) : Nat → Nat → Nat
   | 0, k => min k n
   | fuel + 1, k =>
     let next := min (stepCut edges n k) n

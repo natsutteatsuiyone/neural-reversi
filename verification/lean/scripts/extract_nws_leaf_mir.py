@@ -162,7 +162,7 @@ def verify(dump, repo):
             cfg = Inputs(*flags)
             got = path_result(body, n, boundary, shallow, cfg)
             checked(got == cfg.outcome(n, boundary), f"wrong {n}-empty NWS return or effects at {cfg}: {got}")
-    return ("namespace NeuralReversi.PvsParallel.DeepLeafMir\n\n"
+    return ("module\n\n@[expose] public section\n\nnamespace NeuralReversi.PvsParallel.DeepLeafMir\n\n"
             "def parallelPool (size : Nat) : Bool := decide (1 < size)\n\n"
             f"def boundaryStoreMinNodes : Nat := {int(min_nodes[0])}\n\n"
             f"def boundaryPvsSite : Nat := {sites[0]}\n\n"

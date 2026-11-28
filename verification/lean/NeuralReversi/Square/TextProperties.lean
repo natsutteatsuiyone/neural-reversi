@@ -1,4 +1,8 @@
-import NeuralReversi.Square.TextModel
+module
+public import NeuralReversi.Square.TextModel
+
+@[expose] public section
+
 namespace NeuralReversi.Square
 
 def isAsciiPair (f r : Byte) : Prop := f.toNat < 128 ∧ r.toNat < 128
@@ -242,11 +246,19 @@ def TextErrorContract : Prop :=
 theorem textErrorContract_proven : TextErrorContract :=
   ⟨fun text reason => parseBytes_error (trimmedBytes text) reason, fromStr_no_panic⟩
 
+private theorem rustWhitespace_range (n : Nat) :
+    (0x09 ≤ n ∧ n ≤ 0x0d) ↔ n = 0x09 ∨ n = 0x0a ∨ n = 0x0b ∨ n = 0x0c ∨ n = 0x0d := by omega
+
+private theorem rustWhitespace_range2 (n : Nat) :
+    (0x2000 ≤ n ∧ n ≤ 0x200a) ↔
+      n = 0x2000 ∨ n = 0x2001 ∨ n = 0x2002 ∨ n = 0x2003 ∨ n = 0x2004 ∨ n = 0x2005 ∨
+      n = 0x2006 ∨ n = 0x2007 ∨ n = 0x2008 ∨ n = 0x2009 ∨ n = 0x200a := by omega
+
 theorem rustWhitespace_table (c : Char) :
     rustWhitespace c = true ↔ c.toNat ∈ unicodeWhitespaceScalars := by
-  simp only [rustWhitespace, decide_eq_true_eq, unicodeWhitespaceScalars,
-    List.mem_cons, List.not_mem_nil, or_false]
-  omega
+  simp only [rustWhitespace, decide_eq_true_eq,
+    unicodeWhitespaceScalars, List.mem_cons, List.not_mem_nil, or_false,
+    rustWhitespace_range, rustWhitespace_range2, or_assoc]
 
 theorem trimWhitespace_decomposition (xs : List Char) :
     ∃ pre post, xs = pre ++ trimWhitespace xs ++ post ∧

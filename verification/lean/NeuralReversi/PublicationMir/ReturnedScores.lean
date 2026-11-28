@@ -1,4 +1,6 @@
-import Std
+module
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir.ReturnedScores
 

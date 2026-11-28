@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Stack
-import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame.ProbCut
+module
+public import NeuralReversi.PvsParallel.SerialTable.Stack
+public import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame.ProbCut
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
 
@@ -15,7 +18,7 @@ open GeneralNonPvMir (entryAction probeHint checkedHint)
 open TableReads (ChildLookupFrom)
 open Writes (Decision)
 
-private abbrev emptyReads (mc : X86Config) (fc : FlipConfig) (b : Position) :=
+abbrev emptyReads (mc : X86Config) (fc : FlipConfig) (b : Position) :=
   ([] : List (ChildLookupFrom mc fc b (·.publication [])))
 
 def preAction (mc : X86Config) (fc : FlipConfig) (b : Position) (d : Depth) (a z : ScoreRefresh.Score)
@@ -31,7 +34,7 @@ def direct (b : Position) (d : Depth) (z : ScoreRefresh.Score) (checked : Bool) 
 def query (d : Depth) (level : Selectivity) (a : ScoreRefresh.Score) : PvsEnhancedCutoff.Query :=
   ⟨d,level,true,⟨a.raw⟩⟩
 
-private def ordinary (mc : X86Config) (fc : FlipConfig) (b : Position) (d : Depth) (a z : ScoreRefresh.Score)
+def ordinary (mc : X86Config) (fc : FlipConfig) (b : Position) (d : Depth) (a z : ScoreRefresh.Score)
     (cut : Bool) (attempts : List RawAttempt) (priority : GeneratedSquare mc b.val → Int) :
     Program Request (Decision (GeneratedSquare mc b.val) a.raw.toInt) :=
   match legalSquares mc b.val with

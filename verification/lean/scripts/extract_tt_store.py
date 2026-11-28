@@ -130,8 +130,8 @@ def render(dump,repo):
     def save(finite):
         return run(store,registers(["table","slot","board","score","bound","depth","move",
                                     "selectivity","endgame","pv"]),closure,{"finite":finite})
-    return "\n".join(["import NeuralReversi.TranspositionTable.Packing", "",
-        "namespace NeuralReversi.TranspositionTable.WriterMir", "",
+    return "\n".join(["module", "public import NeuralReversi.TranspositionTable.Packing", "",
+        "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.WriterMir", "",
         "def makeData (score : Score) (move : Option (Fin 64)) (bound : Bound) (depth : Depth)",
         "    (selectivity : Selectivity) (generation : BitVec 8) (endgame pv : Bool) : EntryData :=",
         "  if endgame then", "    if pv then " + data(True,True), "    else " + data(True,False),

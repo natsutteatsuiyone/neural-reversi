@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.MoveOrder
-import NeuralReversi.MoveList.Ordering
-import NeuralReversi.MoveList.OrderWeights
+module
+public import NeuralReversi.EndgameSearch.MoveOrder
+public import NeuralReversi.MoveList.Ordering
+public import NeuralReversi.MoveList.OrderWeights
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.EndgameOrderMir
 

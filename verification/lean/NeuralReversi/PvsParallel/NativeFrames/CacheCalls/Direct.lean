@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Lookup
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Lookup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls
 

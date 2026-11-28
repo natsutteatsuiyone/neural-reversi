@@ -1,7 +1,10 @@
-import NeuralReversi.EndgameSearch.Direct.Mir
-import NeuralReversi.EndgameSearch.ShallowMir
-import NeuralReversi.PvsParallel
-import NeuralReversi.PvsParallel.NonPvMir.Program
+module
+public import NeuralReversi.EndgameSearch.Direct.Mir
+public import NeuralReversi.EndgameSearch.ShallowMir
+public import NeuralReversi.PvsParallel
+public import NeuralReversi.PvsParallel.NonPvMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NonPvMir
 
@@ -12,7 +15,7 @@ open EndgameSearch (EmptyStateMatches)
 open Flip.Dispatch (TargetConfig)
 open Bitboard.Moves (X86Config)
 
-private def withShallow (target : TargetConfig) (bmi2 : Bool) (b : Position) (mask : BitVec 64)
+def withShallow (target : TargetConfig) (bmi2 : Bool) (b : Position) (mask : BitVec 64)
     (depth count : BitVec 32) (alpha : Score) (checked : Bool) (score : Unit → Int) : Option Score := do
   if depth ≠ count then none else
     match ← dispatch count.toNat with

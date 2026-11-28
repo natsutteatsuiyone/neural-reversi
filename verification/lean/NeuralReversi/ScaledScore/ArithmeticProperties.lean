@@ -1,5 +1,8 @@
-import NeuralReversi.ScaledScore.ArithmeticModel
-import NeuralReversi.ScaledScore.Division
+module
+public import NeuralReversi.ScaledScore.ArithmeticModel
+public import NeuralReversi.ScaledScore.Division
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore
 

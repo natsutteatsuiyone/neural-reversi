@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialCacheStack.Projection
+module
+public import NeuralReversi.PvsParallel.SerialCacheStack.Projection
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCacheStack
 

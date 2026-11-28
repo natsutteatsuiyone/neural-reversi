@@ -1,5 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.ReaderJournal
-import NeuralReversi.Board.Hash
+module
+public import NeuralReversi.PvsParallel.Interleaving.ReaderJournal
+public import NeuralReversi.PvsParallel.Interleaving.Entry
+public import NeuralReversi.Board.Hash
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ReaderWindow
 
@@ -66,7 +70,7 @@ def positions (thread : Nat → Nat) (opcode : Nat → Option Instruction) (open
 
 abbrev Stream.events (_ : Stream bus) := positions bus.worker bus.instruction
 
-private theorem Stream.member (s : Stream bus) (h : i ∈ s.events opening finish) :
+theorem Stream.member (s : Stream bus) (h : i ∈ s.events opening finish) :
     i < finish ∧ opening < i ∧ bus.worker i = bus.worker finish := by
   obtain ⟨before,inside,_⟩ : i < finish ∧ (opening < i ∧ bus.worker i = bus.worker finish) ∧
     (bus.instruction i).isSome = true := by simpa [events,positions] using h

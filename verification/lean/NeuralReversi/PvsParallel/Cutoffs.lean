@@ -1,10 +1,13 @@
-import NeuralReversi.EndgameCutoffs
-import NeuralReversi.PvsEnhancedCutoff
-import NeuralReversi.TranspositionTable.ProbeRetry
-import NeuralReversi.TranspositionTable.Save
-import NeuralReversi.TranspositionTable.StoredBound
-import NeuralReversi.TranspositionTable.Penalty
-import NeuralReversi.TranspositionTable.WriterTrace
+module
+public import NeuralReversi.EndgameCutoffs
+public import NeuralReversi.PvsEnhancedCutoff
+public import NeuralReversi.TranspositionTable.ProbeRetry
+public import NeuralReversi.TranspositionTable.Save
+public import NeuralReversi.TranspositionTable.StoredBound
+public import NeuralReversi.TranspositionTable.Penalty
+public import NeuralReversi.TranspositionTable.WriterTrace
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Cutoffs
 

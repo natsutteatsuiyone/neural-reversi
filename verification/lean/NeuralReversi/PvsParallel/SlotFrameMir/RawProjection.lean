@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Score
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Generation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.RawProjection
 
@@ -88,7 +91,7 @@ structure Cut (g : RawMask ws) (src : Fin ws.length) where
   lower : (phys g rank).val≤src.val
   later : ∀ k, rank.val<k.val → src.val<(phys g k).val
 
-private def lastAtOrBefore (g : RawMask ws) (src : Fin ws.length) (first : g.mark.val ≤ src.val)
+def lastAtOrBefore (g : RawMask ws) (src : Fin ws.length) (first : g.mark.val ≤ src.val)
     (n : Nat) (bound : n ≤ (hits g).length) :
     {i : Fin ((hits g).length+1) // i.val ≤ n ∧ (phys g i).val ≤ src.val ∧
       ∀ j, i.val < j.val → j.val ≤ n → src.val < (phys g j).val} :=

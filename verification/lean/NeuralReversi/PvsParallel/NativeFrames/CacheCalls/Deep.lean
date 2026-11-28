@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep.Moves
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep.Moves
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep
 
@@ -9,12 +12,12 @@ open PvsBoardTree (Position legalSquares pass play)
 open Bitboard.Moves (X86Config)
 open Flip.Dispatch (TargetConfig)
 
-private def afterEarly (h last : List Store) : Option Int → List Store
+def afterEarly (h last : List Store) : Option Int → List Store
   | some _ => h | none => last
 
 /-- The generated-order loop probes each child, including a hit that is too
     large for the enhanced cutoff. It stops at the first usable upper bound. -/
-private def enhanced (p : Pool) (a : Int) (safe : SafeThreshold a) (h last : List Store)
+def enhanced (p : Pool) (a : Int) (safe : SafeThreshold a) (h last : List Store)
     (children : List Board.Board) (onMiss : Unit → Program .deep h last) :
     Program .deep h (afterEarly h last (EndgameCache.enhancedCutoff (entryFor p.address h .deep) a children)) := by
   cases children with
@@ -31,7 +34,7 @@ private def enhanced (p : Pool) (a : Int) (safe : SafeThreshold a) (h last : Lis
       · simpa [cut,EndgameCache.enhancedCutoff,Access.after] using enhanced p a safe h last rest onMiss
 termination_by children.length
 
-private def early (p : Pool) (fc : FlipConfig) (paired : Bool) (b : Position) (s : EndgameSearch.Cancellation.State)
+def early (p : Pool) (fc : FlipConfig) (paired : Bool) (b : Position) (s : EndgameSearch.Cancellation.State)
     (a : Int) (safe : SafeThreshold a) (first : Bitboard.Square) (rest : List Bitboard.Square) (last : List Store)
     (onMiss : Unit → Program .deep s.history last) :
     Program .deep s.history (afterEarly s.history last (EndgameSearch.DeepRecursionMir.early fc paired b s p.address a first rest)) := by

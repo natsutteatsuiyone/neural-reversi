@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.MidgameValue
-import NeuralReversi.Stability.Cutoff
+module
+public import NeuralReversi.PvsParallel.SerialTable.MidgameValue
+public import NeuralReversi.Stability.Cutoff
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameNativeWords
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialCacheStack
-import NeuralReversi.EndgameSearch.SerialCacheReads
+module
+public import NeuralReversi.PvsParallel.SerialCacheStack
+public import NeuralReversi.EndgameSearch.SerialCacheReads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCacheStack.Cells
 

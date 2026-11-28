@@ -1,6 +1,9 @@
-import NeuralReversi.Bitboard.DispatchModel
-import NeuralReversi.Bitboard.Avx512Properties
-import NeuralReversi.Bitboard.Avx512PotentialProperties
+module
+public import NeuralReversi.Bitboard.DispatchModel
+public import NeuralReversi.Bitboard.Avx512Properties
+public import NeuralReversi.Bitboard.Avx512PotentialProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

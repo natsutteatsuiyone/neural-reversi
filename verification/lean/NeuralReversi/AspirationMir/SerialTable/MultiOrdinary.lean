@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiBatch
-import NeuralReversi.AspirationMir.SerialTable.MultiClock
-import NeuralReversi.AspirationMir.SerialTable.MultiMidgame
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiBatch
+public import NeuralReversi.AspirationMir.SerialTable.MultiClock
+public import NeuralReversi.AspirationMir.SerialTable.MultiMidgame
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiOrdinary
 

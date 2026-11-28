@@ -1,11 +1,14 @@
-import NeuralReversi.Threading.SplitCompletion
+module
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitCompletion.Witnesses
 
-private def completes : List Action :=
+def completes : List Action :=
   [.book 63 ⟨0, 1⟩, .finish 63 ⟨63, 0⟩, .finish 0 ⟨0, 2⟩]
 
-private def lateBooking : List Action :=
+def lateBooking : List Action :=
   [.finish 0 ⟨0, 1⟩, .book 63 ⟨63, 0⟩]
 
 def MaskWitnessContract : Prop :=

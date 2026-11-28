@@ -1,5 +1,8 @@
-import NeuralReversi.Solve2.BoardBridge
-import NeuralReversi.Board.Counting
+module
+public import NeuralReversi.Solve2.BoardBridge
+public import NeuralReversi.Board.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 abbrev Word := BitVec 64

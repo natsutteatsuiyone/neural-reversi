@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Join
-import NeuralReversi.PvsParallel.Prefix
+module
+public import NeuralReversi.PvsParallel.Interleaving.Join
+public import NeuralReversi.PvsParallel.Prefix
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 

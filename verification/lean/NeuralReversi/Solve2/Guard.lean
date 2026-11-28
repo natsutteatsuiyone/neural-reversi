@@ -1,6 +1,9 @@
-import NeuralReversi.Solve2.Dispatch
-import NeuralReversi.Flip.Properties
-import NeuralReversi.Bitboard.AdjacencyProperties
+module
+public import NeuralReversi.Solve2.Dispatch
+public import NeuralReversi.Flip.Properties
+public import NeuralReversi.Bitboard.AdjacencyProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2.Guard
 open NeuralReversi.Bitboard.Moves (OnRay)

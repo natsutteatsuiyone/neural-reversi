@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.SelectiveLadder
-import NeuralReversi.ShallowBoardTree
-import NeuralReversi.MidgameScoreRange.Domain
+module
+public import NeuralReversi.AspirationMir.SerialTable.SelectiveLadder
+public import NeuralReversi.ShallowBoardTree
+public import NeuralReversi.MidgameScoreRange.Domain
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InitialEstimate
 

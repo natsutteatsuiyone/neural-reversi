@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.TaskAncestry
+module
+public import NeuralReversi.PvsParallel.Interleaving.TaskAncestry
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.FlagSegment
 
@@ -10,7 +13,7 @@ open TaskAncestry (Journal Generation)
 
 deriving instance DecidableEq for FlagWrite
 
-private instance : Decidable (AtomicWord.SequencedBefore a b) :=
+instance : Decidable (AtomicWord.SequencedBefore a b) :=
   inferInstanceAs (Decidable (a.worker = b.worker ∧ a.step < b.step))
 
 /-- Cross-worker edges in execution order. Locks contribute their actual
@@ -24,17 +27,17 @@ def Transfer.edge : Transfer h → {p : Event × Event // HappensBefore h p.1 p.
   | .handoff a b sync => ⟨(a,b),.other sync⟩
   | .epoch i r mem acq seq => ⟨(_,r.event),.synchronized i r mem acq seq⟩
 
-private abbrev Reached (h : History) (a : Event) := List {e : Event // HappensBefore h a e}
+abbrev Reached (h : History) (a : Event) := List {e : Event // HappensBefore h a e}
 
-private def finish (z : {e : Event // HappensBefore h a e}) (b : Event) :
+def finish (z : {e : Event // HappensBefore h a e}) (b : Event) :
     Option (PLift (HappensBefore h a b)) :=
   if eq : z.val = b then some ⟨eq ▸ z.property⟩ else
   if sb : AtomicWord.SequencedBefore z.val b then some ⟨z.property.trans (.sequenced sb)⟩ else none
 
-private def reaches (past : Reached h a) (b : Event) : Option (PLift (HappensBefore h a b)) :=
+def reaches (past : Reached h a) (b : Event) : Option (PLift (HappensBefore h a b)) :=
   if sb : AtomicWord.SequencedBefore a b then some ⟨.sequenced sb⟩ else past.findSome? (finish · b)
 
-private def extend (past : Reached h a) (t : Transfer h) : Reached h a :=
+def extend (past : Reached h a) (t : Transfer h) : Reached h a :=
   let ⟨(x,y),edge⟩ := t.edge
   if eq : a = x then ⟨y,eq ▸ edge⟩ :: past
   else match reaches past x with

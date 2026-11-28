@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitActivationMir.Activation
+module
+public import NeuralReversi.PvsParallel.SplitActivationMir.Activation
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Worker
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitActivationMir
 

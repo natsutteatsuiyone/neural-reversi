@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeCapture
+module
+public import NeuralReversi.Stability.EdgeCapture
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

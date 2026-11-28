@@ -3,7 +3,7 @@ import itertools
 import re
 
 from extract_split_scheduler_mir import edges
-from mir_common import PASS, run_extractor_cli, CALL, blocks, checked
+from mir_common import PASS, run_extractor_cli, CALL, blocks, checked, iter_mir_texts
 
 SUFFIX='.SimplifyCfg-initial.after.mir'
 TH='reversi_core.search-threading-thread-{impl#1}-'
@@ -138,17 +138,17 @@ def render(dump):
     callees.update({k:set() for k in ['mainEntry','workerEntry','helperDrop']})
     writers=set(); failed=[]; effects={}; count=0
     critical=re.compile(r'\b(?:threading::thread::)?Thread::('+'|'.join(METHODS)+r')\b')
-    for f in dump.glob('*'+SUFFIX):
+    for f, source in iter_mir_texts(dump, SUFFIX):
         name=f.name[:-len(SUFFIX)]
-        source=f.read_text(encoding='utf8')
         count+=1;names.add(name)
         caller=KINDS.get(name,'other')
-        for line in source.splitlines():
-            if not line.startswith('        '):continue
-            if m:=critical.search(line):
-                checked(re.search(r'\bThread::'+m[1]+r'\(',line) and ' -> [' in line,
-                        'non-direct protected method reference: '+line)
-                callees[METHODS[m[1]]].add(caller)
+        if 'Thread::' in source:
+            for line in source.splitlines():
+                if not line.startswith('        '):continue
+                if m:=critical.search(line):
+                    checked(re.search(r'\bThread::'+m[1]+r'\(',line) and ' -> [' in line,
+                            'non-direct protected method reference: '+line)
+                    callees[METHODS[m[1]]].add(caller)
         if 'FinishJob::<' in source:
             checked(name==TH+'run_helper_job','private FinishJob allocated elsewhere')
             guard=re.search(r'(_\d+) = FinishJob::<\x27_>\(move _\d+\);',source)
@@ -226,7 +226,7 @@ def render(dump):
         var=re.search(k+r': move (_\d+),',s)[1]
         if k=='searching':var=re.search(re.escape(var)+r' = Align64::<Atomic<bool>>\(move (_\d+)\);',ctor)[1]
         checked(re.search(re.escape(var)+r' = Atomic::<bool>::new\(const false\)',ctor),'nonzero worker initializer')
-    out=['import NeuralReversi.PvsParallel.WorkerFrameMir.Syntax','','namespace NeuralReversi.PvsParallel.WorkerFrameMir','',
+    out=['module', 'public import NeuralReversi.PvsParallel.WorkerFrameMir.Syntax','','@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.WorkerFrameMir','',
          'def callers : Kind → Option (List Kind)']
     for c,parents in sorted(callees.items()):
         out.append('  | .'+c+' => some ['+', '.join('.'+p for p in sorted(parents))+']')

@@ -1,6 +1,9 @@
-import NeuralReversi.Eval.SmallNetwork.Arithmetic
-import NeuralReversi.Eval.InputLayer.Arithmetic
-import NeuralReversi.MidgameScoreRange.Domain
+module
+public import NeuralReversi.Eval.SmallNetwork.Arithmetic
+public import NeuralReversi.Eval.InputLayer.Arithmetic
+public import NeuralReversi.MidgameScoreRange.Domain
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.SmallNetwork
 

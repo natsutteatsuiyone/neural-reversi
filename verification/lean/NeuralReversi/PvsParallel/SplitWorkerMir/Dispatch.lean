@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitWorkerMir.Correct
+module
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Correct
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitWorkerMir
 

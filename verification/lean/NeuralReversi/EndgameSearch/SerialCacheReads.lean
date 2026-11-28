@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.SerialLeafCache
-import NeuralReversi.EndgameSearch.SerialReadPrefix
+module
+public import NeuralReversi.EndgameSearch.SerialLeafCache
+public import NeuralReversi.EndgameSearch.SerialReadPrefix
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.SerialCacheReads
 

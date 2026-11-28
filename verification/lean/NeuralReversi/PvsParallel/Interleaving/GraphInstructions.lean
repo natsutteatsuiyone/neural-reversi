@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.GraphInstructions
 
@@ -9,7 +12,7 @@ open NativeTableWrites.Journal (Calls Record Site Pc mods)
 open JournalAtomicGraph (Graph WriterOK)
 open ModificationIndex (word decode)
 
-private def rank (g : Graph) (c : Calls) (rs : List Record) (n : Nat) (a : Address) (l : Location) (r : Nat) : Option Nat :=
+def rank (g : Graph) (c : Calls) (rs : List Record) (n : Nat) (a : Address) (l : Location) (r : Nat) : Option Nat :=
   (g.source a r).bind fun w => (decode c rs n a w).bind fun (k,i) => if k = l then some i else none
 
 private theorem rank_eq : rank g c rs n a l r = some i ↔
@@ -21,7 +24,7 @@ private theorem rank_eq : rank g c rs n a l r = some i ↔
   · rintro ⟨w,src,found⟩
     exact ⟨w,src,⟨(l,i),found,by simp⟩⟩
 
-private def checkWriter (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (n : Nat) (s : Site) : Bool :=
+def checkWriter (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (n : Nat) (s : Site) : Bool :=
   let call := c s.invocation
   match s.pc with
   | .cas => (rank g c rs n call.address .sequence (call.event 0)).any fun i =>
@@ -40,13 +43,13 @@ private theorem writer_eq (s : Site) :
   · rintro ⟨w,i,raw,site,compared,next⟩
     exact ⟨i,⟨w,raw,site⟩,compared,next⟩
 
-private def checkLoad (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (es : Joint.Tape Op) (r : Nat) : Bool :=
+def checkLoad (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (es : Joint.Tape Op) (r : Nat) : Bool :=
   match Joint.opcode es r with
   | some (.load a l _) => (rank g c rs es.length a l r).any fun i =>
       decide (word c endian rs g.initial a l i = Joint.word es r)
   | _ => true
 
-private def LoadAt (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (es : Joint.Tape Op) (r : Nat) :=
+def LoadAt (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (es : Joint.Tape Op) (r : Nat) :=
   ∀ a l mode, Joint.opcode es r = some (.load a l mode) →
     ∃ w i, g.source a r = some w ∧ decode c rs es.length a w = some (l,i) ∧
       word c endian rs g.initial a l i = Joint.word es r

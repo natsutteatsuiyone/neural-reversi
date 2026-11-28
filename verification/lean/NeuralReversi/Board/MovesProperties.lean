@@ -1,7 +1,10 @@
-import NeuralReversi.Board.MovesModel
-import NeuralReversi.Board.Counting
-import NeuralReversi.Bitboard.DispatchProperties
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Board.MovesModel
+public import NeuralReversi.Board.Counting
+public import NeuralReversi.Bitboard.DispatchProperties
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard.Moves (X86Config LegalMove)

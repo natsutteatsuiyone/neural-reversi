@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitShutdown
+module
+public import NeuralReversi.Threading.SplitShutdown
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SearchAbort
 
@@ -12,9 +15,9 @@ def generation (word : BitVec 64) : BitVec 32 :=
 def requested (word : BitVec 64) : BitVec 32 :=
   word.extractLsb' 0 32
 
-private def highMask : BitVec 64 := BitVec.allOnes 32 ++ (0 : BitVec 32)
+def highMask : BitVec 64 := BitVec.allOnes 32 ++ (0 : BitVec 32)
 
-private def lowMask : BitVec 64 := (0 : BitVec 32) ++ BitVec.allOnes 32
+def lowMask : BitVec 64 := (0 : BitVec 32) ++ BitVec.allOnes 32
 
 def begin (word : BitVec 64) : BitVec 64 :=
   (generation word + 1) ++ generation word
@@ -29,7 +32,7 @@ def requestFor (word : BitVec 64) (target : BitVec 32) : Option (BitVec 64) :=
 def Stopped (word : BitVec 64) : Prop :=
   (word >>> (32 : Nat)) = word &&& lowMask
 
-private instance (word : BitVec 64) : Decidable (Stopped word) :=
+instance (word : BitVec 64) : Decidable (Stopped word) :=
   inferInstanceAs (Decidable (_ = _))
 
 private theorem halves (word : BitVec 64) : generation word ++ requested word = word :=

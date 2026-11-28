@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameTreeCache
-import NeuralReversi.PublicationMir.Correct
-import NeuralReversi.PvsParallel.ExactTableHistory
+module
+public import NeuralReversi.EndgameTreeCache
+public import NeuralReversi.PublicationMir.Correct
+public import NeuralReversi.PvsParallel.ExactTableHistory
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir.ExactScore
 
@@ -34,7 +37,7 @@ theorem completed_tagged (found : completed sort rows depth 5 true nodes fallbac
     subst r
     rfl
 
-private def asResult : Option SearchFallback.Report → SearchResult
+def asResult : Option SearchFallback.Report → SearchResult
   | some r => .bestMove r
   | none => .noLegalMove
 
@@ -48,7 +51,7 @@ def cached (mc : X86Config) (board : Position) (nodes : Nat) (entry : EntryData)
     else none
   else none
 
-private def quick (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
+def quick (mc : X86Config) (fc : Flip.Dispatch.X86Config) (b : Position)
     (evaluate : Board.Board → Int) (nodes : Nat) : SearchResult :=
   asResult (SearchFallback.quickMove mc fc b evaluate nodes)
 

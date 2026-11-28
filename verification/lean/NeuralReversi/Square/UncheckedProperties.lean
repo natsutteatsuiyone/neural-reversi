@@ -1,4 +1,7 @@
-import NeuralReversi.Square.UncheckedModel
+module
+public import NeuralReversi.Square.UncheckedModel
+
+@[expose] public section
 
 namespace NeuralReversi.Square
 

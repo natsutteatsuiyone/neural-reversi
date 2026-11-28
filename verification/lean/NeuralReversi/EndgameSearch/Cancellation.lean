@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.EmptyState
-import NeuralReversi.Threading.SplitCutoff
+module
+public import NeuralReversi.EndgameSearch.EmptyState
+public import NeuralReversi.Threading.SplitCutoff
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.Cancellation
 
@@ -42,7 +45,7 @@ structure Outcome where
   score : Option Int
   state : State
 
-private def State.afterPoll (state : State) : State :=
+def State.afterPoll (state : State) : State :=
   { state with polls := state.polls.after }
 
 private theorem State.afterPoll_latched (state : State) (latched : state.polls.cache.latched = true) :
@@ -50,23 +53,23 @@ private theorem State.afterPoll_latched (state : State) (latched : state.polls.c
   cases state
   simp [State.afterPoll, after_latched latched]
 
-private def Outcome.negate (result : Outcome) : Outcome :=
+def Outcome.negate (result : Outcome) : Outcome :=
   { result with score := result.score.map Neg.neg }
 
-private def moveFrame {mc : X86Config} {b : Position} (sq : GeneratedSquare mc b.val)
+def moveFrame {mc : X86Config} {b : Position} (sq : GeneratedSquare mc b.val)
     (call : State → Outcome) (state : State) : Outcome :=
   if state.polls.occurred then ⟨none, state.afterPoll⟩
   else
     let result := (call { state.afterPoll with empties := state.empties.remove sq.val }).negate
     { result with state := { result.state with empties := result.state.empties.restore sq.val } }
 
-private def storeDeep (b : Position) (alpha : Int) (result : Int × State) : Outcome :=
+def storeDeep (b : Position) (alpha : Int) (result : Int × State) : Outcome :=
   let score := result.1
   let state := result.2
   if state.polls.occurred then ⟨none, state.afterPoll⟩
   else ⟨some score, { state.afterPoll with history := state.history ++ [⟨.deep, ⟨b.val, alpha, score⟩⟩] }⟩
 
-private def scanRaw {Move : Type} (call : Move → State → Outcome) (alpha : Int) :
+def scanRaw {Move : Type} (call : Move → State → Outcome) (alpha : Int) :
     List Move → Int → State → Int × State
   | [], best, state => (best, state)
   | move :: rest, best, state =>
@@ -101,7 +104,7 @@ theorem storeGateContract_proven : StoreGateContract := by
   cases stopped : state.polls.occurred <;> simp [storeDeep, State.afterPoll, stopped]
 
 
-private def searchOrder (opts : Options mc) (b : Position)
+def searchOrder (opts : Options mc) (b : Position)
     (first : GeneratedSquare mc b.val) (rest : List (GeneratedSquare mc b.val)) :
     List (GeneratedSquare mc b.val) :=
   if rest.isEmpty then [first] else opts.order b .deep
@@ -130,7 +133,7 @@ decreasing_by
   · exact Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil moves, available⟩) b.property
   · exact (play mc fc b sq).property
 
-private def ScoreValid (alpha value : Int) (state : State) (score : Option Int) : Prop :=
+def ScoreValid (alpha value : Int) (state : State) (score : Option Int) : Prop :=
   match score with
   | none => state.polls.cache.latched = true
   | some score => SearchRange score ∧ NWS alpha value score

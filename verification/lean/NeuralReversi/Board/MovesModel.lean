@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Bitboard.DispatchModel
-import NeuralReversi.Bitboard.SquareModel
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Bitboard.DispatchModel
+public import NeuralReversi.Bitboard.SquareModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.Clear
-import NeuralReversi.AlignedBuffer.Allocation
+module
+public import NeuralReversi.TranspositionTable.Clear
+public import NeuralReversi.AlignedBuffer.Allocation
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Size
 

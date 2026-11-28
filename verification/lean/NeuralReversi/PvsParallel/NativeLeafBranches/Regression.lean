@@ -1,6 +1,13 @@
-import NeuralReversi.PvsParallel.NativeLeafBranches
-import NeuralReversi.PvsParallel.NativeWorkerFeed
-import NeuralReversi.Perft
+module
+public import NeuralReversi.PvsParallel.NativeLeafBranches
+public import NeuralReversi.PvsParallel.NativeWorkerFeed
+public import NeuralReversi.Perft
+meta import NeuralReversi.Perft
+meta import NeuralReversi.PvsParallel.NativeLeafBranches
+meta import NeuralReversi.PvsParallel.NativeWorkerFeed
+meta import NeuralReversi.ScoreRefresh.Model
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeLeafBranches.Regression
 

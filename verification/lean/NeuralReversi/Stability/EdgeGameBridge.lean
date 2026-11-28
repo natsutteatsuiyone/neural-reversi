@@ -1,8 +1,11 @@
-import NeuralReversi.Stability.EdgeTableRefinement
-import NeuralReversi.Stability.EdgeEncodedMove
-import NeuralReversi.Stability.EdgeRecursiveSafety
-import NeuralReversi.Stability.EdgeAssembly
-import NeuralReversi.Stability.StructuralPipeline
+module
+public import NeuralReversi.Stability.EdgeTableRefinement
+public import NeuralReversi.Stability.EdgeEncodedMove
+public import NeuralReversi.Stability.EdgeRecursiveSafety
+public import NeuralReversi.Stability.EdgeAssembly
+public import NeuralReversi.Stability.StructuralPipeline
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

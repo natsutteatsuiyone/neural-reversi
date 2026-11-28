@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialExecution
-import NeuralReversi.PvsParallel.SerialRootCalls
-import NeuralReversi.AspirationMir.NativeRootBirth
+module
+public import NeuralReversi.PvsParallel.SerialExecution
+public import NeuralReversi.PvsParallel.SerialRootCalls
+public import NeuralReversi.AspirationMir.NativeRootBirth
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialRootExecution
 

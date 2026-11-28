@@ -9,6 +9,7 @@ from mir_common import (
     Block,
     parse_blocks as blocks,
     checked,
+    glob_mir,
     normal_target,
     split_call,
 )
@@ -26,7 +27,7 @@ def impl_constant(repo, dump, module, source_decl, name, typ):
     hdr = rf"{module}::<impl at {span}>::{name}"
     pattern = (rf"// MIR for `search::{hdr}` after built\s+const {hdr}: {typ} = \{{\s+"
                rf"let mut _0: {typ};\s+bb0: \{{\s+_0 = const (.+);\s+return;\s*\}}\s*\}}\s*")
-    hits = [match[1] for p in dump.glob(f"reversi_core.search-{module}-*-{name}.built.after.mir")
+    hits = [match[1] for p in glob_mir(dump, f"reversi_core.search-{module}-*-{name}.built.after.mir")
             if (match := re.fullmatch(pattern, p.read_text(encoding="utf-8")))]
     checked(len(hits) == 1, f"missing or ambiguous compiler constant {source_decl} {name}")
     return hits[0]
@@ -141,7 +142,7 @@ def forwarding_body(repo, dump, module, decl, method, args):
     span = source.relative_to(repo).as_posix() + f":{lines[0]}:1: {lines[0]}:{len(decl.removesuffix(' {'))+1}"
     name = f"{module}::<impl at {span}>::{method}"
     candidates = []
-    for path in dump.glob(f"reversi_core.{module.replace('::', '-')}-*-{method}.{PASS}.after.mir"):
+    for path in glob_mir(dump, f"reversi_core.{module.replace('::', '-')}-*-{method}.{PASS}.after.mir"):
         header = path.read_text(encoding="utf-8").splitlines()[0]
         if header.replace("\\", "/") == f"// MIR for `{name}` after {PASS}":
             original = header.split("`")[1]
@@ -180,8 +181,8 @@ def verify(dump, repo):
         checked(actual == expected(n), f"PVS leaf result or arguments differ at {n} empty squares")
         leaf = actual[0][1][0]
         arms.append(".shallow" if leaf in ("shallow5", "shallow6") else ".fixed ." + leaf)
-    return "\n".join(["import NeuralReversi.EndgameSearch.Direct.Mir.Program", "import NeuralReversi.ScoreRefresh.BoardBridge", "",
-                      "namespace NeuralReversi.PvsParallel.NonPvMir", "",
+    return "\n".join(["module", "public import NeuralReversi.EndgameSearch.Direct.Mir.Program", "public import NeuralReversi.ScoreRefresh.BoardBridge", "",
+                      "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.NonPvMir", "",
                       "def pvZeroScore (checked : Bool) (board : Board.Board) : Except String ScoreRefresh.Score :=",
                       "  ScoreRefresh.BoardBridge.finalScore checked board", "",
                       "inductive Arm where", "  | fixed (arm : EndgameSearch.Direct.Mir.Arm)", "  | shallow", "",

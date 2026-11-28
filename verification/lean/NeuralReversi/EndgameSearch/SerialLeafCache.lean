@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.SerialLeafRestore
-import NeuralReversi.EndgameSearch.CacheHistory
-import NeuralReversi.EndgameSearch.Thresholds
+module
+public import NeuralReversi.EndgameSearch.SerialLeafRestore
+public import NeuralReversi.EndgameSearch.CacheHistory
+public import NeuralReversi.EndgameSearch.Thresholds
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.SerialLeafCache
 

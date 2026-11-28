@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitWindow
+module
+public import NeuralReversi.Threading.SplitWindow
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitWindow.Regression
 

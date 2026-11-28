@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.MultiExact
-import NeuralReversi.PvsParallel.SerialTable.MultiWeak
-import NeuralReversi.PvsParallel.SerialTable.MidgamePoll
+module
+public import NeuralReversi.PvsParallel.SerialTable.MultiExact
+public import NeuralReversi.PvsParallel.SerialTable.MultiWeak
+public import NeuralReversi.PvsParallel.SerialTable.MidgamePoll
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
 
@@ -16,14 +19,14 @@ open AspirationMir.SmallRoot (Answer)
 open RootMoveStorage (Row)
 
 abbrev Poll := Nat → Frame → Request → Bool
-private abbrev Child (l : Layout) := Nat → Frame → Memory l → Option (Stack.Output l (Option Int))
+abbrev Child (l : Layout) := Nat → Frame → Memory l → Option (Stack.Output l (Option Int))
 
 /-- A pass has no post-move poll. A PV scout which raises alpha still launches its wide
     child, even if the scout returned zero while unwinding a stop. -/
-private def postMove (ctx : Frame) (r : Request) (v : Int) : Bool :=
+def postMove (ctx : Frame) (r : Request) (v : Int) : Bool :=
   r.depth != ctx.request.depth && (!ctx.request.pv || MidgamePoll.afterMove r.pv r.beta v)
 
-private def interpret (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (poll : Poll) (child : Child l) (ctx : Frame) (clean : Bool)
+def interpret (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (poll : Poll) (child : Child l) (ctx : Frame) (clean : Bool)
     (i : Nat) (m : Memory l) : Program Request α → Option (Stack.Output l (Option α))
   | .fail => none
   | .pure v => some (i,if clean then some v else none,m)
@@ -68,11 +71,11 @@ private theorem interpret_ok {code : Program Request α} {valid : Memory l → P
         rw [hw] at rest
         simpa [Stack.interpret,pushed,result] using rest
 
-private def normal (p : Pool) (c : SerialScout.Config) (base : Inputs mc fc)
+def normal (p : Pool) (c : SerialScout.Config) (base : Inputs mc fc)
     (level : Selectivity) (screen : WeakStack.Screen) (fuel : Nat) : Stack.Child l :=
   if level.val = 5 then Stack.runFuel p c base fuel else WeakStack.runFuel p c base level screen fuel
 
-private def body (m : Memory l) (c : SerialScout.Config) (base : Inputs mc fc)
+def body (m : Memory l) (c : SerialScout.Config) (base : Inputs mc fc)
     (level : Selectivity) (screen : WeakStack.Screen) (i : Nat) (ctx : Frame) :=
   if level.val = 5 then Execution.body c (m.inputs c base) i ctx else WeakStack.body m c base level screen i ctx
 
@@ -103,7 +106,7 @@ private theorem normal_step (p : Pool) (c : SerialScout.Config) (base : Inputs m
   · simp only [normal,body,full,ite_false] at ran ⊢
     simp [WeakStack.runFuel,regular,ran]
 
-private def runFuel (p : Pool) (c : SerialScout.Config) (base : Inputs mc fc) (level : Selectivity)
+def runFuel (p : Pool) (c : SerialScout.Config) (base : Inputs mc fc) (level : Selectivity)
     (screen : WeakStack.Screen) (poll : Poll) : Nat → Child l
   | 0, _, _, _ => none
   | n+1, i, ctx, m =>
@@ -196,7 +199,7 @@ private theorem uninterrupted (p : Pool) (c : SerialScout.Config) (base : Inputs
       rw [sub]
       cases Stack.interpret (mc := mc) (fc := fc) whole i ctx m code <;> rfl
 
-private def rootCode (idx : Nat) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc) (root : SerialRecursion.RootInput)
+def rootCode (idx : Nat) (c : SerialScout.Config) (b : Position) (base : Inputs mc fc) (root : SerialRecursion.RootInput)
     (s : State) (m : Memory l) :=
   let ctx := SerialRootExecution.context b s.regs.alpha s.regs.beta
   Root.frame mc fc b ctx.request.depth c.paired (base s.opening ctx).memory s.rows idx

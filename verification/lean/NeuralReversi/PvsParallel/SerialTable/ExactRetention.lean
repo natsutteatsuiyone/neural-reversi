@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Finite
-import NeuralReversi.PvsParallel.SerialTable.Trial
+module
+public import NeuralReversi.PvsParallel.SerialTable.Finite
+public import NeuralReversi.PvsParallel.SerialTable.Trial
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.ExactRetention
 

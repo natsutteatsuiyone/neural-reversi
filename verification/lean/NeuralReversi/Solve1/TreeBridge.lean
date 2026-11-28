@@ -1,7 +1,10 @@
-import NeuralReversi.Solve1.FlipCount
-import NeuralReversi.Solve1.ScalarVerified
-import NeuralReversi.Solve1.NeonVerified
-import NeuralReversi.EndgameTreeCache
+module
+public import NeuralReversi.Solve1.FlipCount
+public import NeuralReversi.Solve1.ScalarVerified
+public import NeuralReversi.Solve1.NeonVerified
+public import NeuralReversi.EndgameTreeCache
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1
 
@@ -10,7 +13,7 @@ open Bitboard.Moves (X86Config)
 open PvsBoardTree (Position GeneratedSquare legalSquares play pass)
 open EndgameTreeCache (discValue)
 
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 
 def Bmi2.Board.asBoard (b : Bmi2.Board) : Board.Board :=
   ⟨b.player, ~~~(b.player ||| squareMask b.square)⟩

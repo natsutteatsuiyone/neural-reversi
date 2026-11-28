@@ -163,7 +163,10 @@ def render_completion(dump, repo):
     value of line_completed and must not erase its stamp update on None.
     """
     check(dump)
-    return """import NeuralReversi.OuterMir.Program
+    return """module
+public import NeuralReversi.OuterMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir.Completion
 

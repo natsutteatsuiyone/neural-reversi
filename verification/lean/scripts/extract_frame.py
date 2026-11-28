@@ -70,7 +70,11 @@ def render(mir, repo):
                   best_move, "selectivity", 1, 1)
         checked(result == "finalBest" and events == ([stored] if first_line else []),
                 "root epilogue published or returned wrong score")
-    return """namespace NeuralReversi.PvsParallel
+    return """module
+
+@[expose] public section
+
+namespace NeuralReversi.PvsParallel
 
 inductive RootEntry where
   | wipeout

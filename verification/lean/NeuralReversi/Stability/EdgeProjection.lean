@@ -1,4 +1,8 @@
-import NeuralReversi.Stability.Structural
+module
+public import NeuralReversi.Stability.Structural
+
+@[expose] public section
+
 namespace NeuralReversi.Stability.Semantics
 theorem captured_row_same {b : Board} {c : Color} {a x : Square}
  (hedge : x.1.val = 0 ∨ x.1.val = 7) (hc : Captured b c a x) : a.1 = x.1 := by

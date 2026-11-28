@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Retirement
+module
+public import NeuralReversi.PvsParallel.Interleaving.Retirement
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Drive
 
@@ -54,7 +57,7 @@ def Event.indices (e : Event) (s : State w) : Prop :=
   | .discard worker index => (worker,index) ∈ s.pending
   | _ => True
 
-private def checked (len : Nat) (s : State w) : (e : Event) →
+def checked (len : Nat) (s : State w) : (e : Event) →
     Option {next : State w // Step len s e.action next ∧ e.indices s}
   | .book i => do
     if gate : s.booking = true then

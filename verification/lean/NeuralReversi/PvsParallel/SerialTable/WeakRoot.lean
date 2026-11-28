@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialTable.Root
+module
+public import NeuralReversi.PvsParallel.SerialTable.Root
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.WeakRoot
 

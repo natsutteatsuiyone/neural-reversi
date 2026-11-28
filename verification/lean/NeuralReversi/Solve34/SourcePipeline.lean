@@ -1,5 +1,8 @@
-import NeuralReversi.Solve34.Concrete
-import NeuralReversi.Solve34.DispatchScore
+module
+public import NeuralReversi.Solve34.Concrete
+public import NeuralReversi.Solve34.DispatchScore
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 

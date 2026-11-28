@@ -1,5 +1,8 @@
-import NeuralReversi.OuterMir.Program
-import NeuralReversi.EndgameTiming
+module
+public import NeuralReversi.OuterMir.Program
+public import NeuralReversi.EndgameTiming
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir
 

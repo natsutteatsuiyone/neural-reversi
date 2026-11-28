@@ -1,6 +1,15 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Lookup
-import NeuralReversi.PvsParallel.NativeFrameCache
-import NeuralReversi.Board.Hash
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Lookup
+public import NeuralReversi.PvsParallel.NativeFrameCache
+public import NeuralReversi.Board.Hash
+meta import NeuralReversi.Board.Hash
+meta import NeuralReversi.Board.Model
+meta import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+meta import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+meta import NeuralReversi.PvsParallel.NativeFrameCache
+meta import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Lookup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Regression
 

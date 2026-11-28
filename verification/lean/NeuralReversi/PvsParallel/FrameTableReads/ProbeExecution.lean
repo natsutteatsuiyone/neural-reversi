@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.FrameTableReads.Rounds
-import NeuralReversi.PvsParallel.NativeLeafBranches
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.Rounds
+public import NeuralReversi.PvsParallel.NativeLeafBranches
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations
 

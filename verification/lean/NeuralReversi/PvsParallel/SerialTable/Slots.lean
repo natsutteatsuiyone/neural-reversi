@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Image
-import NeuralReversi.TranspositionTable.ReaderMir.Program
+module
+public import NeuralReversi.PvsParallel.SerialTable.Image
+public import NeuralReversi.TranspositionTable.ReaderMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 
@@ -33,7 +36,7 @@ theorem lookup_mir (endian : Bool) (s : Clear.SlotState) (p o : SeqLock.Word) :
     simp [ReaderMir.lookupRun,lookupWords,LookupCut.readOccupied,SeqLock.lookupDecision,payload,
       even,sameBoardBits_exact,same,empty]
 
-private def slotAt (im : Image l) (i : Nat) := im.slots[i]?.getD Clear.emptySlot
+def slotAt (im : Image l) (i : Nat) := im.slots[i]?.getD Clear.emptySlot
 
 private theorem slot_at (im : Image l) (i : l.Index) : slotAt im i.val = im.get i := by
   have h : i.val < im.slots.size := im.size.symm ▸ i.isLt

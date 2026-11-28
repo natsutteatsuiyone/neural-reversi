@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Generation
-import NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFields
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Generation
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 
@@ -8,7 +11,7 @@ open AtomicWord (Event Read Write ReadWindow)
 open CutoffVisibility (History HappensBefore)
 open SplitCompletion (Action)
 
-private def closeFlag (e : Event) : Write := ⟨e,0,false,false⟩
+def closeFlag (e : Event) : Write := ⟨e,0,false,false⟩
 
 /-- All false stores to the protected flag in this generation have the same
     value. The following generation can reopen the physical flag. -/

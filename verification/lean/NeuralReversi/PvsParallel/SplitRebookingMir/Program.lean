@@ -1,5 +1,7 @@
-import NeuralReversi.PvsParallel.SplitActivationMir.Exclusive
-import NeuralReversi.Threading.AtomicBitSet
+module
+public import NeuralReversi.Threading.AtomicBitSet
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitRebookingMir
 

@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.Repeated
+module
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MultiExact
 

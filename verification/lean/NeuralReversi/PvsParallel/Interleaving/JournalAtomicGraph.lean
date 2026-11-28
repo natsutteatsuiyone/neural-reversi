@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.ModificationIndex
-import NeuralReversi.PvsParallel.Interleaving.WriterSteps
-import NeuralReversi.PvsParallel.Interleaving.AtomicReadback
+module
+public import NeuralReversi.PvsParallel.Interleaving.ModificationIndex
+public import NeuralReversi.PvsParallel.Interleaving.WriterSteps
+public import NeuralReversi.PvsParallel.Interleaving.AtomicReadback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalAtomicGraph
 
@@ -83,7 +86,7 @@ structure Rules (g : Graph) (c : Calls) (endian : Bool) (rs : List Record) (es :
     ∃ w i, g.source a r = some w ∧ decode c rs es.length a w = some (l,i) ∧
       word c endian rs g.initial a l i = Joint.word es r
 
-private theorem emitted (h : WriterSteps.Facts c es rs) (real : event c rs es.length a l i < es.length) :
+theorem emitted (h : WriterSteps.Facts c es rs) (real : event c rs es.length a l i < es.length) :
     decode c rs es.length a (event c rs es.length a l i) = some (l,i) := by
   apply (ModificationIndex.decode_eq_some_iff (timed h)).mpr
   refine ⟨?_,rfl⟩
@@ -92,7 +95,7 @@ private theorem emitted (h : WriterSteps.Facts c es rs) (real : event c rs es.le
   rw [ModificationIndex.event_outside outside] at real
   omega
 
-private theorem origin (h : WriterSteps.Facts c es rs) (read : RF g c rs es a (event c rs es.length a l i) r) :
+theorem origin (h : WriterSteps.Facts c es rs) (read : RF g c rs es a (event c rs es.length a l i) r) :
     decode c rs es.length a (event c rs es.length a l i) = some (l,i) := by
   obtain ⟨_,⟨_,_,found,_⟩⟩ := read
   obtain ⟨bound,same⟩ := (ModificationIndex.decode_eq_some_iff (timed h)).mp found

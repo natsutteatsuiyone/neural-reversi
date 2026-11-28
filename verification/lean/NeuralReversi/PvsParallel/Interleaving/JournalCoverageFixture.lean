@@ -1,5 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
-import NeuralReversi.Board.InitializationModel
+module
+public import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
+public import NeuralReversi.Board.InitializationModel
+meta import NeuralReversi.Board.InitializationModel
+meta import NeuralReversi.Board.Model
+meta import NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalCoverageFixture
 
@@ -8,8 +14,8 @@ open NativeTableWrites.Journal (Calls Record Execution Even mods)
 open PvsBoardTree (Position)
 open EndgameSearch.CacheHistory (Pool)
 
-private def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
-private def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
 def board : Position := ⟨⟨0xffffffdfbfffffff,0x40000000⟩,rfl⟩
 
 /-- Native square numbering. A pass is 64 and is accepted only if the opponent can move. -/
@@ -37,7 +43,7 @@ private def records (score : Int) := (events score).map (Record.localCall 0)
 
 /-- Event numbers below the bound follow tape order. A positive modification
     index denotes an absent write and is outside every reads-from edge. -/
-private def zeroMemory (limit : Nat) : SeqLock.Memory Nat where
+def zeroMemory (limit : Nat) : SeqLock.Memory Nat where
   sb a b := a < b ∧ b < limit + 1
   hb a b := a < b ∧ b < limit + 1
   rf w _ := w = 0

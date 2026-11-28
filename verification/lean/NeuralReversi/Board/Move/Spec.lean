@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Square.Model
-import NeuralReversi.Flip.Dispatch.Spec
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Square.Model
+public import NeuralReversi.Flip.Dispatch.Spec
+
+@[expose] public section
 
 namespace NeuralReversi.Board.MoveSpec
 

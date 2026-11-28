@@ -4,7 +4,7 @@ import re
 from extract_split_activation_mir import THREAD, field, RELEASE, RELAXED
 from extract_split_scheduler_mir import Body,edges
 from extract_worker_frame_mir import SUFFIX, TH
-from mir_common import PASS, run_extractor_cli, CALL, checked
+from mir_common import PASS, run_extractor_cli, CALL, checked, iter_mir_texts
 
 
 def render(dump):
@@ -34,17 +34,19 @@ def render(dump):
     cells={'.17: std::cell::SyncUnsafeCell<std::option::Option<std::sync::Arc<search::threading::split_point::SplitPoint>>>':set(),
            '.3: std::cell::SyncUnsafeCell<std::option::Option<search::threading::split_point::SplitPointTask>>':set(),
            '.16: [std::sync::Arc<search::threading::split_point::SplitPoint>; 8]':set()}
-    for f in dump.glob('*'+SUFFIX):
-        source=f.read_text(encoding='utf8');name=f.name.removesuffix(SUFFIX)
+    for f, source in iter_mir_texts(dump, SUFFIX):
+        stem=f.name.removesuffix(SUFFIX)
         for marker,users in cells.items():
-            if marker in source:users.add(name)
+            if marker in source:users.add(stem)
+        if not any(method in source for method in inv):
+            continue
         for line in source.splitlines():
             if not line.startswith('        '):continue
-            for name in inv:
-                if name not in line:continue
+            for method in inv:
+                if method not in line:continue
                 m=re.fullmatch(CALL,line.strip())
-                checked(m and m[2]==name,'escaped slot mutator: '+line)
-                inv[name].add(f.name.removesuffix(SUFFIX))
+                checked(m and m[2]==method,'escaped slot mutator: '+line)
+                inv[method].add(stem)
     expected=[['book_into','detach_split','finalize_split_point','initialize_split_point'],
               ['initialize_split_point'],['finalize_split_point'],['abandon_active_split','search_active_split_point'],['initialize_split_point']]
     for actual,names in zip(inv.values(),expected):
@@ -119,7 +121,7 @@ def render(dump):
     while pc!=owner:
         ls=x.cfg[pc];checked(not ls[-1].startswith('drop('),'slot unlocked before owner read')
         pc,=edges(ls[-1])
-    return '\n'.join(['import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','', 'namespace '+namespace,'',
+    return '\n'.join(['module', 'public import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','', '@[expose] public section', '', 'namespace '+namespace,'',
         f'def slotsPerThread : Nat := {initbank[2]}',
         'def ownedSlot (u : Worker) (depth : Nat) : Slot := (u,depth)',
         'def savedParent (active : Option Slot) := active',

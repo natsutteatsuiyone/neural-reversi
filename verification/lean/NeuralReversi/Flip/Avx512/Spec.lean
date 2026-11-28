@@ -1,4 +1,7 @@
-import NeuralReversi.Flip.Spec
+module
+public import NeuralReversi.Flip.Spec
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx512
 open NeuralReversi.Flip

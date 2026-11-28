@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Lookup
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Lookup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls
 

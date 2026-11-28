@@ -1,7 +1,12 @@
-import Lean
-import NeuralReversi.EndgameSearch.ShallowMir.Program
-import NeuralReversi.EndgameSearch.Direct.Mir
-import NeuralReversi.EndgameSearch.Cancellation
+module
+public import NeuralReversi.EndgameSearch.ShallowMir.Program
+public import NeuralReversi.EndgameSearch.Direct.Mir
+public import NeuralReversi.EndgameSearch.Cancellation
+import all NeuralReversi.EndgameSearch
+import all NeuralReversi.EndgameSearch.Direct.Mir
+meta import Lean.PrivateName
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.ShallowMir
 
@@ -11,7 +16,7 @@ open EndgameTreeCache (Store Address entryFor)
 open Cancellation (EmptyState)
 open Flip.Dispatch (TargetConfig)
 
-private def modelScan {Move : Type} (sub : Move → List Store → Result) (alpha : Int) :
+def modelScan {Move : Type} (sub : Move → List Store → Result) (alpha : Int) :
     List Move → Int → List Store → Result
   | [], best, h => ⟨best, h⟩
   | m :: rest, best, h =>
@@ -34,7 +39,7 @@ local macro "directDef%" n:ident : term =>
 
 private theorem scan_model (sub : Move → List Store → Result) (alpha : Int)
     (ms : List Move) (best : Int) (h : List Store) :
-    modelScan sub alpha ms best h = (searchDef% scan) sub alpha ms best h := by
+    modelScan sub alpha ms best h = EndgameSearch.scan sub alpha ms best h := by
   induction ms generalizing best h with
   | nil => rfl
   | cons m rest ih =>
@@ -70,7 +75,7 @@ theorem groups_flatten (b : Position) (sub : Move → List Store → Result) (al
 theorem masks_model (moves : LegalMoves.Raw) (bits : Bitboard.Bits) (p : Fin 16) :
     masks moves bits (ShallowMoveOrder.quadrantMask p) = ShallowMoveOrder.groups moves bits p := by rfl
 
-private def stagesFor (mc : X86Config) (b : Position) (odd : Bitboard.Bits) :
+def stagesFor (mc : X86Config) (b : Position) (odd : Bitboard.Bits) :
     List (List (GeneratedSquare mc b.val)) :=
   (masks ⟨Board.getMoves mc b.val⟩ (Board.emptySquares b.val) odd).map fun group =>
     (legalSquares mc b.val).filter fun m => group.bits.getLsbD m.val.val
@@ -113,7 +118,7 @@ theorem four_score (target : TargetConfig) (bmi2 : Bool) (b : Position) (s : Emp
   unfold four Direct.Mir.solveFour
   simp only [slots]
   have recover := (directDef% args_recover) arg
-  change (directDef% args?) (presortedFourOrder b n).val.asBoard 4 (presortedFourOrder b n).val.squares = _ at recover
+  change Direct.Mir.args? (presortedFourOrder b n).val.asBoard 4 (presortedFourOrder b n).val.squares = _ at recover
   rw [board] at recover
   simp [recover, arg]
 
@@ -143,7 +148,7 @@ private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Confi
     (same : rec (s.remove m.val) (-(a + 1)) h = EndgameSearch.run mc fc (orderedOptions target bmi2 mc fc addr)
       .shallow (play mc fc b m).val (-(a + 1)) h) :
     executeChild target bmi2 mc fc addr b s m (a + 1) h rec =
-    (searchDef% searchChild) (orderedOptions target bmi2 mc fc addr) .shallow (play mc fc b m).val a h
+    EndgameSearch.searchChild (orderedOptions target bmi2 mc fc addr) .shallow (play mc fc b m).val a h
       (fun tier a' h' => EndgameSearch.run mc fc (orderedOptions target bmi2 mc fc addr) tier (play mc fc b m).val a' h') := by
   let n := (play mc fc b m).val
   have placed : (s.remove m.val).matches n :=
@@ -153,11 +158,11 @@ private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Confi
   by_cases count : (Board.emptyCount n.val).toNat = 4
   · change (if (Board.emptyCount n.val).toNat = 4 then _ else _) = _
     rw [ite_eq_left count]
-    unfoldSearch searchChild
+    unfold EndgameSearch.searchChild
     dsimp only [orderedOptions, withSourceFour]
     dsimp [n] at count
     simp only [true_and, count, ↓reduceIte]
-    unfoldSearch fourResult
+    unfold EndgameSearch.fourResult
     cases hit : EndgameCache.probe (entryFor addr h .shallow (play mc fc b m).val.val) (play mc fc b m).val.val (-(a + 1)) with
     | some v => rfl
     | none =>
@@ -171,10 +176,10 @@ private theorem child_model (target : TargetConfig) (bmi2 : Bool) (mc : X86Confi
         rfl
   · change (if (Board.emptyCount n.val).toNat = 4 then _ else _) = _
     rw [ite_eq_right count, same]
-    unfoldSearch searchChild
+    unfold EndgameSearch.searchChild
     dsimp [n] at count
     simp only [orderedOptions, withSourceFour, true_and, count, ↓reduceIte]
-    unfoldSearch childTable
+    unfold EndgameSearch.childTable
     rfl
 
 def run (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig) (addr : Address)
@@ -238,7 +243,7 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
       let opts := orderedOptions target bmi2 mc fc addr
       let sub := fun m input => executeChild target bmi2 mc fc addr b s m (a + 1) input
         (fun s' a' hs => run target bmi2 mc fc addr (play mc fc b m).val s' a' hs)
-      let spec := fun m input => (searchDef% searchChild) opts EndgameTreeCache.Table.shallow (play mc fc b m).val a input
+      let spec := fun m input => EndgameSearch.searchChild opts EndgameTreeCache.Table.shallow (play mc fc b m).val a input
         (fun tier a' hs => EndgameSearch.run mc fc opts tier (play mc fc b m).val a' hs)
       have childFacts (m : GeneratedSquare mc b.val) (input : List Store)
           (prior : EndgameTreeCache.soundHistory mc fc input) : sub m input = spec m input ∧
@@ -251,7 +256,7 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
         have correct := orderedOptions_correct target bmi2 mc fc addr
         have window : ValidThreshold opts (-(a+1)) := fun _ _ => nextSafe
         let delegated := fun tier a' hs => EndgameSearch.run mc fc opts tier n a' hs
-        have delegatedSound := contract_proven mc fc opts ((searchDef% childTable) .shallow n) n (-(a+1)) input correct prior window
+        have delegatedSound := contract_proven mc fc opts (EndgameSearch.childTable .shallow n) n (-(a+1)) input correct prior window
         have proven := (searchDef% child_sound) mc fc opts correct .shallow n a input prior window delegated delegatedSound
         exact ⟨proven.1, proven.2.2.1⟩
       simp only [node, EndgameCutoffs.beforeMoves, aligned.1, List.map_cons, List.isEmpty_cons,
@@ -264,7 +269,7 @@ private theorem atRank (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (f
         | none =>
           simp only [Option.map_none, reduceCtorEq, ↓reduceIte]
           change (if rest.isEmpty then write b a (sub first h) else groups b a sub (stages mc b) (-127) h) =
-            write b a ((searchDef% scan) spec a (shallowOrder mc b (boardParity b.val)) (-127) h)
+            write b a (EndgameSearch.scan spec a (shallowOrder mc b (boardParity b.val)) (-127) h)
           rw [← scan_model]
           cases rest with
           | nil =>

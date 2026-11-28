@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.WriterMir.SourceSyntax
+module
+public import NeuralReversi.TranspositionTable.WriterMir.SourceSyntax
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterMir
 

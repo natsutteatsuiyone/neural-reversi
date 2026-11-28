@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialStack
-import NeuralReversi.PvsParallel.SerialPhysicalContext.Visits
+module
+public import NeuralReversi.AspirationMir.SerialStack
+public import NeuralReversi.PvsParallel.SerialPhysicalContext.Visits
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialContext
 

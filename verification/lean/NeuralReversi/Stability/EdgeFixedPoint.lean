@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeRecursiveSafety
+module
+public import NeuralReversi.Stability.EdgeRecursiveSafety
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 set_option maxRecDepth 100000

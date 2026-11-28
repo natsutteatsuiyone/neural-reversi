@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.RootFrameMir.Program
-import NeuralReversi.MoveList.Generation
-import NeuralReversi.MoveList.Ordering
-import NeuralReversi.PvsParallel.Root
+module
+public import NeuralReversi.PvsParallel.RootFrameMir.Program
+public import NeuralReversi.MoveList.Generation
+public import NeuralReversi.MoveList.Ordering
+public import NeuralReversi.PvsParallel.Root
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootFrameMir
 

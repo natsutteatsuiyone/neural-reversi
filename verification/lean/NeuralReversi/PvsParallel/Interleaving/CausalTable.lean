@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Table
+module
+public import NeuralReversi.PvsParallel.Interleaving.Table
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CausalTable
 

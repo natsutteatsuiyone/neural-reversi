@@ -1,4 +1,7 @@
-import NeuralReversi.MidgameAspiration.History
+module
+public import NeuralReversi.MidgameAspiration.History
+
+@[expose] public section
 
 namespace NeuralReversi.MidgameAspiration
 

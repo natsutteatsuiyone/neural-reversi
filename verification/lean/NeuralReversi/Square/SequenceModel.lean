@@ -1,4 +1,7 @@
-import NeuralReversi.Square.TextModel
+module
+public import NeuralReversi.Square.TextModel
+
+@[expose] public section
 
 namespace NeuralReversi.Square
 

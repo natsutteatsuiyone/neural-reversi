@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 namespace NeuralReversi.PvsParallel.GeneralNonPvMir
 
 inductive Action where

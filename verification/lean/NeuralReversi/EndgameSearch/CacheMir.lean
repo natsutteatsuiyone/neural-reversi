@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.CacheMir.Program
-import NeuralReversi.EndgameSearch.CacheState
+module
+public import NeuralReversi.EndgameSearch.CacheMir.Program
+public import NeuralReversi.EndgameSearch.CacheState
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheMir
 

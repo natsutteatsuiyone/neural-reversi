@@ -1,6 +1,9 @@
-import NeuralReversi.Game.Terminal.Reference
-import NeuralReversi.Game.Terminal.Spec
-import NeuralReversi.Board.MovesProperties
+module
+public import NeuralReversi.Game.Terminal.Reference
+public import NeuralReversi.Game.Terminal.Spec
+public import NeuralReversi.Board.MovesProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Terminal
 open NeuralReversi.Game.History

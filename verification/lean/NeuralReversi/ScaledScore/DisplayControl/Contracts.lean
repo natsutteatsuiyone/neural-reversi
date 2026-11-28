@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayControl.Progress
+module
+public import NeuralReversi.ScaledScore.DisplayControl.Progress
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore.DisplayControl
 open NeuralReversi.ScaledScore (displayChunks)

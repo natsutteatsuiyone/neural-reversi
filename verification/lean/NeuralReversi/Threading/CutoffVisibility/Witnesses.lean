@@ -1,20 +1,23 @@
-import NeuralReversi.Threading.CutoffVisibility
+module
+public import NeuralReversi.Threading.CutoffVisibility
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.CutoffVisibility.Witnesses
 
-private def epochWrites (release rmw : Bool) : List EpochWrite :=
+def epochWrites (release rmw : Bool) : List EpochWrite :=
   [⟨⟨3, 0⟩, 0, false, false⟩, ⟨⟨0, 1⟩, 1, release, true⟩, ⟨⟨1, 0⟩, 2, true, rmw⟩]
 
-private def flags (_ : Nat) : List FlagWrite :=
+def flags (_ : Nat) : List FlagWrite :=
   [⟨⟨3, 1⟩, false⟩, ⟨⟨0, 0⟩, true⟩]
 
-private def epochRead (release acquire rmw : Bool) : EpochRead (epochWrites release rmw) :=
+def epochRead (release acquire rmw : Bool) : EpochRead (epochWrites release rmw) :=
   ⟨⟨2, 0⟩, ⟨2, by change 2 < 3; decide⟩, acquire⟩
 
-private def staleFlag : FlagRead flags :=
+def staleFlag : FlagRead flags :=
   ⟨0, ⟨2, 1⟩, ⟨0, by decide⟩⟩
 
-private def history (release acquire rmw : Bool) : History :=
+def history (release acquire rmw : Bool) : History :=
   ⟨epochWrites release rmw, flags, [epochRead release acquire rmw], [staleFlag], fun _ _ => False⟩
 
 private theorem epoch_cases (head : Fin (epochWrites release rmw).length) :

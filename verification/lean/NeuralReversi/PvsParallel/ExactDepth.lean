@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.EmptyState
-import NeuralReversi.LateMoveReduction
-import NeuralReversi.RootDispatch
+module
+public import NeuralReversi.EndgameSearch.EmptyState
+public import NeuralReversi.LateMoveReduction
+public import NeuralReversi.RootDispatch
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ExactDepth
 

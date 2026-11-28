@@ -1,22 +1,25 @@
-import NeuralReversi.TranspositionTable.Proofs
+module
+public import NeuralReversi.TranspositionTable.Proofs
+
+@[expose] public section
 
 namespace NeuralReversi.CorrectionHistory
 
 open TranspositionTable (Bound Depth)
 
-private def clamp (lo hi x : Int) : Int := min hi (max lo x)
+def clamp (lo hi x : Int) : Int := min hi (max lo x)
 
 def correct (raw entry : Int) : Int := clamp (-16383) 16383 (raw + entry)
 
-private def gap (raw entry score : Int) : Int :=
+def gap (raw entry score : Int) : Int :=
   clamp (-2048) 2048 (score - correct raw entry)
 
-private def weight (depth : Depth) : Int := min (depth.toNat : Int) 16
+def weight (depth : Depth) : Int := min (depth.toNat : Int) 16
 
-private def change (raw entry score : Int) (depth : Depth) : Int :=
+def change (raw entry score : Int) (depth : Depth) : Int :=
   ((gap raw entry score) * weight depth).tdiv 64
 
-private def showsGap (bound : Bound) (eval score : Int) : Bool :=
+def showsGap (bound : Bound) (eval score : Int) : Bool :=
   match bound with
   | .lower => score > eval
   | .upper => score < eval
@@ -52,7 +55,7 @@ private theorem scaled_between (g w : Int) (hw : 0 ≤ w ∧ w ≤ 16) :
     simp only [show (0 : Int) ≤ 64 by decide, ite_true]
     split <;> omega
 
-private def FitsI32 (n : Int) : Prop := -2147483648 ≤ n ∧ n ≤ 2147483647
+def FitsI32 (n : Int) : Prop := -2147483648 ≤ n ∧ n ≤ 2147483647
 
 def BoundedUpdate : Prop :=
   ∀ (raw entry score target : Int) (bound : Bound) (depth : Depth),

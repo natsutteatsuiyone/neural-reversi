@@ -1,10 +1,13 @@
-import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Journal
 
 open TranspositionTable
 
-private def pcOf : WriterMir.Atom → Pc
+def pcOf : WriterMir.Atom → Pc
   | .cas .. => .cas
   | .fence .. => .fence
   | .store (.payload f) .. => .field f

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.RootHeaderMir.Program
+module
+public import NeuralReversi.PvsParallel.RootHeaderMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.GeneralOwnerMir
 

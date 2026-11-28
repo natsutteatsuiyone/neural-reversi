@@ -1,7 +1,55 @@
-import NeuralReversi
-import Std.Tactic.BVDecide.LRAT.Parser
+module
+public import NeuralReversi.RegistryData
+public import NeuralReversi.AlignedBuffer.Cleanup
+public import NeuralReversi.AlignedBuffer.LargePages
+public import NeuralReversi.Aspiration
+public import NeuralReversi.Binary64Arithmetic
+public import NeuralReversi.Bitboard.DispatchModel
+public import NeuralReversi.Board.Counting
+public import NeuralReversi.Board.Hash
+public import NeuralReversi.Board.InitializationModel
+public import NeuralReversi.Board.MovesModel
+public import NeuralReversi.Empties
+public import NeuralReversi.EndgameProbCutModel
+public import NeuralReversi.EndgameProgress
+public import NeuralReversi.EndgameTiming
+public import NeuralReversi.Eval.Activations
+public import NeuralReversi.Eval.PatternUpdate.Storage
+public import NeuralReversi.Eval.WeightStream
+public import NeuralReversi.EvalCache.Publications
+public import NeuralReversi.Flip.Dispatch.Model
+public import NeuralReversi.Flip.Model
+public import NeuralReversi.GameAnalysisModel
+public import NeuralReversi.LateMoveReduction
+public import NeuralReversi.LazySmp.Schedule
+public import NeuralReversi.LazySmp.Voting
+public import NeuralReversi.LegalMoves.Encoding
+public import NeuralReversi.MidgameAspiration.Arithmetic
+public import NeuralReversi.MidgameProbCutModel
+public import NeuralReversi.MidgameScoreRange.Domain
+public import NeuralReversi.MoveList.BestFirst
+public import NeuralReversi.MoveList.GenerationModel
+public import NeuralReversi.MoveList.Ordering
+public import NeuralReversi.MoveList.Retain
+public import NeuralReversi.Obf
+public import NeuralReversi.PerftModel
+public import NeuralReversi.PrincipalVariation.StackAccessModel
+public import NeuralReversi.PvsParallel.TraceCheckModel
+public import NeuralReversi.SearchCounters
+public import NeuralReversi.Stability.CutoffModel
+public import NeuralReversi.Threading.AtomicBitSet
+public import NeuralReversi.Threading.InFlight
+public import NeuralReversi.Threading.SplitWindow
+public import NeuralReversi.Threading.StopToken
+public import NeuralReversi.TimeSettings
+public import NeuralReversi.TranspositionTable.Access
+public import NeuralReversi.TranspositionTable.LookupCut
+public import NeuralReversi.TranspositionTable.Save
+public import Std.Tactic.BVDecide.LRAT.Parser
 
-open Lean NeuralReversi NeuralReversi.Bitboard NeuralReversi.Board
+public section
+
+open NeuralReversi NeuralReversi.Bitboard NeuralReversi.Board
 
 private def hexNibble (c : Char) : Except String Nat :=
   let n := c.toNat
@@ -62,8 +110,20 @@ private def parseSquare (label field : String) : Except String Square.Square := 
 
 private def boolBit (b : Bool) : String := if b then "1" else "0"
 
+private structure CaseOutput where
+  exitCode : UInt32
+  stdout : String := ""
+  stderr : String := ""
+
+private def emitCaseOutput (out : CaseOutput) : IO UInt32 := do
+  if !out.stdout.isEmpty then
+    (← IO.getStdout).putStr out.stdout
+  if !out.stderr.isEmpty then
+    (← IO.getStderr).putStr out.stderr
+  return out.exitCode
+
 private def runCaseFileWith (label : String) (check : String → Except String Unit)
-    (expectedCount : Option Nat) (summary : Option String) (path : String) : IO UInt32 := do
+    (expectedCount : Option Nat) (summary : Option String) (path : String) : IO CaseOutput := do
   let cases ← IO.FS.lines path
   match expectedCount with
   | some n =>
@@ -74,16 +134,15 @@ private def runCaseFileWith (label : String) (check : String → Except String U
   for line in cases do
     IO.ofExcept (check line)
   let desc := summary.getD s!"{label} cases"
-  (← IO.getStdout).putStrLn s!"{cases.size} {desc}, 0 mismatches"
-  return 0
+  return { exitCode := 0, stdout := s!"{cases.size} {desc}, 0 mismatches\n" }
 
 private def runCaseFile (label : String) (check : String → Except String Unit) :
-    String → IO UInt32 :=
+    String → IO CaseOutput :=
   runCaseFileWith label check none none
 
 private def runHeaderCaseFile {α : Type} (label : String)
     (parseHeader : String → Except String (α × (Nat → String)))
-    (check : α → String → Except String Unit) (path : String) : IO UInt32 := do
+    (check : α → String → Except String Unit) (path : String) : IO CaseOutput := do
   let lines ← IO.FS.lines path
   let some header := lines[0]? | throw (IO.userError s!"missing {label} header")
   let (cfg, formatSummary) ← IO.ofExcept (parseHeader header.trimAscii.toString)
@@ -91,8 +150,7 @@ private def runHeaderCaseFile {α : Type} (label : String)
   if cases.isEmpty then throw (IO.userError s!"missing {label} cases")
   for line in cases do
     IO.ofExcept (check cfg line)
-  (← IO.getStdout).putStrLn (formatSummary cases.size)
-  return 0
+  return { exitCode := 0, stdout := formatSummary cases.size ++ "\n" }
 
 structure FlipScalarCase where
   sq : Square.Square
@@ -116,22 +174,19 @@ private def formatFlipOutcome : Except String Flip.Word → String
   | .ok w => toString w.toNat
   | .error msg => s!"error:{msg}"
 
-private def runFlipScalarCases (path : String) : IO UInt32 := do
-  let stderr ← IO.getStderr
-  let stdout ← IO.getStdout
+private def runFlipScalarCases (path : String) : IO CaseOutput := do
   let rawLines ← try
     IO.FS.lines path
   catch err =>
-    stderr.putStrLn s!"failed to read {path}: {err}"
-    return 2
+    return { exitCode := 2, stderr := s!"failed to read {path}: {err}\n" }
   let lines := (rawLines.map (·.trimAscii.toString)).filter (· != "")
   let mut mismatches := 0
+  let mut errLines : Array String := #[]
   for line in lines do
     let c ← match parseFlipScalarCase line with
       | .ok c => pure c
       | .error msg =>
-        stderr.putStrLn msg
-        return 2
+        return { exitCode := 2, stderr := msg ++ "\n" }
     let maskMismatch? := (List.finRange 8).find? fun d => Flip.mask c.sq d != c.masks d
     let releaseGot := Flip.flip false c.sq c.player c.opponent
     let checkedGot := Flip.flip true c.sq c.player c.opponent
@@ -144,13 +199,17 @@ private def runFlipScalarCases (path : String) : IO UInt32 := do
       mismatches := mismatches + 1
       if mismatches ≤ 10 then
         if let some d := maskMismatch? then
-          stderr.putStrLn s!"square {c.sq.val}: mask[{d.val}] model {(Flip.mask c.sq d).toNat}, Rust {(c.masks d).toNat}"
+          errLines := errLines.push s!"square {c.sq.val}: mask[{d.val}] model {(Flip.mask c.sq d).toNat}, Rust {(c.masks d).toNat}"
         if !releaseOk then
-          stderr.putStrLn s!"square {c.sq.val}, player {c.player.toNat}, opponent {c.opponent.toNat}: release model {formatFlipOutcome releaseGot}, Rust {c.expected.toNat}"
+          errLines := errLines.push s!"square {c.sq.val}, player {c.player.toNat}, opponent {c.opponent.toNat}: release model {formatFlipOutcome releaseGot}, Rust {c.expected.toNat}"
         if !checkedOk then
-          stderr.putStrLn s!"square {c.sq.val}, player {c.player.toNat}, opponent {c.opponent.toNat}: checked model {formatFlipOutcome checkedGot}, Rust {c.expected.toNat}"
-  stdout.putStrLn s!"{lines.size} cases, {mismatches} mismatches"
-  return if mismatches == 0 && lines.size > 0 then 0 else 1
+          errLines := errLines.push s!"square {c.sq.val}, player {c.player.toNat}, opponent {c.opponent.toNat}: checked model {formatFlipOutcome checkedGot}, Rust {c.expected.toNat}"
+  let stderrText := if errLines.isEmpty then "" else String.intercalate "\n" errLines.toList ++ "\n"
+  return {
+    exitCode := if mismatches == 0 && lines.size > 0 then 0 else 1
+    stdout := s!"{lines.size} cases, {mismatches} mismatches\n"
+    stderr := stderrText
+  }
 
 private def moveCasesHeader (backend : String) :
     Except String (Flip.Dispatch.TargetConfig × (Nat → String)) := do
@@ -1000,7 +1059,7 @@ private def checkStabilityCase (table : Stability.Edge.EdgeTable) (line : String
     let o := word (← parseNat "stability value" o)
     let value ← parseInt "disc score" alpha
     let alpha : Stability.Cutoff.DiscScore := ⟨value⟩
-    let expected := Stability.Cutoff.cutoffAtEmptyCount p o (← parseNat "stability value" n) alpha
+    let expected := Stability.Cutoff.cutoffAtEmptyCountExec p o (← parseNat "stability value" n) alpha
     let enough := Stability.Cutoff.hasEnoughOpponentDiscsForCutoff
       (Stability.Cutoff.popcount o) alpha
     let expectedMargin := if alpha.value < 6 then "-" else boolBit enough
@@ -1031,14 +1090,14 @@ private def checkStabilityCase (table : Stability.Edge.EdgeTable) (line : String
       let full := Stability.getFullLines (p ||| o)
       (Stability.Semantics.getStableEdge table p o).toNat == edge &&
         full == ⟨word h, word v, word d7, word d9⟩ && full.intersection.toNat == intersection &&
-        (Stability.Semantics.getStableDiscs p o).toNat == stable
+        (Stability.Cutoff.getStableDiscsExec p o).toNat == stable
     | "contact", [central, seed, h, v, d7, d9, stable] =>
       (Stability.getStableByContact (word central) (word seed)
         ⟨word h, word v, word d7, word d9⟩).toNat == stable
     | _, _ => false
   unless agrees do throw s!"stability case disagrees: {line}"
 
-private def runStabilityCases (path : String) : IO UInt32 := do
+private def runStabilityCases (path : String) : IO CaseOutput := do
   let cases ← IO.FS.lines path
   let table := Stability.Edge.initEdgeStability
   let mut tables := 0
@@ -1049,8 +1108,7 @@ private def runStabilityCases (path : String) : IO UInt32 := do
     if line.startsWith "move " then moves := moves + 1
   unless tables == 65536 && moves == 17496 && cases.size == 105280 do
     throw (IO.userError s!"incomplete stability fixture: {tables} entries, {moves} moves, {cases.size} cases")
-  (← IO.getStdout).putStrLn s!"{cases.size} stability cases, 0 mismatches"
-  return 0
+  return { exitCode := 0, stdout := s!"{cases.size} stability cases, 0 mismatches\n" }
 
 private def checkSyncPrimitiveCase (line : String) : Except String Unit := do
   let input :: observed := line.splitOn "|" | throw s!"missing synchronization input: {line}"
@@ -1075,7 +1133,7 @@ private def checkSyncPrimitiveCase (line : String) : Except String Unit := do
       throw s!"guard handoff disagrees: {line}"
   | _ => throw s!"invalid synchronization row: {line}"
 
-private def runSyncPrimitiveCases (path : String) : IO UInt32 := do
+private def runSyncPrimitiveCases (path : String) : IO CaseOutput := do
   let cases ← IO.FS.lines path
   let masks := cases.countP (·.startsWith "mask ")
   let guards := cases.countP (·.startsWith "guard ")
@@ -1083,10 +1141,9 @@ private def runSyncPrimitiveCases (path : String) : IO UInt32 := do
     throw (IO.userError "missing synchronization primitive cases")
   for line in cases do
     IO.ofExcept (checkSyncPrimitiveCase line)
-  (← IO.getStdout).putStrLn s!"{masks} atomic bitset traces and {guards} lock handoffs, 0 mismatches"
-  return 0
+  return { exitCode := 0, stdout := s!"{masks} atomic bitset traces and {guards} lock handoffs, 0 mismatches\n" }
 
-private def caseCommands : List (String × (String → IO UInt32)) := [
+private def caseCommands : List (String × (String → IO CaseOutput)) := [
   ("activation-cases", runHeaderCaseFile "activation backend" activationHeader
     (fun (fused, scRelu) => checkActivationCase fused scRelu)),
   ("move-cases", runHeaderCaseFile "move generation backend" moveCasesHeader checkMoveCase),
@@ -1128,12 +1185,54 @@ private def caseCommands : List (String × (String → IO UInt32)) := [
   ("flip-scalar-cases", runFlipScalarCases)
 ]
 
+private def parseBatchPairs : List String → Except String (List (String × String))
+  | [] => .ok []
+  | name :: path :: rest => do
+    let tail ← parseBatchPairs rest
+    pure ((name, path) :: tail)
+  | [_] => .error "usage: revmodel batch <name1> <path1> [<name2> <path2> ...]"
+
+private def runBatch (args : List String) : IO UInt32 := do
+  if args.isEmpty then
+    (← IO.getStderr).putStrLn "usage: revmodel batch <name1> <path1> [<name2> <path2> ...]"
+    return 2
+  let pairs ← match parseBatchPairs args with
+    | .ok ps => pure ps
+    | .error msg =>
+      (← IO.getStderr).putStrLn msg
+      return 2
+  let mut jobs : Array (String × String × (String → IO CaseOutput)) := #[]
+  for (name, path) in pairs do
+    match caseCommands.lookup name with
+    | some run => jobs := jobs.push (name, path, run)
+    | none =>
+      (← IO.getStderr).putStrLn s!"unknown command: {name}"
+      return 2
+  let mut tasks : Array (String × String × Task (Except IO.Error CaseOutput)) := #[]
+  for (name, path, run) in jobs do
+    let task ← IO.asTask (run path)
+    tasks := tasks.push (name, path, task)
+  let mut exitCode : UInt32 := 0
+  for (name, path, task) in tasks do
+    match ← IO.wait task with
+    | .ok out =>
+      let code ← emitCaseOutput out
+      if code != 0 && exitCode == 0 then
+        exitCode := code
+    | .error err =>
+      (← IO.getStderr).putStrLn s!"{name} ({path}): {err}"
+      if exitCode == 0 then
+        exitCode := 1
+  return exitCode
+
 def main (args : List String) : IO UInt32 := do
   let stdout ← IO.getStdout
   match args with
   | ["registry"] =>
-    stdout.putStrLn (toJson entries).compress
+    stdout.putStrLn (entriesToJsonCompact entries)
     return 0
+  | "batch" :: rest =>
+    return ← runBatch rest
   | ["move-bound-cnf", boundText] =>
     if let some bound := boundText.toNat? then
       if bound < 64 then
@@ -1159,7 +1258,7 @@ def main (args : List String) : IO UInt32 := do
   | ["perft-root", depth] =>
     if let some n := depth.toNat? then
       if n ≤ 9 then
-        stdout.putStrLn (toString (Perft.count ⟨false, false⟩ ⟨false, false, false⟩ Perft.root n))
+        stdout.putStrLn (toString (Perft.countRaw ⟨false, false⟩ ⟨false, false, false⟩ Board.newBoard n))
         return 0
     (← IO.getStderr).putStrLn "usage: revmodel perft-root <depth 0..9>"
     return 2
@@ -1178,7 +1277,7 @@ def main (args : List String) : IO UInt32 := do
     return 2
   | [name, path] =>
     if let some run := caseCommands.lookup name then
-      return ← run path
+      return ← emitCaseOutput (← run path)
     (← IO.getStderr).putStrLn s!"unknown command: {name}"
     return 2
   | name :: _ =>

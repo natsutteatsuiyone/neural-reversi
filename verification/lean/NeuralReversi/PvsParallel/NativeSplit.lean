@@ -1,8 +1,11 @@
-import NeuralReversi.PvsParallel.IteratorCutoff
-import NeuralReversi.PvsParallel.IteratorReports
-import NeuralReversi.PvsParallel.SplitWorkerMir.OwnerFields
-import NeuralReversi.PvsParallel.SplitWorkerMir.Stop
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+module
+public import NeuralReversi.PvsParallel.IteratorCutoff
+public import NeuralReversi.PvsParallel.IteratorReports
+public import NeuralReversi.PvsParallel.SplitWorkerMir.OwnerFields
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Stop
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeSplit
 

@@ -1,4 +1,7 @@
-import NeuralReversi.Solve2.Control
+module
+public import NeuralReversi.Solve2.Control
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2.Dispatch
 set_option linter.unusedSimpArgs false

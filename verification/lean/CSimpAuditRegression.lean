@@ -1,4 +1,5 @@
 import NeuralReversi
+import NeuralReversi.CSimpAudit
 
 -- Repeating an imported, valid registration creates another staged record.
 attribute [csimp] NeuralReversi.Simd.X86.ternaryWord_exec

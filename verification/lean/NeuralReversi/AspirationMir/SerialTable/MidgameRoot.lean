@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.MidgameRootRows
-import NeuralReversi.AspirationMir.SerialTable.MidgameRows
-import NeuralReversi.AspirationMir.SerialTable.Repeated
+module
+public import NeuralReversi.AspirationMir.SerialTable.MidgameRootRows
+public import NeuralReversi.AspirationMir.SerialTable.MidgameRows
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameRoot
 

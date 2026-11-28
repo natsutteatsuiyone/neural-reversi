@@ -120,8 +120,7 @@ def render(dump,repo):
     entrants=[i for i,ls in cfg.items() if i!=pc and (' bb'+str(split[0])+',' in ls[-1] or
               ' bb'+str(split[0])+']' in ls[-1] or ' bb'+str(split[0])+';' in ls[-1])]
     checked(not entrants,'bypass to split')
-    return '\n'.join(['import NeuralReversi.PvsParallel.SplitActivationMir.Exclusive',
-        'import NeuralReversi.Threading.AtomicBitSet','','namespace NeuralReversi.PvsParallel.SplitRebookingMir','',
+    return '\n'.join(['module', 'public import NeuralReversi.Threading.AtomicBitSet','','@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SplitRebookingMir','',
         'def cap : Nat := '+str(cap),'','def nested (pool depth : Nat) (opened : Bool) (count : Nat) : Bool :=',
         '  '+nested(dump,limit),'','def room (late : Bool) (count : Nat) : Bool :=',
         '  if late then '+capacity_at_book(dump,True)+' else '+capacity_at_book(dump,False),'',

@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.TimedMidgame
-import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
+module
+public import NeuralReversi.AspirationMir.SerialTable.TimedMidgame
+public import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.EndgamePrefix
 
@@ -23,7 +26,7 @@ structure Point where
 
 def Point.level (point : Point) : Selectivity := ⟨point.levels.val + 1, by have := point.levels.isLt; omega⟩
 
-private def normal (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def normal (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (level : Selectivity) : SerialCache.Trial (Memory l) :=
   if level.val = 5 then search p c q.board (q.moves.order 5) fc else FullLadder.trial p c q.board q.moves fc level.val
 
@@ -43,7 +46,7 @@ private theorem normal_returns (q : Repeated.Call mc) (p : Pool) (c : SerialScou
     simpa only [normal,full,ite_false] using
       Repeated.earlier (l := l) p c q.board q.moves fc addr point.level.val selected
 
-private def retries (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def retries (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (point : Point) : Nat → State → Memory l → Option (Memory l)
   | 0, s, m =>
     let op := q.moves.order point.level.val s

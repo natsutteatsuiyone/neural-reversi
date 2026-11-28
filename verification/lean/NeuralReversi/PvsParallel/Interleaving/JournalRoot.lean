@@ -1,8 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
-import NeuralReversi.PvsParallel.Interleaving.JournalEntry
-import NeuralReversi.PvsParallel.Interleaving.SolveEntry
-import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
-import NeuralReversi.PvsParallel.Interleaving.JointReads
+module
+public import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+public import NeuralReversi.PvsParallel.Interleaving.JournalEntry
+public import NeuralReversi.PvsParallel.Interleaving.SolveEntry
+public import NeuralReversi.PvsParallel.Interleaving.JournalHelpers
+public import NeuralReversi.PvsParallel.Interleaving.JointReads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalRoot
 
@@ -13,7 +16,7 @@ open TranspositionTable
 
 /-- Registry rows include a boundary solver which can publish a score without a
     recursive PVS return. Such a row has no parent and cannot satisfy a child request. -/
-private def unreturned (e : JournalEntry.Execution mc fc) (state : CallReturns.State) (c : Choice) : Row where
+def unreturned (e : JournalEntry.Execution mc fc) (state : CallReturns.State) (c : Choice) : Row where
   id := state.calls.size
   parent := none
   worker := c.worker
@@ -23,7 +26,7 @@ private def unreturned (e : JournalEntry.Execution mc fc) (state : CallReturns.S
   returned := CallJournal.returnOf e.state.closed c
   score := c.word.raw.toInt
 
-private def row (e : JournalEntry.Execution mc fc) (s : CallReturns.State) (c : Choice) : Row :=
+def row (e : JournalEntry.Execution mc fc) (s : CallReturns.State) (c : Choice) : Row :=
   let missing := unreturned e s c
   let actual := s.calls.toList.zipIdx.findSome? fun (a,i) =>
     if a.worker = c.worker ∧ a.first = c.opening then a.row i else none

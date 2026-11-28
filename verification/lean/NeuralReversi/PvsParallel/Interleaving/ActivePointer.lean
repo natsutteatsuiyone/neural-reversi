@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+module
+public import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+meta import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ActivePointer
 
@@ -107,7 +111,7 @@ theorem unique_source (h : History) (ws : List Store) (r : Event)
   obtain ⟨s,ok⟩ := candidate h ws r rw ww
   exact ⟨s,ok,fun _ also => Visible.unique also ok acyclic⟩
 
-private def hb (c : MaskClock.Capture h) (a b : Event) :=
+def hb (c : MaskClock.Capture h) (a b : Event) :=
   if a.worker = b.worker then decide (a.step < b.step) else (FlagSegment.published c.transfers a b).isSome
 
 private theorem hb_iff (c : MaskClock.Capture h) (a b : Event) :
@@ -126,7 +130,7 @@ private theorem hb_iff (c : MaskClock.Capture h) (a b : Event) :
     · exact Nat.lt_asymm (c.before a b edge) (c.before b a (.sequenced ⟨same.symm,lt⟩))
   · exact (MaskClock.published h c a b).symm
 
-private def fits (c : MaskClock.Capture h) (ws : List Store) (read : Event) : Option Store → Bool
+def fits (c : MaskClock.Capture h) (ws : List Store) (read : Event) : Option Store → Bool
   | none => ws.all (fun w => hb c read w.at_)
   | some s => ws.contains s && hb c s.at_ read &&
     ws.all fun x => x == s || hb c x.at_ s.at_ || hb c read x.at_
@@ -174,7 +178,7 @@ def guards : List Operation → Option (List Guard)
     if a.worker = r.worker ∧ a.step < r.step then (guards rest).map (⟨a,some r⟩ :: ·) else none
   | _ => none
 
-private def encloses (g : Guard) (e : Event) :=
+def encloses (g : Guard) (e : Event) :=
   g.acquire.worker == e.worker && g.acquire.step < e.step &&
     g.release.all (fun r => r.worker == e.worker && e.step < r.step)
 
@@ -194,7 +198,8 @@ def guardAt (ops : List Operation) (e : Event) : Option (Section ops e) := do
     | [g] =>
       have picked : g ∈ gs.filter (fun z => encloses z e) := by rw [one]; simp
       have ok := (List.mem_filter.mp picked).2
-      have ok : (g.acquire.worker=e.worker ∧ g.acquire.step<e.step) ∧ _ :=
+      have ok : (g.acquire.worker=e.worker ∧ g.acquire.step<e.step) ∧
+          (g.release.all (fun r => r.worker == e.worker && e.step < r.step)) = true :=
         (by simpa only [encloses,Bool.and_eq_true_iff,beq_iff_eq,decide_eq_true_eq] using ok)
       return ⟨g,gs,found,(List.mem_filter.mp picked).1,ok.1,fun r hr => by
         have last := ok.2
@@ -202,10 +207,10 @@ def guardAt (ops : List Operation) (e : Event) : Option (Section ops e) := do
         exact ⟨last.1.symm,last.2⟩⟩
     | _ => none
 
-private def sectionsValid (c : MaskClock.Capture h) (ops : List Operation) :=
+def sectionsValid (c : MaskClock.Capture h) (ops : List Operation) :=
   (SlotSynchronization.lockEdges ops).all c.sync.edges.contains
 
-private def word (path : Path) := path.head?.map Generation.slot
+def word (path : Path) := path.head?.map Generation.slot
 
 /-- Semantic statement of `storeSite`: every recorded store matches the task journal
     word and holds the locks required by its kind. Note that `ownerActive` holds only
@@ -243,7 +248,7 @@ def storeSite (c : MaskClock.Capture h) (address : TaskRetention.Address) (es : 
     if s.kind == .book then return workerHeld
     else return s.at_.worker == target && owner.val == target
 
-private theorem storeSite_valid {c : MaskClock.Capture h}
+theorem storeSite_valid {c : MaskClock.Capture h}
     (ok : storeSite c address es j target s = true) : ValidStore address es j target s := by
   unfold storeSite at ok
   cases assign : j.assignments s.at_ with
@@ -302,7 +307,7 @@ private theorem storeSite_valid {c : MaskClock.Capture h}
     · have ne : (word path != s.word) = true := bne_iff_ne.mpr sameWord
       simp [ne] at ok
 
-private def assignment (j : TaskAncestry.Journal) : Option Store → Option Path
+def assignment (j : TaskAncestry.Journal) : Option Store → Option Path
   | none => some []
   | some s => j.assignments s.at_
 
@@ -324,7 +329,7 @@ structure Clone (h : History) (address : TaskRetention.Address) (es : Joint.Tape
   matchesWord : (writer.bind Store.word) = raw
   addresses : word path = raw
 
-private def cloneWord (es : Joint.Tape Operand) (e : Event) : Option (Option Nat) :=
+def cloneWord (es : Joint.Tape Operand) (e : Event) : Option (Option Nat) :=
   match es.filterMap fun row => match row with
     | .taskWord w t (.cloneActive value) => if e == ⟨w,t⟩ then some value else none
     | _ => none with
@@ -370,9 +375,9 @@ theorem Clone.unique (o : Clone h address es e) (c : MaskClock.Capture h)
     (other : Visible h (stores e.worker es) e s) : s = o.writer :=
   Visible.unique other o.visible (fun ev cyc => Nat.lt_irrefl _ (c.before ev ev cyc))
 
-private abbrev Node := EndgameSearch.CacheOwner.Node
+abbrev Node := EndgameSearch.CacheOwner.Node
 
-private structure Frame where
+structure Frame where
   kind : Node
   opening : Nat
   operand : Option (Event × Option Nat) := none
@@ -384,12 +389,12 @@ structure Call where
   raw : Option Nat
   deriving DecidableEq
 
-private inductive Local where
+inductive Local where
   | enter (step site : Nat) (callee : Node)
   | leave (step opening : Nat) (callee : Node)
   | load (step : Nat) (value : Option Nat)
 
-private def sample (target : Nat) (row : Joint.Event Operand) : Option Local := do
+def sample (target : Nat) (row : Joint.Event Operand) : Option Local := do
   match row with
   | .taskWord w t (.cloneActive raw) => if target = w then some (.load t raw) else none
   | _ =>
@@ -404,7 +409,7 @@ private def sample (target : Nat) (row : Joint.Event Operand) : Option Local := 
       | .scored .. => none
     | _ => none
 
-private def lookup (w t : Nat) (stack : List Frame) : List Local → Option Call
+def lookup (w t : Nat) (stack : List Frame) : List Local → Option Call
   | [] => none
   | row :: rest => do
     match row with
@@ -429,7 +434,7 @@ private def lookup (w t : Nat) (stack : List Frame) : List Local → Option Call
         guard (opening == f.opening && node == f.kind)
         lookup w t below rest
 
-private def Local.step : Local → Nat
+def Local.step : Local → Nat
   | .enter t .. | .leave t .. | .load t _ => t
 
 def call (es : Joint.Tape Operand) (entry : Event) : Option Call := do
@@ -474,7 +479,7 @@ theorem DispatchOrigin.unique (d : DispatchOrigin h address es entry) (c : MaskC
     (other : Visible h (stores d.read.worker es) d.read s) : s = some d.store :=
   (d.operand.unique c other).trans d.binding
 
-private def lookupSplit (w t : Nat) (stack : List Frame) : List Local → Option Event
+def lookupSplit (w t : Nat) (stack : List Frame) : List Local → Option Event
   | [] => none
   | row :: rest => do
     match row with

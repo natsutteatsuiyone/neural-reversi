@@ -37,23 +37,11 @@ pub enum EvalMode {
     Small,
 }
 
-macro_rules! eval_main_weights_literal {
-    () => {
-        "eval-e6bbc4f6.zst"
-    };
-}
-
-macro_rules! eval_small_weights_literal {
-    () => {
-        "eval_sm-e6bbc4f6.zst"
-    };
-}
-
 /// Filename for the main neural network weights (zstd compressed).
-pub const EVAL_FILE_NAME: &str = eval_main_weights_literal!();
+pub const EVAL_FILE_NAME: &str = eval_weights::MAIN_FILE_NAME;
 
 /// Filename for the small neural network weights (zstd compressed).
-pub const EVAL_SM_FILE_NAME: &str = eval_small_weights_literal!();
+pub const EVAL_SM_FILE_NAME: &str = eval_weights::SMALL_FILE_NAME;
 
 /// A position evaluator backed by dual neural networks.
 pub struct Eval {
@@ -118,20 +106,12 @@ impl Eval {
     ) -> io::Result<Self> {
         let network = match eval_path {
             Some(path) => load_weights(path, Network::new),
-            None => Network::from_bytes(include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../",
-                eval_main_weights_literal!()
-            ))),
+            None => Network::from_bytes(eval_weights::main_bytes()),
         }?;
 
         let network_sm = match eval_sm_path {
             Some(path) => load_weights(path, NetworkSmall::new),
-            None => NetworkSmall::from_bytes(include_bytes!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../",
-                eval_small_weights_literal!()
-            ))),
+            None => NetworkSmall::from_bytes(eval_weights::small_bytes()),
         }?;
 
         Ok(Eval {

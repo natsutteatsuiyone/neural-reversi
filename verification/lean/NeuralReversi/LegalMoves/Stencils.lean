@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.MovesProperties
+module
+public import NeuralReversi.Bitboard.MovesProperties
+
+@[expose] public section
 
 namespace NeuralReversi.LegalMoves.MoveBound
 

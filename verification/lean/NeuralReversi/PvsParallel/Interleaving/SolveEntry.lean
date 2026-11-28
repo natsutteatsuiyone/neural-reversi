@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Joint
-import NeuralReversi.PvsParallel.Interleaving.CallReturns
+module
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+public import NeuralReversi.PvsParallel.Interleaving.CallReturns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SolveEntry
 

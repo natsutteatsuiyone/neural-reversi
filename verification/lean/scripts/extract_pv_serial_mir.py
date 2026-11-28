@@ -54,8 +54,11 @@ def verify(dump, repo):
         actual = post_step(cfg, regs, internal, pc, flags, internal=True)
         checked(actual[1:] == reference[1:] and actual[0] == reference[3],
                 f"internal PV numeric state or PV write differs: {flags}: {actual}")
-    return f"""import NeuralReversi.PvsParallel.RootHeaderMir
-import NeuralReversi.PvsParallel.RootUpdateMir
+    return f"""module
+public import NeuralReversi.PvsParallel.RootHeaderMir
+public import NeuralReversi.PvsParallel.RootUpdateMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.PvSerialMir
 

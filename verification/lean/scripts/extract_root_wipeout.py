@@ -4,15 +4,28 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 
 from mir_common import checked, run_extractor_cli
 
 
 FILENAME = "reversi_core.search-pvs-search.SimplifyCfg-initial.after.mir"
+_CONSTANTS_LOCK = threading.Lock()
+_CONSTANTS_CACHE = {}
+
+
+def seed_constants(repo, values):
+    with _CONSTANTS_LOCK:
+        _CONSTANTS_CACHE[Path(repo).resolve()] = dict(values)
 
 
 def constants(repo):
-    prefix = repo / "crates/reversi-core/src"
+    key = Path(repo).resolve()
+    with _CONSTANTS_LOCK:
+        cached = _CONSTANTS_CACHE.get(key)
+    if cached is not None:
+        return cached.copy()
+    prefix = key / "crates/reversi-core/src"
     source = f'''#[path = r#"{prefix / 'score.rs'}"#] mod score;
 #[path = r#"{prefix / 'search/node_type.rs'}"#] mod node_type;
 use node_type::{{NodeType, Root}};
@@ -22,14 +35,17 @@ fn main() {{ println!("{{}} {{}} {{}} {{}} {{}}", Root::ROOT_NODE, Root::PV_NODE
     with tempfile.TemporaryDirectory() as tmp:
         rust, exe = Path(tmp) / "constants.rs", Path(tmp) / "constants.exe"
         rust.write_text(source, encoding="utf-8")
-        subprocess.run(["rustc", "--edition=2024", "-Adead_code", str(rust), "-o", str(exe)], cwd=repo, check=True)
+        subprocess.run(["rustc", "--edition=2024", "-Adead_code", str(rust), "-o", str(exe)], cwd=key, check=True)
         root, pv, maximum, zero, infinity = subprocess.check_output([str(exe)], text=True).split()
-    return {
+    values = {
         "const <NT as search::node_type::NodeType>::ROOT_NODE": int(root == "true"),
         "const <NT as search::node_type::NodeType>::PV_NODE": int(pv == "true"),
         "const score::Score::MAX": int(maximum), "const score::Score::ZERO": int(zero),
         "const score::Score::INF": int(infinity), "const true": 1, "const false": 0,
     }
+    with _CONSTANTS_LOCK:
+        _CONSTANTS_CACHE[key] = values
+    return values.copy()
 
 
 def extract(mir, values):
@@ -149,7 +165,10 @@ def extract(mir, values):
 def render(mir, repo):
     writes, result = extract(mir, constants(repo))
     payload = ", ".join(f"(square, {score}, {str(pv).lower()})" for score, pv in writes)
-    return f"""import NeuralReversi.Bitboard.SquareModel
+    return f"""module
+public import NeuralReversi.Bitboard.SquareModel
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel
 

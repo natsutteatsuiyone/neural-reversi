@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.FrameTableReads.Execution
-import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.Execution
+public import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Journal
 

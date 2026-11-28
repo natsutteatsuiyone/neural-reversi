@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Ownership
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Ownership
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 

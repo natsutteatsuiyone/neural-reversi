@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.Join
-import NeuralReversi.PvsParallel.SlotFrameMir.RawGuards
-import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+module
+public import NeuralReversi.PvsParallel.Interleaving.Join
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawGuards
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Mask
 
@@ -95,13 +98,13 @@ private theorem legalSnoc (s : MaskState) (as : List Action) (a : Action)
   | nil => exact ⟨last,trivial⟩
   | cons _ _ ih => exact ⟨before.1,ih _ before.2 last⟩
 
-private structure Linked (owner : Worker) (actions : List Action) (s : Tickets.State w) : Prop where
+structure Linked (owner : Worker) (actions : List Action) (s : Tickets.State w) : Prop where
   legal : SplitCompletion.Legal (SplitCompletion.initial owner) actions
   bits : ∀ j : Worker, (SplitCompletion.run (SplitCompletion.initial owner) actions).has j = true ↔ j.val ∈ roster s
   gate : s.booking = true → (SplitCompletion.run (SplitCompletion.initial owner) actions).accepting = true
   distinct : (roster s).Nodup
 
-private theorem linked (path : Retirement.ExecutionWith out check len start owner actions s) : Linked owner actions s := by
+theorem linked (path : Retirement.ExecutionWith out check len start owner actions s) : Linked owner actions s := by
   induction path with
   | initial =>
     exact ⟨trivial,fun j => by change (Bitboard.squareMask owner).getLsbD j.val = true ↔ j.val ∈ [owner.val]; rw [Bitboard.squareMask_bit]; simp,fun _ => rfl,by simp [roster,Tickets.initial]⟩
@@ -139,7 +142,7 @@ def activation (prior : List Write) (next : List Generation) (g : Generation)
   ⟨owner,m.mark,g.actions,m.bounded,(linked path).legal,m.initial,m.rmw⟩
 
 
-private def guardRead (g : Generation) (owner : Worker) (n : Nat) (src : Fin ws.length) : Read ws :=
+def guardRead (g : Generation) (owner : Worker) (n : Nat) (src : Fin ws.length) : Read ws :=
   ⟨(g.clock owner).atStep (4+n),src,true⟩
 
 /-- Primitive mask observations of one real idle-loop invocation. The instruction clock

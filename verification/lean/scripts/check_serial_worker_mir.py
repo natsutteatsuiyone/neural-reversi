@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from cache_owner_mir import Body, CLOSURE, PASS, POOL, THREAD, WORKER
-from mir_common import checked
+from mir_common import checked, iter_mir_texts
 from check_move_iterator_mir import call, jump
 from extract_cache_boot import record, sequence
 from extract_header import ordinary
@@ -149,11 +149,13 @@ def effects(dump):
         "Thread::book_helper_job(": {POOL + "start_helpers"},
     }
     found = {token: set() for token in expected}
-    for path in dump.glob("reversi_core.*" + PASS):
-        source = path.read_text(encoding="utf-8")
+    for path, source in iter_mir_texts(dump, PASS, prefix="reversi_core."):
+        stem = None
         for token, sites in found.items():
             if token in source:
-                sites.add(path.name.removeprefix("reversi_core.").removesuffix(PASS))
+                if stem is None:
+                    stem = path.name.removeprefix("reversi_core.").removesuffix(PASS)
+                sites.add(stem)
     for token, sites in found.items():
         checked(sites == expected[token], f"serial state access {token}: {sites} differs from {expected[token]}")
 

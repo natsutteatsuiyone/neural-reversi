@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.RawSchedule
-import NeuralReversi.PvsParallel.NativeStopReturns.Poll
+module
+public import NeuralReversi.PvsParallel.Interleaving.RawSchedule
+public import NeuralReversi.PvsParallel.NativeStopReturns.Poll
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.StopSchedule
 
@@ -261,7 +264,7 @@ theorem Evidence.cause (ev : Evidence m check wait slot ps poll) (departed : Dep
     | ancestor target era co rr after =>
       exact .inr (parent era co rr logged target yes departed (cache.localClock r read) after)
 
-private def ordinary : Tickets.Action → Bool
+def ordinary : Tickets.Action → Bool
   | .take .. | .empty .. | .report .. => true
   | _ => false
 

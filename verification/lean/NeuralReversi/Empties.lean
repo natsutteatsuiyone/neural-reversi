@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.Model
+module
+public import NeuralReversi.Bitboard.Model
+
+@[expose] public section
 
 /-! Model of `search::endgame::empties`: the empty squares of an endgame position as a
 mask over the presorted square order, the odd-quadrant mask and the last-four ordering. -/
@@ -98,15 +101,16 @@ def quad (sq : Square) : Fin 4 := ⟨2 * (sq.val / 32) + sq.val % 8 / 4, by omeg
 /-- `quadrant` in `search/endgame/empties.rs`. -/
 def quadrant (sq : Square) : Bits := 0x0F0F0F0F#64 <<< (sq.val &&& 36)
 
-theorem quadrant_bit : ∀ sq j : Square, (quadrant sq).getLsbD j.val = (quad j == quad sq) := by decide
+theorem quadrant_bit : ∀ sq j : Square, (quadrant sq).getLsbD j.val = (quad j == quad sq) := by
+  decide +kernel
 
-private def fold (x : Bits) : Bits :=
+def fold (x : Bits) : Bits :=
   let x := x ^^^ (x >>> 8)
   let x := x ^^^ (x >>> 16)
   let x := x ^^^ (x >>> 2)
   x ^^^ (x >>> 1)
 
-private def origins : Bits := 0x0000001100000011#64
+def origins : Bits := 0x0000001100000011#64
 
 /-- `odd_quadrants` in `search/endgame/empties.rs`. -/
 def oddQuadrants (x : Bits) : Bits := (fold x &&& origins) * 0x0F0F0F0F#64
@@ -125,7 +129,7 @@ private theorem xorAll_countP (x : Bits) (l : List Nat) :
       cases x.getLsbD i <;> simp [h, Nat.add_mod]
 
 /-- The squares of quadrant `q` in the order `fold` combines them. -/
-private def quadSquares : Fin 4 → List Nat
+def quadSquares : Fin 4 → List Nat
   | 0 => [0,8,16,24,2,10,18,26,1,9,17,25,3,11,19,27]
   | 1 => [4,12,20,28,6,14,22,30,5,13,21,29,7,15,23,31]
   | 2 => [32,40,48,56,34,42,50,58,33,41,49,57,35,43,51,59]
@@ -145,20 +149,49 @@ private def spread (b0 b4 b32 b36 : Bool) : Bits :=
   (if b0 then 1#64 else 0) ||| (if b4 then 16#64 else 0) |||
     (if b32 then 0x100000000#64 else 0) ||| (if b36 then 0x1000000000#64 else 0)
 
+private theorem getLsbD_ite_zero (b : Bool) (c : Bits) (j : Nat) :
+    (if b = true then c else 0).getLsbD j = (b && c.getLsbD j) := by
+  cases b <;> simp
+
+private theorem origins_bit : ∀ j : Fin 64,
+    origins.getLsbD j.val = decide (j.val = 0 ∨ j.val = 4 ∨ j.val = 32 ∨ j.val = 36) := by
+  decide +kernel
+
+private theorem spread_const_bits : ∀ j : Fin 64,
+    (1#64).getLsbD j.val = decide (j.val = 0) ∧
+    (16#64).getLsbD j.val = decide (j.val = 4) ∧
+    (0x100000000#64).getLsbD j.val = decide (j.val = 32) ∧
+    (0x1000000000#64).getLsbD j.val = decide (j.val = 36) := by
+  decide +kernel
+
 private theorem masked (y : Bits) :
     y &&& origins = spread (y.getLsbD 0) (y.getLsbD 4) (y.getLsbD 32) (y.getLsbD 36) := by
   apply BitVec.eq_of_getLsbD_eq
   intro j hj
-  have cases : j = 0 ∨ j = 1 ∨ j = 2 ∨ j = 3 ∨ j = 4 ∨ j = 5 ∨ j = 6 ∨ j = 7 ∨ j = 8 ∨ j = 9 ∨ j = 10 ∨ j = 11 ∨ j = 12 ∨ j = 13 ∨ j = 14 ∨ j = 15 ∨ j = 16 ∨ j = 17 ∨ j = 18 ∨ j = 19 ∨ j = 20 ∨ j = 21 ∨ j = 22 ∨ j = 23 ∨ j = 24 ∨ j = 25 ∨ j = 26 ∨ j = 27 ∨ j = 28 ∨ j = 29 ∨ j = 30 ∨ j = 31 ∨ j = 32 ∨ j = 33 ∨ j = 34 ∨ j = 35 ∨ j = 36 ∨ j = 37 ∨ j = 38 ∨ j = 39 ∨ j = 40 ∨ j = 41 ∨ j = 42 ∨ j = 43 ∨ j = 44 ∨ j = 45 ∨ j = 46 ∨ j = 47 ∨ j = 48 ∨ j = 49 ∨ j = 50 ∨ j = 51 ∨ j = 52 ∨ j = 53 ∨ j = 54 ∨ j = 55 ∨ j = 56 ∨ j = 57 ∨ j = 58 ∨ j = 59 ∨ j = 60 ∨ j = 61 ∨ j = 62 ∨ j = 63 := by omega
-  rcases cases with h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h|h <;> subst h <;>
-    cases h0 : y.getLsbD 0 <;> cases h4 : y.getLsbD 4 <;> cases h32 : y.getLsbD 32 <;>
-    cases h36 : y.getLsbD 36 <;> simp [origins, spread, h0, h4, h32, h36, -BitVec.getLsbD_eq_getElem]
+  have hbits := spread_const_bits ⟨j, hj⟩
+  have h1 : (1#64).getLsbD j = decide (j = 0) := hbits.1
+  have h4 : (16#64).getLsbD j = decide (j = 4) := hbits.2.1
+  have h32 : (0x100000000#64).getLsbD j = decide (j = 32) := hbits.2.2.1
+  have h36 : (0x1000000000#64).getLsbD j = decide (j = 36) := hbits.2.2.2
+  have ho : origins.getLsbD j = decide (j = 0 ∨ j = 4 ∨ j = 32 ∨ j = 36) := origins_bit ⟨j, hj⟩
+  simp only [BitVec.getLsbD_and, ho, spread, BitVec.getLsbD_or,
+    getLsbD_ite_zero, h1, h4, h32, h36]
+  by_cases hj0 : j = 0
+  · subst hj0; simp
+  · by_cases hj4 : j = 4
+    · subst hj4; simp
+    · by_cases hj32 : j = 32
+      · subst hj32; simp
+      · by_cases hj36 : j = 36
+        · subst hj36; simp
+        · simp [hj0, hj4, hj32, hj36]
 
 private def pick (b0 b4 b32 b36 : Bool) : Fin 4 → Bool
   | 0 => b0 | 1 => b4 | 2 => b32 | 3 => b36
 
 private theorem spread_bits : ∀ (b0 b4 b32 b36 : Bool) (j : Fin 64),
-    (spread b0 b4 b32 b36 * 0x0F0F0F0F#64).getLsbD j.val = pick b0 b4 b32 b36 (quad j) := by decide
+    (spread b0 b4 b32 b36 * 0x0F0F0F0F#64).getLsbD j.val = pick b0 b4 b32 b36 (quad j) := by
+  decide +kernel
 
 private theorem pick_origin (y : Bits) (q : Fin 4) :
     pick (y.getLsbD 0) (y.getLsbD 4) (y.getLsbD 32) (y.getLsbD 36) q = y.getLsbD (origin q) := by
@@ -219,7 +252,7 @@ private theorem all_shapes : ∀ qa qb qc qd : Fin 4,
     let odd : Fin 4 → Bool := fun i =>
       cells.countP (fun k => pick4 qa qb qc qd k == pick4 qa qb qc qd i) % 2 == 1
     fourOrder (!(odd 0 || odd 1 || odd 2 || odd 3)) (odd 0) (odd 1) (odd 2) (0 : Fin 4) 1 2 3 =
-      cells.filter odd ++ cells.filter (fun i => !odd i) := by decide
+      cells.filter odd ++ cells.filter (fun i => !odd i) := by decide +kernel
 
 theorem fourOrder_partition (a b c d : Square) :
     let cells := [a, b, c, d]

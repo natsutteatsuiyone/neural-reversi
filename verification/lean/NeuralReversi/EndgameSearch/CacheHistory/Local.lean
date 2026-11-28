@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.CacheOwner
-import NeuralReversi.EndgameSearch.CacheMir.BudgetProof
-import NeuralReversi.EndgameSearch.CacheHistory.Boundary
+module
+public import NeuralReversi.EndgameSearch.CacheOwner
+public import NeuralReversi.EndgameSearch.CacheMir.BudgetProof
+public import NeuralReversi.EndgameSearch.CacheHistory.Boundary
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory
 

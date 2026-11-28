@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.MovesDirectional
+module
+public import NeuralReversi.Bitboard.MovesDirectional
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

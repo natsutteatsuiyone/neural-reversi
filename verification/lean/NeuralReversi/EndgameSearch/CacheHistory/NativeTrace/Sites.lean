@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Boundary
-import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Boundary
+public import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
 

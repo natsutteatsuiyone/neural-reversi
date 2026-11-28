@@ -1,7 +1,10 @@
-import NeuralReversi.PvsMoveLoop
-import NeuralReversi.Board.Move.Documentation
-import NeuralReversi.Bitboard.NeonMoves
-import NeuralReversi.ScoreRefresh.BoardBridge
+module
+public import NeuralReversi.PvsMoveLoop
+public import NeuralReversi.Board.Move.Documentation
+public import NeuralReversi.Bitboard.NeonMoves
+public import NeuralReversi.ScoreRefresh.BoardBridge
+
+@[expose] public section
 
 namespace NeuralReversi.PvsBoardTree
 

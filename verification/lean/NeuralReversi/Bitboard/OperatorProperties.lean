@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.OperatorModel
+module
+public import NeuralReversi.Bitboard.OperatorModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

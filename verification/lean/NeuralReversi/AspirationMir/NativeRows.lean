@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.NativeTrials
-import NeuralReversi.PvsParallel.RootStorageMir.Rows
+module
+public import NeuralReversi.AspirationMir.NativeTrials
+public import NeuralReversi.PvsParallel.RootStorageMir.Rows
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeRows
 
@@ -19,18 +22,18 @@ inductive Sample where
 def engine (samples : List Sample) : List Record :=
   samples.filterMap fun | .engine r => some r | _ => none
 
-private inductive Phase where | before | active | scored | done deriving DecidableEq
+inductive Phase where | before | active | scored | done deriving DecidableEq
 
-private structure Scan where
+structure Scan where
   stack : Nat → List (Nat × Node) := fun _ => []
   tick : Nat → Option Nat := fun _ => none
   phase : Phase := .before
   index : Option (Nat × Nat × List RootMoveStorage.Row) := none
   reversed : List Packet := []
 
-private def put (f : Nat → A) (n : Nat) (a : A) (i : Nat) := if i = n then a else f i
+def put (f : Nat → A) (n : Nat) (a : A) (i : Nat) := if i = n then a else f i
 
-private def Scan.atTick (s : Scan) (worker t : Nat) : Option Scan :=
+def Scan.atTick (s : Scan) (worker t : Nat) : Option Scan :=
   if (s.tick worker).all (· < t) then some {s with tick := put s.tick worker (some t)} else none
 
 structure CallSite where
@@ -40,7 +43,7 @@ structure CallSite where
   returned : Nat
   score : ScoreRefresh.Score
 
-private def Scan.advance (call : CallSite) (returnAt : Option Nat) (receiver : Nat) (s : Scan) : Sample → Option Scan
+def Scan.advance (call : CallSite) (returnAt : Option Nat) (receiver : Nat) (s : Scan) : Sample → Option Scan
   | .engine (.table _) => some s
   | .engine (.localCall w (.entry t _ node ..)) => do
     let s ← s.atTick w t
@@ -93,7 +96,7 @@ structure Locks where
 def Locks.steps (w : Nat) (locks : Locks) : List (Nat × Nat) :=
   (w,locks.resetAt) :: locks.changes.map fun p => (p.worker,p.tick)
 
-private def scanLocks (call : CallSite) (returnAt : Option Nat) (receiver : Nat) (samples : List Sample) : Option Locks := do
+def scanLocks (call : CallSite) (returnAt : Option Nat) (receiver : Nat) (samples : List Sample) : Option Locks := do
   let final ← samples.foldlM (Scan.advance call returnAt receiver) {}
   if final.phase != (if returnAt.isSome then .done else .scored) then none else
     let (idx,t,original) ← final.index

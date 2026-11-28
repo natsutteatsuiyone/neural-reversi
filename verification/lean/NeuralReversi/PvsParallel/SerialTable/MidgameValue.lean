@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+module
+public import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameValue
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.ScoreReuse
-import NeuralReversi.PvsParallel.IteratorFields
+module
+public import NeuralReversi.PvsParallel.Interleaving.ScoreReuse
+public import NeuralReversi.PvsParallel.IteratorFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
 
@@ -237,21 +240,21 @@ theorem Run.reports {t : NativeSplit.Tickets rc pv beta} {s : Tickets.State t.wi
 def task (t : NativeSplit.Tickets rc pv beta) (root cut : Bool) (depth : Nat) : Schedule.Task :=
   ⟨pv,root,cut,depth,beta,t.initial.state⟩
 
-private abbrev original {t : NativeSplit.Tickets rc pv beta} {g : RawMask mask}
+abbrev original {t : NativeSplit.Tickets rc pv beta} {g : RawMask mask}
     (p : PhysicalOwner g hist time slot t) :=
   p.bPre ++ t.final.best ++ SlotFrameMir.RawProjection.subsequent p.exit slot .score p.later
 
-private theorem words {t : NativeSplit.Tickets rc pv beta} {g : RawMask mask}
+theorem words {t : NativeSplit.Tickets rc pv beta} {g : RawMask mask}
     (p : PhysicalOwner g hist time slot t) (seed : Seed t.b) :
     (scores p).words p.exit.timeline slot.2 p.exit.log.length = original p := by
   unfold ScoreReuse.Scores.words
   rw [current p seed]
   rfl
 
-private def copyRead {xs ys : List Write} (eq : xs = ys) (r : Read xs) : Read ys :=
+def copyRead {xs ys : List Write} (eq : xs = ys) (r : Read xs) : Read ys :=
   ⟨r.event,⟨r.source.val,eq ▸ r.source.isLt⟩,r.acquire⟩
 
-private theorem copy_coherent {xs ys : List Write} (eq : xs = ys) (r : Read xs)
+theorem copy_coherent {xs ys : List Write} (eq : xs = ys) (r : Read xs)
     (mem : SplitRebookingMir.Coherence h xs r) : SplitRebookingMir.Coherence h ys (copyRead eq r) := by
   subst ys
   exact mem

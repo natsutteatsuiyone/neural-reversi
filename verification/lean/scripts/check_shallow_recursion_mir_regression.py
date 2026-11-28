@@ -36,13 +36,13 @@ MUTATIONS = {
 }
 
 
-def check(dump, repo):
+def check(dump, repo, *, baseline=None):
     cases = [
         (f"reversi_core.search-endgame-{method}.{PASS}.after.mir", old, new, method)
         for method, checks in MUTATIONS.items()
         for old, new in checks
     ]
-    return check_mir_regression(dump, repo, verify, cases)
+    return check_mir_regression(dump, repo, verify, cases, baseline=baseline)
 
 
 def main():

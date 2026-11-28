@@ -1,4 +1,10 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+meta import NeuralReversi.Threading.AtomicWord
+meta import NeuralReversi.Threading.SpinLock
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.MutexRegression
 

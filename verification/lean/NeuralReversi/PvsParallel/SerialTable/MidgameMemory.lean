@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.Repeated
-import NeuralReversi.PvsParallel.SerialTable.Fallback
+module
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+public import NeuralReversi.PvsParallel.SerialTable.Fallback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameMemory
 

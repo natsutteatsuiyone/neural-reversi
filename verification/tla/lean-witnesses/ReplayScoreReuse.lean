@@ -1,3 +1,4 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.Interleaving.ScoreReuse
 
 open Lean

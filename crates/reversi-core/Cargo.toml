@@ -17,6 +17,7 @@ probcut-trace = []
 
 [dependencies]
 byteorder.workspace = true
+eval-weights.workspace = true
 rapidhash = { version = "4.4", features = ["unsafe"] }
 zstd.workspace = true
 

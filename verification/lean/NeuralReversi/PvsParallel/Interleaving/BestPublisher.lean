@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
+module
+public import NeuralReversi.PvsParallel.Interleaving.ScoreOrigin
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.BestPublisher
 
@@ -34,7 +37,7 @@ def replay (seed : Store) (rows : List Packet) : Option Winner :=
 
 def ofWrite (w : Write) : Store := ⟨w.event,FieldStores.low32 w⟩
 
-private def emission : Packet → Option Winner
+def emission : Packet → Option Winner
   | .live _ index _ _ (some s) => some (s,some index)
   | _ => none
 
@@ -55,7 +58,7 @@ theorem replay_source {rows : List Packet} {s t : Winner} (ok : rows.foldlM step
     rw [ih more,step_last one]
     cases h : emission p <;> simp [h,List.getLast?_cons,Option.getD]
 
-private def readBest : Physical → Option Word
+def readBest : Physical → Option Word
   | .readBest w => some w
   | _ => none
 
@@ -200,7 +203,7 @@ private theorem accepts (rows : List (Nat × Raw))
 
 open SplitSchedulerMir.WorkerFields (locate located)
 
-private def lockWorker (t : NativeSplit.Tickets rc pv beta) (rank : Nat) :=
+def lockWorker (t : NativeSplit.Tickets rc pv beta) (rank : Nat) :=
   (t.journal[rank]?.map (·.worker)).getD 0
 
 def rows (t : NativeSplit.Tickets rc pv beta) : List (Nat × Raw) :=
@@ -253,7 +256,7 @@ private theorem lastAt (pre updates post : List α) (seed : α) :
   simp only [List.length_cons,Nat.add_sub_cancel] at last
   rw [←last,List.getLast?_cons]
 
-private def scoreWords {t : NativeSplit.Tickets rc pv beta} (c : ScoreOrigin.Capture t root cut depth child) :=
+def scoreWords {t : NativeSplit.Tickets rc pv beta} (c : ScoreOrigin.Capture t root cut depth child) :=
   c.owner.bPre ++ t.final.best ++ SlotFrameMir.RawProjection.subsequent c.owner.exit (c.generation.owner,c.bankIndex) .score c.owner.later
 
 /-- A native ticket lock log determines the publisher's worker, instruction and move

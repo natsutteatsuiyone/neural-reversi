@@ -1,4 +1,7 @@
-import NeuralReversi.MoveList.Initialization
+module
+public import NeuralReversi.MoveList.Initialization
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Concurrent
 

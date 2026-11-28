@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.NonPvMir.Program
-import NeuralReversi.PvsParallel.PvEntryMir.Program
-import NeuralReversi.PvsParallel
-import NeuralReversi.MoveList.Generation
+module
+public import NeuralReversi.PvsParallel.NonPvMir.Program
+public import NeuralReversi.PvsParallel.PvEntryMir.Program
+public import NeuralReversi.PvsParallel
+public import NeuralReversi.MoveList.Generation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.PvEntryMir
 

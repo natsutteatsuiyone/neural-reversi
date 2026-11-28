@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.StructuralCoordinates
+module
+public import NeuralReversi.Stability.StructuralCoordinates
+
+@[expose] public section
 
 set_option linter.unusedSimpArgs false
 namespace NeuralReversi.Stability.Semantics

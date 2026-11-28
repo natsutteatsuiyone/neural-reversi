@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.PatternUpdate.Tables
+module
+public import NeuralReversi.Eval.PatternUpdate.Tables
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.PatternUpdate
 

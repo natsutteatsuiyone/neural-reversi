@@ -1,3 +1,4 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.Interleaving.CallReturns
 open Lean NeuralReversi NeuralReversi.PvsParallel
 open Interleaving.CallReturns

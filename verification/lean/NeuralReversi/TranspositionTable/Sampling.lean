@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Size
+module
+public import NeuralReversi.TranspositionTable.Size
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Sampling
 

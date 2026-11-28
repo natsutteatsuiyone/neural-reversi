@@ -1,6 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadbackFixture
-import NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
-import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+module
+public import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadbackFixture
+public import NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
+public import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+meta import NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
+meta import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SchedulerReplayFixture
 

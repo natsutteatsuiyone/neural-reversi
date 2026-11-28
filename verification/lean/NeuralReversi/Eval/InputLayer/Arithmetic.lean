@@ -1,4 +1,6 @@
-import Lean
+module
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.InputLayer
 
@@ -9,9 +11,9 @@ def scalarBase (lo hi : Int) : Int :=
 
 def scalarPhase (v : Int) : Int := scalarBase v v
 
-private def sat8 (v : Int) : Int := min (max v 0) 255
-private def satU16 (v : Int) : Int := min (max v 0) 65535
-private def satI16 (v : Int) : Int := min (max v (-32768)) 32767
+def sat8 (v : Int) : Int := min (max v 0) 255
+def satU16 (v : Int) : Int := min (max v 0) 65535
+def satI16 (v : Int) : Int := min (max v (-32768)) 32767
 
 def x86Base (lo hi : Int) : Int :=
   sat8 ((64 * clip510 lo) * min hi 510 / 65536)

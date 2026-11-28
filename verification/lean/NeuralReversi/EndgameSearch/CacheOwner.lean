@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.CacheOwner.Program
-import NeuralReversi.EndgameSearch.CacheMir
+module
+public import NeuralReversi.EndgameSearch.CacheOwner.Program
+public import NeuralReversi.EndgameSearch.CacheMir
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheOwner
 
@@ -18,7 +21,7 @@ structure Endpoint where
   registry : Thread
   running : Thread
 
-private def Handle.resolve (fresh returned captured foreign : Thread) : Handle → Thread
+def Handle.resolve (fresh returned captured foreign : Thread) : Handle → Thread
   | .newArc => fresh | .returned => returned | .captured => captured | .foreign => foreign
 
 /-- Fresh allocation identities are numbered in construction order while the objects are live. -/
@@ -113,7 +116,7 @@ theorem native_receiver {outside kind base foreign node resource}
   rw [actual] at path
   cases kind <;> exact callee_resource path
 
-private def hasBorrow : Kind → Bool
+def hasBorrow : Kind → Bool
   | .pair | .deep | .shallow => true | _ => false
 
 private theorem retained {e : Edge} (member : e ∈ transfers) :

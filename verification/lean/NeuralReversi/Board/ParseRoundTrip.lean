@@ -1,5 +1,8 @@
-import NeuralReversi.Board.ParseProperties
-import NeuralReversi.Board.RenderingProperties
+module
+public import NeuralReversi.Board.ParseProperties
+public import NeuralReversi.Board.RenderingProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

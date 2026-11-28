@@ -1,4 +1,7 @@
-import NeuralReversi.OuterMir.Correct
+module
+public import NeuralReversi.OuterMir.Correct
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiClock
 

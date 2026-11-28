@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameTiming
+module
+public import NeuralReversi.EndgameTiming
+
+@[expose] public section
 
 namespace NeuralReversi.Binary64Arithmetic
 

@@ -1,7 +1,10 @@
-import NeuralReversi.Bitboard.Avx2Model
-import NeuralReversi.Bitboard.Avx512Model
-import NeuralReversi.Bitboard.Avx2PotentialModel
-import NeuralReversi.Bitboard.Avx512PotentialModel
+module
+public import NeuralReversi.Bitboard.Avx2Model
+public import NeuralReversi.Bitboard.Avx512Model
+public import NeuralReversi.Bitboard.Avx2PotentialModel
+public import NeuralReversi.Bitboard.Avx512PotentialModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.PvSerialMir
-import NeuralReversi.PvsParallel.Replay
-import NeuralReversi.PvsParallel.RootOwnerMir.Serial
+module
+public import NeuralReversi.PvsParallel.PvSerialMir
+public import NeuralReversi.PvsParallel.Replay
+public import NeuralReversi.PvsParallel.RootOwnerMir.Serial
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialPv
 

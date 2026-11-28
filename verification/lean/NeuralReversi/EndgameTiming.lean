@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameProgress
-import NeuralReversi.ScaledScore.FloatRounding
+module
+public import NeuralReversi.EndgameProgress
+public import NeuralReversi.ScaledScore.FloatRounding
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameTiming
 

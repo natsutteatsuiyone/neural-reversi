@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiLine
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiLine
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiBatch
 

@@ -1,5 +1,8 @@
-import NeuralReversi.Disc.Properties
-import NeuralReversi.Square.TextModel
+module
+public import NeuralReversi.Disc.Properties
+public import NeuralReversi.Square.TextModel
+
+@[expose] public section
 
 namespace NeuralReversi.Disc.PlayerColor
 

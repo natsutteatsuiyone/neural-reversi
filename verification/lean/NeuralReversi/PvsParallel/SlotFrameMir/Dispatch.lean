@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.DispatchProgram
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.DispatchProgram
+public import NeuralReversi.PvsParallel.SlotFrameMir.Live
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

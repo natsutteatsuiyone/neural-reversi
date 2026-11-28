@@ -1,5 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalProbCut
-import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalProbCut
+public import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.CallReturns
+meta import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.JournalProbCut
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalScoutOwner
 
@@ -24,7 +30,7 @@ structure Owner (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : P
   score : Int
   weak : ∀ prior reads, x.InPrefix prior → WeakFrame.Frame mc fc prior reads b false a z score
 
-private def path (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth)
+def path (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth)
     (a z : Int) (null : z = a+1) (cut : Bool) (op : Options mc b) (x : NativeNodes.Returns)
     (first : GeneratedSquare mc b.val) (rest : List (GeneratedSquare mc b.val)) (gen : legalSquares mc b.val = first :: rest)
     (hint : Option (GeneratedSquare mc b.val)) (width : Nat)
@@ -63,11 +69,11 @@ private def path (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : 
       | some r =>
         if all : r.visited.all (fun m => (reply m).isSome) then
           let visits := front ++ r.visited.map (fun m => (m,Role.scout.site))
-          have traced (prior) (inside : x.InPrefix prior) := by
-            let suffix := GeneralOwnerMir.run_trace op.schedule d.toNat cut (BoardFrame.Children mc fc b prior) search z
-              (q.budget+1) 0 q ⟨a,best⟩ none r found (fun m h => witness prior inside m (List.all_eq_true.mp all m h))
-            exact GeneralOwnerMir.seeded key _ search first rest hint a z null legal low
-              (fun u => witness prior inside move (valid u).1) (fun u => (valid u).2) choice ordered rfl suffix
+          have traced (prior) (inside : x.InPrefix prior) :=
+            GeneralOwnerMir.seeded key _ search first rest hint a z null legal low
+              (fun u => witness prior inside move (valid u).1) (fun u => (valid u).2) choice ordered rfl
+              (GeneralOwnerMir.run_trace op.schedule d.toNat cut (BoardFrame.Children mc fc b prior) search z
+                (q.budget+1) 0 q ⟨a,best⟩ none r found (fun m h => witness prior inside m (List.all_eq_true.mp all m h)))
           cases out : r.outcome with
           | returned score =>
             exact some ⟨visits,false,score,fun prior _ inside => by
@@ -96,13 +102,13 @@ private def path (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : 
         else exact none
   else exact none
 
-private def issued (scope : CallReturns.Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def issued (scope : CallReturns.Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (d : Depth) (a : Int) (cut : Bool) (moves : List (GeneratedSquare mc b.val × Nat)) : Bool :=
   let expected := moves.map fun (m,site) => (CallReturns.pvRequest mc fc b d cut m false (-(a+1)) (-a),site)
   let actual := scope.slots.mapM fun slot => slot.result.map (fun r => (r.entry.request,r.site))
   actual == some expected
 
-private def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s : CallJournal.State Op) (f : Frame)
+def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s : CallJournal.State Op) (f : Frame)
     (reads : Lookups) (checked : Bool) (a z : Score) (d : Depth) (cut : Bool) (op : Options mc f.board)
     (acts : CallReturns.State) (id : Nat) (attempts : List ProbeRetry.RawAttempt)
     (rows : List (TableReads.ChildLookupFrom mc fc f.board (fun _ => True))) (seen : NativeNodes.Probed mc fc f.board reads attempts rows)
@@ -145,7 +151,7 @@ private def finish (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (s 
           else exact .proved ⟨finite_,weak_,fun same => (level same).elim⟩
         else exact .rejected
 
-private def beforeProbe (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) :=
+def beforeProbe (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) :=
   let generation := PvEntryMir.generated mc fc b false (fun _ => none)
   GeneralNonPvMir.dispatch d.toNat (EndgameStability.tryCutoff b.val d.toNat ⟨(ScoreRefresh.toDiscDiff a).raw.toInt⟩).isSome
     (generation.len.getD 0 != 0) (Board.hasLegalMoves mc (PvsBoardTree.pass b).val) generation.wipeout.join.isSome false false

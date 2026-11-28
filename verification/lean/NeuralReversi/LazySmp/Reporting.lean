@@ -1,6 +1,9 @@
-import NeuralReversi.LazySmp.Schedule
-import NeuralReversi.LazySmp.Voting
-import NeuralReversi.Threading.CutoffVisibility
+module
+public import NeuralReversi.LazySmp.Schedule
+public import NeuralReversi.LazySmp.Voting
+public import NeuralReversi.Threading.CutoffVisibility
+
+@[expose] public section
 
 namespace NeuralReversi.LazySmp
 

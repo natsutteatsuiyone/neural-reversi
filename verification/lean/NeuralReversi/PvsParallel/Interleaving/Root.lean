@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.FrameRows
-import NeuralReversi.PvsParallel.RootOwnerMir.Slice
-import NeuralReversi.PvsParallel.RootReplay.Split
+module
+public import NeuralReversi.PvsParallel.FrameRows
+public import NeuralReversi.PvsParallel.RootOwnerMir.Slice
+public import NeuralReversi.PvsParallel.RootReplay.Split
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootTrial
 

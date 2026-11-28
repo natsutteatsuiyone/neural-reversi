@@ -1,7 +1,10 @@
-import NeuralReversi.Bitboard.Avx2PotentialModel
-import NeuralReversi.Simd.PairProperties
-import NeuralReversi.Bitboard.Avx2Properties
-import NeuralReversi.Bitboard.PotentialProperties
+module
+public import NeuralReversi.Bitboard.Avx2PotentialModel
+public import NeuralReversi.Simd.PairProperties
+public import NeuralReversi.Bitboard.Avx2Properties
+public import NeuralReversi.Bitboard.PotentialProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86

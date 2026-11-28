@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitCompletion
+module
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitLifetime
 
@@ -51,7 +54,7 @@ def State.create (state : State) (task : Task) : State :=
 def Frame.apply (frame : Frame) (action : Action) : Frame :=
   { frame with mask := SplitCompletion.step frame.mask action }
 
-private def MayLeave (state : State) (id : Nat) (action : Action) : Prop :=
+def MayLeave (state : State) (id : Nat) (action : Action) : Prop :=
   match action with
   | .book .. => True
   | .finish worker _ =>

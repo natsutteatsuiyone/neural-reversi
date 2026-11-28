@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameProbCut
-import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+module
+public import NeuralReversi.EndgameProbCut
+public import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
 
@@ -10,16 +13,16 @@ structure Estimates where
   evaluation : BitVec 32
   verifyDepth2 : Int → Int → BitVec 32
 
-private def tailCoefficients : Array (Float × Float × Float) :=
+def tailCoefficients : Array (Float × Float × Float) :=
   #[(0.3786,0.1317,0.3825),(-1.3215,0.2985,0.6360),(0.0170,0.3131,0.7175),(-0.4242,0.4874,0.9121)]
 
-private def mean : List Float :=
+def mean : List Float :=
   [3.2996552433,-0.0583166555,-0.2489634608,-0.3459216837,0.2330285133,0.3175907433,0.5569823145,-0.6444854153]
 
-private def logSigma : List Float :=
+def logSigma : List Float :=
   [0.9479918545,-0.0175477071,-0.0846528866,-0.0265623046,-0.3431613432,0.3472355880,-0.0296237147,-0.1353929169]
 
-private def dot (coeff features : List Float) : Float :=
+def dot (coeff features : List Float) : Float :=
   (coeff.zipWith (· * ·) features).foldl (· + ·) 0
 
 /-- The fitted floating-point model of EndgameWindow::scaled_margins.

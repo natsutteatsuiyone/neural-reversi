@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SplitCutoff
-import NeuralReversi.Threading.AtomicWord
+module
+public import NeuralReversi.Threading.SplitCutoff
+public import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.CutoffVisibility
 
@@ -49,7 +52,7 @@ structure Coherent (history : History) : Prop where
   flagReadWrite : ∀ r ∈ history.flagReads, ∀ w : Fin (history.flags r.slot).length,
     HappensBefore history r.event ((history.flags r.slot).get w).event → r.source.val < w.val
 
-private def predecessor (i : Fin length) : Fin length :=
+def predecessor (i : Fin length) : Fin length :=
   ⟨i.val - 1, Nat.lt_of_le_of_lt (Nat.sub_le _ _) i.isLt⟩
 
 structure Counter (history : History) : Prop where

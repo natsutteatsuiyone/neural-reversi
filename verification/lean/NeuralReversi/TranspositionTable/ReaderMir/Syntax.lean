@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Snapshot
+module
+public import NeuralReversi.TranspositionTable.Snapshot
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Recursive
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Registers
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Deep
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Recursive
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Registers
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls
 

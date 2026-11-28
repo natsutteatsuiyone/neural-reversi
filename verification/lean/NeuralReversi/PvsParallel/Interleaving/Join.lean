@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Schedule
+module
+public import NeuralReversi.PvsParallel.Interleaving.Schedule
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 
@@ -22,7 +25,7 @@ structure Join (t : Task) (done_ : ChildRelation Nat) (len : Nat) (start : BitVe
 def Join.answer (j : Join t done_ len start) : Option Int :=
   SplitReturn.checked j.check.stopped (t.locked j.state.reports).best
 
-private theorem mapPath {p q : ChildRelation Nat} (path : Schedule.RunWith stop t p len start w mask state)
+theorem mapPath {p q : ChildRelation Nat} (path : Schedule.RunWith stop t p len start w mask state)
     (lift : ∀ i pv a z v, p i pv a z v → q i pv a z v) : Schedule.RunWith stop t q len start w mask state := by
   induction path with
   | initial => exact .initial

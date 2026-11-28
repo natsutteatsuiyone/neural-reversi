@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.BoardFrame
-import NeuralReversi.PvsParallel.Interleaving.RootFinite
-import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
+module
+public import NeuralReversi.PvsParallel.Interleaving.BoardFrame
+public import NeuralReversi.PvsParallel.Interleaving.RootFinite
+public import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.RootOrder
+module
+public import NeuralReversi.PvsParallel.RootOrder
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootReplay
 

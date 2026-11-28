@@ -1,8 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.ActivePointer
-import NeuralReversi.PvsParallel.Interleaving.FlagSegment
-import NeuralReversi.PvsParallel.Interleaving.MaskGeneration
-import NeuralReversi.PvsParallel.Interleaving.OwnerTape
-import NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
+module
+public import NeuralReversi.PvsParallel.Interleaving.ActivePointer
+public import NeuralReversi.PvsParallel.Interleaving.FlagSegment
+public import NeuralReversi.PvsParallel.Interleaving.MaskGeneration
+public import NeuralReversi.PvsParallel.Interleaving.OwnerTape
+public import NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
 
@@ -11,13 +14,13 @@ open AtomicWord (Event SequencedBefore)
 open CutoffVisibility (History FlagRead)
 open TaskAncestry (Journal View Generation)
 
-private instance : Decidable (SequencedBefore a b) :=
+instance : Decidable (SequencedBefore a b) :=
   inferInstanceAs (Decidable (a.worker = b.worker ∧ a.step < b.step))
 
-private instance : Decidable (NativeStopReturns.InWorker p e) :=
+instance : Decidable (NativeStopReturns.InWorker p e) :=
   inferInstanceAs (Decidable (e.worker = p.worker ∧ e.step ≤ p.step))
 
-private def atEvent (rows : List α) (event : α → Event) (site : Event) : Option {r // r ∈ rows} :=
+def atEvent (rows : List α) (event : α → Event) (site : Event) : Option {r // r ∈ rows} :=
   match rows.attach.filter fun x => event x.val == site with
   | [r] => some r
   | _ => none
@@ -28,7 +31,7 @@ structure Scan (h : History) (at_ : Event) (chain : List Nat) where
   logged : ∀ r ∈ reads, r ∈ h.flagReads
   later : ∀ r ∈ reads, SequencedBefore at_ r.event
 
-private def scan (h : History) (j : Journal) (v : View) (at_ : Event) : (chain : List Nat) →
+def scan (h : History) (j : Journal) (v : View) (at_ : Event) : (chain : List Nat) →
     List Event → Option (Scan h at_ chain)
   | [],[] => some ⟨[],.empty,by simp,by simp⟩
   | addr :: tail,id :: ids => do
@@ -59,7 +62,7 @@ def ownerScan (h : History) (j : Journal) (site : Event) : Option (SplitReturn.O
   let s ← scanAt h j v site
   return ⟨site,_,s.reads,s.walk,fun r mem => ⟨s.logged r mem,s.later r mem⟩⟩
 
-private structure CacheState (h : History) (chain : List Nat) where
+structure CacheState (h : History) (chain : List Nat) where
   cache : SplitCutoff.Cache
   seenSource : Option (Fin h.epochs.length)
   reads : List (FlagRead h.flags)
@@ -69,7 +72,7 @@ private structure CacheState (h : History) (chain : List Nat) where
   latch : Option Event := none
   checkedAt : Option Event := none
 
-private inductive Op where
+inductive Op where
   | reset (site load src : Event) (value : BitVec 64)
   | latch (site : Event) (bit : Bool)
   | checked (site : Event) (opening : Nat)
@@ -81,7 +84,7 @@ private inductive Op where
 
 /-- Select completions on the poll's worker since its most recent cache reset.
     The reset and epoch instructions retain the local load PC and its RF source. -/
-private def pick (site : Event) (first : Option Event) : Joint.Event Operand → Option Op
+def pick (site : Event) (first : Option Event) : Joint.Event Operand → Option Op
   | .taskWord w pc op =>
     if w != site.worker || pc > site.step || first.any (fun e => pc < e.step) then none else
     match op with
@@ -96,7 +99,7 @@ private def pick (site : Event) (first : Option Event) : Joint.Event Operand →
     | _ => none
   | _ => none
 
-private def epochLoad (h : History) (site load src : Event) (value : BitVec 64) (acq : Bool) :
+def epochLoad (h : History) (site load src : Event) (value : BitVec 64) (acq : Bool) :
     Option {r : AtomicWord.Read h.epochs // r ∈ h.epochReads ∧ r.acquire = acq ∧
       (h.epochs.get r.source).value = value} := do
   let ⟨r,logged⟩ ← atEvent h.epochReads (·.event) load
@@ -105,12 +108,12 @@ private def epochLoad (h : History) (site load src : Event) (value : BitVec 64) 
     return ⟨r,logged,ok⟩
   else none
 
-private def initialEpoch (h : History) : Option (Fin h.epochs.length) :=
+def initialEpoch (h : History) : Option (Fin h.epochs.length) :=
   if h0 : 0 < h.epochs.length then
     if (h.epochs.get ⟨0,h0⟩).value == 0 then some ⟨0,h0⟩ else none
   else none
 
-private def run (h : History) (j : Journal) (v : View) (s : CacheState h (v.path.map Generation.slot)) :
+def run (h : History) (j : Journal) (v : View) (s : CacheState h (v.path.map Generation.slot)) :
     (ops : List Op) → Option (CacheState h (v.path.map Generation.slot))
   | [] => some s
   | .used :: rest => run h j v {s with latch := none, checkedAt := none} rest
@@ -238,7 +241,7 @@ def sampled (j : Journal) (es : Joint.Tape Operand) (g : Generation) (m : Native
         return ⟨c,ctx,positive⟩
     none
 
-private abbrev waitAt {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOperands t) :=
+abbrev waitAt {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOperands t) :=
   b.owner.exit.clock.atStep (3+b.owner.exit.log.length)
 
 def generation {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOperands t) : Generation :=
@@ -247,7 +250,7 @@ def generation {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOperan
 def slots {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOperands t) (worker bank : Nat) :=
   if fits : worker < 64 then some (b.flagAddress (⟨worker,fits⟩,bank)) else none
 
-private def maskMark (g : NestedRetention.Generation h) := (g.writes.get g.mask.mark).event
+def maskMark (g : NestedRetention.Generation h) := (g.writes.get g.mask.mark).event
 
 /-- Physical mask histories and ordering of clear operations. The task path,
     dispatch retention, protected flag segment and positive poll are reconstructed. -/
@@ -317,7 +320,7 @@ structure Context {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.SetupOpe
   memory : (rank : Nat) → (ps : List Tickets.Post) → (poll : Event) → (rs : List (FlagRead b.memory.history.flags)) →
     Option (StopSchedule.PollMemory b.memory b.owner.check (waitAt b) (generation b).slot ps poll rs)
 
-private theorem logged {h : History} {rs : List (FlagRead h.flags)} (run : CutoffVisibility.StopSource.Execution h chain cache rs) :
+theorem logged {h : History} {rs : List (FlagRead h.flags)} (run : CutoffVisibility.StopSource.Execution h chain cache rs) :
     ∀ r ∈ rs, r ∈ h.flagReads := by
   induction run with
   | reset => simp
@@ -362,7 +365,7 @@ def flagged (m : NativeStopReturns.Memory) (j : Journal) (es : Joint.Tape Operan
     else none
   else none
 
-private def eras {t : NativeSplit.Tickets rc pv beta} {b : AlphaOrigin.SetupOperands t} (ctx : Context b es)
+def eras {t : NativeSplit.Tickets rc pv beta} {b : AlphaOrigin.SetupOperands t} (ctx : Context b es)
     (j : Journal) (r : FlagRead b.memory.history.flags) (g : NestedRetention.Generation b.memory.history) :
     Option (TaskRetention.Era b.memory.history r g) := do
   let era ← FlagSegment.recover b.memory.history j ⟨r.slot,maskMark g⟩

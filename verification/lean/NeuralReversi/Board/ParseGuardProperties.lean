@@ -1,4 +1,7 @@
-import NeuralReversi.Board.ParseModel
+module
+public import NeuralReversi.Board.ParseModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

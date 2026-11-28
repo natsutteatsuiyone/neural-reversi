@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.RootHeaderMir.Program
-import NeuralReversi.PvsMoveLoop
-import NeuralReversi.PvsPostpone
+module
+public import NeuralReversi.PvsParallel.RootHeaderMir.Program
+public import NeuralReversi.PvsMoveLoop
+public import NeuralReversi.PvsPostpone
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel
 

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.GeneralOwnerMir
-import NeuralReversi.PvsParallel.Replay
+module
+public import NeuralReversi.PvsParallel.GeneralOwnerMir
+public import NeuralReversi.PvsParallel.Replay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialNonPv
 

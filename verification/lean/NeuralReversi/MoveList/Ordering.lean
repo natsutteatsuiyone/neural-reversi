@@ -1,5 +1,8 @@
-import NeuralReversi.MoveList.Initialization
-import NeuralReversi.MoveList.OrderWeights
+module
+public import NeuralReversi.MoveList.Initialization
+public import NeuralReversi.MoveList.OrderWeights
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Ordering
 open Initialization

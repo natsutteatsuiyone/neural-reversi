@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SearchAbort
+module
+public import NeuralReversi.Threading.SearchAbort
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.StopToken
 
@@ -86,7 +89,7 @@ structure FixtureState where
 def fixtureStart : FixtureState :=
   ⟨⟨false, []⟩, fun _ => 0xffffffff#64, fun _ => none⟩
 
-private def applyAction (state : FixtureState) (action : Action) : FixtureState :=
+def applyAction (state : FixtureState) (action : Action) : FixtureState :=
   let (token, requests) := transition state.token action
   {state with token, word := fun pool =>
     requests.foldl (fun word run => deliver run pool.val word) (state.word pool)}

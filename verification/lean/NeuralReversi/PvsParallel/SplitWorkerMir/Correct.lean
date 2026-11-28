@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SplitWorkerMir.Program
-import NeuralReversi.Solve2.Control
+module
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Program
+public import NeuralReversi.Solve2.Control
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitWorkerMir
 

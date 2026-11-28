@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.NativeSplitFrame
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites
-import NeuralReversi.PvsParallel.RootStorageMir.Rows
-import NeuralReversi.PvsParallel.FrameTableReads.Execution
+module
+public import NeuralReversi.PvsParallel.NativeSplitFrame
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites
+public import NeuralReversi.PvsParallel.RootStorageMir.Rows
+public import NeuralReversi.PvsParallel.FrameTableReads.Execution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeRootOwner
 

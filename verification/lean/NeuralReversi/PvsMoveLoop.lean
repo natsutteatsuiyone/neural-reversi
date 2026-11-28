@@ -1,4 +1,7 @@
-import NeuralReversi.Aspiration
+module
+public import NeuralReversi.Aspiration
+
+@[expose] public section
 
 namespace NeuralReversi.PvsMoveLoop
 

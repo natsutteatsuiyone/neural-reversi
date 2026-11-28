@@ -1,5 +1,8 @@
-import NeuralReversi.Stability.EdgeContracts
-import NeuralReversi.Stability.EdgeMoveProgress
+module
+public import NeuralReversi.Stability.EdgeContracts
+public import NeuralReversi.Stability.EdgeMoveProgress
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 

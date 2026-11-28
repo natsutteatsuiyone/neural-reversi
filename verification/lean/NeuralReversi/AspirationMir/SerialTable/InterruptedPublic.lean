@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt
-import NeuralReversi.PublicationMir.SerialFallback
+module
+public import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt
+public import NeuralReversi.PublicationMir.SerialFallback
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InterruptedPublic
 

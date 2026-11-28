@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.Model
-import NeuralReversi.Square.Model
+module
+public import NeuralReversi.Bitboard.Model
+public import NeuralReversi.Square.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

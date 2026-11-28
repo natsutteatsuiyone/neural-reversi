@@ -1,7 +1,14 @@
-import NeuralReversi.PvsParallel.Interleaving.Joint
-import NeuralReversi.PvsParallel.Interleaving.CallReturns
-import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
-import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+module
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+public import NeuralReversi.PvsParallel.Interleaving.CallReturns
+public import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
+public import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+meta import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
+meta import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+meta import NeuralReversi.PvsParallel.Interleaving.CallReturns
+meta import NeuralReversi.PvsParallel.Interleaving.Joint
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalHelpers
 
@@ -15,7 +22,7 @@ open IteratorFrames (Observation)
 
 /-- A successful CAS carries both the opening of next() and the instruction that
     installed its successor. A reused iterator can repeat both counter words. -/
-private def claimAt (es : Joint.Tape Op) (w opening owner bank old stored : Nat) : Option (Nat × Nat) :=
+def claimAt (es : Joint.Tape Op) (w opening owner bank old stored : Nat) : Option (Nat × Nat) :=
   match es.zipIdx.filterMap fun (e,t) => match e with
     | .splitWord worker step (.claim k o b i j) =>
       if worker = w ∧ k = opening ∧ o = owner ∧ b = bank ∧ i = old ∧ j = stored then some (t,step) else none
@@ -28,20 +35,20 @@ def lastMark (es : Joint.Tape Op) (owner bank time : Nat) : Option (Nat × Nat) 
     | .splitWord w step (.mark b) => if w = owner ∧ b = bank then some (k,step) else none
     | _ => none).getLast?
 
-private def ticks (es : Joint.Tape Op) (worker : Nat) :=
+def ticks (es : Joint.Tape Op) (worker : Nat) :=
   es.filterMap fun e => if e.worker = worker then match e with
     | .splitWord _ step _ => some step
     | _ => e.frameSample.bind (fun s => match s.record with | .localCall _ x => some x.step | _ => none)
   else none
 
-private def stackAt (es : Joint.Tape Op) (worker t : Nat) : Option (List Nat) := do
+def stackAt (es : Joint.Tape Op) (worker t : Nat) : Option (List Nat) := do
   let state ← CallReturns.captureTimed ((es.take t).map Joint.Event.frameSample)
   return (state.workers worker).stack
 
 /-- Match the actual claim and the last generation mark at that address. The
     mark must execute under this root's split. The CAS must execute under the
     matching specialization of dispatch_search. Stamps below are worker-local. -/
-private def location (es : Joint.Tape Op) (state : State) (root bank : Nat) (mark : Event)
+def location (es : Joint.Tape Op) (state : State) (root bank : Nat) (mark : Event)
     (obs : Observation) (old stored dispatchSite : Nat) : Option (Nat × Nat × Nat) := do
   let (claim,stamp) ← claimAt es obs.worker obs.opening mark.worker bank old stored
   let (created,markStep) ← lastMark es mark.worker bank claim
@@ -60,14 +67,14 @@ private def location (es : Joint.Tape Op) (state : State) (root bank : Nat) (mar
 /-- Count *entries*, including an earlier invocation that never returned a
     score. Only the physical children after this successful CAS and before its
     lock may supply the one or two return words. -/
-private def interval (s : Scope) (claim stamp : Nat) (obs : Observation) :=
+def interval (s : Scope) (claim stamp : Nat) (obs : Observation) :=
   let children := s.calls.toList.zipIdx.filter fun (a,_) =>
     a.callee == .pvs && a.parent == some s.parent && decide (a.entered < s.consumer)
   let before := (children.takeWhile fun (a,_) => decide (a.entered < claim)).length
   let active := (children.drop before).takeWhile fun (a,_) => decide (a.first < obs.acquired.step)
   (before,active.filterMap fun (a,_) => if stamp < a.first then some (a.first,a.returned) else none,active.length)
 
-private def lockTime (es : Joint.Tape Op) (event : Event) (instruction : Joint.SplitWord) : Option Nat :=
+def lockTime (es : Joint.Tape Op) (event : Event) (instruction : Joint.SplitWord) : Option Nat :=
   (es.zipIdx.find? fun (row,_) => match row with
     | .splitWord w tick op => w == event.worker && tick == event.step && op == instruction
     | _ => false).map Prod.snd
@@ -125,7 +132,7 @@ theorem ownerExit_read {t : NativeSplit.Tickets rc pv beta} (es : Joint.Tape Op)
 
 /-- Both mutex operations belong to the dispatch that claimed the move. Check the last
     generation mark through unlock, including the interval after the recursive return. -/
-private def locked (es : Joint.Tape Op) (helper claim decision bank : Nat) (mark : Event)
+def locked (es : Joint.Tape Op) (helper claim decision bank : Nat) (mark : Event)
     (obs : Observation) : Option Unit := do
   guard (obs.acquired.worker = obs.worker ∧ obs.published.worker = obs.worker)
   let acquire ← lockTime es obs.acquired (.lock mark.worker bank)
@@ -136,7 +143,7 @@ private def locked (es : Joint.Tape Op) (helper claim decision bank : Nat) (mark
   guard (atLock.head? = some helper ∧ atRelease.head? = some helper)
   guard (lastMark es mark.worker bank release = lastMark es mark.worker bank claim)
 
-private def rawLeave (es : Joint.Tape Op) (worker opening : Nat) (finish : Event) (when_ : Option Nat) (word : Word) : Bool :=
+def rawLeave (es : Joint.Tape Op) (worker opening : Nat) (finish : Event) (when_ : Option Nat) (word : Word) : Bool :=
   match when_.bind (fun t => es[t]?) with
   | some (.engine (.localCall w (.leave t first .pvs _ (some value)) _)) =>
     w == worker && finish.worker == w && first == opening && finish.step == t && value.raw == word
@@ -148,7 +155,7 @@ structure Receipt (rows : List Row) where
   input : Input
   registry : scope.rows = rows
 
-private def decode (es : Joint.Tape Op) (state : State) (rows : List Row) (root bank level : Nat)
+def decode (es : Joint.Tape Op) (state : State) (rows : List Row) (root bank level : Nat)
     (mark : Event) (obs : Observation) (next : Position) (old stored : Nat) (i : Input) (rootNode : Bool := true) : Option (Receipt rows) := do
   let rootFrame ← state.calls[root]?
   let entry ← rootFrame.input
@@ -195,7 +202,7 @@ def report (es : Joint.Tape Op) (rows : List Row) (root bank level : Nat) (mark 
   guard (cell.sq = mv.val ∧ cell.flipped = Flip.Dispatch.resultValue fc mv.val b.val.player b.val.opponent)
   decode es state rows root bank level mark obs (PvsBoardTree.play mc fc b mv).val op.old.toNat op.stored.toNat packet.input rootNode
 
-private def one {mc : Bitboard.Moves.X86Config} {fc : Cutoffs.FlipConfig} (h : RootNative.History mc fc)
+def one {mc : Bitboard.Moves.X86Config} {fc : Cutoffs.FlipConfig} (h : RootNative.History mc fc)
     (r : Receipt rows) (b : Position) (mv : GeneratedSquare mc b.val) (level : Nat)
     (registry : RootCausal.frames h.weak h.exact level = rows.map Row.frame) (order : h.order = CallReturns.earlier)
     (wide : Bool) (lo hi score : Int) : Option (PLift (h.completed b level mv wide lo hi score)) := do
@@ -215,7 +222,7 @@ structure Uses (done_ : PvsMoveLoop.ChildRelation Nat) (beta : Int) (i : Input) 
   wide : retry i = true → done_ i.index true (-beta) (-i.fresh.toInt) i.wide.toInt
   again : retry i = SplitWindow.reSearch i.pv i.alpha.toInt i.scout.toInt
 
-private def livePacket {mc : Bitboard.Moves.X86Config} {fc : Cutoffs.FlipConfig} (h : RootNative.History mc fc)
+def livePacket {mc : Bitboard.Moves.X86Config} {fc : Cutoffs.FlipConfig} (h : RootNative.History mc fc)
     (es : Joint.Tape Op) (rows : List Row) (root bank level : Nat) (mark : Event)
     (t : NativeSplit.Tickets rc pv beta) (rank : Nat) (p : FieldStores.Raw)
     (b : Position) (r : Result (GeneratedSquare mc b.val))

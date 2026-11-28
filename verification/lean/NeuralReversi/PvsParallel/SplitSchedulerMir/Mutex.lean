@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SpinLock
+module
+public import NeuralReversi.Threading.SpinLock
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
 
@@ -20,7 +23,7 @@ def guards : List Operation → Option (List (Event × Event))
 def covers (ops : List Operation) (rows : List (Event × Event)) : Bool :=
   (guards ops).any fun pairs => decide (rows.Sublist pairs)
 
-private theorem paired {ops : List Operation} (ok : guards ops = some pairs) :
+theorem paired {ops : List Operation} (ok : guards ops = some pairs) :
     SpinLock.Legal history none ops ∧ (pairs.flatMap pairOps).Sublist ops := by
   match ops with
   | [] => cases ok; exact ⟨.stop,.slnil⟩
@@ -35,7 +38,7 @@ private theorem paired {ops : List Operation} (ok : guards ops = some pairs) :
     exact ⟨.acquired (.released (.sequenced (by assumption)) legal), (contained.cons_cons _).cons_cons _⟩
 termination_by ops.length
 
-private def word : Operation → Write
+def word : Operation → Write
   | .acquire a => ⟨a, 1, false, true⟩
   | .release r => ⟨r, 0, true, false⟩
 

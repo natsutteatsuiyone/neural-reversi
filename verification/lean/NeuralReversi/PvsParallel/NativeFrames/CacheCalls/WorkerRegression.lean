@@ -1,5 +1,10 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
-import NeuralReversi.Board.Hash
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
+public import NeuralReversi.Board.Hash
+meta import NeuralReversi.Board.Hash
+meta import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Boundary
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.WorkerRegression
 

@@ -1,25 +1,18 @@
-import NeuralReversi.MoveList.SmallGenerate
-import NeuralReversi.MoveList.Wipeout
-import NeuralReversi.LegalMoves.Encoding
-import NeuralReversi.Move.Model
+module
+public import NeuralReversi.MoveList.GenerationModel
+public import NeuralReversi.MoveList.SmallGenerate
+public import NeuralReversi.LegalMoves.Encoding
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Generation
 open Capacity Initialization
 open Bitboard (Bits setIndices)
 open Board (Board)
 
-def squares (selected : Bits) : List (Fin 64) :=
-  (List.finRange 64).filter (selected.getLsbD ∘ Fin.val)
-
 theorem squareIndices (selected : Bits) : (squares selected).map Fin.val = setIndices selected := by
   have indices : (List.finRange 64).map Fin.val = List.range 64 := by decide
   rw [squares, ← List.filter_map, indices, Bitboard.setIndices]
-
-def entry (fc : Flip.Dispatch.X86Config) (board : Board) (sq : Fin 64) : Move.Move :=
-  ⟨Flip.Dispatch.resultValue fc sq board.player board.opponent, 0, sq⟩
-
-def records (fc : Flip.Dispatch.X86Config) (board : Board) (selected : Bits) : List Move.Move :=
-  (squares selected).map (entry fc board)
 
 theorem records_length (fc : Flip.Dispatch.X86Config) (board : Board) (selected : Bits) :
     (records fc board selected).length = population selected := by
@@ -41,9 +34,6 @@ theorem entry_checked (mc : Bitboard.Moves.X86Config) (fc : Flip.Dispatch.X86Con
   have nonzero : Flip.Dispatch.resultValue fc sq board.player board.opponent ≠ 0#64 := flip
   simp [entry, Move.create, nonzero]
 
-def candidatesForCache (moves : List Move.Move) : List Wipeout.Move :=
-  moves.map fun mv => ⟨mv.sq, mv.flipped⟩
-
 theorem generationCache_last (opponent : Bits) (moves : List Wipeout.Move)
     (initial : Option (Fin 64)) :
     Wipeout.generationCache opponent moves initial =
@@ -54,18 +44,6 @@ theorem generationCache_last (opponent : Bits) (moves : List Wipeout.Move)
     rw [Wipeout.generationCache, ih, List.reverse_cons, List.find?_append]
     cases rest.reverse.find? (Wipeout.isMatch opponent) <;>
       cases hit : Wipeout.isMatch opponent mv <;> simp [hit]
-
-def fill (skipEmpty paired : Bool) (fc : Flip.Dispatch.X86Config) (board : Board)
-    (selected : Bits) (mem : Memory Move.Move) : Result Move.Move (Fin 64) :=
-  let moves := records fc board selected
-  let values := fun i => moves[i]?.getD ⟨0, 0, 0⟩
-  let cache := Wipeout.generationCache board.opponent (candidatesForCache moves) none
-  match dispatch skipEmpty selected with
-  | .empty => finish mem 0 none
-  | .single => finish (scalar values 1 0 mem) 1 cache
-  | .bulk =>
-    if paired then finish (sourcePairRun values selected mem) (pairFinalLen selected) cache
-    else finish (scalar values (population selected) 0 mem) (population selected) cache
 
 private theorem empty_dispatch (skipEmpty : Bool) (selected : Bits)
     (empty : dispatch skipEmpty selected = .empty) : selected = 0 := by

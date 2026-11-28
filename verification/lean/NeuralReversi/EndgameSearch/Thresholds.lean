@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 /-! Endgame search thresholds extracted from the rustc MIR of `search::endgame` by
 `verification/lean/scripts/extract_deep_recursion_mir.py`. Regenerate with
 `check_endgame_mir.py --write` instead of editing. -/

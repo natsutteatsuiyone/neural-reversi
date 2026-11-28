@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.WasmSimd.Model
-import NeuralReversi.Flip.Neon.Properties
+module
+public import NeuralReversi.Flip.WasmSimd.Model
+public import NeuralReversi.Flip.Neon.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.WasmSimd
 open NeuralReversi.Flip
@@ -11,7 +14,7 @@ set_option maxRecDepth 8192
 set_option maxHeartbeats 2000000
 
 theorem bitReverseByte_eq_reverse : ∀ b : BitVec 8, bitReverseByte b = b.reverse := by
-  decide
+  decide +kernel
 
 private theorem getLsbD_byte_shift (b : BitVec 8) (k i : Nat) (hi : i < 64) :
     ((b.setWidth 64) <<< (k * 8)).getLsbD i =

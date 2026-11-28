@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Waiter
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Waiter
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

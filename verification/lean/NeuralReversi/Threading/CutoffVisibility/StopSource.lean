@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.CutoffVisibility
+module
+public import NeuralReversi.Threading.CutoffVisibility
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.CutoffVisibility.StopSource
 

@@ -1,4 +1,7 @@
-import NeuralReversi.Board.ConstructionModel
+module
+public import NeuralReversi.Board.ConstructionModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board.Construction
 open NeuralReversi

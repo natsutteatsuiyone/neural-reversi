@@ -1,12 +1,11 @@
 """Shared helpers for MIR mutation and regression checks."""
 
 import argparse
-from contextlib import contextmanager
+import os
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
 
-from mir_common import checked
+from mir_common import checked, clear_dump_cache, iter_mir_files, patched_mir_text, seed_dump_cache_subset
 
 
 def replace_once(source, old, new, *, label="", unique=True):
@@ -18,20 +17,9 @@ def replace_once(source, old, new, *, label="", unique=True):
     return source.replace(old, new, 1)
 
 
-@contextmanager
 def patched_mir(path, text):
-    """Temporarily override ``Path.read_text`` for ``path`` with ``text``."""
-    original_read = Path.read_text
-    target = Path(path)
-    resolved = target.resolve()
-
-    def read(self, *args, **kwargs):
-        if self == target or (self.name == target.name and self.resolve() == resolved):
-            return text
-        return original_read(self, *args, **kwargs)
-
-    with patch.object(Path, "read_text", read):
-        yield
+    """Temporarily override MIR reads of ``path`` with ``text`` in the current thread."""
+    return patched_mir_text(path, text)
 
 
 def assert_mutants_rejected(
@@ -91,18 +79,28 @@ def check_mir_projection(
     """
     with tempfile.TemporaryDirectory() as folder:
         copied = Path(folder)
-        for path in dump.glob("*" + suffix):
-            if file_filter(path):
-                (copied / path.name).write_bytes(path.read_bytes())
-        checked(render(copied) == expected, "the filtered MIR renders a different program")
-        return assert_mutants_rejected(
-            copied,
-            [(name + suffix, old, new, name) for name, old, new in cases],
-            render,
-            baseline=expected,
-            expected_errors=expected_errors,
-            unique=False,
-        )
+        try:
+            selected = []
+            for path in iter_mir_files(dump, suffix):
+                if file_filter(path):
+                    dest = copied / path.name
+                    try:
+                        os.link(path, dest)
+                    except OSError:
+                        dest.write_bytes(path.read_bytes())
+                    selected.append(path.name)
+            seed_dump_cache_subset(dump, copied, selected)
+            checked(render(copied) == expected, "the filtered MIR renders a different program")
+            return assert_mutants_rejected(
+                copied,
+                [(name + suffix, old, new, name) for name, old, new in cases],
+                render,
+                baseline=expected,
+                expected_errors=expected_errors,
+                unique=False,
+            )
+        finally:
+            clear_dump_cache(copied)
 
 
 def check_mir_regression(
@@ -113,9 +111,11 @@ def check_mir_regression(
     *,
     expected_errors=(ValueError, KeyError),
     compare_baseline=True,
+    baseline=None,
 ):
     """Verify ``dump`` and reject every mutant. Returns the number of mutants."""
-    baseline = verify(dump, repo)
+    if baseline is None:
+        baseline = verify(dump, repo)
     return assert_mutants_rejected(
         dump,
         cases,

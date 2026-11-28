@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames.Returns
-import NeuralReversi.PvsParallel.NativeFrameCache
+module
+public import NeuralReversi.PvsParallel.NativeFrames.Returns
+public import NeuralReversi.PvsParallel.NativeFrameCache
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.Invocations
 

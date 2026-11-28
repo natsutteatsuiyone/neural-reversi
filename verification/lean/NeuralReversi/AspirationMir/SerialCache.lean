@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialCache.Driver
-import NeuralReversi.PvsParallel.SerialCacheStack
+module
+public import NeuralReversi.AspirationMir.SerialCache.Driver
+public import NeuralReversi.PvsParallel.SerialCacheStack
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialCache
 

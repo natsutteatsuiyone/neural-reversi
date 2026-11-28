@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.IteratorEventOrder
-import NeuralReversi.PvsParallel.Interleaving.Joint
-import NeuralReversi.PvsParallel.Interleaving.BestPublisher
-import NeuralReversi.PvsParallel.Interleaving.SchedulerReplay
+module
+public import NeuralReversi.PvsParallel.Interleaving.IteratorEventOrder
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+public import NeuralReversi.PvsParallel.Interleaving.BestPublisher
+public import NeuralReversi.PvsParallel.Interleaving.SchedulerReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SchedulerTrace
 
@@ -10,27 +13,27 @@ open AtomicWord (Event Write)
 open SplitCompletion (Action)
 open SchedulerReplay (Instruction)
 
-private def once (es : Joint.Tape Op) (at_ : Event) (test : Joint.SplitWord → Bool) : Option Nat :=
+def once (es : Joint.Tape Op) (at_ : Event) (test : Joint.SplitWord → Bool) : Option Nat :=
   match es.zipIdx.filterMap fun (e,k) => match e with
     | .splitWord w pc op => if w == at_.worker && pc == at_.step then some (k,op) else none
     | _ => none with
   | [(k,op)] => if test op then some k else none
   | _ => none
 
-private def isMark (bank : Nat) : Joint.SplitWord → Bool
+def isMark (bank : Nat) : Joint.SplitWord → Bool
   | .mark b => bank == b
   | _ => false
 
-private def isResult (bank : Nat) (expected : BitVec 32) : Joint.SplitWord → Bool
+def isResult (bank : Nat) (expected : BitVec 32) : Joint.SplitWord → Bool
   | .result b word => bank == b && word == expected
   | _ => false
 
-private def target : Action → Nat
+def target : Action → Nat
   | .book w _ | .finish w _ => w.val
 
 /-- Verify the actual pre/post mask words and emitting instruction before projecting
     onto effective credits. A redundant finish still consumes a real physical RMW. -/
-private def mask (g : SlotFrameMir.RawMask ws) (pos : Nat) (site : Event) (participant : Nat)
+def mask (g : SlotFrameMir.RawMask ws) (pos : Nat) (site : Event) (participant : Nat)
     (booking : Bool) (old stored : BitVec 64) : Option Bool := do
   if bound : pos < g.actions.length then
     let i := (⟨pos,bound⟩ : Fin g.actions.length)
@@ -44,12 +47,12 @@ structure Row where
   site : Event
   op : Joint.SplitWord
 
-private def within (owner bank worker : Nat) : Joint.SplitWord → Bool
+def within (owner bank worker : Nat) : Joint.SplitWord → Bool
   | .mark k | .result k _ => worker == owner && k == bank
   | .maskRmw o k .. | .claim _ o k .. | .exhausted o k .. | .lock o k | .unlock o k =>
     o == owner && k == bank
 
-private def scan {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
+def scan {t : NativeSplit.Tickets rc pv beta} (b : AlphaOrigin.Operands t)
     (acc : Nat × List (Instruction t.width)) (row : Row) : Option (Nat × List (Instruction t.width)) := do
   match row.op with
   | .mark .. | .result .. => none
@@ -93,7 +96,7 @@ def Row.matches (r : Row) (op : MoveList.ConcurrentTrace.Write width) : Bool :=
 def Row.exhausted (r : Row) : Bool :=
   match r.op with | .exhausted .. => true | _ => false
 
-private def occurrence (rs : List Row) (op : MoveList.ConcurrentTrace.Write width) :
+def occurrence (rs : List Row) (op : MoveList.ConcurrentTrace.Write width) :
     Option (Fin rs.length) :=
   match (List.finRange rs.length).filter (fun i => (rs.get i).matches op) with
   | [i] => some i
@@ -102,7 +105,7 @@ private def occurrence (rs : List Row) (op : MoveList.ConcurrentTrace.Write widt
 abbrev OrderedRows (rs : List Row) (before : Event → Event → Bool) :=
   EventOrder.Extension rs.length fun i j => before (rs.get i).site (rs.get j).site
 
-private def ranks {width : Nat} (ops : List (MoveList.ConcurrentTrace.Write width)) (rs : List Row)
+def ranks {width : Nat} (ops : List (MoveList.ConcurrentTrace.Write width)) (rs : List Row)
     (before : Event → Event → Bool) : Option (OrderedRows rs before) := do
   let locate := fun i : Fin ops.length => occurrence rs (ops.get i)
   if allFound : ∀ i, (locate i).isSome then

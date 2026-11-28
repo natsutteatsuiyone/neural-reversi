@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.SquareModel
+module
+public import NeuralReversi.Bitboard.SquareModel
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel
 

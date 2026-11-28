@@ -1,4 +1,9 @@
-import NeuralReversi.Stability.Geometry
+module
+public import NeuralReversi.Stability.Geometry
+meta import NeuralReversi.Stability.Geometry
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
 
 theorem contactStep_contains (central stable : Word) (full : FullLines) (i : Nat)

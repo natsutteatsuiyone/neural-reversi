@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameTiming
-import NeuralReversi.Threading.SearchAbort
+module
+public import NeuralReversi.EndgameTiming
+public import NeuralReversi.Threading.SearchAbort
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameDeadline
 

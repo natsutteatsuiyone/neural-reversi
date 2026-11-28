@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 
@@ -8,7 +11,7 @@ theorem requests_append (xs ys : List (Event S)) (worker first last : Nat) :
     requests (xs ++ ys) worker first last = requests xs worker first last ++ requests ys worker first last := by
   simp [requests,List.filterMap_append]
 
-private def localRequests (raw : List Raw) (worker first last : Nat) :=
+def localRequests (raw : List Raw) (worker first last : Nat) :=
   requests (S:=Unit) (raw.map (Event.worker worker)) worker first last
 
 private theorem one_foreign (raw : Raw) (different : n ≠ worker) :

@@ -1,16 +1,16 @@
-import NeuralReversi.Board.MovesProperties
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.PvsParallel.Cutoffs
-import NeuralReversi.PvsParallel.Prefix
-import NeuralReversi.PvsParallel.TraceCheck.Frames
-import NeuralReversi.TranspositionTable.LookupCut
-import NeuralReversi.TranspositionTable.Snapshot
-import NeuralReversi.TranspositionTable.StoredBound
-import Lean.Data.Json.FromToJson
+module
+public import Std.Data.HashMap.Lemmas
+public import NeuralReversi.Board.MovesProperties
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.PvsParallel.Cutoffs
+public import NeuralReversi.PvsParallel.TraceCheckModel
+public import NeuralReversi.PvsParallel.TraceCheck.Frames
+public import NeuralReversi.TranspositionTable.StoredBound
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.TraceCheck
 
-open Lean
 open Aspiration (Window SoundResult)
 open PvsPostpone (Queue step)
 open PvsMoveLoop (Bound ChildSearch MoveCalls bestValue moveScore scoreInf scoreMax)
@@ -18,30 +18,8 @@ open Prefix.Serial (Outcome Run)
 open Threading.SplitResult (Merge slots)
 open Threading.SplitWindow (State choosesMove marksCutoff publish reSearch)
 
-structure ChildReturn where
-  frame : Nat
-  square : Nat
-  pv : Bool
-  alpha : Int
-  beta : Int
-  score : Int
-  deriving FromJson
-
-def findChild (calls : List ChildReturn) (move : Nat) (pv : Bool) (alpha beta : Int) : Option Int :=
-  (calls.find? fun child =>
-    child.square == move && child.pv == pv && child.alpha == alpha && child.beta == beta).map (·.score)
-
-def observe (calls : List ChildReturn) : ChildSearch Nat :=
-  fun move pv alpha beta => (findChild calls move pv alpha beta).getD 0
-
 def Completed (calls : List ChildReturn) (move : Nat) (pv : Bool) (alpha beta score : Int) : Prop :=
   findChild calls move pv alpha beta = some score
-
-private def checkedCalls (calls : List ChildReturn) (pv first : Bool) (move : Nat) (alpha beta : Int) : Bool :=
-  let scout := findChild calls move false (-(alpha + 1)) (-alpha)
-  let wide := (findChild calls move true (-beta) (-alpha)).isSome
-  if pv && first then wide
-  else scout.isSome && (if pv = true ∧ alpha < -scout.getD 0 then wide else true)
 
 private theorem completed_of_some (present : (findChild calls move pv alpha beta).isSome = true) :
     Completed calls move pv alpha beta (observe calls move pv alpha beta) := by
@@ -63,46 +41,6 @@ private theorem checkedCalls_sound (checked : checkedCalls calls pv first move a
     have required : pv = true ∧ alpha < -(findChild calls move false (-(alpha + 1)) (-alpha)).getD 0 := retry
     have wide := checked.2
     rwa [ite_eq_left required] at wide
-
-structure Selection where
-  index : Nat
-  freshEnd : Nat
-  square : Nat
-  score : Option Int
-  deriving FromJson
-
-structure SerialResult where
-  visited : List Nat
-  remaining : Queue Nat
-  outcome : Outcome
-
-def replay (calls : List ChildReturn) (pv : Bool) (beta : Int) (handoff : Bool) :
-    List Selection → Queue Nat → State → Nat → Option SerialResult
-  | [], queue, state, _ =>
-    if handoff then some ⟨[], queue, .handoff state⟩
-    else if queue.pending.isEmpty then some ⟨[], queue, .returned state.best⟩
-    else none
-  | choice :: rest, queue, state, freshEnd => do
-    if choice.index != queue.idx || choice.freshEnd != freshEnd ||
-        queue.fresh.length != freshEnd - queue.idx then none
-    else match choice.score with
-    | none =>
-      if queue.fresh.head? != some choice.square then none
-      else match step true queue with
-        | some (none, next) => replay calls pv beta handoff rest next state (freshEnd - 1)
-        | _ => none
-    | some score =>
-      let first := queue.idx == 0
-      if score != moveScore pv first (observe calls) choice.square state.alpha beta ||
-          !checkedCalls calls pv first choice.square state.alpha beta then none
-      else match step false queue with
-        | some (some move, next) =>
-          if move != choice.square then none
-          else if marksCutoff pv beta state score then
-            if rest.isEmpty && !handoff then some ⟨[move], next, .returned score⟩ else none
-          else (replay calls pv beta handoff rest next (publish pv beta state score) freshEnd).map fun after =>
-            { after with visited := move :: after.visited }
-        | _ => none
 
 theorem replay_sound (checked : replay calls pv beta handoff steps queue state freshEnd = some result) :
     Run (Completed calls) (observe calls) pv beta queue state result.visited result.remaining result.outcome := by
@@ -176,32 +114,6 @@ theorem replay_sound (checked : replay calls pv beta handoff steps queue state f
                     exact .searched advance child goes (ih later)
               · simp [selected] at checked
 
-structure WideReturn where
-  frame : Nat
-  alpha : Int
-  score : Int
-  deriving FromJson
-
-structure ReportRow where
-  index : Nat
-  square : Nat
-  worker : Nat
-  scoutFrame : Nat
-  scoutAlpha : Int
-  scout : Int
-  wide : Option WideReturn
-  score : Int
-  bestAfter : Int
-  alphaAfter : Int
-  moveAfter : Option Nat
-  deriving FromJson
-
-private def ReportRow.fresh (row : ReportRow) : Int := (row.wide.map (·.alpha)).getD row.scoutAlpha
-private def ReportRow.wideScore (row : ReportRow) : Int := (row.wide.map (·.score)).getD 0
-
-def ReportRow.selected (row : ReportRow) (pv : Bool) : Threading.SplitResult.Report :=
-  Threading.SplitWindow.selectReport pv row.index row.scoutAlpha row.fresh row.scout row.wideScore
-
 private theorem ReportRow.selected_index (row : ReportRow) (pv : Bool) : (row.selected pv).index = row.index := by
   simp only [selected, Threading.SplitWindow.selectReport]
   split <;> rfl
@@ -211,25 +123,6 @@ def ReportRow.Children (row : ReportRow) (value beta : Int) : Prop :=
     SoundResult (-value) (-(row.scoutAlpha + 1)) (-row.scoutAlpha) row.scout) ∧
   (∀ wide, row.wide = some wide → Window (-beta) (-wide.alpha) →
     SoundResult (-value) (-beta) (-wide.alpha) wide.score)
-
-private def reportAccepted (row : ReportRow) (moves : List Nat) (start : Nat) (seen : List Nat)
-    (alphas : List Int) (pv : Bool) (beta : Int) (locked : State) (chosen : Option Nat) : Bool :=
-  (((decide (start ≤ row.index) && !seen.contains row.index) &&
-    (alphas.contains row.scoutAlpha && row.wide.isSome == reSearch pv row.scoutAlpha row.scout &&
-      (row.wide.all fun wide => alphas.contains wide.alpha))) &&
-    (row.score == (row.selected pv).score && row.alphaAfter == (publish pv beta locked row.score).alpha &&
-      row.bestAfter == (publish pv beta locked row.score).best)) &&
-  (moves[row.index]? == some row.square &&
-    row.moveAfter == (if choosesMove locked row.score then some row.square else chosen))
-
-def replayReports (moves : List Nat) (start : Nat) (pv : Bool) (beta : Int) :
-    List ReportRow → List Nat → List Int → State → Option Nat → Option (State × Option Nat)
-  | [], _, _, locked, chosen => some (locked, chosen)
-  | row :: tail, seen, alphas, locked, chosen =>
-    if reportAccepted row moves start seen alphas pv beta locked chosen then
-      replayReports moves start pv beta tail (row.index :: seen) (row.alphaAfter :: alphas)
-        (publish pv beta locked row.score) row.moveAfter
-    else none
 
 theorem replayReports_sound
     (checked : replayReports moves start pv beta reports seen alphas locked chosen = some (final, picked)) :
@@ -332,62 +225,6 @@ private theorem replayReports_merge
       · exact validTail _ later
     · contradiction
 
-structure Handoff where
-  start : Nat
-  moves : List Nat
-  alpha : Int
-  best : Int
-  seed : Option Nat
-  reports : List ReportRow
-  deriving FromJson
-
-structure SlotStamp where
-  scope : Nat
-  slot : Nat
-  sequence : Nat
-  deriving FromJson
-
-def SlotStamp.key (stamp : SlotStamp) : Nat × Nat × Nat :=
-  (stamp.scope, stamp.slot, stamp.sequence)
-
-structure Node where
-  player : Nat
-  opponent : Nat
-  root : Bool
-  pv : Bool
-  alpha : Int
-  beta : Int
-  generated : List Nat
-  moves : List Nat
-  calls : List ChildReturn
-  selections : List Selection
-  handoff : Option Handoff
-  result : Int
-  move : Option Nat
-  publication : Option SlotStamp
-  deriving FromJson
-
-def Node.initial (node : Node) : State := ⟨node.alpha, -scoreInf⟩
-def Node.queue (node : Node) : Queue Nat := ⟨0, node.moves, []⟩
-def Node.board (node : Node) : Board.Board :=
-  ⟨BitVec.ofNat 64 node.player, BitVec.ofNat 64 node.opponent⟩
-
-def Node.legalMask (node : Node) : Bitboard.Bits := Board.getMoves moveConfig node.board
-
-def Node.coversAll (node : Node) : Bool :=
-  node.moves.length == ((List.range 64).filter node.legalMask.getLsbD).length
-
-private def candidatesAgree (node : Node) : Bool :=
-  decide (node.player < 2 ^ 64 ∧ node.opponent < 2 ^ 64 ∧ node.moves.Nodup) &&
-    (node.board.player &&& node.board.opponent) == 0 && !node.moves.isEmpty &&
-    (node.root || node.coversAll) &&
-    node.generated.mergeSort == node.moves.mergeSort
-
-private def covered (split : Handoff) (beta best : Int) : Bool :=
-  decide (beta ≤ best ∨ PvsMoveLoop.scoreMax ≤ best) ||
-    (Threading.SplitResult.slots split.start split.moves.length).all fun index =>
-      split.reports.any (·.index == index)
-
 private theorem covered_sound {split : Handoff} {beta best : Int} (checked : covered split beta best = true) :
     beta ≤ best ∨ PvsMoveLoop.scoreMax ≤ best ∨
       ∀ index ∈ Threading.SplitResult.slots split.start split.moves.length,
@@ -400,28 +237,6 @@ private theorem covered_sound {split : Handoff} {beta best : Int} (checked : cov
     intro index member
     obtain ⟨row, present, same⟩ := List.any_eq_true.mp (List.all_eq_true.mp every index member)
     exact ⟨row, present, beq_iff_eq.mp same⟩
-
-private def matchEnd (node : Node) (visited : List Nat) (remaining : Queue Nat)
-    (picked : Option Nat) : Outcome → Option Handoff → Bool
-  | .returned score, none => score == node.result && picked == node.move
-  | .handoff state, some split =>
-    ((split.start == remaining.idx && split.alpha == state.alpha && split.best == state.best &&
-        decide (split.start + 2 ≤ split.moves.length) && !(node.pv && split.start == 0)) &&
-        split.moves == visited ++ remaining.pending && split.seed == picked) &&
-      match replayReports split.moves split.start node.pv node.beta split.reports [] [split.alpha] state split.seed with
-      | some (final, chosen) => final.best == node.result && chosen == node.move && covered split node.beta final.best
-      | none => false
-  | _, _ => false
-
-def Node.check (node : Node) : Bool :=
-  decide (-scoreInf ≤ node.alpha ∧ node.alpha < node.beta ∧ node.beta ≤ scoreInf) &&
-    (node.pv || node.beta == node.alpha + 1) &&
-    candidatesAgree node && node.moves.all node.legalMask.getLsbD &&
-    match replay node.calls node.pv node.beta node.handoff.isSome node.selections node.queue node.initial node.moves.length with
-    | none => false
-    | some serial =>
-      let picked := Prefix.Serial.bestMove node.pv (observe node.calls) node.beta serial.visited true node.initial none
-      matchEnd node serial.visited serial.remaining picked serial.outcome node.handoff
 
 def Node.scoreAgrees (node : Node) : Outcome → Option Handoff → Prop
   | .returned score, none => score = node.result
@@ -792,37 +607,11 @@ theorem Node.internal_board_score {node : Node} (validated : node.check = true) 
       node.alpha node.beta node.result :=
   node.board_score validated fc (fun _ => (node.nonroot_candidates validated internal).mpr) children reports
 
-private def ReportRow.scoutCall (row : ReportRow) : ChildReturn :=
-  ⟨row.scoutFrame, row.square, false, -(row.scoutAlpha + 1), -row.scoutAlpha, row.scout⟩
-
-private def ReportRow.wideCall (row : ReportRow) (beta : Int) (wide : WideReturn) : ChildReturn :=
-  ⟨wide.frame, row.square, true, -beta, -wide.alpha, wide.score⟩
-
-private def checkChild (known : Nat → Option FrameReturn) (fc : Flip.Dispatch.X86Config)
-    (board : Board.Board) (depth worker : Nat) (requiredParent : Option Nat) (call : ChildReturn) : Bool :=
-  match known call.frame with
-  | none => false
-  | some child =>
-    (child.worker == worker && child.depth + 1 == depth && requiredParent.all (· == child.parent)) &&
-      child.onMove fc board call.square && child.windowMatches call.pv call.alpha call.beta call.score
-
-def Node.matchesReturn (node : Node) (parent : FrameReturn) : Bool :=
-  parent.player == node.player && parent.opponent == node.opponent &&
-    parent.windowMatches node.pv node.alpha node.beta node.result
-
 theorem Node.return_agrees {node : Node} {parent : FrameReturn} (matched : node.matchesReturn parent = true) :
     parent.board = node.board ∧ parent.alpha = node.alpha ∧ parent.beta = node.beta ∧ parent.score = node.result := by
   simp only [Node.matchesReturn, Bool.and_eq_true, beq_iff_eq] at matched
   obtain ⟨⟨player, opponent⟩, window⟩ := matched
   exact ⟨by simp only [FrameReturn.board, Node.board, player, opponent], FrameReturn.windowMatches_sound window⟩
-
-def Node.checkLinks (node : Node) (known : Nat → Option FrameReturn) (fc : Flip.Dispatch.X86Config)
-    (frameId : Nat) (parent : FrameReturn) : Bool :=
-  node.matchesReturn parent &&
-  node.calls.all (checkChild known fc node.board parent.depth parent.worker (some frameId)) &&
-  node.handoff.all (fun split => split.reports.all fun row =>
-    let check := checkChild known fc node.board parent.depth row.worker none
-    check row.scoutCall && row.wide.all (fun wide => check (row.wideCall node.beta wide)))
 
 def SoundReturns (known : Nat → Option FrameReturn) (fc : Flip.Dispatch.X86Config) : Prop :=
   ∀ id frame, known id = some frame → frame.BoardSound fc
@@ -909,43 +698,9 @@ theorem Node.frame_sound {node : Node} {known : Nat → Option FrameReturn} {fc 
   rw [equal, alpha, beta, score]
   exact result
 
-structure Sample where
-  worker : Nat
-  scope : Nat
-  slot : Nat
-  first : Nat
-  last : Nat
-  player : Nat
-  opponent : Nat
-  metadata : Nat
-  deriving FromJson
-
 namespace Sample
 
 open TranspositionTable
-
-def payload (sample : Sample) : SeqLock.Payload :=
-  ⟨BitVec.ofNat 64 sample.player, BitVec.ofNat 64 sample.opponent, BitVec.ofNat 64 sample.metadata⟩
-
-def sane (sample : Sample) : Bool :=
-  decide (sample.first < 2 ^ 64 ∧ sample.last < 2 ^ 64 ∧
-    sample.player < 2 ^ 64 ∧ sample.opponent < 2 ^ 64 ∧ sample.metadata < 2 ^ 64)
-
-def accepted (lookup : Bool) (sample : Sample) : Bool :=
-  let first := BitVec.ofNat 64 sample.first
-  let last := BitVec.ofNat 64 sample.last
-  if lookup then
-    (LookupCut.readOccupied false first last sample.payload sample.payload.player sample.payload.opponent).isSome
-  else (Snapshot.read false first last sample.payload).isSome &&
-    (Packing.unpack false sample.payload.metadata).bound != 0
-
-def samePublication (sample publication : Sample) : Bool :=
-  sample.sane && publication.sane &&
-    sample.scope == publication.scope && sample.slot == publication.slot && sample.first == publication.first &&
-    sample.last == sample.first && publication.last == publication.first &&
-    decide (publication.first % 2 = 0) &&
-    (sample.player == publication.player && sample.opponent == publication.opponent &&
-      sample.metadata == publication.metadata)
 
 theorem matches_payload {sample publication : Sample} (checked : sample.samePublication publication = true) :
     sample.payload = publication.payload := by
@@ -953,19 +708,6 @@ theorem matches_payload {sample publication : Sample} (checked : sample.samePubl
   simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at checked
   obtain ⟨⟨player, opponent⟩, metadata⟩ := checked.2
   simp [payload, player, opponent, metadata]
-
-def ofNode (sample : Sample) (node : Node) : Bool :=
-  let data := Packing.unpack false sample.payload.metadata
-  let score := BitVec.ofInt 32 node.result
-  let alpha := BitVec.ofInt 32 node.alpha
-  let beta := BitVec.ofInt 32 node.beta
-  let hint := (Packing.decodeBestMove data.bestMove).map Fin.val
-  sample.player == node.player && sample.opponent == node.opponent &&
-    data.score.toInt == node.result &&
-    data.bound == Packing.boundByte (TranspositionTable.classify node.pv ⟨score⟩ ⟨alpha⟩ ⟨beta⟩) &&
-    (match node.move with
-      | some square => hint == some square
-      | none => hint.all node.legalMask.getLsbD)
 
 theorem ofNode_score {sample : Sample} {node : Node} (checked : sample.ofNode node = true) :
     (Packing.unpack false sample.payload.metadata).score.toInt = node.result := by
@@ -1031,8 +773,6 @@ theorem sampled_board_bound {sample publication : Sample} {node : Node}
   rw [← node.board_value validated fc covers]
   exact sampled_bound source saved validated _ (fun m _ => childValue_range fc _ m) children reports
 
-def board (sample : Sample) : Board.Board := ⟨sample.payload.player, sample.payload.opponent⟩
-
 def BoardBound (sample : Sample) (fc : Flip.Dispatch.X86Config) : Prop :=
   ∀ valid : Board.wellFormed sample.board,
     BoundSound (Packing.unpack false sample.payload.metadata)
@@ -1059,15 +799,6 @@ theorem inherits_bound {sample publication : Sample} {fc : Flip.Dispatch.X86Conf
   have equal := matches_payload matched
   unfold BoardBound board at sound ⊢
   simpa only [equal] using sound
-
-def cutMatches (sample : Sample) (frame : FrameReturn) : Bool :=
-  let data := Packing.unpack false sample.payload.metadata
-  (sample.worker == frame.worker && sample.player == frame.player && sample.opponent == frame.opponent) &&
-    (frame.pv == false && data.score.toInt == frame.score) &&
-    (match canCut false data ⟨BitVec.ofInt 32 frame.beta⟩ (BitVec.ofNat 32 frame.depth)
-        Cutoffs.exactSelectivity true with
-      | .ok true => true
-      | _ => false)
 
 theorem cut_sound {sample : Sample} {frame : FrameReturn} {fc : Flip.Dispatch.X86Config}
     (matched : sample.cutMatches frame = true) (sane : frame.sane = true) (bound : sample.BoardBound fc) :
@@ -1098,227 +829,286 @@ theorem cut_sound {sample : Sample} {frame : FrameReturn} {fc : Flip.Dispatch.X8
 
 end Sample
 
-private def parseRow [FromJson α] (json : String) : Except String α := do
-  fromJson? (← Json.parse json)
+def RunState.Sound (st : RunState) : Prop :=
+  (∀ (id : Nat) (entry : Nat × FrameReturn), st.checked[id]? = some entry → entry.2.BoardSound flipConfig) ∧
+  (∀ (key : Nat × Nat × Nat) (sample : Sample), st.provedPublications[key]? = some sample → sample.BoardBound flipConfig)
 
-private def frameBefore {α : Type} (frames : Std.HashMap Nat (Nat × α)) (limit id : Nat) : Option α := do
-  let (line, frame) ← frames[id]?
-  if line < limit then some frame else none
+theorem RunState.empty_sound : ({} : RunState).Sound := by
+  refine ⟨fun id entry h => ?_, fun key sample h => ?_⟩
+  · simp at h
+  · simp at h
 
-private abbrev CheckedReturn := {frame : FrameReturn // frame.BoardSound flipConfig}
+private theorem insert_checked_sound {m : Std.HashMap Nat (Nat × FrameReturn)}
+    (hm : ∀ (id : Nat) (entry : Nat × FrameReturn), m[id]? = some entry → entry.2.BoardSound flipConfig)
+    {k line : Nat} {frame : FrameReturn} (hf : frame.BoardSound flipConfig) :
+    ∀ (id : Nat) (entry : Nat × FrameReturn),
+      (m.insert k (line, frame))[id]? = some entry → entry.2.BoardSound flipConfig := by
+  intro id entry h
+  rw [Std.HashMap.getElem?_insert] at h
+  split at h
+  · cases Option.some.inj h
+    exact hf
+  · exact hm id entry h
 
-private abbrev CheckedSample := {sample : Sample // sample.BoardBound flipConfig}
+private theorem insert_pub_sound {m : Std.HashMap (Nat × Nat × Nat) Sample}
+    (hm : ∀ (key : Nat × Nat × Nat) (sample : Sample), m[key]? = some sample → sample.BoardBound flipConfig)
+    {k : Nat × Nat × Nat} {sample : Sample} (hs : sample.BoardBound flipConfig) :
+    ∀ (key : Nat × Nat × Nat) (entry : Sample),
+      (m.insert k sample)[key]? = some entry → entry.BoardBound flipConfig := by
+  intro key entry h
+  rw [Std.HashMap.getElem?_insert] at h
+  split at h
+  · cases Option.some.inj h
+    exact hs
+  · exact hm key entry h
 
-private def certifySample (sample : Sample) (publication : CheckedSample) :
-    Option (PLift (sample.BoardBound flipConfig)) :=
-  if h : sample.samePublication publication.val = true then
-    some ⟨Sample.inherits_bound h publication.property⟩
-  else none
-
-private def knownBefore (checked : Std.HashMap Nat (Nat × CheckedReturn)) (limit id : Nat) : Option FrameReturn :=
-  (frameBefore checked limit id).map Subtype.val
-
-private theorem knownBefore_sound (checked : Std.HashMap Nat (Nat × CheckedReturn)) (limit : Nat) :
-    SoundReturns (knownBefore checked limit) flipConfig := by
+private theorem frameBefore_sound {m : Std.HashMap Nat (Nat × FrameReturn)}
+    (hm : ∀ (id : Nat) (entry : Nat × FrameReturn), m[id]? = some entry → entry.2.BoardSound flipConfig) (limit : Nat) :
+    SoundReturns (frameBefore m limit) flipConfig := by
   intro id frame read
-  cases result : frameBefore checked limit id with
-  | none => simp [knownBefore, result] at read
-  | some found =>
-    have same : found.val = frame := by simpa [knownBefore, result] using read
-    exact same ▸ found.property
+  unfold frameBefore at read
+  cases lookup : m[id]? with
+  | none => simp [lookup] at read
+  | some entry =>
+    simp only [lookup, bind, Option.bind] at read
+    split at read
+    · cases Option.some.inj read
+      exact hm id entry lookup
+    · contradiction
 
-def runFile (path : String) (thresholdDepth : Nat := 8) : IO UInt32 := do
-  let input ← IO.FS.Handle.mk path .read
-  let mut publications : Std.HashMap (Nat × Nat × Nat) (Nat × Sample) := {}
-  let mut line := 0
-  repeat
-    let row ← input.getLine
-    if row.isEmpty then break
-    line := line + 1
-    if let ["publish", fields] := row.trimAscii.toString.splitOn "|" then
-      match parseRow fields with
-      | .error err => IO.eprintln s!"line {line}: {err}"; return 1
-      | .ok (sample : Sample) =>
-        let key := (sample.scope, sample.slot, sample.first)
-        if !sample.samePublication sample || publications.contains key then
-          IO.eprintln s!"line {line}: invalid or duplicate slot publication {key}"
-          return 1
-        publications := publications.insert key (line, sample)
-  let input ← IO.FS.Handle.mk path .read
-  let mut nodes := 0
-  let mut splits := 0
-  let mut reads := 0
-  let mut external := 0
-  let mut stores := 0
-  let mut frames : Std.HashMap Nat (Nat × FrameReturn) := {}
-  let mut checked : Std.HashMap Nat (Nat × CheckedReturn) := {}
-  let mut terminals := 0
-  let mut thresholds := 0
-  let mut provedPasses := 0
-  let mut provedNodes := 0
-  let mut passes := 0
-  let mut childLinks := 0
-  let mut checkedPublications : Std.HashSet (Nat × Nat × Nat) := {}
-  let mut provedPublications : Std.HashMap (Nat × Nat × Nat) CheckedSample := {}
-  let mut lastProbe : Std.HashMap Nat (Nat × Sample) := {}
-  let mut cutoffs := 0
-  let mut provedCuts := 0
-  let mut provedSamples := 0
-  let mut readCounts : Std.HashMap (Nat × Nat × Nat) Nat := {}
-  line := 0
-  repeat
-    let inputRow ← input.getLine
-    if inputRow.isEmpty then break
-    line := line + 1
-    let columns := inputRow.trimAscii.toString.splitOn "|"
-    match columns with
-    | ["frame", id, fields] =>
-      let some id := id.toNat?
-        | IO.eprintln s!"line {line}: malformed returned frame number"; return 1
-      match parseRow fields with
-      | .ok (frame : FrameReturn) =>
-        if id == 0 || frames.contains id then
-          IO.eprintln s!"line {line}, frame {id}: invalid or duplicate return"
-          return 1
-        if sane : frame.sane = true then
-          if terminal : frame.isTerminal = true then
-            if valid : frame.checkBound frame.terminalValue = true then
-              checked := checked.insert id (line, ⟨frame, frame.terminal_sound terminal valid⟩)
-              terminals := terminals + 1
-            else
-              IO.eprintln s!"line {line}, frame {id}: returned score disagrees with terminal value"
-              return 1
-          else if frame.depth ≤ thresholdDepth then
-            if valid : frame.checkThreshold flipConfig (frame.sane_board sane) = true then
-              checked := checked.insert id (line, ⟨frame, frame.threshold_sound valid⟩)
-              thresholds := thresholds + 1
-            else
-              IO.eprintln s!"line {line}, frame {id}: returned score disagrees with the minimax threshold"
-              return 1
-          frames := frames.insert id (line, frame)
-        else
-          IO.eprintln s!"line {line}, frame {id}: invalid or duplicate return"
-          return 1
-      | .error err => IO.eprintln s!"line {line}, frame {id}: {err}"; return 1
-    | ["pass", frame, childId] =>
-      let some id := frame.toNat?
-        | IO.eprintln s!"line {line}: malformed pass frame number"; return 1
-      let some childId := childId.toNat?
-        | IO.eprintln s!"line {line}, frame {frame}: malformed pass child number"; return 1
-      let some (atReturn, parent) := frames[id]?
-        | IO.eprintln s!"line {line}, frame {id}: pass return missing"; return 1
-      let some child := frameBefore frames atReturn childId
-        | IO.eprintln s!"line {line}, frame {id}: earlier pass reply missing"; return 1
-      if !child.followsPass parent id then
-        IO.eprintln s!"line {line}, frame {id}: pass child disagrees with reflected position or result"
-        return 1
-      if let some known := frameBefore checked atReturn childId then
-        if link : known.val.followsPass parent id = true then
-          if sane : parent.sane = true then
-            if !checked.contains id then
-              checked := checked.insert id (atReturn, ⟨parent, FrameReturn.pass_sound sane link known.property⟩)
-              provedPasses := provedPasses + 1
-      passes := passes + 1
-    | ["cut", frame, fields] =>
-      let some id := frame.toNat?
-        | IO.eprintln s!"line {line}: malformed cutoff frame number"; return 1
-      let some (atReturn, parent) := frames[id]?
-        | IO.eprintln s!"line {line}, frame {id}: cutoff return missing"; return 1
-      match parseRow fields with
-      | .ok (stamp : SlotStamp) =>
-        let some (observedAt, sample) := lastProbe[parent.worker]?
-          | IO.eprintln s!"line {line}, frame {id}: cutoff probe missing"; return 1
-        if !(observedAt < atReturn && stamp.key == (sample.scope, sample.slot, sample.first)) then
-          IO.eprintln s!"line {line}, frame {id}: cutoff names a different probe"
-          return 1
-        if matched : sample.cutMatches parent = true then
-          if let some publication := provedPublications[stamp.key]? then
-            if let some checkedRead := certifySample sample publication then
-              if sane : parent.sane = true then
-                if !checked.contains id then
-                  let proof := Sample.cut_sound matched sane checkedRead.down
-                  checked := checked.insert id (atReturn, ⟨parent, proof⟩)
-                  provedCuts := provedCuts + 1
-          cutoffs := cutoffs + 1
-        else
-          IO.eprintln s!"line {line}, frame {id}: probe cannot justify the recorded cutoff"
-          return 1
-      | .error err => IO.eprintln s!"line {line}, frame {frame}: {err}"; return 1
-    | ["node", frame, fields] =>
-      let some id := frame.toNat?
-        | IO.eprintln s!"line {line}: malformed search frame number"; return 1
-      let some (atReturn, parent) := frames[id]?
-        | IO.eprintln s!"line {line}, frame {id}: search return missing"; return 1
-      match parseRow fields with
-      | .ok (node : Node) =>
-        let some (valid : PLift (node.check = true)) := if h : node.check = true then some ⟨h⟩ else none
-          | IO.eprintln s!"line {line}, frame {frame}: search replay disagrees"; return 1
-        if !node.checkLinks (frameBefore frames atReturn) flipConfig id parent then
-          IO.eprintln s!"line {line}, frame {frame}: returned child or parent position disagrees with search"
-          return 1
-        if coverage : node.coversAll = true then
-          if !checked.contains id then
-            let known := knownBefore checked atReturn
-            if links : node.checkLinks known flipConfig id parent = true then
-              let proof := node.frame_sound valid.down links (fun _ => node.all_candidates valid.down coverage)
-                (knownBefore_sound checked atReturn)
-              checked := checked.insert id (atReturn, ⟨parent, proof⟩)
-              provedNodes := provedNodes + 1
-        if let some stamp := node.publication then
-          let some (prior, publication) := publications[stamp.key]?
-            | IO.eprintln s!"line {line}, frame {frame}: publication omitted"; return 1
-          if !(decide (prior < line)) then
-            IO.eprintln s!"line {line}, frame {frame}: saved table entry disagrees with search"
-            return 1
-          let some (saved : PLift (publication.ofNode node = true)) :=
-            if h : publication.ofNode node = true then some ⟨h⟩ else none
-            | IO.eprintln s!"line {line}, frame {frame}: saved table entry disagrees with search"; return 1
-          if let some (_, certified) := checked[id]? then
-            if matched : node.matchesReturn certified.val = true then
-              let proof := Sample.saved_frame_bound saved.down valid.down matched certified.property
-              provedPublications := provedPublications.insert stamp.key ⟨publication, proof⟩
-          checkedPublications := checkedPublications.insert stamp.key
-          stores := stores + 1
-        nodes := nodes + 1
-        splits := splits + if node.handoff.isSome then 1 else 0
-        childLinks := childLinks + node.calls.length + (node.handoff.map fun split =>
-          split.reports.foldl (fun count row => count + 1 + row.wide.toList.length) 0).getD 0
-      | .error err => IO.eprintln s!"line {line}, frame {frame}: {err}"; return 1
-    | [kind, fields] =>
-      if kind == "publish" then continue
-      if kind != "probe" && kind != "lookup" then
-        IO.eprintln s!"line {line}: unknown record {kind}"
-        return 1
-      match parseRow fields with
-      | .ok (sample : Sample) =>
-        let key := (sample.scope, sample.slot, sample.first)
-        let some (prior, publication) := publications[key]?
-          | IO.eprintln s!"line {line}: missing slot publication {key}"; return 1
-        if !sample.samePublication publication || !sample.accepted (kind == "lookup") ||
-            (sample.worker == publication.worker && !(decide (prior < line))) then
-          IO.eprintln s!"line {line}: slot sample disagrees with publication {key}"
-          return 1
-        reads := reads + 1
-        external := external + if sample.worker != publication.worker then 1 else 0
-        readCounts := readCounts.insert key (readCounts[key]?.getD 0 + 1)
-        if kind == "probe" then
-          lastProbe := lastProbe.insert sample.worker (line, sample)
-        if let some origin := provedPublications[key]? then
-          if (certifySample sample origin).isSome then provedSamples := provedSamples + 1
-      | .error err => IO.eprintln s!"line {line}: {err}"; return 1
-    | _ =>
-      IO.eprintln s!"line {line}: malformed search trace record"
-      return 1
-  let linked := checkedPublications.fold (fun acc stamp => acc + readCounts[stamp]?.getD 0) 0
-  if nodes == 0 || splits == 0 || reads == 0 || linked == 0 || childLinks == 0 then
-    IO.eprintln "trace lacks a completed serial frame, split handoff or sampled search publication"
-    return 1
-  IO.println s!"{nodes} frames, {splits} split handoffs, {stores} search publications, {reads} occupied table samples ({external} cross-thread)"
-  IO.println s!"{childLinks} move children and {passes} forced pass children matched among {frames.size} returned frames"
-  IO.println s!"{checked.size} of {frames.size} returned bounds certified ({terminals} terminal, {thresholds} threshold up to {thresholdDepth} empties, {provedPasses} through pass, {provedNodes} through replay)"
-  IO.println s!"{linked} table samples agree with a checked search publication"
-  IO.println s!"{provedPublications.size} table publications and {provedSamples} reads have certified bounds"
-  IO.println s!"{cutoffs} probe cutoffs matched, {provedCuts} new returns certified through the table"
-  return 0
+theorem stepFrame_sound {thresholdDepth : Nat} {st next : RunState} {line : Nat} {idText fields : String}
+    (sound : st.Sound) (ok : stepFrame thresholdDepth st line idText fields = .ok next) :
+    next.Sound := by
+  unfold stepFrame at ok
+  cases hId : idText.toNat? with
+  | none => simp [hId] at ok
+  | some id =>
+    simp only [hId] at ok
+    cases hParse : (parseRow fields : Except String FrameReturn) with
+    | error err => simp [hParse] at ok
+    | ok frame =>
+      simp only [hParse] at ok
+      by_cases hBad : (id == 0 || st.frames.contains id || !frame.sane) = true
+      · simp [hBad] at ok
+      · simp only [hBad, Bool.false_eq_true, ↓reduceIte] at ok
+        have hSane : frame.sane = true := by
+          cases h : frame.sane <;> simp_all
+        by_cases hTerm : frame.isTerminal = true
+        · simp only [hTerm, ↓reduceIte] at ok
+          by_cases hBound : frame.checkBound frame.terminalValue = true
+          · simp only [hBound, ↓reduceIte, Except.ok.injEq] at ok
+            subst ok
+            exact ⟨insert_checked_sound sound.1 (frame.terminal_sound hTerm hBound), sound.2⟩
+          · simp [hBound] at ok
+        · simp only [hTerm, Bool.false_eq_true, ↓reduceIte] at ok
+          by_cases hDepth : frame.depth ≤ thresholdDepth
+          · simp only [hDepth, ↓reduceIte] at ok
+            by_cases hThresh : frame.checkThresholdRaw flipConfig = true
+            · simp only [hThresh, ↓reduceIte, Except.ok.injEq] at ok
+              subst ok
+              exact ⟨insert_checked_sound sound.1 (frame.thresholdRaw_sound hSane hThresh), sound.2⟩
+            · simp [hThresh] at ok
+          · simp only [hDepth, ↓reduceIte, Except.ok.injEq] at ok
+            subst ok
+            exact ⟨sound.1, sound.2⟩
+
+theorem stepPass_sound {st next : RunState} {line : Nat} {frameText childText : String}
+    (sound : st.Sound) (ok : stepPass st line frameText childText = .ok next) :
+    next.Sound := by
+  unfold stepPass at ok
+  cases hId : frameText.toNat? with
+  | none => simp [hId] at ok
+  | some id =>
+    simp only [hId] at ok
+    cases hChildId : childText.toNat? with
+    | none => simp [hChildId] at ok
+    | some childId =>
+      simp only [hChildId] at ok
+      cases hParent : st.frames[id]? with
+      | none => simp [hParent] at ok
+      | some p =>
+        obtain ⟨atReturn, parent⟩ := p
+        simp only [hParent] at ok
+        cases hChild : frameBefore st.frames atReturn childId with
+        | none => simp [hChild] at ok
+        | some child =>
+          simp only [hChild] at ok
+          by_cases hBad : (!child.followsPass parent id) = true
+          · simp [hBad] at ok
+          · simp only [hBad, Bool.false_eq_true, ↓reduceIte, Except.ok.injEq] at ok
+            subst ok
+            cases hKnown : frameBefore st.checked atReturn childId with
+            | none => exact ⟨sound.1, sound.2⟩
+            | some known =>
+              dsimp only
+              by_cases hCert : (known.followsPass parent id && parent.sane && !st.checked.contains id) = true
+              · simp only [hCert, ↓reduceIte]
+                simp only [Bool.and_eq_true] at hCert
+                have hSound := frameBefore_sound sound.1 atReturn childId known hKnown
+                exact ⟨insert_checked_sound sound.1 (FrameReturn.pass_sound hCert.1.2 hCert.1.1 hSound), sound.2⟩
+              · simp only [hCert, Bool.false_eq_true, ↓reduceIte]
+                exact ⟨sound.1, sound.2⟩
+
+theorem stepCut_sound {st next : RunState} {line : Nat} {frameText fields : String}
+    (sound : st.Sound) (ok : stepCut st line frameText fields = .ok next) :
+    next.Sound := by
+  unfold stepCut at ok
+  cases hId : frameText.toNat? with
+  | none => simp [hId] at ok
+  | some id =>
+    simp only [hId] at ok
+    cases hParent : st.frames[id]? with
+    | none => simp [hParent] at ok
+    | some p =>
+      obtain ⟨atReturn, parent⟩ := p
+      simp only [hParent] at ok
+      cases hStamp : (parseRow fields : Except String SlotStamp) with
+      | error err => simp [hStamp] at ok
+      | ok stamp =>
+        simp only [hStamp] at ok
+        cases hProbe : st.lastProbe[parent.worker]? with
+        | none => simp [hProbe] at ok
+        | some pr =>
+          obtain ⟨observedAt, sample⟩ := pr
+          simp only [hProbe] at ok
+          by_cases hDiff : (!(observedAt < atReturn && stamp.key == (sample.scope, sample.slot, sample.first))) = true
+          · simp [hDiff] at ok
+          · simp only [hDiff, Bool.false_eq_true, ↓reduceIte] at ok
+            by_cases hNoCut : (!sample.cutMatches parent) = true
+            · simp [hNoCut] at ok
+            · simp only [hNoCut, Bool.false_eq_true, ↓reduceIte, Except.ok.injEq] at ok
+              have hCut : sample.cutMatches parent = true := by
+                cases h : sample.cutMatches parent <;> simp_all
+              subst ok
+              cases hPub : st.provedPublications[stamp.key]? with
+              | none => exact ⟨sound.1, sound.2⟩
+              | some publication =>
+                dsimp only
+                by_cases hCert : (sample.samePublication publication && parent.sane && !st.checked.contains id) = true
+                · simp only [hCert, ↓reduceIte]
+                  simp only [Bool.and_eq_true] at hCert
+                  have hBound := Sample.inherits_bound hCert.1.1 (sound.2 stamp.key publication hPub)
+                  exact ⟨insert_checked_sound sound.1 (Sample.cut_sound hCut hCert.1.2 hBound), sound.2⟩
+                · simp only [hCert, Bool.false_eq_true, ↓reduceIte]
+                  exact ⟨sound.1, sound.2⟩
+
+theorem stepNode_sound {publications : Std.HashMap (Nat × Nat × Nat) (Nat × Sample)}
+    {st next : RunState} {line : Nat} {frameText fields : String}
+    (sound : st.Sound) (ok : stepNode publications st line frameText fields = .ok next) :
+    next.Sound := by
+  unfold stepNode at ok
+  cases hId : frameText.toNat? with
+  | none => simp [hId] at ok
+  | some id =>
+    simp only [hId] at ok
+    cases hParent : st.frames[id]? with
+    | none => simp [hParent] at ok
+    | some p =>
+      obtain ⟨atReturn, parent⟩ := p
+      simp only [hParent] at ok
+      cases hNode : (parseRow fields : Except String Node) with
+      | error err => simp [hNode] at ok
+      | ok node =>
+        simp only [hNode] at ok
+        by_cases hBadCheck : (!node.check) = true
+        · simp [hBadCheck] at ok
+        · simp only [hBadCheck, Bool.false_eq_true, ↓reduceIte] at ok
+          have hCheck : node.check = true := by
+            cases h : node.check <;> simp_all
+          by_cases hBadLinks : (!node.checkLinks (frameBefore st.frames atReturn) flipConfig id parent) = true
+          · simp [hBadLinks] at ok
+          · simp only [hBadLinks, Bool.false_eq_true, ↓reduceIte] at ok
+            let checkedPair :=
+              if node.coversAll && !st.checked.contains id &&
+                  node.checkLinks (frameBefore st.checked atReturn) flipConfig id parent then
+                (st.checked.insert id (atReturn, parent), st.provedNodes + 1)
+              else
+                (st.checked, st.provedNodes)
+            have hCheckedSound : ∀ (k : Nat) (entry : Nat × FrameReturn),
+                checkedPair.1[k]? = some entry → entry.2.BoardSound flipConfig := by
+              dsimp only [checkedPair]
+              by_cases hCert : (node.coversAll && !st.checked.contains id &&
+                  node.checkLinks (frameBefore st.checked atReturn) flipConfig id parent) = true
+              · simp only [hCert, ↓reduceIte]
+                simp only [Bool.and_eq_true] at hCert
+                have hProof := node.frame_sound hCheck hCert.2
+                  (fun _ => node.all_candidates hCheck hCert.1.1)
+                  (frameBefore_sound sound.1 atReturn)
+                exact insert_checked_sound sound.1 hProof
+              · simp only [hCert, Bool.false_eq_true, ↓reduceIte]
+                exact sound.1
+            cases hPub : node.publication with
+            | none =>
+              simp only [hPub, Except.ok.injEq] at ok
+              subst ok
+              exact ⟨hCheckedSound, sound.2⟩
+            | some stamp =>
+              simp only [hPub] at ok
+              cases hLookup : publications[stamp.key]? with
+              | none => simp [hLookup] at ok
+              | some pair =>
+                obtain ⟨prior, publication⟩ := pair
+                simp only [hLookup] at ok
+                by_cases hBadPub : (!(decide (prior < line)) || !publication.ofNode node) = true
+                · simp [hBadPub] at ok
+                · simp only [hBadPub, Bool.false_eq_true, ↓reduceIte, Except.ok.injEq] at ok
+                  have hSaved : publication.ofNode node = true := by
+                    cases h : publication.ofNode node <;> simp_all
+                  subst ok
+                  refine ⟨hCheckedSound, ?_⟩
+                  cases hCertEntry : checkedPair.1[id]? with
+                  | none => exact sound.2
+                  | some ce =>
+                    obtain ⟨_, certified⟩ := ce
+                    dsimp only
+                    by_cases hMatch : node.matchesReturn certified = true
+                    · simp only [hMatch, ↓reduceIte]
+                      have hFrame := hCheckedSound id (_, certified) hCertEntry
+                      exact insert_pub_sound sound.2 (Sample.saved_frame_bound hSaved hCheck hMatch hFrame)
+                    · simp only [hMatch, Bool.false_eq_true, ↓reduceIte]
+                      exact sound.2
+
+theorem stepSample_sound {publications : Std.HashMap (Nat × Nat × Nat) (Nat × Sample)}
+    {st next : RunState} {line : Nat} {kind fields : String}
+    (sound : st.Sound) (ok : stepSample publications st line kind fields = .ok next) :
+    next.Sound := by
+  unfold stepSample at ok
+  by_cases hPub : (kind == "publish") = true
+  · simp only [hPub, ↓reduceIte, Except.ok.injEq] at ok
+    subst ok
+    exact sound
+  · simp only [hPub, Bool.false_eq_true, ↓reduceIte] at ok
+    by_cases hUnknown : (kind != "probe" && kind != "lookup") = true
+    · simp [hUnknown] at ok
+    · simp only [hUnknown, Bool.false_eq_true, ↓reduceIte] at ok
+      cases hParse : (parseRow fields : Except String Sample) with
+      | error err => simp [hParse] at ok
+      | ok sample =>
+        simp only [hParse] at ok
+        cases hLookup : publications[(sample.scope, sample.slot, sample.first)]? with
+        | none => simp [hLookup] at ok
+        | some pair =>
+          obtain ⟨prior, publication⟩ := pair
+          simp only [hLookup] at ok
+          by_cases hBad : (!sample.samePublication publication || !sample.accepted (kind == "lookup") ||
+              (sample.worker == publication.worker && !(decide (prior < line)))) = true
+          · simp [hBad] at ok
+          · simp only [hBad, Bool.false_eq_true, ↓reduceIte, Except.ok.injEq] at ok
+            subst ok
+            exact ⟨sound.1, sound.2⟩
+
+theorem stepRow_sound {thresholdDepth : Nat}
+    {publications : Std.HashMap (Nat × Nat × Nat) (Nat × Sample)}
+    {st next : RunState} {line : Nat} {inputRow : String}
+    (sound : st.Sound) (ok : stepRow thresholdDepth publications st line inputRow = .ok next) :
+    next.Sound := by
+  unfold stepRow at ok
+  split at ok
+  · exact stepFrame_sound sound ok
+  · exact stepPass_sound sound ok
+  · exact stepCut_sound sound ok
+  · exact stepNode_sound sound ok
+  · exact stepSample_sound sound ok
+  · contradiction
 
 end NeuralReversi.PvsParallel.TraceCheck

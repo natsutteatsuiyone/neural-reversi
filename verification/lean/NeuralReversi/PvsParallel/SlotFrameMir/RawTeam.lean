@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.RawNative
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawNative
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.RawProjection
 

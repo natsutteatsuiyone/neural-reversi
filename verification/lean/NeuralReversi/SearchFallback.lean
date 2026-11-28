@@ -1,6 +1,9 @@
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.SearchPublication
-import NeuralReversi.TranspositionTable.Proofs
+module
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.SearchPublication
+public import NeuralReversi.TranspositionTable.Proofs
+
+@[expose] public section
 
 namespace NeuralReversi.SearchFallback
 
@@ -29,7 +32,7 @@ def onePly (mc : X86Config) (fc : Flip.Dispatch.X86Config) (board : Position)
     -evaluate (play mc fc board ⟨sq, legal⟩).val
   else 0
 
-private def legalMoves (mc : X86Config) (board : Position) : List Square :=
+def legalMoves (mc : X86Config) (board : Position) : List Square :=
   (legalSquares mc board.val).map Subtype.val
 
 private theorem legal_moves (mc : X86Config) (board : Position) (sq : Square) :

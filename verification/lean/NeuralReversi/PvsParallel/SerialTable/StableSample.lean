@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Image
-import NeuralReversi.PvsParallel.TableReads
+module
+public import NeuralReversi.PvsParallel.SerialTable.Image
+public import NeuralReversi.PvsParallel.TableReads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.StableSample
 
@@ -7,32 +10,32 @@ open TranspositionTable SeqLock
 open Cutoffs (RawSample)
 
 /-- One serial read interval, beginning after the slot's last completed write. -/
-private def location : Location → Nat
+def location : Location → Nat
   | .sequence => 0
   | .payload .player => 1
   | .payload .opponent => 2
   | .payload .metadata => 3
 
-private def write (loc : Location) (k : Nat) := if k = 0 then location loc else 10
+def write (loc : Location) (k : Nat) := if k = 0 then location loc else 10
 
-private def reads (w r : Nat) : Prop := (w < 4 ∧ r = w + 4) ∨ (w = 0 ∧ r = 9)
+def reads (w r : Nat) : Prop := (w < 4 ∧ r = w + 4) ∨ (w = 0 ∧ r = 9)
 
-private theorem initial {loc : Location} (h : reads (write loc i) r) : i = 0 := by
+theorem initial {loc : Location} (h : reads (write loc i) r) : i = 0 := by
   by_cases other : i = 0
   · exact other
   · simp [write, other, reads] at h
 
-private def value (s : Clear.SlotState) : Location → Word
+def value (s : Clear.SlotState) : Location → Word
   | .sequence => s.seq
   | .payload f => WriterTrace.fieldWord (payload s) f
 
-private def eventValue (s : Clear.SlotState) : Nat → Word
+def eventValue (s : Clear.SlotState) : Nat → Word
   | 5 => s.player
   | 6 => s.opponent
   | 7 => s.data
   | _ => s.seq
 
-private def memory (s : Clear.SlotState) : Memory Nat where
+def memory (s : Clear.SlotState) : Memory Nat where
   sb := (· < ·)
   hb := (· < ·)
   rf := reads
@@ -70,7 +73,7 @@ private def memory (s : Clear.SlotState) : Memory Nat where
       rcases rf with ⟨hw,hr⟩|⟨hw,hr⟩ <;> omega
   read_read := by intro loc i j a b _ h _; rw [initial h]; omega
 
-private def slot (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : WriterTrace.Slot (memory s) where
+def slot (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : WriterTrace.Slot (memory s) where
   history := []
   unique := by simp
   initialized := even
@@ -85,7 +88,7 @@ private def slot (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : WriterTrace.Sl
     store := by simp
     finish := by simp }
 
-private def reader (s : Clear.SlotState) : RawReader (memory s) 0 0 :=
+def reader (s : Clear.SlotState) : RawReader (memory s) 0 0 :=
   ⟨4,8,9,True.intro,True.intro,by change 4 < 8; decide,by change 8 < 9; decide,Or.inl ⟨by change 0 < 4; decide,rfl⟩,Or.inr ⟨rfl,rfl⟩⟩
 
 def raw (endian : Bool) (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : RawSample where

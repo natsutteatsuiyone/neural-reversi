@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.MultiExact
-import NeuralReversi.PvsParallel.SerialTable.MultiWeak
+module
+public import NeuralReversi.PvsParallel.SerialTable.MultiExact
+public import NeuralReversi.PvsParallel.SerialTable.MultiWeak
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiLevel
 

@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 namespace NeuralReversi.PvsParallel.DeepLeafMir
 
 def parallelPool (size : Nat) : Bool := decide (1 < size)

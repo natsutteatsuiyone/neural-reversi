@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Admission
-import NeuralReversi.PvsParallel.ContextPathMir
+module
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Admission
+public import NeuralReversi.PvsParallel.ContextPathMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites
 

@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.MidgameShallow
-import NeuralReversi.PvsParallel.SerialTable.MidgameSites
-import NeuralReversi.PvsParallel.SerialTable.MidgameNativeWords
+module
+public import NeuralReversi.PvsParallel.SerialTable.MidgameShallow
+public import NeuralReversi.PvsParallel.SerialTable.MidgameSites
+public import NeuralReversi.PvsParallel.SerialTable.MidgameNativeWords
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameNative
 
@@ -32,10 +35,10 @@ structure Inputs extends Heuristics where
 
 abbrev Empties (b : Position) := {s : EmptyState // s.matches b}
 
-private def initial (b : Position) : Empties b :=
+def initial (b : Position) : Empties b :=
   ⟨ContextPathMir.leafState b,EndgameSearch.emptyState_initial b⟩
 
-private def placeState (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def placeState (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (s : Empties b) (move : GeneratedSquare mc b.val) : Empties (play mc fc b move).val :=
   ⟨s.val.remove move.val,(EndgameSearch.emptyStatePlayContract_proven mc fc b move _ _ s.property).2.1⟩
 
@@ -44,7 +47,7 @@ private def placeState (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
 def rank (mc : Bitboard.Moves.X86Config) (q : Request) : Nat :=
   q.depth.toNat * 2 + if Board.hasLegalMoves mc q.board.val then 0 else 1
 
-private theorem lower_rank (mc : Bitboard.Moves.X86Config) (q r : Request) (h : r.depth.toNat < q.depth.toNat) :
+theorem lower_rank (mc : Bitboard.Moves.X86Config) (q r : Request) (h : r.depth.toNat < q.depth.toNat) :
     rank mc r < rank mc q := by
   unfold rank
   split <;> split <;> omega
@@ -93,27 +96,27 @@ theorem owner_requests (q : Request) (window : Aspiration.Window q.alpha q.beta)
   intro child good
   exact ⟨⟨good.1,good.2⟩,atRequest_valid ..⟩
 
-private abbrev Calls (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (limit : Nat) :=
+abbrev Calls (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (limit : Nat) :=
   Path → Selectivity → (r : Request) → Empties r.board → Valid r → r.depth.toNat < limit → Plan mc fc r
 
-private def ordinary (ops : Inputs) (path : Path) (q : Request) (e : Option EntryData)
+def ordinary (ops : Inputs) (path : Path) (q : Request) (e : Option EntryData)
     (moves : List (GeneratedSquare mc q.board.val)) : List (GeneratedSquare mc q.board.val) :=
   let key := ops.ordering path q e
   moves.mergeSort fun x y => decide (key y.val < key x.val ∨
     (key x.val = key y.val ∧ ops.tie path q x.val ≤ ops.tie path q y.val))
 
-private theorem ordinary_perm (ops : Inputs) (path : Path) (q : Request) (e : Option EntryData)
+theorem ordinary_perm (ops : Inputs) (path : Path) (q : Request) (e : Option EntryData)
     (moves : List (GeneratedSquare mc q.board.val)) : (ordinary ops path q e moves).Perm moves :=
   List.mergeSort_perm _ _
 
-private theorem mobile_ranking (ops : Inputs) (path : Path) (q : Request) (entry : Option EntryData)
+theorem mobile_ranking (ops : Inputs) (path : Path) (q : Request) (entry : Option EntryData)
     (has : Board.hasLegalMoves mc q.board.val = true) :
     ordinary ops path q entry (legalSquares mc q.board.val) ≠ [] := by
   intro empty
   have missing := List.Perm.eq_nil (empty ▸ (ordinary_perm ops path q entry (legalSquares mc q.board.val)).symm)
   exact Bool.noConfusion (has.symm.trans (PvsBoardTree.stuck_of_nil missing))
 
-private def probedMove (mc : Bitboard.Moves.X86Config) (q : Request) (entry : Option EntryData) :
+def probedMove (mc : Bitboard.Moves.X86Config) (q : Request) (entry : Option EntryData) :
     Option (GeneratedSquare mc q.board.val) := do
   let e ← entry
   let sq ← TranspositionTable.Packing.decodeBestMove e.bestMove
@@ -128,9 +131,9 @@ theorem probedMove_hit (q : Request) (m : Memory l) (ready : ReadyMemory p mc fc
   obtain ⟨mv,_,rfl⟩ := (reads.legalHint ready.1.1.1.hints hit).generated (mc := mc) decoded
   exact ⟨mv,by simp [probedMove,decoded,mv.property],rfl⟩
 
-private def pathTo (path : Path) (site : Nat) (sq : Square) : Path := site :: sq.val :: path
+def pathTo (path : Path) (site : Nat) (sq : Square) : Path := site :: sq.val :: path
 
-private def scoutLoop (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
+def scoutLoop (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
     (q : Request) (state : Empties q.board) (fits : 0 < q.depth.toNat ∧ q.depth.toNat ≤ limit) (sc : q.pv = false) (slot : Fin 2) (ttPv : Bool) (entry : Option EntryData)
     (win : Aspiration.Window q.alpha q.beta) (total : Nat) : (moves : List (GeneratedSquare mc q.board.val)) →
     Nat → (best : Option Value) → (moves = [] → best.isSome = true) → Plan mc fc q
@@ -157,7 +160,7 @@ private def scoutLoop (ops : Inputs) (descend : Calls mc fc limit) (path : Path)
           rw [sub_one _ fits.1]; omega)) accept
       else accept word
 
-private def scoutMoves (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
+def scoutMoves (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
     (q : Request) (state : Empties q.board) (fits : 0 < q.depth.toNat ∧ q.depth.toNat ≤ limit) (win : Aspiration.Window q.alpha q.beta) (has : Board.hasLegalMoves mc q.board.val = true) (sc : q.pv = false) (slot : Fin 2) (entry : Option EntryData) : Plan mc fc q :=
   let all := legalSquares mc q.board.val
   let ttMv := probedMove mc q entry
@@ -178,7 +181,7 @@ private def scoutMoves (ops : Inputs) (descend : Calls mc fc limit) (path : Path
         let rest := (ordinary ops path q entry all).erase sq
         scoutLoop ops descend path level q state fits sc slot ttPv entry win all.length rest 1 (some v) (fun _ => rfl)
 
-private def afterProbe (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
+def afterProbe (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
     (q : Request) (state : Empties q.board) (fits : 0 < q.depth.toNat ∧ q.depth.toNat ≤ limit) (win : Aspiration.Window q.alpha q.beta) (has : Board.hasLegalMoves mc q.board.val = true)
     (slot : Fin 2) (sample : Option Sample) : Plan mc fc q :=
   let entry := sample.map Subtype.val
@@ -221,7 +224,7 @@ private def afterProbe (ops : Inputs) (descend : Calls mc fc limit) (path : Path
           change (q.depth-1).toNat < limit
           rw [sub_one _ fits.1]; omega)
 
-private def enhanced (q : Request) (sc : q.pv = false) (level : Selectivity) (slot : Fin 2)
+def enhanced (q : Request) (sc : q.pv = false) (level : Selectivity) (slot : Fin 2)
     (ttPv : Bool) (miss : Plan mc fc q) : List (GeneratedSquare mc q.board.val) → Plan mc fc q
   | [] => miss
   | sq :: rest =>
@@ -235,7 +238,7 @@ private def enhanced (q : Request) (sc : q.pv = false) (level : Selectivity) (sl
         | some ans => .writeAt slot .lower level ttPv (some sq)
             (known sc ⟨ans.2,MidgameNativeWords.candidate e.val e.property query sq.val found⟩)
 
-private def mobile (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
+def mobile (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (level : Selectivity)
     (q : Request) (state : Empties q.board) (fits : 0 < q.depth.toNat ∧ q.depth.toNat ≤ limit)
     (win : Aspiration.Window q.alpha q.beta) (has : Board.hasLegalMoves mc q.board.val = true) : Plan mc fc q :=
   let moves := legalSquares mc q.board.val
@@ -267,7 +270,7 @@ private def mobile (ops : Inputs) (descend : Calls mc fc limit) (path : Path) (l
         else etc
     else ordinary
 
-private def promotion (ops : Inputs) (q : Request) (state : Empties q.board) (sc : q.pv = false)
+def promotion (ops : Inputs) (q : Request) (state : Empties q.board) (sc : q.pv = false)
     (size : (Board.emptyCount q.board.val).toNat ≤ 12) (valid : Valid q) : Plan mc fc q :=
   let a := SerialCalls.ScoreWords.encode q.alpha
   let z := SerialCalls.ScoreWords.encode q.beta
@@ -279,7 +282,7 @@ private def promotion (ops : Inputs) (q : Request) (state : Empties q.board) (sc
   let call : Call := ⟨ops.config,q.board,state.val,a,z,state.property, state.property.1 ▸ size,by rw [hi,lo,valid.narrow sc]⟩
   .promotion sc call rfl lo hi
 
-private def frame (ops : Inputs) (path : Path) (level : Selectivity) (q : Request)
+def frame (ops : Inputs) (path : Path) (level : Selectivity) (q : Request)
     (state : Empties q.board) (valid : Valid q) (descend : Path → Selectivity → (r : Request) → Empties r.board → Valid r → rank mc r < rank mc q → Plan mc fc r) : Plan mc fc q :=
   let remaining := (Board.emptyCount q.board.val).toNat
   let generated := fun (pos : 0 < q.depth.toNat) =>

@@ -1,6 +1,9 @@
-import NeuralReversi.TranspositionTable.ReaderMir.Syntax
-import NeuralReversi.TranspositionTable.Clear
-import NeuralReversi.TranspositionTable.ProbeRetry
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.Syntax
+public import NeuralReversi.TranspositionTable.Clear
+public import NeuralReversi.TranspositionTable.ProbeRetry
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

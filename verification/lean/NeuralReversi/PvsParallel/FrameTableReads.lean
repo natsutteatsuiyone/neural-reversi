@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.FrameReturns
-import NeuralReversi.TranspositionTable.ReaderMir.Publication
-import NeuralReversi.TranspositionTable.ReaderMir.Lookup
+module
+public import NeuralReversi.PvsParallel.FrameReturns
+public import NeuralReversi.TranspositionTable.ReaderMir.Publication
+public import NeuralReversi.TranspositionTable.ReaderMir.Lookup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads
 

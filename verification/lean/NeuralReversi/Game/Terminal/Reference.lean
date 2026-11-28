@@ -1,4 +1,7 @@
-import NeuralReversi.Game.Terminal.Model
+module
+public import NeuralReversi.Game.Terminal.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Terminal
 open NeuralReversi.Game.History

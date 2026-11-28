@@ -1,4 +1,7 @@
-import NeuralReversi.Move.Model
+module
+public import NeuralReversi.Move.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Move
 

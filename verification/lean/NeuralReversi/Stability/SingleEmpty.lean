@@ -1,9 +1,12 @@
-import NeuralReversi.Stability.EdgeGameBridge
-import NeuralReversi.Stability.SingleEmptySafety
+module
+public import NeuralReversi.Stability.EdgeGameBridge
+public import NeuralReversi.Stability.SingleEmptySafety
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 
-private def byAxis (f : Fin 4 → Word) : FullLines := ⟨f 0, f 1, f 2, f 3⟩
+def byAxis (f : Fin 4 → Word) : FullLines := ⟨f 0, f 1, f 2, f 3⟩
 
 private theorem field_byAxis (f : Fin 4 → Word) (axis : Fin 4) : field (byAxis f) axis = f axis := by
   rcases axis with ⟨i, hi⟩
@@ -11,38 +14,38 @@ private theorem field_byAxis (f : Fin 4 → Word) (axis : Fin 4) : field (byAxis
   | 0 | 1 | 2 | 3 => rfl
   | _ + 4 => omega
 
-private def noWrapL1 (axis : Fin 4) : Word :=
+def noWrapL1 (axis : Fin 4) : Word :=
   match axis.val with
   | 0 => 0xfefefefefefefefe
   | 1 => 0xffffffffffffffff
   | 2 => 0x7f7f7f7f7f7f7f7f
   | _ => 0xfefefefefefefefe
 
-private def noWrapR1 (axis : Fin 4) : Word :=
+def noWrapR1 (axis : Fin 4) : Word :=
   match axis.val with
   | 0 => 0x7f7f7f7f7f7f7f7f
   | 1 => 0xffffffffffffffff
   | 2 => 0xfefefefefefefefe
   | _ => 0x7f7f7f7f7f7f7f7f
 
-private def contactLines (known : Word) (lines : FullLines) : FullLines :=
+def contactLines (known : Word) (lines : FullLines) : FullLines :=
   byAxis fun axis =>
     ((known <<< stride axis) &&& noWrapL1 axis) |||
     ((known >>> stride axis) &&& noWrapR1 axis) |||
     field lines axis
 
-private def oneEmptyShield (disc : Word) (axis : Fin 4) (x : Fin 64) (blockers : Word) : Bool :=
+def oneEmptyShield (disc : Word) (axis : Fin 4) (x : Fin 64) (blockers : Word) : Bool :=
   let cells := (List.finRange 64).filter fun z => decide (sameLine axis x.val z.val)
   match cells.filter (fun z => !disc.getLsbD z.val) with
   | [hole] => cells.any fun y =>
       blockers.getLsbD y.val && decide (Between hole.val y.val x.val)
   | _ => false
 
-private def keepers (discs : Word) (lines : FullLines) (axis : Fin 4) : Word :=
+def keepers (discs : Word) (lines : FullLines) (axis : Fin 4) : Word :=
   encodeBits fun sq => discs.getLsbD sq.val && (List.finRange 4).all fun b =>
     decide (b = axis) || (field lines b).getLsbD sq.val
 
-private def shieldLines (disc : Word) (base : FullLines) (blockers : Word)
+def shieldLines (disc : Word) (base : FullLines) (blockers : Word)
     (blockerLines : FullLines) : FullLines := byAxis fun axis =>
   let keep := keepers blockers blockerLines axis
   field base axis ||| encodeBits (fun sq => oneEmptyShield disc axis sq keep)

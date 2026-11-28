@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiPublic
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiPublic
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiSession
 

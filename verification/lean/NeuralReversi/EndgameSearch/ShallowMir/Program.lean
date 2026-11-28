@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.FourOrder
+module
+public import NeuralReversi.EndgameSearch.FourOrder
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.ShallowMir
 

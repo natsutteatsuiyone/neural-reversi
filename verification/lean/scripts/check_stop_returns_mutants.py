@@ -34,8 +34,8 @@ CASES = [
 ]
 
 
-def check(dump):
-    original = render(dump)
+def check(dump, *, baseline=None):
+    original = render(dump) if baseline is None else baseline
     return assert_mutants_rejected(
         dump,
         [(f"reversi_core.{stem}{PASS}", old, replacement, stem) for stem, old, replacement in CASES],

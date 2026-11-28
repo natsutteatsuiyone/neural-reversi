@@ -1,10 +1,12 @@
-import Std
+module
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.BestFirst
 
 variable {α : Type} (value : α → Int32)
 
-private def scan (best : α) (bestIdx next : Nat) : List α → Nat
+def scan (best : α) (bestIdx next : Nat) : List α → Nat
   | [] => bestIdx
   | x :: xs =>
     if value x > value best then scan x next (next + 1) xs
@@ -22,7 +24,7 @@ private theorem scan_eq (seen rest : List α) (h : seen ≠ []) :
       List.length_cons, List.length_nil, List.append_assoc, List.cons_append, List.nil_append] at step
     rw [scan]
     by_cases better : value x > value (seen.maxOn value h)
-    · have cmp : ¬ value x ≤ value (seen.maxOn value h) := Std.not_le_of_gt better
+    · have cmp : ¬ value x ≤ value (seen.maxOn value h) := Int32.not_le.mpr better
       simpa [better, cmp, maxOn_eq_right cmp] using step
     · have cmp : value x ≤ value (seen.maxOn value h) := Int32.not_lt.mp better
       simpa [better, cmp, maxOn_eq_left cmp] using step

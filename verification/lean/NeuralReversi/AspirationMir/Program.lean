@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.Syntax
+module
+public import NeuralReversi.AspirationMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

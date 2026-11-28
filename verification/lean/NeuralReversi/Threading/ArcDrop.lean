@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.CutoffVisibility
+module
+public import NeuralReversi.Threading.CutoffVisibility
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.ArcDrop
 
@@ -11,7 +14,7 @@ inductive StrongUpdate : BitVec 64 → Write → Prop
   | release : count ≠ 0 →
       StrongUpdate count ⟨event, count - 1, true, true⟩
 
-private def predecessor (i : Fin n) : Fin n :=
+def predecessor (i : Fin n) : Fin n :=
   ⟨i.val - 1, Nat.lt_of_le_of_lt (Nat.sub_le ..) i.isLt⟩
 
 structure StrongHistory (writes : List Write) where

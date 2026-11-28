@@ -1,6 +1,9 @@
-import NeuralReversi.Bitboard.Counting
-import NeuralReversi.Bitboard.SquareProperties
-import NeuralReversi.Threading.AtomicWord
+module
+public import NeuralReversi.Bitboard.Counting
+public import NeuralReversi.Bitboard.SquareProperties
+public import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.AtomicBitSet
 

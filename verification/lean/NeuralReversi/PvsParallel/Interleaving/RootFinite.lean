@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.RootSchedule
-import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootSchedule
+public import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootSchedule
 

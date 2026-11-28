@@ -1,4 +1,7 @@
-import NeuralReversi.Simd.TernaryExec
+module
+public import NeuralReversi.Simd.TernaryFast
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
 abbrev Vec512 := Fin 8 → Word
@@ -14,7 +17,7 @@ def add512 (a b : Vec512) : Vec512 := fun i => a i + b i
 def rolv512 (a counts : Vec512) : Vec512 := fun i =>
   (a i).rotateLeft ((counts i &&& 63).toNat)
 def ternary512 (a b c : Vec512) (imm : BitVec 8) : Vec512 := fun i =>
-  ternaryWord (a i) (b i) (c i) imm
+  ternaryWordFast (a i) (b i) (c i) imm
 def unpacklo512 (a b : Vec512) : Vec512 := fun i =>
   match i.val with
   | 0 => a 0 | 1 => b 0 | 2 => a 2 | 3 => b 2

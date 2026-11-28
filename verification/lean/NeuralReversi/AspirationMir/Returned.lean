@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.Driver
-import NeuralReversi.PvsParallel.ConcurrentReplay
+module
+public import NeuralReversi.AspirationMir.Driver
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

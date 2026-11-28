@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayModel
+module
+public import NeuralReversi.ScaledScore.DisplayModel
+
+@[expose] public section
 
 /-! Formatter::write_fmt calls core::fmt::write, bypassing the sink's write_fmt override. -/
 namespace NeuralReversi.ScaledScore.DisplayControl

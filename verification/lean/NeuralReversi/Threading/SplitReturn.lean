@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SplitWindow.Stores
-import NeuralReversi.Threading.SplitReturn.Observation
+module
+public import NeuralReversi.Threading.SplitWindow.Stores
+public import NeuralReversi.Threading.SplitReturn.Observation
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitReturn
 

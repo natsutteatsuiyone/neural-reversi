@@ -1,11 +1,14 @@
-import NeuralReversi.PvsParallel.SerialScout
-import NeuralReversi.PvsParallel.SerialNonPv
-import NeuralReversi.PvsParallel.SerialChildState
-import NeuralReversi.PvsParallel.SerialPv
-import NeuralReversi.PvsParallel.EndgameOrderMir
-import NeuralReversi.PvsParallel.SerialRoot
-import NeuralReversi.PvsParallel.ContextPathMir
-import NeuralReversi.AspirationMir.NativeRootBirth
+module
+public import NeuralReversi.PvsParallel.SerialScout
+public import NeuralReversi.PvsParallel.SerialNonPv
+public import NeuralReversi.PvsParallel.SerialChildState
+public import NeuralReversi.PvsParallel.SerialPv
+public import NeuralReversi.PvsParallel.EndgameOrderMir
+public import NeuralReversi.PvsParallel.SerialRoot
+public import NeuralReversi.PvsParallel.ContextPathMir
+public import NeuralReversi.AspirationMir.NativeRootBirth
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialRecursion
 
@@ -49,7 +52,7 @@ def pvOrder (b : Position) (op : Operands mc fc b) :=
   EndgameOrderMir.ordinary (fun (m : GeneratedSquare mc b.val) => EndgameOrderMir.priority mc fc b op.ordering m.val)
     op.tie false hint (legalSquares mc b.val)
 
-private def raw (v : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 v⟩
+def raw (v : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 v⟩
 
 def runFuel (c : SerialScout.Config) (inputs : Inputs mc fc) :
     Nat → List Call → Position → Depth → EmptyState → Bool → Bool → Int → Int → Option Int

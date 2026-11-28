@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalPvSplit
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalPvSplit
+meta import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalCoverage
 
@@ -6,7 +10,7 @@ open JournalBodies (Check)
 open CausalTable (Frame)
 open EndgameSearch.CacheHistory (Pool)
 
-private instance (test : Check P) (rest : Prop) [Decidable rest] : Decidable (test.requires rest) :=
+instance (test : Check P) (rest : Prop) [Decidable rest] : Decidable (test.requires rest) :=
   match test with
   | .outside => inferInstanceAs (Decidable rest)
   | .rejected => isFalse id

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitRebookingMir.Participation
+module
+public import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerFrameMir
 

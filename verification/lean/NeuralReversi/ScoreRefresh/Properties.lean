@@ -1,6 +1,9 @@
-import NeuralReversi.ScoreRefresh.Model
-import NeuralReversi.ScaledScore.Properties
-import NeuralReversi.ScaledScore.ArithmeticProperties
+module
+public import NeuralReversi.ScoreRefresh.Model
+public import NeuralReversi.ScaledScore.Properties
+public import NeuralReversi.ScaledScore.ArithmeticProperties
+
+@[expose] public section
 
 namespace NeuralReversi.ScoreRefresh
 set_option linter.unusedSimpArgs false

@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.Duplicate.Program
-import NeuralReversi.Board.Hash
+module
+public import NeuralReversi.TranspositionTable.Duplicate.Program
+public import NeuralReversi.Board.Hash
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Duplicate
 

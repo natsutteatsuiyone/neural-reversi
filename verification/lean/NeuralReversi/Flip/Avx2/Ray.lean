@@ -1,8 +1,11 @@
-import NeuralReversi.Flip.Avx2.Spec
-import NeuralReversi.Flip.Avx2.Word
-import NeuralReversi.Flip.LrmaskProperties
-import NeuralReversi.Flip.Geometry
-import NeuralReversi.Flip.Directional
+module
+public import NeuralReversi.Flip.Avx2.Spec
+public import NeuralReversi.Flip.Avx2.Word
+public import NeuralReversi.Flip.LrmaskProperties
+public import NeuralReversi.Flip.Geometry
+public import NeuralReversi.Flip.Directional
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Flip

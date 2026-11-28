@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Coverage
+module
+public import NeuralReversi.PvsParallel.NativeFrames
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads.Coverage
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrameCache
 

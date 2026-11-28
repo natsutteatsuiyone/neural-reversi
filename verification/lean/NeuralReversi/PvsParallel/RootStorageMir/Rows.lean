@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootStorageMir.Program
-import NeuralReversi.PvsParallel.FrameRows
+module
+public import NeuralReversi.PvsParallel.RootStorageMir.Program
+public import NeuralReversi.PvsParallel.FrameRows
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootStorageMir
 
@@ -77,7 +80,7 @@ def line (packets : List Packet) (sq : Square) : List Square :=
 def applyOperand (pv : Square → List Square) (rows : List Row) (r : Operand) : List Row :=
   RootSuffix.writeFirst r.sq (fun old => RootSuffix.updateRow old r.score r.shown (pv r.sq)) rows
 
-private def foldUpdates (pvs : Square → List Square) (rows : List Row) : List Packet → Option (List Row)
+def foldUpdates (pvs : Square → List Square) (rows : List Row) : List Packet → Option (List Row)
   | [] => some rows
   | p :: rest => do
     if p.shown && decide (pvPrefix p.slots.toList ≠ pvs p.sq) then none else

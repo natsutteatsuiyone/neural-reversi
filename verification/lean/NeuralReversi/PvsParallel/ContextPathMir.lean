@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.ContextPathMir.Program
-import NeuralReversi.PvsParallel.NonPvMir
-import NeuralReversi.PvsParallel.DeepLeafMir
+module
+public import NeuralReversi.PvsParallel.ContextPathMir.Program
+public import NeuralReversi.PvsParallel.NonPvMir
+public import NeuralReversi.PvsParallel.DeepLeafMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ContextPathMir
 
@@ -28,7 +31,7 @@ theorem leafState_pass (b : Position) : leafState (pass b) = leafState b := by
   have count : Board.emptyCount (pass b).val = Board.emptyCount b.val := Board.switchPlayers_emptyCount b.val
   simp only [leafState, empties, count]
 
-private def flips (fc : Flip.Dispatch.X86Config) (b : Position) (sq : Bitboard.Square) :=
+def flips (fc : Flip.Dispatch.X86Config) (b : Position) (sq : Bitboard.Square) :=
   Flip.Dispatch.resultValue fc sq b.val.player b.val.opponent
 
 /-- Normal nested returns can leave scratch feature slots above the parent ply and increment counters. -/

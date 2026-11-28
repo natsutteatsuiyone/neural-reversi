@@ -1,4 +1,8 @@
-import NeuralReversi.ScaledScore.FloatRounding
+module
+public import NeuralReversi.ScaledScore.FloatRounding
+
+@[expose] public section
+
 set_option maxRecDepth 4096
 namespace NeuralReversi.ScaledScore
 

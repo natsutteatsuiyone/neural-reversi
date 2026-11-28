@@ -1,5 +1,8 @@
-import NeuralReversi.Simd.Avx512FlipModel
-import NeuralReversi.Flip.LrmaskModel
+module
+public import NeuralReversi.Simd.Avx512FlipModel
+public import NeuralReversi.Flip.LrmaskModel
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx512
 open NeuralReversi.Flip (Square lrmask)

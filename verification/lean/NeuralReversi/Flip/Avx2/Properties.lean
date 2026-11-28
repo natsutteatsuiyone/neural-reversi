@@ -1,4 +1,7 @@
-import NeuralReversi.Flip.Avx2.Bridge
+module
+public import NeuralReversi.Flip.Avx2.Bridge
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Simd.X86

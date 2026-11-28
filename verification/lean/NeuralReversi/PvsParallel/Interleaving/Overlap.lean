@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Schedule
+module
+public import NeuralReversi.PvsParallel.Interleaving.Schedule
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Overlap
 

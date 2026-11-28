@@ -1,4 +1,10 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Program
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Program
+public import NeuralReversi.Threading.CutoffVisibility
+public import NeuralReversi.Threading.SplitCompletion
+public import NeuralReversi.Threading.SplitReturn.Observation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir
 
@@ -99,7 +105,7 @@ private theorem Clock.before (clock : Clock) {i j : Nat} (lt : i < j) :
 inductive OwnerStep (mask : List Write)
   | clear | mark | seed | assign | finalize | best | guard (g : Guard mask)
 
-private def initSteps {mask : List Write} : Phase → List (OwnerStep mask)
+def initSteps {mask : List Write} : Phase → List (OwnerStep mask)
   | .clear => [.clear] | .mark => [.mark] | .seed => [.seed] | .assign => [.assign] | _ => []
 
 def ownerSteps (log : List (Guard mask)) : List (OwnerStep mask) := ownerPhases.flatMap fun

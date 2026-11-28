@@ -1,6 +1,7 @@
 """Exercise the slot selection, field operands, order and return tuple of Thread::split."""
 
 from extract_split_scheduler_mir import owner_fields
+from mir_common import glob_mir
 from mir_mutants import patched_mir, replace_once
 
 
@@ -22,7 +23,7 @@ def check(dump):
     expected = owner_fields(dump)
     sources = {}
     for name in (owner, init):
-        source, = dump.glob("*-" + name + ".SimplifyCfg-initial.after.mir")
+        source, = glob_mir(dump, "*-" + name + ".SimplifyCfg-initial.after.mir")
         sources[name] = (source, source.read_text(encoding="utf-8"))
     for name, edits in cases:
         path, changed = sources[name]

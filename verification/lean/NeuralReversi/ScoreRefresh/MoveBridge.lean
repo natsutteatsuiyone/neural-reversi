@@ -1,6 +1,9 @@
-import NeuralReversi.Board.SetPlacement
-import NeuralReversi.Bitboard.SquareProperties
-import NeuralReversi.Solve2.BoardBridge
+module
+public import NeuralReversi.Board.SetPlacement
+public import NeuralReversi.Bitboard.SquareProperties
+public import NeuralReversi.Solve2.BoardBridge
+
+@[expose] public section
 
 namespace NeuralReversi.ScoreRefresh.MoveBridge
 abbrev Board := NeuralReversi.Board.Board

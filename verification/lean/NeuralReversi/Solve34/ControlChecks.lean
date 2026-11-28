@@ -1,4 +1,7 @@
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 

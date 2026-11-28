@@ -256,7 +256,7 @@ def render(dump, repo):
                 f"{caller}: wrong callback")
     def run(method, args, variant=None):
         return translate(methods[method][0], method, [Value(*v) for v in args], variant)
-    lines = ["import NeuralReversi.PublicationMir.Syntax", "", "namespace NeuralReversi.PublicationMir", "",
+    lines = ["module", "public import NeuralReversi.PublicationMir.Syntax", "", "@[expose] public section", "", "namespace NeuralReversi.PublicationMir", "",
              "open RootMoveStorage (Row)", ""]
     def definition(method, params, typ, args, monad=False, recorded=False):
         emitted, output, state = run(method,args)

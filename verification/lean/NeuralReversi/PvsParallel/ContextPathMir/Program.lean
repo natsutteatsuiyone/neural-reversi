@@ -1,6 +1,9 @@
-import NeuralReversi.SearchContextState
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.EndgameSearch.Cancellation
+module
+public import NeuralReversi.SearchContextState
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.EndgameSearch.Cancellation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ContextPathMir
 

@@ -1,9 +1,12 @@
-import NeuralReversi.AspirationMir.NativeRootBirth
-import NeuralReversi.AspirationMir.NativeTrials
-import NeuralReversi.AspirationMir.SmallRoot
-import NeuralReversi.PvsParallel.RootAspiration
-import NeuralReversi.SearchContextState
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.AspirationMir.NativeRootBirth
+public import NeuralReversi.AspirationMir.NativeTrials
+public import NeuralReversi.AspirationMir.SmallRoot
+public import NeuralReversi.PvsParallel.RootAspiration
+public import NeuralReversi.SearchContextState
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialEntry
 

@@ -1,9 +1,12 @@
-import NeuralReversi.EndgameSearch.Direct
-import NeuralReversi.EndgameSearch.Cancellation
-import NeuralReversi.PvsParallel.Cutoffs
-import NeuralReversi.PvsParallel.Prefix
-import NeuralReversi.Threading.SplitReturn
-import NeuralReversi.Threading.SplitWindow.Stores
+module
+public import NeuralReversi.EndgameSearch.Direct
+public import NeuralReversi.EndgameSearch.Cancellation
+public import NeuralReversi.PvsParallel.Cutoffs
+public import NeuralReversi.PvsParallel.Prefix
+public import NeuralReversi.Threading.SplitReturn
+public import NeuralReversi.Threading.SplitWindow.Stores
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel
 

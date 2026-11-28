@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.OneEmpty
-import NeuralReversi.PublicationMir.Correct
-import NeuralReversi.PvsParallel.RootSuffix.Writes
+module
+public import NeuralReversi.AspirationMir.OneEmpty
+public import NeuralReversi.PublicationMir.Correct
+public import NeuralReversi.PvsParallel.RootSuffix.Writes
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

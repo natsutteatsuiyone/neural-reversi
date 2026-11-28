@@ -216,7 +216,11 @@ def render_thresholds(dump):
     """Render the endgame thresholds shared by the extracted and hand-written models."""
     return THRESHOLDS.replace("@ETC@",str(constants(dump)["MIN_EC_ETC_EMPTIES"]))
 
-THRESHOLDS="""/-! Endgame search thresholds extracted from the rustc MIR of `search::endgame` by
+THRESHOLDS="""module
+
+@[expose] public section
+
+/-! Endgame search thresholds extracted from the rustc MIR of `search::endgame` by
 `verification/lean/scripts/extract_deep_recursion_mir.py`. Regenerate with
 `check_endgame_mir.py --write` instead of editing. -/
 
@@ -228,8 +232,11 @@ def minEcEtcEmpties : Nat := @ETC@
 end NeuralReversi.EndgameSearch.Thresholds
 """
 
-PROGRAM="""import NeuralReversi.EndgameSearch.Cancellation
-import NeuralReversi.EndgameSearch.Thresholds
+PROGRAM="""module
+public import NeuralReversi.EndgameSearch.Cancellation
+public import NeuralReversi.EndgameSearch.Thresholds
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.DeepRecursionMir
 

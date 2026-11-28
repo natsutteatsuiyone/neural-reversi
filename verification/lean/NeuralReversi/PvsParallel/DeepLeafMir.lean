@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.CausalReplay
-import NeuralReversi.EndgameSearch.DeepRecursionMir
-import NeuralReversi.PvsParallel.DeepLeafMir.Program
+module
+public import NeuralReversi.PvsParallel.CausalReplay
+public import NeuralReversi.EndgameSearch.DeepRecursionMir
+public import NeuralReversi.PvsParallel.DeepLeafMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.DeepLeafMir
 
@@ -18,7 +21,7 @@ open EndgameTreeCache (Address soundHistory)
 open ExactTableHistory (Publications)
 open TableReads (ProbeReads)
 
-private def lookup (b : Position) (attempts : List TranspositionTable.ProbeRetry.RawAttempt)
+def lookup (b : Position) (attempts : List TranspositionTable.ProbeRetry.RawAttempt)
     (beta : Score) (depth : Depth) (parallel checked : Bool) : Option (Option EntryData) := do
   if depth.toNat = 12 ∧ parallel then
     match TranspositionTable.ProbeRetry.probe (attempts.map (TranspositionTable.ProbeRetry.observe (key b))) with
@@ -97,12 +100,12 @@ private theorem input_matches (aligned : state.empties.matches b) (active : Bool
 private theorem input_cache (sound : soundHistory mc fc state.history) (active : Bool) :
     soundHistory mc fc (pollInput state active).history := by cases active <;> exact sound
 
-private def accept (result : Outcome) (checked aborted : Bool) : Option Int := do
+def accept (result : Outcome) (checked aborted : Bool) : Option Int := do
   let raw ← (fromDiscDiff checked ⟨BitVec.ofInt 32 (result.score.getD 0)⟩).toOption
   let answer ← publish result aborted raw
   return answer.raw.toInt
 
-private def acceptedNws (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig)
+def acceptedNws (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc : FlipConfig)
     (address : Address) (b : Position) (alpha : Score) (state : State) (checked aborted : Bool) : Option Int := do
   let result := EndgameSearch.Cancellation.run mc fc (EndgameSearch.orderedOptions target bmi2 mc fc address)
     b (toDiscDiff alpha).raw.toInt state
@@ -136,7 +139,7 @@ private theorem acceptedNws_spec (target : TargetConfig) (bmi2 : Bool) (mc : X86
     exact ⟨.shallow target bmi2 mc fc address b alpha beta raw state checked aborted aligned cache ⟨cast, published⟩,
       PvsMoveLoop.Bound.ofSoundResult (valid published)⟩
 
-private def withNws (b : Position) (beta : Score) (depth : Depth) (state : State)
+def withNws (b : Position) (beta : Score) (depth : Depth) (state : State)
     (attempts : List TranspositionTable.ProbeRetry.RawAttempt) (parallel active checked : Bool)
     (child : Bool → Option Int) : Option Int := do
   if depth ≠ state.empties.count then none else

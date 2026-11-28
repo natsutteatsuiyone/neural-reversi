@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.StopSchedule
-import NeuralReversi.PvsParallel.Interleaving.NativeNodes
-import NeuralReversi.PvsParallel.Interleaving.History
+module
+public import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+public import NeuralReversi.PvsParallel.Interleaving.NativeNodes
+public import NeuralReversi.PvsParallel.Interleaving.History
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 

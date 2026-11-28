@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
-import NeuralReversi.PvsParallel.SerialTable.WeakTrial
+module
+public import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
+public import NeuralReversi.PvsParallel.SerialTable.WeakTrial
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.FullLadder
 

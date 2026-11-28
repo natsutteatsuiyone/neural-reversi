@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeStopReturns
+module
+public import NeuralReversi.PvsParallel.NativeStopReturns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeStopReturns
 

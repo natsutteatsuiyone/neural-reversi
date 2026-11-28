@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.NativeRootBirth.Program
-import NeuralReversi.PvsParallel.GeneralNonPvMir
-import NeuralReversi.AspirationMir.NativeRowLines
+module
+public import NeuralReversi.AspirationMir.NativeRootBirth.Program
+public import NeuralReversi.PvsParallel.GeneralNonPvMir
+public import NeuralReversi.AspirationMir.NativeRowLines
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeRootBirth
 

@@ -1,4 +1,17 @@
-import NeuralReversi.PvsParallel.NativeStopReturns.Check
+module
+public import NeuralReversi.PvsParallel.NativeStopReturns.Check
+meta import NeuralReversi.Board.Model
+meta import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+meta import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+meta import NeuralReversi.PvsParallel.DeepLeafMir
+meta import NeuralReversi.PvsParallel.NativeLeafBranches
+meta import NeuralReversi.PvsParallel.NativeStopReturns
+meta import NeuralReversi.PvsParallel.NativeStopReturns.Boundary
+meta import NeuralReversi.PvsParallel.NativeStopReturns.Check
+meta import NeuralReversi.PvsParallel.NativeStopReturns.Program
+meta import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeStopReturns.Regression
 

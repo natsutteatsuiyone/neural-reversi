@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.State
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.PvsParallel.SerialTable.State
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

@@ -1,6 +1,7 @@
 """Run small counterfactual mutations against the actual emitted scheduler functions."""
 
 from extract_worker_frame_mir import ANY_FIELD, KINDS, METHODS, PL, SUFFIX, TH, render
+from mir_common import read_mir_text
 from mir_mutants import check_mir_projection, run_mir_test_cli
 
 
@@ -21,14 +22,14 @@ CASES = [
 
 
 def _include(path):
-    source = path.read_text(encoding="utf-8")
     name = path.name.removesuffix(SUFFIX)
+    if name in KINDS or name in (TH + "new", PL + "create_main_thread", PL + "create_worker_threads"):
+        return True
+    source = read_mir_text(path, elide_byte_literals=True)
     return (
-        name in KINDS
-        or bool(ANY_FIELD.search(source))
+        bool(ANY_FIELD.search(source))
         or "FinishJob::<" in source
         or any("Thread::" + method in source for method in METHODS)
-        or name in (TH + "new", PL + "create_main_thread", PL + "create_worker_threads")
     )
 
 

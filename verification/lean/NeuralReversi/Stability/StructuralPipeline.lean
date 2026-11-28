@@ -1,7 +1,10 @@
-import NeuralReversi.Stability.StructuralBridge
-import NeuralReversi.Stability.EdgeEncoding
-import NeuralReversi.Stability.FullLines
-import NeuralReversi.Stability.Propagation
+module
+public import NeuralReversi.Stability.StructuralBridge
+public import NeuralReversi.Stability.EdgeEncoding
+public import NeuralReversi.Stability.FullLines
+public import NeuralReversi.Stability.Propagation
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

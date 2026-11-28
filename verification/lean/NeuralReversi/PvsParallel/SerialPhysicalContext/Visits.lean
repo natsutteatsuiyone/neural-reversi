@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialPhysicalContext
+module
+public import NeuralReversi.PvsParallel.SerialPhysicalContext
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialPhysicalContext
 

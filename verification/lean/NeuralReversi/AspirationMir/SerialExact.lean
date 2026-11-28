@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialRecursion
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.PvsParallel.SerialRecursion
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialExact
 

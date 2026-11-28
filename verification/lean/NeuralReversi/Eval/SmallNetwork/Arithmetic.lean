@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.OutputLayer.Arithmetic
+module
+public import NeuralReversi.Eval.OutputLayer.Arithmetic
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.SmallNetwork
 

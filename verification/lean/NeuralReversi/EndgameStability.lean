@@ -1,6 +1,9 @@
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.Stability.BoardRules
-import NeuralReversi.Stability.Cutoff
+module
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.Stability.BoardRules
+public import NeuralReversi.Stability.Cutoff
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameStability
 
@@ -8,7 +11,7 @@ open Stability.Semantics
 open Stability.Cutoff (countColor countEmpty terminalScore popcount cutoffStable stabilityCutoff DiscScore)
 open Bitboard.Moves (X86Config)
 open PvsBoardTree (Position pass play legalSquares minimax)
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 
 private theorem count_bits (bits : Bitboard.Bits) :
     (Bitboard.count bits).toNat = popcount bits := by

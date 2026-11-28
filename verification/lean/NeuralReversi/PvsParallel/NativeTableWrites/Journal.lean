@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.NativeFrameCache
-import NeuralReversi.PvsParallel.FrameTableReads
-import NeuralReversi.TranspositionTable.WriterMir
+module
+public import NeuralReversi.PvsParallel.NativeFrameCache
+public import NeuralReversi.PvsParallel.FrameTableReads
+public import NeuralReversi.TranspositionTable.WriterMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Journal
 

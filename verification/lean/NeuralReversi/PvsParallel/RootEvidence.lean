@@ -1,5 +1,9 @@
-import NeuralReversi.ExactEndgameScore
-import NeuralReversi.PvsParallel.Replay
+module
+public import NeuralReversi.ExactEndgameScore
+public import NeuralReversi.PvsParallel.Replay
+public import NeuralReversi.PvsParallel.RootReplay.Split
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootEvidence
 
@@ -15,11 +19,11 @@ open SearchPublication (Row capture)
 
 abbrev FlipConfig := Flip.Dispatch.X86Config
 
-private abbrev child (mc : X86Config) (fc : FlipConfig) (b : Position)
+abbrev child (mc : X86Config) (fc : FlipConfig) (b : Position)
     (move : GeneratedSquare mc b.val) : Tree :=
   build mc fc (play mc fc b move).val
 
-private abbrev squareAt (mc : X86Config) (b : Position) (first : GeneratedSquare mc b.val)
+abbrev squareAt (mc : X86Config) (b : Position) (first : GeneratedSquare mc b.val)
     (rest : List (GeneratedSquare mc b.val)) (i : Nat) : Square :=
   (((first :: rest)[i]?).getD first).val
 

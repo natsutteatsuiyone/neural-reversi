@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable
-import NeuralReversi.PvsParallel.SerialTable.Trial
+module
+public import NeuralReversi.AspirationMir.SerialTable
+public import NeuralReversi.PvsParallel.SerialTable.Trial
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable
 

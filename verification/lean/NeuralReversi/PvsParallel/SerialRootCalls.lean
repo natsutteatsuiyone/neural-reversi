@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialOwnerCalls
-import NeuralReversi.PvsParallel.SerialRoot
-import NeuralReversi.PvsParallel.EndgameOrderMir
+module
+public import NeuralReversi.PvsParallel.SerialOwnerCalls
+public import NeuralReversi.PvsParallel.SerialRoot
+public import NeuralReversi.PvsParallel.EndgameOrderMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialRootCalls
 

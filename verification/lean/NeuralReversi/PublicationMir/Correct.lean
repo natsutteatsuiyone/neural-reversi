@@ -1,4 +1,7 @@
-import NeuralReversi.PublicationMir.Program
+module
+public import NeuralReversi.PublicationMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir
 

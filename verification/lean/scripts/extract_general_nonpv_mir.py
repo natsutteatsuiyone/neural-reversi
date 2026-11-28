@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from itertools import product
 import re
 
-from mir_common import PASS, checked, normal_target, split_call, blocks
+from mir_common import PASS, checked, glob_mir, normal_target, split_call, blocks
 from extract_nonpv_leaf_mir import impl_constant, parameters, pvs_body, forwarding_body
 from extract_fixed_leaf_mir import constant
 from extract_root_wipeout import constants
@@ -30,7 +30,7 @@ def plus_threshold(dump, repo, name):
     line, = [i for i,x in enumerate(src,1) if x == "impl SearchStrategy for EndGameStrategy {"]
     mask = f"reversi_core.search-strategy-*-{name}.built.after.mir"
     found = []
-    for p in dump.glob(mask):
+    for p in glob_mir(dump, mask):
         t = p.read_text(encoding="utf-8").replace("\\","/")
         path = f"strategy::<impl at crates/reversi-core/src/search/strategy.rs:{line}:1: {line}:40>::{name}"
         if t.splitlines()[0] != f"// MIR for `search::{path}` after built":
@@ -233,7 +233,11 @@ def verify(dump, repo):
     def reach(cut, deep, hit, cb):
         return walk(cfg,traits,Flags(cut,deep,False,True,False,False,hit,False,False),cb)
     extract_general_presearch.verify(cfg,dump,traits,reach)
-    return f"""namespace NeuralReversi.PvsParallel.GeneralNonPvMir
+    return f"""module
+
+@[expose] public section
+
+namespace NeuralReversi.PvsParallel.GeneralNonPvMir
 
 inductive Action where
   | shallow | stability | terminal | pass | wipeout | probe | enhanced | rest

@@ -1,42 +1,23 @@
-import Lean.Data.Json.FromToJson
-import NeuralReversi.PvsBoardTree.Threshold
+module
+public import NeuralReversi.PvsParallel.TraceCheckModel
+public import NeuralReversi.PvsBoardTree.Threshold
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.TraceCheck
 
-open Lean
 open Aspiration (SoundResult Window)
-open PvsMoveLoop (Bound scoreInf)
+open PvsMoveLoop (Bound scoreInf scoreMax)
 open PvsBoardTree (GeneratedSquare)
-
-def moveConfig : Bitboard.Moves.X86Config := ⟨false, false⟩
-def flipConfig : Flip.Dispatch.X86Config := ⟨false, false, false⟩
-
-structure FrameReturn where
-  parent : Nat
-  worker : Nat
-  depth : Nat
-  alpha : Int
-  beta : Int
-  pv : Bool
-  player : Nat
-  opponent : Nat
-  score : Int
-  deriving FromJson
-
-def FrameReturn.board (frame : FrameReturn) : Board.Board :=
-  ⟨BitVec.ofNat 64 frame.player, BitVec.ofNat 64 frame.opponent⟩
-
-def FrameReturn.sane (frame : FrameReturn) : Bool :=
-  decide (frame.player < 2 ^ 64 ∧ frame.opponent < 2 ^ 64 ∧
-    frame.board.player &&& frame.board.opponent = 0) &&
-    frame.depth == (Board.emptyCount frame.board).toNat &&
-    decide (-scoreInf ≤ frame.alpha ∧ frame.alpha < frame.beta ∧ frame.beta ≤ scoreInf) &&
-    (frame.pv || frame.beta == frame.alpha + 1) &&
-    decide (-scoreInf < frame.score ∧ frame.score < scoreInf)
 
 theorem FrameReturn.sane_board {frame : FrameReturn} (sane : frame.sane = true) : Board.wellFormed frame.board := by
   simp only [FrameReturn.sane, Bool.and_eq_true, decide_eq_true_eq] at sane
   exact sane.1.1.1.1.2.2
+
+theorem FrameReturn.sane_depth {frame : FrameReturn} (sane : frame.sane = true) :
+    frame.depth = (Board.emptyCount frame.board).toNat := by
+  simp only [FrameReturn.sane, Bool.and_eq_true, beq_iff_eq] at sane
+  exact sane.1.1.1.2
 
 theorem FrameReturn.sane_window {frame : FrameReturn} (sane : frame.sane = true) :
     Window frame.alpha frame.beta ∧ (frame.pv = false → frame.beta = frame.alpha + 1) := by
@@ -50,15 +31,6 @@ theorem FrameReturn.sane_score {frame : FrameReturn} (sane : frame.sane = true) 
   simp only [FrameReturn.sane, Bool.and_eq_true, decide_eq_true_eq] at sane
   exact sane.2
 
-def FrameReturn.onMove (child : FrameReturn) (fc : Flip.Dispatch.X86Config) (board : Board.Board)
-    (square : Nat) : Bool :=
-  if inside : square < 64 then
-    let sq : Bitboard.Square := ⟨square, inside⟩
-    let flipped := Flip.Dispatch.resultValue fc sq board.player board.opponent
-    (Board.getMoves moveConfig board).getLsbD square &&
-      decide (child.board = Board.place board flipped sq)
-  else false
-
 theorem FrameReturn.onMove_sound {child : FrameReturn} {fc : Flip.Dispatch.X86Config}
     {board : PvsBoardTree.Position} {square : Nat}
     (checked : child.onMove fc board.val square = true) :
@@ -71,9 +43,6 @@ theorem FrameReturn.onMove_sound {child : FrameReturn} {fc : Flip.Dispatch.X86Co
     exact ⟨⟨⟨square, inside⟩, legal⟩, rfl, of_decide_eq_true placed⟩
   · contradiction
 
-def FrameReturn.windowMatches (frame : FrameReturn) (pv : Bool) (alpha beta score : Int) : Bool :=
-  frame.pv == pv && frame.alpha == alpha && frame.beta == beta && frame.score == score
-
 theorem FrameReturn.windowMatches_sound {frame : FrameReturn} {pv : Bool} {alpha beta score : Int}
     (checked : frame.windowMatches pv alpha beta score = true) :
     frame.alpha = alpha ∧ frame.beta = beta ∧ frame.score = score := by
@@ -83,13 +52,6 @@ theorem FrameReturn.windowMatches_sound {frame : FrameReturn} {pv : Bool} {alpha
 def FrameReturn.BoardSound (frame : FrameReturn) (fc : Flip.Dispatch.X86Config) : Prop :=
   ∀ valid : Board.wellFormed frame.board,
     SoundResult (PvsBoardTree.minimax moveConfig fc ⟨frame.board, valid⟩) frame.alpha frame.beta frame.score
-
-private def FrameReturn.checkWith (frame : FrameReturn) (exceeds : Int → Bool) : Bool :=
-  decide (-scoreInf < frame.score ∧ frame.score < scoreInf) &&
-    (if frame.score ≤ frame.alpha then exceeds frame.score == false else true) &&
-    (if frame.beta ≤ frame.score then exceeds (frame.score - 1) else true) &&
-    (if frame.alpha < frame.score ∧ frame.score < frame.beta then
-      exceeds (frame.score - 1) && (exceeds frame.score == false) else true)
 
 private theorem FrameReturn.checkWith_sound {frame : FrameReturn} {value : Int} {exceeds : Int → Bool}
     (decision : ∀ cut, exceeds cut = true ↔ cut < value) (checked : frame.checkWith exceeds = true) :
@@ -113,18 +75,9 @@ private theorem FrameReturn.checkWith_sound {frame : FrameReturn} {value : Int} 
     simp only [ite_eq_left (And.intro a b), Bool.and_eq_true, aboveScore, belowScore] at exactValue
     exact Int.le_antisymm exactValue.1 exactValue.2
 
-def FrameReturn.checkBound (frame : FrameReturn) (value : Int) : Bool :=
-  frame.checkWith (fun cut => decide (cut < value))
-
 theorem FrameReturn.checkBound_sound {frame : FrameReturn} {value : Int}
     (checked : frame.checkBound value = true) : SoundResult value frame.alpha frame.beta frame.score :=
   frame.checkWith_sound (fun _ => Iff.of_eq decide_eq_true_eq) checked
-
-def FrameReturn.isTerminal (frame : FrameReturn) : Bool :=
-  (Board.hasLegalMoves moveConfig frame.board == false) &&
-    (Board.hasLegalMoves moveConfig (Board.switchPlayers frame.board) == false)
-
-def FrameReturn.terminalValue (frame : FrameReturn) : Int := 256 * Board.AwardedScore frame.board
 
 theorem FrameReturn.terminal_sound {frame : FrameReturn} {fc : Flip.Dispatch.X86Config}
     (terminal : frame.isTerminal = true) (bound : frame.checkBound frame.terminalValue = true) :
@@ -143,12 +96,120 @@ theorem FrameReturn.threshold_sound {frame : FrameReturn} {fc : Flip.Dispatch.X8
     {valid : Board.wellFormed frame.board} (checked : frame.checkThreshold fc valid = true) : frame.BoardSound fc :=
   fun _ => frame.checkWith_sound (PvsBoardTree.exceeds_iff moveConfig fc ⟨frame.board, valid⟩) checked
 
-def FrameReturn.followsPass (child parent : FrameReturn) (parentId : Nat) : Bool :=
-  (Board.getMoves moveConfig parent.board == 0 &&
-    Board.hasLegalMoves moveConfig child.board &&
-    decide (child.board = Board.switchPlayers parent.board)) &&
-  (child.parent == parentId && child.worker == parent.worker && child.depth == parent.depth) &&
-    child.windowMatches parent.pv (-parent.beta) (-parent.alpha) (-parent.score)
+private theorem play_emptyCount (mc : Bitboard.Moves.X86Config) (fc : Flip.Dispatch.X86Config)
+    (board : PvsBoardTree.Position) (sq : GeneratedSquare mc board.val) :
+    (Board.emptyCount (PvsBoardTree.play mc fc board sq).val.val).toNat + 1 =
+      (Board.emptyCount board.val).toNat := by
+  have accepted := (Board.precomputedMoveContract_proven mc fc true true board.val sq.val
+    board.property sq.property).1
+  exact (Board.checkedPlacementProgress_proven true _ _ _ _ board.property accepted).2
+
+private theorem any_congr {α : Type} {xs : List α} {p q : α → Bool}
+    (h : ∀ x ∈ xs, p x = q x) : xs.any p = xs.any q := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only [List.any_cons, h x (by simp), ih (fun y hy => h y (by simp [hy]))]
+
+private theorem exceedsRaw_eq_exceeds_aux (mc : Bitboard.Moves.X86Config)
+    (fc : Flip.Dispatch.X86Config) (board : PvsBoardTree.Position) (cut : Int)
+    (fuel : Nat) (canPass : Bool)
+    (enough : (Board.emptyCount board.val).toNat ≤ fuel)
+    (passValid : canPass = false → Board.hasLegalMoves mc board.val = true) :
+    exceedsRaw mc fc board.val cut fuel canPass = PvsBoardTree.exceeds mc fc board cut := by
+  rw [exceedsRaw.eq_def, PvsBoardTree.exceeds.eq_def]
+  by_cases floor : cut < -scoreMax
+  · simp [floor]
+  · simp only [floor, ↓reduceIte]
+    by_cases ceil : scoreMax ≤ cut
+    · simp [ceil]
+    · simp only [ceil, ↓reduceIte]
+      have hvals := PvsBoardTree.legalSquares_values mc board.val
+      cases moves : PvsBoardTree.legalSquares mc board.val with
+      | nil =>
+        rw [moves] at hvals
+        have hfilter : (List.finRange 64).filter (fun sq => (Board.getMoves mc board.val).getLsbD sq.val) = [] :=
+          hvals.symm
+        cases fuel with
+        | zero =>
+          by_cases mobile : Board.hasLegalMoves mc (PvsBoardTree.pass board).val = true
+          · obtain ⟨sq, legal⟩ := (Board.hasLegalMoves_exact mc (PvsBoardTree.pass board).val).mp mobile
+            obtain ⟨move, _, _⟩ := (PvsBoardTree.legalSquares_complete mc (PvsBoardTree.pass board).val ⟨sq, legal.1⟩).mpr legal
+            have dec := play_emptyCount mc fc (PvsBoardTree.pass board) move
+            have same : Board.emptyCount (PvsBoardTree.pass board).val = Board.emptyCount board.val :=
+              Board.switchPlayers_emptyCount board.val
+            rw [same] at dec
+            omega
+          · simp only [mobile]
+            rfl
+        | succ nextFuel =>
+          simp only [hfilter]
+          have hcan : canPass = true := by
+            cases canPass with
+            | true => rfl
+            | false =>
+              have mobile := passValid rfl
+              have stuck := PvsBoardTree.stuck_of_nil moves
+              rw [stuck] at mobile
+              contradiction
+          simp only [hcan, ↓reduceIte]
+          by_cases mobile : Board.hasLegalMoves mc (PvsBoardTree.pass board).val = true
+          · have mobile' : Board.hasLegalMoves mc (Board.switchPlayers board.val) = true := mobile
+            simp only [mobile, mobile', ↓reduceIte, dite_true]
+            have nextEnough : (Board.emptyCount (PvsBoardTree.pass board).val).toNat ≤ nextFuel + 1 := by
+              change (Board.emptyCount (Board.switchPlayers board.val)).toNat ≤ nextFuel + 1
+              rw [Board.switchPlayers_emptyCount]
+              exact enough
+            exact congrArg Bool.not (exceedsRaw_eq_exceeds_aux mc fc (PvsBoardTree.pass board) (-cut - 1)
+              (nextFuel + 1) false nextEnough (fun _ => mobile))
+          · have mobile' : ¬ Board.hasLegalMoves mc (Board.switchPlayers board.val) = true := mobile
+            simp only [mobile, mobile']
+            rfl
+      | cons first rest =>
+        rw [moves] at hvals
+        have hfilter : (List.finRange 64).filter (fun sq => (Board.getMoves mc board.val).getLsbD sq.val) =
+            first.val :: rest.map Subtype.val := by simpa using hvals.symm
+        have firstStep := play_emptyCount mc fc board first
+        cases fuel with
+        | zero => omega
+        | succ nextFuel =>
+          simp only [hfilter, List.any_map]
+          have head := exceedsRaw_eq_exceeds_aux mc fc (PvsBoardTree.play mc fc board first).val
+            (-cut - 1) nextFuel true (by omega) (by simp)
+          change (!exceedsRaw mc fc (PvsBoardTree.play mc fc board first).val.val (-cut - 1) nextFuel true ||
+            rest.any (fun sq => !exceedsRaw mc fc (PvsBoardTree.play mc fc board sq).val.val (-cut - 1) nextFuel true)) = _
+          rw [head]
+          congr 1
+          apply any_congr
+          intro sq _
+          have sqStep := play_emptyCount mc fc board sq
+          exact congrArg Bool.not (exceedsRaw_eq_exceeds_aux mc fc (PvsBoardTree.play mc fc board sq).val
+            (-cut - 1) nextFuel true (by omega) (by simp))
+termination_by Board.playRank mc board.val
+decreasing_by
+  · exact Board.legalCheckedStep_strict mc (.pass ⟨PvsBoardTree.stuck_of_nil moves, mobile⟩) board.property
+  · exact (PvsBoardTree.play mc fc board first).property
+  · exact (PvsBoardTree.play mc fc board sq).property
+
+theorem exceedsRaw_eq_exceeds (mc : Bitboard.Moves.X86Config)
+    (fc : Flip.Dispatch.X86Config) (board : PvsBoardTree.Position) (cut : Int) :
+    exceedsRaw mc fc board.val cut (Board.emptyCount board.val).toNat true =
+      PvsBoardTree.exceeds mc fc board cut :=
+  exceedsRaw_eq_exceeds_aux mc fc board cut (Board.emptyCount board.val).toNat true (Nat.le_refl _) (by simp)
+
+theorem FrameReturn.checkThresholdRaw_eq (frame : FrameReturn) (fc : Flip.Dispatch.X86Config)
+    (sane : frame.sane = true) :
+    frame.checkThresholdRaw fc = frame.checkThreshold fc (frame.sane_board sane) := by
+  unfold FrameReturn.checkThresholdRaw FrameReturn.checkThreshold
+  rw [frame.sane_depth sane]
+  congr 1
+  funext cut
+  exact exceedsRaw_eq_exceeds moveConfig fc ⟨frame.board, frame.sane_board sane⟩ cut
+
+theorem FrameReturn.thresholdRaw_sound {frame : FrameReturn} {fc : Flip.Dispatch.X86Config}
+    (sane : frame.sane = true) (checked : frame.checkThresholdRaw fc = true) :
+    frame.BoardSound fc :=
+  frame.threshold_sound (by rwa [← frame.checkThresholdRaw_eq fc sane])
 
 theorem FrameReturn.pass_sound {child parent : FrameReturn} {fc : Flip.Dispatch.X86Config}
     (parentSane : parent.sane = true)

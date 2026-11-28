@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrameCache
-import NeuralReversi.PvsParallel.FrameTableReads
+module
+public import NeuralReversi.PvsParallel.NativeFrameCache
+public import NeuralReversi.PvsParallel.FrameTableReads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeLeafBranches
 
@@ -89,12 +92,12 @@ structure ChildReturn where
   site : Nat
   callee : CacheOwner.Node
 
-private structure OpenCall where
+structure OpenCall where
   opening : Nat
   site : Nat
   callee : CacheOwner.Node
 
-private def walk : List OpenCall × List ChildReturn → CacheHistory.NativeTrace.Raw →
+def walk : List OpenCall × List ChildReturn → CacheHistory.NativeTrace.Raw →
     Option (List OpenCall × List ChildReturn)
   | (stack,rows), .enter step site callee .. => some (⟨step,site,callee⟩ :: stack,rows)
   | (top :: rest,rows), .leave step opening callee _ =>
@@ -199,7 +202,7 @@ theorem discarded {p : Pool} {c : Capture p} {stream regs mc fc} {v : Visit p}
   exact ⟨by simpa [stopped] using returned_score hit,by simp [BoundaryResult.event,stopped],
     by simp [BoundaryResult.event,stopped],by simp [BoundaryResult.event,stopped]⟩
 
-private instance : DecidableEq RawAttempt := fun x y =>
+instance : DecidableEq RawAttempt := fun x y =>
   decidable_of_iff (x.generation = y.generation ∧ ∀ i, x.readSlot i = y.readSlot i) (by
     cases x; cases y; simp [funext_iff,and_comm])
 

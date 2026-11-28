@@ -1,7 +1,10 @@
-import NeuralReversi.AspirationMir.SerialEntry
-import NeuralReversi.AspirationMir.SerialTable.FromBoard
-import NeuralReversi.EndgameSearch.SerialWarmCache
-import NeuralReversi.PvsParallel.SerialTable.Prefix
+module
+public import NeuralReversi.AspirationMir.SerialEntry
+public import NeuralReversi.AspirationMir.SerialTable.FromBoard
+public import NeuralReversi.EndgameSearch.SerialWarmCache
+public import NeuralReversi.PvsParallel.SerialTable.Prefix
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable
 

@@ -1,6 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Entry
-import NeuralReversi.PvsParallel.Interleaving.JournalLocalCache
-import NeuralReversi.PvsParallel.Interleaving.CutClosure
+module
+public import NeuralReversi.PvsParallel.Interleaving.Entry
+public import NeuralReversi.PvsParallel.Interleaving.JournalLocalCache
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.MultiSessionCarry
 

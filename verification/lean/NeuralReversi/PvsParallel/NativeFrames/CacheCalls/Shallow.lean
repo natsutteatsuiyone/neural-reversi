@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow.Groups
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow.Groups
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow
 
@@ -10,16 +13,16 @@ open PvsBoardTree (Position GeneratedSquare legalSquares play pass)
 open Bitboard.Moves (X86Config)
 open Flip.Dispatch (TargetConfig)
 
-private theorem switched (safe : SafeThreshold a) : SafeThreshold (-(a+1)) := by
+theorem switched (safe : SafeThreshold a) : SafeThreshold (-(a+1)) := by
   obtain ⟨lo,hi⟩ := safe
   exact ⟨by omega,by omega⟩
 
-private def readNode (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a) (next : Program .shallow h last) :
+def readNode (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a) (next : Program .shallow h last) :
     Program .shallow h last :=
   .access 1 (.slot .shallow (p.key b.val)) .forward (by simp only [Access.node]; decide)
     (.access 2 (.probe .shallow b.val a safe) .forward (by simp only [Access.node]; decide) next)
 
-private def readChild (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a) (next : Program .shallowChild h last) :
+def readChild (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a) (next : Program .shallowChild h last) :
     Program .shallowChild h last :=
   .access 0 (.slot .shallow (p.key b.val)) .forward (by simp only [Access.node]; decide)
     (.access 1 (.probe .shallow b.val a safe) .forward (by simp only [Access.node]; decide) next)
@@ -48,7 +51,7 @@ def child (p : Pool) (target : TargetConfig) (bmi2 : Bool) (mc : X86Config) (fc 
           (by simp only [Access.node]; decide) .done
   · exact .call 3 .shallow .forward (by decide) rfl (issued ()) .done
 
-private def legalNode (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a)
+def legalNode (p : Pool) (b : Position) (a : Int) (safe : SafeThreshold a)
     (h : List Store) (first : M) (rest : List M) (stable : Option Int) (stages : List (List M))
     (five : stages.length = 5) (sub : M → List Store → Result)
     (issued : ∀ m h, Program .shallowChild h (sub m h).history) :

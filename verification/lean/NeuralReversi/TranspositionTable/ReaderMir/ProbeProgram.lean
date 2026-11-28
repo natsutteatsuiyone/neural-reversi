@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.ReaderMir.ProbeSyntax
-import NeuralReversi.TranspositionTable.Packing
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.ProbeSyntax
+public import NeuralReversi.TranspositionTable.Packing
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

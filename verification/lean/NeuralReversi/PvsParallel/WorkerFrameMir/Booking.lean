@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.WorkerFrameMir.Reads
+module
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Reads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerFrameMir
 

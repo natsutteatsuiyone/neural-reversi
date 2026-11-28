@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.NativeFrames
-import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
-import NeuralReversi.PvsParallel.ContextPathMir.Program
-import NeuralReversi.PvsParallel.NativeWorkerFeed.Program
+module
+public import NeuralReversi.PvsParallel.NativeFrames
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
+public import NeuralReversi.PvsParallel.ContextPathMir.Program
+public import NeuralReversi.PvsParallel.NativeWorkerFeed.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeWorkerFeed
 
@@ -25,7 +28,7 @@ structure Return where
   score : ScoreRefresh.Score
   usable : Bool
 
-private def leave (stack : List Open) (out : List Return) (step opening : Nat) (node : Node)
+def leave (stack : List Open) (out : List Return) (step opening : Nat) (node : Node)
     (raw : Option ScoreRefresh.Score) (usable : Bool) : Option (List Open × List Return) := do
   let top :: rest := stack | none
   if top.stamp != opening || top.node != node then none else
@@ -35,7 +38,7 @@ private def leave (stack : List Open) (out : List Return) (step opening : Nat) (
     else some (rest,out)
   | _,_,_ => some (rest,out)
 
-private def advance (worker : Nat) (state : List Open × List Return) (record : Record) :
+def advance (worker : Nat) (state : List Open × List Return) (record : Record) :
     Option (List Open × List Return) :=
   let (stack,out) := state
   match record with
@@ -268,7 +271,7 @@ structure Task where
   cut : Bool
   beta : SplitWorkerMir.Word
 
-private def checkReturn (p : Prefix) (pv stopped : Bool) (load ending : Event) (ret : Return) : Bool :=
+def checkReturn (p : Prefix) (pv stopped : Bool) (load ending : Event) (ret : Return) : Bool :=
   decide (load.worker = p.worker ∧ ending.worker = p.worker ∧
     ret.dispatch = p.dispatch ∧ ret.site = (site pv).2 ∧ ret.opening = p.opening pv ∧
     p.claimed < load.step ∧ load.step < ret.opening ∧ ret.opening < ending.step ∧ ret.step = ending.step ∧
@@ -278,7 +281,7 @@ def readWord (p : Prefix) (results : List Return) (pv : Bool) : Option SplitWork
   (results.find? fun r => decide (r.dispatch = p.dispatch ∧ r.site = (site pv).2 ∧ r.opening = p.opening pv)).map
     (fun r => r.score.raw)
 
-private def ticketReturns (p : Prefix) (results : List Return) (lock : Event) : List Return :=
+def ticketReturns (p : Prefix) (results : List Return) (lock : Event) : List Return :=
   (results.filter fun r => decide (r.dispatch = p.dispatch ∧ p.claimed < r.opening ∧ r.step < lock.step)).reverse
 
 /-- The lock observation is later than all calls of this ticket. A stopped ticket still

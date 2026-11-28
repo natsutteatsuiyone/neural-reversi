@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.WeakFrame
-import NeuralReversi.AspirationMir.SerialTable.PvInterior
+module
+public import NeuralReversi.PvsParallel.Interleaving.WeakFrame
+public import NeuralReversi.AspirationMir.SerialTable.PvInterior
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Interior
 

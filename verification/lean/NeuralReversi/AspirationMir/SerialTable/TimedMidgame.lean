@@ -1,7 +1,10 @@
-import NeuralReversi.Board.InitializationModel
-import NeuralReversi.AspirationMir.SerialTable.MidgameIterate
-import NeuralReversi.AspirationMir.SerialTable.MidgameRoot
-import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+module
+public import NeuralReversi.Board.InitializationModel
+public import NeuralReversi.AspirationMir.SerialTable.MidgameIterate
+public import NeuralReversi.AspirationMir.SerialTable.MidgameRoot
+public import NeuralReversi.PvsParallel.SerialTable.MidgameChild
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.TimedMidgame
 

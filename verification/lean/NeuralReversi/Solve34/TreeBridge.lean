@@ -1,5 +1,8 @@
-import NeuralReversi.Solve1.TreeBridge
-import NeuralReversi.Solve34.Nodes
+module
+public import NeuralReversi.Solve1.TreeBridge
+public import NeuralReversi.Solve34.Nodes
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 
@@ -7,9 +10,9 @@ open Bitboard.Moves (X86Config LegalMove)
 open PvsBoardTree (Position GeneratedSquare legalSquares play pass)
 open EndgameTreeCache (discValue)
 
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 
-private def position (b : EmptyBoard n) : Position := ⟨b.asBoard, b.disjoint⟩
+def position (b : EmptyBoard n) : Position := ⟨b.asBoard, b.disjoint⟩
 
 theorem legal_iff_emptyList_flip (b : EmptyBoard n) (sq : Square) :
     LegalMove b.player b.opponent sq.val ↔ sq ∈ b.squares ∧ generatedFlip b sq ≠ 0 := by

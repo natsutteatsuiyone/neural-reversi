@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitLifetime
+module
+public import NeuralReversi.Threading.SplitLifetime
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitOwnerStack
 
@@ -19,14 +22,14 @@ def Occupied (lifetime : SplitLifetime.State) (slot : Slot) : Prop :=
 def Prefix (state : State) : Prop :=
   ∀ slot : Slot, Occupied state.lifetime slot ↔ slot.index.val < (state.depth slot.owner).val
 
-private def State.setDepth (state : State) (worker : Worker) (depth : Fin 9) : Worker → Fin 9 :=
+def State.setDepth (state : State) (worker : Worker) (depth : Fin 9) : Worker → Fin 9 :=
   fun other => if other = worker then depth else state.depth other
 
-private def State.push (state : State) (task : Task) : State :=
+def State.push (state : State) (task : Task) : State :=
   ⟨state.lifetime.create task,
    state.setDepth task.slot.owner ⟨task.slot.index.val + 1, Nat.succ_lt_succ task.slot.index.isLt⟩⟩
 
-private def State.pop (state : State) (activation : Nat) (slot : Slot) : State :=
+def State.pop (state : State) (activation : Nat) (slot : Slot) : State :=
   ⟨state.lifetime.store activation none,
    state.setDepth slot.owner ⟨slot.index.val, Nat.lt_succ_of_lt slot.index.isLt⟩⟩
 

@@ -1,5 +1,8 @@
-import NeuralReversi.Simd.PairModel
-import NeuralReversi.Simd.X86Properties
+module
+public import NeuralReversi.Simd.PairModel
+public import NeuralReversi.Simd.X86Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
 

@@ -1,4 +1,7 @@
-import Std
+module
+
+@[expose] public section
+
 namespace NeuralReversi.Solve1.Geometry
 abbrev Word := BitVec 64
 def ray (p : Word) (acc : Nat) : List Nat → Nat

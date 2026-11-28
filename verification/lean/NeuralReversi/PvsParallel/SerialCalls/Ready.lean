@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialCalls.Stack
+module
+public import NeuralReversi.PvsParallel.SerialCalls.Stack
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCalls
 

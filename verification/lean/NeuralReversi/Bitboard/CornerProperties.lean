@@ -1,14 +1,17 @@
-import NeuralReversi.Bitboard.CornerModel
-import NeuralReversi.Bitboard.Counting
+module
+public import NeuralReversi.Bitboard.CornerModel
+public import NeuralReversi.Bitboard.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 
-set_option maxRecDepth 4096
+private theorem cornerMask_bit_fin : ∀ i : Fin 64,
+    cornerMask.getLsbD i.val = cornerCoordinate i.val := by
+  decide +kernel
 
 theorem cornerMask_bit : ∀ i : Nat, i < 64 →
-    cornerMask.getLsbD i = cornerCoordinate i := by
-  simp only [Nat.forall_lt_succ_right]
-  simp [cornerMask, cornerCoordinate]
+    cornerMask.getLsbD i = cornerCoordinate i := fun i hi => cornerMask_bit_fin ⟨i, hi⟩
 
 def CornerMaskContract : Prop :=
   ∀ bits : Bits,
@@ -70,15 +73,43 @@ theorem cornerWeightedCountContract_proven : CornerWeightedCountContract := by
   · simp only [BitVec.uaddOverflow, decide_eq_false_iff_not]
     omega
 
+private theorem cornerStableMask_consts : ∀ i : Fin 64,
+    (!decide (i.val < 1) && ((0x0000000000000001 : Bits).getLsbD (i.val - 1) || (0x0100000000000000 : Bits).getLsbD (i.val - 1))) =
+      (decide (i.val / 8 = 0 ∨ i.val / 8 = 7) && decide (i.val % 8 = 1)) ∧
+    ((0x0000000000000080 : Bits).getLsbD (1 + i.val) || (0x8000000000000000 : Bits).getLsbD (1 + i.val)) =
+      (decide (i.val / 8 = 0 ∨ i.val / 8 = 7) && decide (i.val % 8 = 6)) ∧
+    (!decide (i.val < 8) && ((0x0000000000000001 : Bits).getLsbD (i.val - 8) || (0x0000000000000080 : Bits).getLsbD (i.val - 8))) =
+      (decide (i.val % 8 = 0 ∨ i.val % 8 = 7) && decide (i.val / 8 = 1)) ∧
+    ((0x0100000000000000 : Bits).getLsbD (8 + i.val) || (0x8000000000000000 : Bits).getLsbD (8 + i.val)) =
+      (decide (i.val % 8 = 0 ∨ i.val % 8 = 7) && decide (i.val / 8 = 6)) := by
+  decide +kernel
+
 theorem cornerStableMask_bit (bits : Bits) : ∀ i : Nat, i < 64 →
     (cornerStableMask bits).getLsbD i = cornerSupportedCell bits i := by
-  simp only [Nat.forall_lt_succ_right]
-  simp [cornerStableMask, cornerMask, cornerSupportedCell, cornerCoordinate, Bool.and_comm]
+  intro i hi
+  have hc := cornerStableMask_consts ⟨i, hi⟩
+  simp only [cornerStableMask, cornerSupportedCell, BitVec.getLsbD_and, BitVec.getLsbD_or,
+    BitVec.getLsbD_shiftLeft, BitVec.getLsbD_ushiftRight, hi, decide_true, Bool.true_and,
+    cornerMask_bit i hi]
+  rw [← Bool.and_assoc, hc.1, hc.2.1, ← Bool.and_assoc, hc.2.2.1, hc.2.2.2,
+    Nat.add_comm 1 i, Nat.add_comm 8 i]
+  cases bits.getLsbD i <;> cases cornerCoordinate i <;>
+    cases decide (i / 8 = 0 ∨ i / 8 = 7) <;> cases decide (i % 8 = 0 ∨ i % 8 = 7) <;>
+    cases decide (i % 8 = 1) <;> cases decide (i % 8 = 6) <;>
+    cases decide (i / 8 = 1) <;> cases decide (i / 8 = 6) <;>
+    simp [Bool.or_comm, Bool.or_left_comm]
 
 theorem cornerSupport_within (bits : Bits) : ∀ i : Nat, i < 64 →
     cornerSupportedCell bits i = true → cornerStencil i = true := by
-  simp only [Nat.forall_lt_succ_right]
-  simp [cornerSupportedCell, cornerStencil, cornerCoordinate]
+  intro i _ h
+  simp only [cornerSupportedCell, Bool.and_eq_true, Bool.or_eq_true, decide_eq_true_eq] at h
+  simp only [cornerStencil, Bool.or_eq_true, decide_eq_true_eq]
+  rcases h.2 with ((h0 | ⟨hr, (⟨hc, _⟩ | ⟨hc, _⟩)⟩) | ⟨hc, (⟨hr, _⟩ | ⟨hr, _⟩)⟩)
+  · exact Or.inl (Or.inl h0)
+  · exact Or.inl (Or.inr ⟨hr, Or.inl hc⟩)
+  · exact Or.inl (Or.inr ⟨hr, Or.inr hc⟩)
+  · exact Or.inr ⟨hc, Or.inl hr⟩
+  · exact Or.inr ⟨hc, Or.inr hr⟩
 
 def CornerStabilityContract : Prop :=
   ∀ bits : Bits,

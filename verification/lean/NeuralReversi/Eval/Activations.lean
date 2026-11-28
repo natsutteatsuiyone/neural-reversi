@@ -1,9 +1,11 @@
-import Lean
+module
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.Activations
 
-private def satU8 (x : Int) : Int := min (max 0 x) 255
-private def satI16 (x : Int) : Int := min (max (-32768) x) 32767
+def satU8 (x : Int) : Int := min (max 0 x) 255
+def satI16 (x : Int) : Int := min (max (-32768) x) 32767
 
 def reluSpec (x : Int) : Int := satU8 (x / 64)
 
@@ -13,11 +15,11 @@ def scalarSquare (x : Int) : Int :=
   let s := satI16 x
   min (s * s / 1048576) 255
 
-private def x86Square (x : Int) : Int :=
+def x86Square (x : Int) : Int :=
   let s := satI16 x
   satU8 (s * s / 65536 / 16)
 
-private def neonSquare (x : Int) : Int :=
+def neonSquare (x : Int) : Int :=
   let s := satI16 x
   -- SQDMULH doubles the product and saturates its high half.
   satU8 (satI16 (2 * (s * s) / 65536) / 32)
@@ -102,16 +104,16 @@ private theorem neonSquare_sound (x : Int) : neonSquare x = squareSpec x := by
   omega
 
 /-- The two 128-bit lanes of PACKSSDW each read four values from each input vector. -/
-private def avx2WordsIndex (i : Fin 16) : Fin 16 :=
+def avx2WordsIndex (i : Fin 16) : Fin 16 :=
   ⟨i.val / 8 * 4 + i.val % 8 / 4 * 8 + i.val % 4, by omega⟩
 
 /-- PACKUSWB packs eight square results, then eight ReLU results, in each lane. -/
-private def avx2PackedOutput (input : Fin 16 → Int32) (i : Fin 32) : Int :=
+def avx2PackedOutput (input : Fin 16 → Int32) (i : Fin 32) : Int :=
   let x := (input (avx2WordsIndex ⟨i.val / 16 * 8 + i.val % 8, by omega⟩)).toInt
   if i.val % 16 < 8 then x86Square x else satU8 (satI16 x / 64)
 
 /-- VPERMD selects eight 32-bit groups in the order given by _mm256_set_epi32. -/
-private def avx2Shuffle (i : Fin 32) : Fin 32 :=
+def avx2Shuffle (i : Fin 32) : Fin 32 :=
   ⟨(i.val / 4 % 2 * 4 + i.val / 8) * 4 + i.val % 4, by omega⟩
 
 private theorem avx2Shuffle_selection : ∀ i : Fin 32,
@@ -149,19 +151,19 @@ theorem fusedContract_proven : FusedContract := by
         by omega⟩ = (⟨i.val % 16, by omega⟩ : Fin 16) := Fin.ext hi
     simp only [fusedOutput, avx2PackedOutput, hs, indexEq, x86Square_sound, saturatedRelu_sound]
 
-private def satU16 (x : Int) : Int := min (max 0 x) 65535
-private def activationCeiling : Int := 255 * 64
+def satU16 (x : Int) : Int := min (max 0 x) 65535
+def activationCeiling : Int := 255 * 64
 
 def scReluSpec (x : Int) : Int :=
   let clamped := min (max 0 x) activationCeiling
   clamped * clamped / 1048576
 
-private def scReluX86 (wide : Bool) (x : Int) : Int :=
+def scReluX86 (wide : Bool) (x : Int) : Int :=
   let s := if wide then satU16 (min x activationCeiling)
     else min (satU16 x) activationCeiling
   satU8 (s * s / 65536 / 16)
 
-private def scReluNeon (x : Int) : Int :=
+def scReluNeon (x : Int) : Int :=
   let s := min (satU16 x) activationCeiling
   satU8 (satI16 (2 * (s * s) / 65536) / 32)
 
@@ -204,7 +206,7 @@ private theorem scReluNeon_sound (x : Int) : scReluNeon x = scReluSpec x := by
   unfold satU8
   omega
 
-private def scReluStoreLanes (backend : Backend) (size : Nat) : Nat :=
+def scReluStoreLanes (backend : Backend) (size : Nat) : Nat :=
   match backend with
   | .avx512 => if size % 64 = 0 then 16 else if size % 32 = 0 then 8 else 0
   | .avx2 => if size % 32 = 0 then 8 else 0
@@ -220,10 +222,10 @@ def scReluStoreOrder (backend : Backend) (size i : Nat) : Nat :=
 
 /-- In each 128-bit lane, PACKUSWB stores four groups of four values in
     the order of the four original input vectors. -/
-private def packedLaneIndex (lanes pos : Nat) : Nat :=
+def packedLaneIndex (lanes pos : Nat) : Nat :=
   pos % 16 / 4 * lanes + pos / 16 * 4 + pos % 4
 
-private def packedSource (lanes i : Nat) : Nat :=
+def packedSource (lanes i : Nat) : Nat :=
   i / (4 * lanes) * (4 * lanes) + packedLaneIndex lanes (i % (4 * lanes))
 
 private theorem packedSource_eq_order (backend : Backend) (size i : Nat)

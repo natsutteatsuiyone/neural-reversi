@@ -1,4 +1,9 @@
-import NeuralReversi.PvsParallel.SplitRebookingMir.Program
+module
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Program
+public import NeuralReversi.Threading.CutoffVisibility
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitRebookingMir
 

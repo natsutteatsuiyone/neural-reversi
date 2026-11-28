@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+module
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitRebookingMir
 
@@ -14,7 +17,7 @@ def executeMask (old : BitVec 64) : List Command → List Write
     let write := cmd.apply old
     write :: executeMask write.value rest
 
-private theorem execute_tail (s : MaskState) (actions : List Action) :
+theorem execute_tail (s : MaskState) (actions : List Action) :
     (executeMask s.bits (actions.map command)).map Write.value = updates .mask s actions := by
   induction actions generalizing s with
   | nil => rfl
@@ -24,7 +27,7 @@ private theorem execute_tail (s : MaskState) (actions : List Action) :
     rw [word]; congr 1
     simpa only [word] using ih (step s act)
 
-private def ofWords (writes : List Write) (field : Field) (s : MaskState) (xs : List Action)
+def ofWords (writes : List Write) (field : Field) (s : MaskState) (xs : List Action)
     (before after : List (BitVec 64))
     (eq : writes.map Write.value = before ++ values field s xs ++ after) : Prefix writes field s xs := by
   have len := congrArg List.length eq
@@ -54,7 +57,7 @@ def flagWrites (ownerOpen : Event) (closeTime : Event → Event) (actions : List
     | .book _ e => SplitActivationMir.enrollOps.filterMap (flagStore e)
     | .finish _ e => SplitActivationMir.releaseOps.filterMap (flagStore (closeTime e))
 
-private theorem flag_tail (s : MaskState) (closeTime : Event → Event) (actions : List Action) :
+theorem flag_tail (s : MaskState) (closeTime : Event → Event) (actions : List Action) :
     (actions.flatMap (fun a => match a with
       | .book _ e => SplitActivationMir.enrollOps.filterMap (flagStore e)
       | .finish _ e => SplitActivationMir.releaseOps.filterMap (flagStore (closeTime e)))).map Write.value =

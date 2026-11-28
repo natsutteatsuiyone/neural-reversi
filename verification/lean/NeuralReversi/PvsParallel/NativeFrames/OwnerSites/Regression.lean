@@ -1,5 +1,13 @@
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Body
-import NeuralReversi.PvsParallel.NativeFrames.SplitReturn
+module
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Body
+public import NeuralReversi.PvsParallel.NativeFrames.SplitReturn
+meta import NeuralReversi.PvsParallel.NativeFrames
+meta import NeuralReversi.PvsParallel.NativeFrames.Invocations
+meta import NeuralReversi.PvsParallel.NativeFrames.OwnerSites
+meta import NeuralReversi.PvsParallel.NativeFrames.Returns
+meta import NeuralReversi.PvsParallel.NativeFrames.SplitReturn
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Regression
 

@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.PvEntryMir
-import NeuralReversi.PvsParallel.PvSerialMir
-import NeuralReversi.PvsParallel.NonPvMir
-import NeuralReversi.PvsParallel.Replay
+module
+public import NeuralReversi.PvsParallel.PvEntryMir
+public import NeuralReversi.PvsParallel.PvSerialMir
+public import NeuralReversi.PvsParallel.NonPvMir
+public import NeuralReversi.PvsParallel.Replay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SmallPv
 
@@ -20,7 +23,7 @@ structure Config (mc : X86Config) where
   memory : MoveList.Initialization.Memory Move.Move
   order : (b : Position) → Int → Int → List (GeneratedSquare mc b.val)
 
-private def raw (a : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 a⟩
+def raw (a : Int) : ScoreRefresh.Score := ⟨BitVec.ofInt 32 a⟩
 
 def scout (c : Config mc) (b : Position) (s : EmptyState) (a : Int) : Option Int :=
   (NonPvMir.run c.target c.bmi2 mc c.fc (fun _ _ => 0) [] b s.mask s.count s.count
@@ -42,14 +45,14 @@ theorem scout_returns (c : Config mc) (b : Position) (s : EmptyState) (a z : Int
   rw [av, zv] at trace
   exact trace
 
-private def observe (c : Config mc) (b : Position) (s : EmptyState)
+def observe (c : Config mc) (b : Position) (s : EmptyState)
     (wide : Position → EmptyState → Int → Int → Option Int) : ChildSearch (GeneratedSquare mc b.val) :=
   fun m pv a z =>
     let next := (play mc c.fc b m).val
     let child := s.remove m.val
     (if pv then wide next child a z else scout c next child a).getD 0
 
-private def runFuel (c : Config mc) : Nat → Position → EmptyState → Int → Int → Option Int
+def runFuel (c : Config mc) : Nat → Position → EmptyState → Int → Int → Option Int
   | 0, _, _, _, _ => none
   | fuel + 1, b, s, a, z =>
     let wide := runFuel c fuel

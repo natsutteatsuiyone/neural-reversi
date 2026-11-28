@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameCutoffs
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.EndgameCutoffs
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch
 
@@ -37,14 +40,14 @@ structure Result where
   score : Int
   history : List Store
 
-private def storeResult (table : Table) (b : Position) (alpha score : Int) (history : List Store) :
+def storeResult (table : Table) (b : Position) (alpha score : Int) (history : List Store) :
     Result :=
   ⟨score, history ++ [⟨table, ⟨b.val, alpha, score⟩⟩]⟩
 
-private def negateResult (result : Result) : Result :=
+def negateResult (result : Result) : Result :=
   ⟨-result.score, result.history⟩
 
-private def scan {Move : Type} (child : Move → List Store → Result) (alpha : Int) :
+def scan {Move : Type} (child : Move → List Store → Result) (alpha : Int) :
     List Move → Int → List Store → Result
   | [], best, history => ⟨best, history⟩
   | move :: rest, best, history =>
@@ -52,7 +55,7 @@ private def scan {Move : Type} (child : Move → List Store → Result) (alpha :
     if alpha + 1 ≤ result.score then result
     else scan child alpha rest (max best result.score) result.history
 
-private def fourResult (address : Address) (solve : Position → Int → Int)
+def fourResult (address : Address) (solve : Position → Int → Int)
     (b : Position) (alpha : Int) (history : List Store) : Result :=
   match EndgameCache.probe (entryFor address history .shallow b.val) b.val alpha with
   | some score => ⟨score, history⟩
@@ -61,10 +64,10 @@ private def fourResult (address : Address) (solve : Position → Int → Int)
     | some score => ⟨score.value, history⟩
     | none => storeResult .shallow b alpha (solve b alpha) history
 
-private def childTable (table : Table) (b : Position) : Table :=
+def childTable (table : Table) (b : Position) : Table :=
   if table = .deep ∧ 6 < (Board.emptyCount b.val).toNat then .deep else .shallow
 
-private def searchChild (opts : Options mc) (table : Table) (next : Position) (alpha : Int)
+def searchChild (opts : Options mc) (table : Table) (next : Position) (alpha : Int)
     (history : List Store) (call : Table → Int → List Store → Result) : Result :=
   let childAlpha := -(alpha + 1)
   match opts.four with
@@ -103,7 +106,7 @@ private theorem seed_lower {Move : Type} (v : Move → Int) (moves : List Move) 
   | cons sq rest ih =>
     exact Int.le_trans (Int.le_max_left _ _) (ih _)
 
-private def Valid (mc : X86Config) (fc : FlipConfig) (history : List Store)
+def Valid (mc : X86Config) (fc : FlipConfig) (history : List Store)
     (alpha value : Int) (result : Result) : Prop :=
   SearchRange result.score ∧ NWS alpha value result.score ∧
     soundHistory mc fc result.history ∧ history <+: result.history

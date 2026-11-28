@@ -1,3 +1,4 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.Interleaving.CutClosure
 import NeuralReversi.PvsParallel.Interleaving.MultiSessionCarry
 

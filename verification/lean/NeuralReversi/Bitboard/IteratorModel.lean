@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.LeastBit
+module
+public import NeuralReversi.Bitboard.LeastBit
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

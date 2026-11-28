@@ -1,4 +1,7 @@
-import NeuralReversi.Flip.ScalarModel
+module
+public import NeuralReversi.Flip.ScalarModel
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Scalar
 

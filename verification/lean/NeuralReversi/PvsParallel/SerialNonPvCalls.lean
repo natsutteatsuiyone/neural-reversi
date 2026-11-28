@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialNonPv
-import NeuralReversi.PvsParallel.SerialCalls.Sites
-import NeuralReversi.PvsParallel.EndgameOrderMir
+module
+public import NeuralReversi.PvsParallel.SerialNonPv
+public import NeuralReversi.PvsParallel.SerialCalls.Sites
+public import NeuralReversi.PvsParallel.EndgameOrderMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialNonPvCalls
 

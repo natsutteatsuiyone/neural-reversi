@@ -1,9 +1,12 @@
-import NeuralReversi.Flip.Dispatch.Types
-import NeuralReversi.Flip.Model
-import NeuralReversi.Flip.Avx2.Model
-import NeuralReversi.Flip.Avx512.Model
-import NeuralReversi.Flip.Neon.Model
-import NeuralReversi.Flip.WasmSimd.Model
+module
+public import NeuralReversi.Flip.Dispatch.Types
+public import NeuralReversi.Flip.Model
+public import NeuralReversi.Flip.Avx2.Model
+public import NeuralReversi.Flip.Avx512.Model
+public import NeuralReversi.Flip.Neon.Model
+public import NeuralReversi.Flip.WasmSimd.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Dispatch
 
@@ -12,6 +15,11 @@ def flip (config : X86Config) (checks : Bool) (sq : Square) (player opponent : W
   if config.avx512cd && config.avx512vl then .ok (Avx512.flip sq player opponent)
   else if config.avx2 then .ok (Avx2.flip sq player opponent)
   else NeuralReversi.Flip.flip checks sq player opponent
+
+def resultValue (config : X86Config) (sq : Square) (player opponent : Word) : Word :=
+  if config.avx512cd && config.avx512vl then Avx512.flip sq player opponent
+  else if config.avx2 then Avx2.flip sq player opponent
+  else value sq player opponent
 
 def flipTarget (config : TargetConfig) (checks : Bool) (sq : Square) (player opponent : Word) :
     Except String Word :=

@@ -1,4 +1,8 @@
-import NeuralReversi.ScaledScore.Model
+module
+public import NeuralReversi.ScaledScore.Model
+
+@[expose] public section
+
 namespace NeuralReversi.ScaledScore
 
 theorem negative_magnitude (a : Word) (ha : a.msb = true) :

@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.FourOrder
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.Solve34.Target
+module
+public import NeuralReversi.EndgameSearch.FourOrder
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.Solve34.Target
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.Direct
 

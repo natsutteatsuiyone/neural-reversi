@@ -95,8 +95,14 @@ def instrument_context(src):
 def capture(folder, target, extra_instrument=None, *, fixture=None, serial_trace=True):
     core = folder / "crates/reversi-core"
     shutil.copytree(REPO / "crates/reversi-core", core)
+    shutil.copytree(REPO / "crates/eval-weights", folder / "crates/eval-weights")
     manifest = (REPO / "Cargo.toml").read_text().split("[profile.release]")[0]
-    manifest, count = re.subn(r"members = \[.*?\]", 'members = ["crates/reversi-core"]', manifest, flags=re.S)
+    manifest, count = re.subn(
+        r"members = \[.*?\]",
+        'members = ["crates/eval-weights", "crates/reversi-core"]',
+        manifest,
+        flags=re.S,
+    )
     require(count == 1, "expected one workspace member list")
     (folder / "Cargo.toml").write_text(manifest + "\n[profile.dev]\ndebug = 0\nincremental = false\n")
     for name in ("Cargo.lock", "rust-toolchain.toml"):

@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitActivationMir.Program
+module
+public import NeuralReversi.PvsParallel.SplitActivationMir.Program
+public import NeuralReversi.Threading.SplitCompletion
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitActivationMir
 
@@ -19,7 +23,7 @@ def begin (owner : Worker) (mark : Event) : Fields :=
 def leave (fields : Fields) (worker : Worker) : Fields :=
   { setAssignment fields worker none with accepting := false }
 
-private def applyField (w : Worker) (receipt : Event) (f : Fields) : Op → Fields
+def applyField (w : Worker) (receipt : Event) (f : Fields) : Op → Fields
   | .assign => setAssignment f w (some receipt)
   | .take => setAssignment f w none
   | .accept => { f with accepting := true }

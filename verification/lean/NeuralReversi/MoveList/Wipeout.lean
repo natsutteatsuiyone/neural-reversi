@@ -1,4 +1,7 @@
-import NeuralReversi.MoveList.Retain
+module
+public import NeuralReversi.MoveList.Retain
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Wipeout
 open Initialization Retain

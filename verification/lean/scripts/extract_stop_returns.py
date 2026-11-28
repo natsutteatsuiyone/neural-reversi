@@ -169,7 +169,8 @@ def render(dump):
             [[jump(78)], [jump(79)], ["_136 = const ();", jump(80)], ["_0 = copy _134;",jump(81)], ["return;"]]
             and boundary.defs["_134"] == [("call","Score::from_disc_diff",["move _135"])],
             "boundary cutoff cannot publish and returns the converted score register")
-    return ("import NeuralReversi.PvsParallel.NativeStopReturns.Syntax\n\n"
+    return ("module\npublic import NeuralReversi.PvsParallel.NativeStopReturns.Syntax\n\n"
+            "@[expose] public section\n\n"
             "namespace NeuralReversi.PvsParallel.NativeStopReturns\n\n"
             f"def boundaryPcs : List Nat := {forwarded}\n"
             f"def deepPollPcs : List Nat := {deep[0]}\n"

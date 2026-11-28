@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.MovesGeometry
-import NeuralReversi.Bitboard.PotentialModel
+module
+public import NeuralReversi.Bitboard.MovesGeometry
+public import NeuralReversi.Bitboard.PotentialModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

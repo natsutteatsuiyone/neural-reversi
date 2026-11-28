@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.RecursionCacheMir
-import NeuralReversi.PvsParallel.DeepLeafMir
-import NeuralReversi.PvsParallel.NonPvMir
+module
+public import NeuralReversi.EndgameSearch.RecursionCacheMir
+public import NeuralReversi.PvsParallel.DeepLeafMir
+public import NeuralReversi.PvsParallel.NonPvMir
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory
 

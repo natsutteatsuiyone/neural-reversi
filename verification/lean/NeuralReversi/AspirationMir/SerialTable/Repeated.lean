@@ -1,8 +1,11 @@
-import NeuralReversi.AspirationMir.SerialTable.FullLadder
-import NeuralReversi.AspirationMir.SerialTable.WarmEstimate
-import NeuralReversi.PvsParallel.SerialTable.ExactRetention
-import NeuralReversi.PvsParallel.SerialTable.WeakTrial.Preserves
-import NeuralReversi.TranspositionTable.Generation
+module
+public import NeuralReversi.AspirationMir.SerialTable.FullLadder
+public import NeuralReversi.AspirationMir.SerialTable.WarmEstimate
+public import NeuralReversi.PvsParallel.SerialTable.ExactRetention
+public import NeuralReversi.PvsParallel.SerialTable.WeakTrial.Preserves
+public import NeuralReversi.TranspositionTable.Generation
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.Repeated
 

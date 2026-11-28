@@ -1113,6 +1113,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "eval-weights"
+version = "6.3.0"
+
+[[package]]
 name = "fancy-regex"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3669,6 +3673,7 @@ version = "6.3.0"
 dependencies = [
  "byteorder",
  "criterion",
+ "eval-weights",
  "libc",
  "rand 0.10.3",
  "rapidhash",

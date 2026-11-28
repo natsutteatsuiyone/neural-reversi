@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.Proofs
-import NeuralReversi.TranspositionTable.SeqLock
+module
+public import NeuralReversi.TranspositionTable.Proofs
+public import NeuralReversi.TranspositionTable.SeqLock
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Packing
 

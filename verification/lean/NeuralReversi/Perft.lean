@@ -1,6 +1,10 @@
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.Board.InitializationProperties
-import NeuralReversi.Eval.PatternUpdate.Storage
+module
+public import NeuralReversi.PerftModel
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.Board.InitializationProperties
+public import NeuralReversi.Eval.PatternUpdate.Storage
+
+@[expose] public section
 
 namespace NeuralReversi.Perft
 
@@ -190,5 +194,59 @@ theorem plyContract_proven : PlyContract := by
     exact ⟨by omega, by omega, nonempty, BitVec.ctz_lt_iff_ne_zero.mpr nonempty⟩
   · intro board
     exact Board.switchPlayers_emptyCount board.val
+
+private theorem countRaw_eq_count_aux (mc : X86Config) (fc : Flip.Dispatch.X86Config)
+    (board : Position) (depth : Nat) (canPass : Bool)
+    (passValid : canPass = false → Board.hasLegalMoves mc board.val = true) :
+    countRaw mc fc board.val depth canPass = count mc fc board depth := by
+  cases depth with
+  | zero => simp [countRaw.eq_def, count.eq_def]
+  | succ nextDepth =>
+    rw [countRaw.eq_def, count.eq_def]
+    have hvals := PvsBoardTree.legalSquares_values mc board.val
+    cases moves : legalSquares mc board.val with
+    | nil =>
+      rw [moves] at hvals
+      have hfilter : (List.finRange 64).filter (fun sq => (Board.getMoves mc board.val).getLsbD sq.val) = [] :=
+        hvals.symm
+      simp only [hfilter]
+      have hcan : canPass = true := by
+        cases canPass with
+        | true => rfl
+        | false =>
+          have mobile := passValid rfl
+          have stuck := PvsBoardTree.stuck_of_nil moves
+          rw [stuck] at mobile
+          contradiction
+      simp only [hcan, ↓reduceIte]
+      by_cases mobile : Board.hasLegalMoves mc (pass board).val = true
+      · have mobile' : Board.hasLegalMoves mc (Board.switchPlayers board.val) = true := mobile
+        simp only [mobile, mobile', ↓reduceIte, dite_true]
+        exact countRaw_eq_count_aux mc fc (pass board) (nextDepth + 1) false (fun _ => mobile)
+      · have mobile' : ¬ Board.hasLegalMoves mc (Board.switchPlayers board.val) = true := mobile
+        simp [mobile, mobile']
+    | cons first rest =>
+      rw [moves] at hvals
+      have hfilter : (List.finRange 64).filter (fun sq => (Board.getMoves mc board.val).getLsbD sq.val) =
+          first.val :: rest.map Subtype.val := by simpa using hvals.symm
+      simp only [hfilter, List.map_map]
+      have head := countRaw_eq_count_aux mc fc (play mc fc board first).val nextDepth true (by simp)
+      change countRaw mc fc (play mc fc board first).val.val nextDepth true + _ = _
+      rw [head]
+      congr 2
+      apply List.map_congr_left
+      intro sq _
+      exact countRaw_eq_count_aux mc fc (play mc fc board sq).val nextDepth true (by simp)
+termination_by Board.playRank mc board.val
+decreasing_by
+  · exact Board.legalCheckedStep_strict mc
+      (.pass ⟨PvsBoardTree.stuck_of_nil moves, mobile⟩) board.property
+  · exact (play mc fc board first).property
+  · exact (play mc fc board sq).property
+
+theorem countRaw_eq_count (mc : X86Config) (fc : Flip.Dispatch.X86Config)
+    (board : Position) (depth : Nat) :
+    countRaw mc fc board.val depth true = count mc fc board depth :=
+  countRaw_eq_count_aux mc fc board depth true (by simp)
 
 end NeuralReversi.Perft

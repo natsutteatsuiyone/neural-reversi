@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
-import NeuralReversi.PvsParallel.SerialTable.Store
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
+public import NeuralReversi.PvsParallel.SerialTable.Store
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Table
 

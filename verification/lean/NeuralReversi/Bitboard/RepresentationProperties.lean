@@ -1,6 +1,9 @@
-import NeuralReversi.Bitboard.RepresentationModel
-import NeuralReversi.Bitboard.SquareProperties
-import NeuralReversi.Bitboard.Counting
+module
+public import NeuralReversi.Bitboard.RepresentationModel
+public import NeuralReversi.Bitboard.SquareProperties
+public import NeuralReversi.Bitboard.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

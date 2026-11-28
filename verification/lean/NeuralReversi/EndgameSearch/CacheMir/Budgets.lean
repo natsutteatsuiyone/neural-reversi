@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheMir
+module
+public import NeuralReversi.EndgameSearch.CacheMir
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheMir
 

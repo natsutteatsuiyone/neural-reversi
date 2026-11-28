@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootMultiPV
-import NeuralReversi.SearchFallback
+module
+public import NeuralReversi.PvsParallel.RootMultiPV
+public import NeuralReversi.SearchFallback
+
+@[expose] public section
 
 namespace NeuralReversi.ExactEndgameScore
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+module
+public import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ObservedJoin
 

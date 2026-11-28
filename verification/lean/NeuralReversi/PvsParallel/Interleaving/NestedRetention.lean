@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+module
+public import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+public import NeuralReversi.PvsParallel.SlotFrameMir.Score
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.NestedRetention
 
@@ -72,7 +76,7 @@ def retireRead {g : RawMask ws} (closed : ClosedAfterFirst g) (r : AtomicWord.Re
   synchronize := fun i _ seq => by
     simpa only [at_back] using sync (back g i) (lift_sequence g r.source window.bounds i seq)
 
-private def lastMask (log : List (SplitSchedulerMir.Guard ws)) : Option (Fin ws.length) :=
+def lastMask (log : List (SplitSchedulerMir.Guard ws)) : Option (Fin ws.length) :=
   match log.getLast? with
   | some (.mask src) => some src
   | _ => none
@@ -310,13 +314,13 @@ def pastUpdates (clock : Event → Nat) (e : Event) : List Action → Nat
     let n := pastUpdates clock e as
     if n > 0 ∨ clock a.event ≤ clock e then n+1 else 0
 
-private theorem pastUpdates_bound (clock : Event → Nat) (e : Event) (as : List Action) :
+theorem pastUpdates_bound (clock : Event → Nat) (e : Event) (as : List Action) :
     pastUpdates clock e as ≤ as.length := by
   induction as with
   | nil => exact Nat.le_refl _
   | cons a as ih => simp only [pastUpdates,List.length_cons]; split <;> omega
 
-private theorem pastUpdates_after (clock : Event → Nat) (e : Event) (as : List Action)
+theorem pastUpdates_after (clock : Event → Nat) (e : Event) (as : List Action)
     (i : Fin as.length) (later : pastUpdates clock e as ≤ i.val) : clock e < clock (as.get i).event := by
   induction as with
   | nil => exact Fin.elim0 i
@@ -344,7 +348,7 @@ structure Tape (h : History) (clock : Event → Nat) where
 def through (clock : Event → Nat) (e : Event) (ticks : List Tick) : List Tick :=
   ticks.dropWhile (fun t => decide (clock e < clock t.1))
 
-private theorem through_scheduled (s : Scheduled h clock ticks) (e : Event) :
+theorem through_scheduled (s : Scheduled h clock ticks) (e : Event) :
     Scheduled h clock (through clock e ticks) := by
   induction s with
   | empty => exact .empty
@@ -477,11 +481,11 @@ def parent {h : History} {scan : SplitReturn.Observation.AncestorScan h}
 
 namespace Regression
 
-private def parentSlot : Slot := (0,0)
-private def childSlot : Slot := (1,0)
-private def outerTicks : List Tick :=
+def parentSlot : Slot := (0,0)
+def childSlot : Slot := (1,0)
+def outerTicks : List Tick :=
   [(⟨1,2⟩,.capture parentSlot 1),(⟨0,1⟩,.reserve parentSlot 1),(⟨0,0⟩,.openSlot parentSlot)]
-private def innerTicks : List Tick :=
+def innerTicks : List Tick :=
   [(⟨1,6⟩,.restore (some parentSlot) 1),(⟨1,5⟩,.release childSlot 1),
     (⟨1,4⟩,.capture childSlot 1),(⟨1,3⟩,.openSlot childSlot)]
 

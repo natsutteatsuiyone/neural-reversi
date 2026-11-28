@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
-import NeuralReversi.PvsParallel.SerialTable.ExactScores
+module
+public import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
+public import NeuralReversi.PvsParallel.SerialTable.ExactScores
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InitialEstimate
 

@@ -1,6 +1,9 @@
-import NeuralReversi.Stability.Structural
-import NeuralReversi.Stability.StructuralCoordinates
-import NeuralReversi.Stability.Geometry
+module
+public import NeuralReversi.Stability.Structural
+public import NeuralReversi.Stability.StructuralCoordinates
+public import NeuralReversi.Stability.Geometry
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

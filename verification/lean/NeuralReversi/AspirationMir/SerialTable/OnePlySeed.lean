@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.Repeated
+module
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.OnePlySeed
 
@@ -21,13 +24,13 @@ structure Inputs where
   scratch : MoveList.Initialization.Memory Move.Move
   level : Selectivity
 
-private def save (m : Memory l) (slot : l.Index) (level : Selectivity) : Option Proposal → Memory l
+def save (m : Memory l) (slot : l.Index) (level : Selectivity) : Option Proposal → Memory l
   | none => m
   | some w =>
     ⟨m.tt.store slot w.board (SerialTable.Writes.word w.score) w.bound w.depth w.move level false w.ttPv,
       m.tt.store_supported m.supported ..,m.cache⟩
 
-private def reply (ops : Inputs) (q : Request) : Int :=
+def reply (ops : Inputs) (q : Request) : Int :=
   (InitialEstimate.static (fun _ => ops.raw q) q.board).val
 
 def run (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (paired : Bool)

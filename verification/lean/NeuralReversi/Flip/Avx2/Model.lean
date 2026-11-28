@@ -1,5 +1,8 @@
-import NeuralReversi.Simd.FlipModel
-import NeuralReversi.Flip.LrmaskModel
+module
+public import NeuralReversi.Simd.FlipModel
+public import NeuralReversi.Flip.LrmaskModel
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Simd.X86

@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.InputLayer.Layout
+module
+public import NeuralReversi.Eval.InputLayer.Layout
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.SmallNetwork
 

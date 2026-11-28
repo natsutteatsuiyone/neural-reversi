@@ -1,4 +1,7 @@
-import NeuralReversi.PvsMoveLoop
+module
+public import NeuralReversi.PvsMoveLoop
+
+@[expose] public section
 
 namespace NeuralReversi.ShallowSearch
 

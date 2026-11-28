@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.Types
-import NeuralReversi.Bitboard.MovesSpec
+module
+public import NeuralReversi.Flip.Types
+public import NeuralReversi.Bitboard.MovesSpec
+
+@[expose] public section
 
 namespace NeuralReversi.Flip
 open NeuralReversi.Bitboard.Moves (OnRay)

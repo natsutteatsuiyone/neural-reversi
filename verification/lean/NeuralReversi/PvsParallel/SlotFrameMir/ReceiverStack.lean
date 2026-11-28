@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.ReceiverProgram
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.ReceiverProgram
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Stack
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.Receiver
 

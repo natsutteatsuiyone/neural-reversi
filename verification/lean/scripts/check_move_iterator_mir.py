@@ -5,6 +5,16 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
+
+
+_ATOMIC_LOCK = threading.Lock()
+_ATOMIC_CHECKED = set()
+
+
+def seed_atomic_checked(repo):
+    with _ATOMIC_LOCK:
+        _ATOMIC_CHECKED.add(Path(repo).resolve())
 
 
 ITER = "move_list-iterator-{impl#1}-"
@@ -168,6 +178,10 @@ def check_atomic(source):
 
 
 def compile_atomic(repo):
+    key = Path(repo).resolve()
+    with _ATOMIC_LOCK:
+        if key in _ATOMIC_CHECKED:
+            return
     # The opaque function pointer keeps the return/retry paths visible after the stdlib is inlined.
     probe = """use std::sync::atomic::{AtomicUsize, Ordering};
 pub fn update(a: &AtomicUsize, f: fn(usize) -> Option<usize>) -> Result<usize,usize> {
@@ -180,8 +194,10 @@ pub fn update(a: &AtomicUsize, f: fn(usize) -> Option<usize>) -> Result<usize,us
         src.write_text(probe, encoding="utf-8")
         subprocess.run(["rustc", "--crate-type=lib", "--emit=mir", "-O", "-Cpanic=abort", "-Zmir-opt-level=3",
                         "-Zinline-mir=yes", "-Zinline-mir-threshold=1000", "-Zinline-mir-hint-threshold=1000",
-                        "-Zinline-mir-forwarder-threshold=1000", str(src), "-o", str(mir)], cwd=repo, check=True)
+                        "-Zinline-mir-forwarder-threshold=1000", str(src), "-o", str(mir)], cwd=key, check=True)
         check_atomic(mir.read_text(encoding="utf-8"))
+    with _ATOMIC_LOCK:
+        _ATOMIC_CHECKED.add(key)
 
 
 def main():

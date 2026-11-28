@@ -42,8 +42,8 @@ def render(dump):
              if target == "pvs" and flow == "forward"}
     checked(set(edges) == set(roles.values()), "recursive call roles disagree with worker receiver transfers")
     return "\n".join([
-        "import NeuralReversi.EndgameSearch.CacheOwner.Program", "",
-        "namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites", "",
+        "module", "public import NeuralReversi.EndgameSearch.CacheOwner.Program", "",
+        "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites", "",
         "inductive Role where", *[f"  | {role}" for role in roles], "  deriving DecidableEq", "",
         "def Role.site : Role → Nat", *[f"  | .{role} => {edges[pc]}" for role, pc in roles.items()], "",
         "def Role.block : Role → Nat", *[f"  | .{role} => {pc}" for role, pc in roles.items()], "",

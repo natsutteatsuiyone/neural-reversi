@@ -1,4 +1,7 @@
-import NeuralReversi.Solve34.Target
+module
+public import NeuralReversi.Solve34.Target
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 
@@ -24,20 +27,18 @@ private def doublePass : EmptyBoard 4 :=
 private def observe (run : Score → Dispatch.Outcome) (alpha : Score) : Int × Nat :=
   ((run alpha).score.toInt, (run alpha).nodes)
 
+example : ((Solve2.sourceFallback two.toTwoEmpty (-65)).score.toInt,
+    (Solve2.sourceFallback two.toTwoEmpty (-65)).nodeDelta) = (-12, 4) := by decide +kernel
+example : ((Solve2.sourceFallback two.toTwoEmpty 64).score.toInt,
+    (Solve2.sourceFallback two.toTwoEmpty 64).nodeDelta) = (-2, 3) := by decide +kernel
+example : observe (source3Run three) (-65) = (-26, 8) := by decide +kernel
+example : observe (source3Run three) 64 = (-22, 5) := by decide +kernel
+example : observe (source4Run four) (-65) = (-40, 9) := by decide +kernel
+example : observe (source4Run four) 64 = (-30, 4) := by decide +kernel
 set_option maxRecDepth 8192 in
-set_option maxHeartbeats 4000000 in
-example :
-    ((Solve2.sourceFallback two.toTwoEmpty (-65)).score.toInt,
-      (Solve2.sourceFallback two.toTwoEmpty (-65)).nodeDelta) = (-12, 4) ∧
-    ((Solve2.sourceFallback two.toTwoEmpty 64).score.toInt,
-      (Solve2.sourceFallback two.toTwoEmpty 64).nodeDelta) = (-2, 3) ∧
-    observe (source3Run three) (-65) = (-26, 8) ∧
-    observe (source3Run three) 64 = (-22, 5) ∧
-    observe (source4Run four) (-65) = (-40, 9) ∧
-    observe (source4Run four) 64 = (-30, 4) ∧
-    observe (source4Run fourPass) (-65) = (2, 28) ∧
-    observe (source4Run fourPass) 64 = (6, 5) ∧
-    observe (source4Run doublePass) (-65) = (64, 0) ∧
-    observe (source4Run doublePass) 64 = (64, 0) := by decide +kernel
+example : observe (source4Run fourPass) (-65) = (2, 28) := by decide +kernel
+example : observe (source4Run fourPass) 64 = (6, 5) := by decide +kernel
+example : observe (source4Run doublePass) (-65) = (64, 0) := by decide +kernel
+example : observe (source4Run doublePass) 64 = (64, 0) := by decide +kernel
 
 end NeuralReversi.Solve34

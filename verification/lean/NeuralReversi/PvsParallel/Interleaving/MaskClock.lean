@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.FlagSegment
-import NeuralReversi.PvsParallel.Interleaving.EventOrder
+module
+public import NeuralReversi.PvsParallel.Interleaving.FlagSegment
+public import NeuralReversi.PvsParallel.Interleaving.EventOrder
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.MaskClock
 
@@ -14,12 +17,12 @@ structure Sync (h : History) where
   edges : List (Event × Event)
   exact : ∀ a b, (a,b) ∈ edges ↔ h.otherSync a b
 
-private instance {h : History} {i j : Fin h.epochs.length} :
+instance {h : History} {i j : Fin h.epochs.length} :
     Decidable (CutoffVisibility.InReleaseSequence h i j) :=
   inferInstanceAs (Decidable ((h.epochs.get i).release = true ∧ i.val ≤ j.val ∧
     ∀ k : Fin h.epochs.length, i.val < k.val → k.val ≤ j.val → (h.epochs.get k).rmw = true))
 
-private def epoch (h : History) (r : {r // r ∈ h.epochReads}) (i : Fin h.epochs.length) :
+def epoch (h : History) (r : {r // r ∈ h.epochReads}) (i : Fin h.epochs.length) :
     Option (Transfer h) :=
   if ok : r.val.acquire = true ∧ CutoffVisibility.InReleaseSequence h i r.val.source then
     some (.epoch i r.val r.property ok.1 ok.2)
@@ -42,7 +45,7 @@ theorem Sync.contains (s : Sync h) (t : Transfer h) : t ∈ s.transfers := by
 /-- The index of the last earlier instruction of the same worker. The list is
     reverse chronological. Unobserved instructions still have their original
     worker-local steps and need no synthetic entries. -/
-private def block : List Event → Event → Nat
+def block : List Event → Event → Nat
   | [],_ => 0
   | x :: xs,e => if x.worker = e.worker ∧ x.step ≤ e.step then xs.length+1 else block xs e
 
@@ -99,8 +102,71 @@ def Capture.clock (c : Capture h) := time c.reverseOrder
 theorem Capture.before (c : Capture h) (a b : Event) (hb : HappensBefore h a b) :
     c.clock a < c.clock b := causal c.sync c.checked hb
 
+def insertBy {α : Type _} (le : α → α → Bool) (x : α) : List α → List α
+  | [] => [x]
+  | y :: ys => if le x y then x :: y :: ys else y :: insertBy le x ys
+
+def insertSort {α : Type _} (le : α → α → Bool) : List α → List α
+  | [] => []
+  | x :: xs => insertBy le x (insertSort le xs)
+
+private theorem insertBy_mem {α : Type _} (le : α → α → Bool) (x : α) :
+    ∀ (xs : List α) (a : α), a ∈ insertBy le x xs ↔ a = x ∨ a ∈ xs
+  | [], a => by simp [insertBy]
+  | y :: ys, a => by
+    unfold insertBy
+    split
+    · simp [List.mem_cons]
+    · simp only [List.mem_cons, insertBy_mem le x ys a]
+      constructor
+      · rintro (rfl | rfl | h)
+        · exact Or.inr (Or.inl rfl)
+        · exact Or.inl rfl
+        · exact Or.inr (Or.inr h)
+      · rintro (rfl | rfl | h)
+        · exact Or.inr (Or.inl rfl)
+        · exact Or.inl rfl
+        · exact Or.inr (Or.inr h)
+
+private theorem insertSort_mem {α : Type _} (le : α → α → Bool) :
+    ∀ (xs : List α) (a : α), a ∈ insertSort le xs ↔ a ∈ xs
+  | [], a => by simp [insertSort]
+  | x :: xs, a => by
+    simp only [insertSort, insertBy_mem, insertSort_mem le xs a, List.mem_cons]
+
+private theorem insertBy_pairwise {α : Type _} (le : α → α → Bool)
+    (total : ∀ a b, le a b = true ∨ le b a = true)
+    (trans : ∀ a b c, le a b = true → le b c = true → le a c = true)
+    (x : α) : ∀ {xs : List α}, xs.Pairwise (fun a b => le a b = true) →
+      (insertBy le x xs).Pairwise (fun a b => le a b = true)
+  | [], _ => by simp [insertBy]
+  | y :: ys, h => by
+    obtain ⟨hy, hys⟩ := List.pairwise_cons.mp h
+    unfold insertBy
+    split
+    · rename_i hxy
+      refine List.pairwise_cons.mpr ⟨?_, h⟩
+      intro z hz
+      rcases List.mem_cons.mp hz with rfl | hzy
+      · exact hxy
+      · exact trans x y z hxy (hy z hzy)
+    · rename_i hnot
+      have hyx : le y x = true := (total x y).resolve_left hnot
+      refine List.pairwise_cons.mpr ⟨?_, insertBy_pairwise le total trans x hys⟩
+      intro z hz
+      rcases (insertBy_mem le x ys z).mp hz with rfl | hzy
+      · exact hyx
+      · exact hy z hzy
+
+private theorem insertSort_pairwise {α : Type _} (le : α → α → Bool)
+    (total : ∀ a b, le a b = true ∨ le b a = true)
+    (trans : ∀ a b c, le a b = true → le b c = true → le a c = true) :
+    ∀ (xs : List α), (insertSort le xs).Pairwise (fun a b => le a b = true)
+  | [] => by simp [insertSort]
+  | x :: xs => insertBy_pairwise le total trans x (insertSort_pairwise le total trans xs)
+
 def Capture.transfers (c : Capture h) : List (Transfer h) :=
-  c.sync.transfers.mergeSort (fun x y => decide (c.clock x.edge.val.2 ≤ c.clock y.edge.val.2))
+  insertSort (fun x y => decide (c.clock x.edge.val.2 ≤ c.clock y.edge.val.2)) c.sync.transfers
 
 def ReachabilityContract := ∀ (h : History) (c : Capture h) (x y : Event),
   HappensBefore h x y ↔ (FlagSegment.published c.transfers x y).isSome = true
@@ -108,10 +174,10 @@ def ReachabilityContract := ∀ (h : History) (c : Capture h) (x y : Event),
 theorem published : ReachabilityContract := by
   intro h c x y
   apply FlagSegment.complete c.clock c.before
-  · simpa [Capture.transfers] using (List.pairwise_mergeSort
-      (le := fun t u : Transfer h => decide (c.clock t.edge.val.2 ≤ c.clock u.edge.val.2))
-      (by simp; omega) (by simp; omega) c.sync.transfers)
-  · exact fun t => (List.mergeSort_perm ..).mem_iff.mpr (c.sync.contains t)
+  · simpa [Capture.transfers] using (insertSort_pairwise
+      (fun t u : Transfer h => decide (c.clock t.edge.val.2 ≤ c.clock u.edge.val.2))
+      (fun a b => by simp; omega) (fun a b d h1 h2 => by simp at h1 h2 ⊢; omega) c.sync.transfers)
+  · exact fun t => (insertSort_mem _ c.sync.transfers t).mpr (c.sync.contains t)
 
 private theorem stepBound (xs : List Event) (mem : e ∈ xs) : e.step < span xs := by
   induction xs with

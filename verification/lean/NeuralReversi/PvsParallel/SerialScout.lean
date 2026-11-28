@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.NonPvMir
-import NeuralReversi.PvsParallel.DeepLeafMir
-import NeuralReversi.PvsParallel.Replay
+module
+public import NeuralReversi.PvsParallel.NonPvMir
+public import NeuralReversi.PvsParallel.DeepLeafMir
+public import NeuralReversi.PvsParallel.Replay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialScout
 

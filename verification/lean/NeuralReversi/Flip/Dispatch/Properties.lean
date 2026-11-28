@@ -1,16 +1,14 @@
-import NeuralReversi.Flip.Dispatch.Model
-import NeuralReversi.Flip.Dispatch.Spec
-import NeuralReversi.Flip.Avx2.Properties
-import NeuralReversi.Flip.Avx512.Properties
-import NeuralReversi.Flip.Neon.Properties
-import NeuralReversi.Flip.WasmSimd.Properties
+module
+public import NeuralReversi.Flip.Dispatch.Model
+public import NeuralReversi.Flip.Dispatch.Spec
+public import NeuralReversi.Flip.Avx2.Properties
+public import NeuralReversi.Flip.Avx512.Properties
+public import NeuralReversi.Flip.Neon.Properties
+public import NeuralReversi.Flip.WasmSimd.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Dispatch
-
-def resultValue (config : X86Config) (sq : Square) (player opponent : Word) : Word :=
-  if config.avx512cd && config.avx512vl then Avx512.flip sq player opponent
-  else if config.avx2 then Avx2.flip sq player opponent
-  else value sq player opponent
 
 theorem flip_eq_value (config : X86Config) (checks : Bool) (sq : Square) (player opponent : Word) :
     flip config checks sq player opponent = .ok (resultValue config sq player opponent) := by

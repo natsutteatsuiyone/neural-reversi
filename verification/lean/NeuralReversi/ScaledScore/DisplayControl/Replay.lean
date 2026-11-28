@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayControl.Contracts
+module
+public import NeuralReversi.ScaledScore.DisplayControl.Contracts
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore.DisplayControl.Replay
 variable {Frame Receiver Ref Payload Stop Context Local World Child Event : Type}

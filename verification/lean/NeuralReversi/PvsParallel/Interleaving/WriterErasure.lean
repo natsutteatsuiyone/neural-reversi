@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.CallJournal
+module
+public import NeuralReversi.PvsParallel.Interleaving.CallJournal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving
 
@@ -11,9 +14,9 @@ def Event.erase : Event α → Event Unit
   | .beginWrite w k _ => .beginWrite w k ()
   | .atomic w k => .atomic w k
 
-private def Writer.erase (w : Writer α) : Writer Unit := ⟨w.invocation,w.next,w.owner,()⟩
+def Writer.erase (w : Writer α) : Writer Unit := ⟨w.invocation,w.next,w.owner,()⟩
 
-private def Issued.erase : Issued α → Issued Unit
+def Issued.erase : Issued α → Issued Unit
   | .localCall w e => .localCall w e
   | .atomic w pc => .atomic w.erase pc
 

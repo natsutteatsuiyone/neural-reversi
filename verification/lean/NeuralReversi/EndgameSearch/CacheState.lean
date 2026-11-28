@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.Cancellation
+module
+public import NeuralReversi.EndgameSearch.Cancellation
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheState
 

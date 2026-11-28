@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiOrdinary
-import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiOrdinary
+public import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiPrefix
 
@@ -19,7 +22,7 @@ structure Point where
   retries : Nat
   poll : Poll
 
-private def retries (idx : Nat) (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config)
+def retries (idx : Nat) (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config)
     (fc : Cutoffs.FlipConfig) (ops : FullLadder.Inputs mc) (level : Nat) (poll : Poll) :
     Nat → State → Memory l → Option (Memory l)
   | 0, s, m =>

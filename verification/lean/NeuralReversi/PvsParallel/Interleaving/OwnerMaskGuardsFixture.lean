@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards
+module
+public import NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards.Regression
 
@@ -12,7 +15,7 @@ private def owner : Clock := ⟨0,fun n => 10+10*n,by omega⟩
 
 /-- Helpers 1 and 2 overlap. The first mask load (at 80) may still see 7
     after helper 1 resets at 76. The second load (at 100) sees their retirement. -/
-private def ws : List Write := [
+def ws : List Write := [
   ⟨⟨2,2⟩,0,true,true⟩, ⟨⟨0,10⟩,0,false,false⟩, ⟨⟨0,20⟩,1,false,true⟩,
   ⟨⟨0,61⟩,3,false,true⟩, ⟨⟨0,62⟩,7,false,true⟩, ⟨⟨1,76⟩,5,true,true⟩,
   ⟨⟨0,85⟩,4,true,true⟩, ⟨⟨2,95⟩,0,true,true⟩, ⟨⟨0,200⟩,0,false,false⟩,

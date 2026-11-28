@@ -1,5 +1,8 @@
-import NeuralReversi.Board.CellProperties
-import Init.Data.List.OfFn
+module
+public import NeuralReversi.Board.CellProperties
+public import Init.Data.List.OfFn
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

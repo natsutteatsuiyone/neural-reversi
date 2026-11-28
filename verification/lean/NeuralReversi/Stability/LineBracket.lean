@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeGeometry
+module
+public import NeuralReversi.Stability.EdgeGeometry
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

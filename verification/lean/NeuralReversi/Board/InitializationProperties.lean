@@ -1,7 +1,10 @@
-import NeuralReversi.Board.InitializationModel
-import NeuralReversi.Board.CellProperties
-import NeuralReversi.Board.Counting
-import NeuralReversi.Bitboard.RepresentationProperties
+module
+public import NeuralReversi.Board.InitializationModel
+public import NeuralReversi.Board.CellProperties
+public import NeuralReversi.Board.Counting
+public import NeuralReversi.Bitboard.RepresentationProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

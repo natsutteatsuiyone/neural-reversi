@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.ContextPathMir
-import NeuralReversi.PvsParallel.NativeFrames
+module
+public import NeuralReversi.PvsParallel.ContextPathMir
+public import NeuralReversi.PvsParallel.NativeFrames
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ContextPathMir
 

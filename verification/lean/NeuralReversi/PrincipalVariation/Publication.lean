@@ -1,7 +1,10 @@
-import NeuralReversi.Aspiration
-import NeuralReversi.PrincipalVariation.Replay
-import NeuralReversi.PrincipalVariation.Selection
-import NeuralReversi.SearchFallback
+module
+public import NeuralReversi.Aspiration
+public import NeuralReversi.PrincipalVariation.Replay
+public import NeuralReversi.PrincipalVariation.Selection
+public import NeuralReversi.SearchFallback
+
+@[expose] public section
 
 namespace NeuralReversi.PrincipalVariation
 

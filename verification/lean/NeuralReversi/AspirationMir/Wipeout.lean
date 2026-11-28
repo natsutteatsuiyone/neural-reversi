@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.Retry
-import NeuralReversi.PvsParallel.RootWipeout
+module
+public import NeuralReversi.AspirationMir.Retry
+public import NeuralReversi.PvsParallel.RootWipeout
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

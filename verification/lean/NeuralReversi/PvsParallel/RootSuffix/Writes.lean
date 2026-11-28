@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootSuffix
-import NeuralReversi.MidgameAspiration.History
+module
+public import NeuralReversi.PvsParallel.RootSuffix
+public import NeuralReversi.MidgameAspiration.History
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootSuffix
 

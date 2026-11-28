@@ -42,7 +42,7 @@ MUTATIONS = {
 }
 
 
-def check(dump, repo):
+def check(dump, repo, *, baseline=None):
     # Derive the threshold mutants from the current values so that tuning them keeps the check valid.
     limits = constants(dump)
     mutations = {**MUTATIONS, **{
@@ -54,7 +54,7 @@ def check(dump, repo):
         for stem, checks in mutations.items()
         for old, new in checks
     ]
-    return check_mir_regression(dump, repo, lambda d, r: (verify(d, r), render_thresholds(d)), cases)
+    return check_mir_regression(dump, repo, lambda d, r: (verify(d, r), render_thresholds(d)), cases, baseline=baseline)
 
 
 def main():

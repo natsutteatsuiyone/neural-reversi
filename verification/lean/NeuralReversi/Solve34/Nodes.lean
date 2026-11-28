@@ -1,5 +1,8 @@
-import NeuralReversi.Solve34.SourcePipeline
-import NeuralReversi.Solve2.SourcePipeline
+module
+public import NeuralReversi.Solve34.SourcePipeline
+public import NeuralReversi.Solve2.SourcePipeline
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 

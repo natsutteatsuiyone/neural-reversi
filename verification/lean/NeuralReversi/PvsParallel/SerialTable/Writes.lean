@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialExecution
-import NeuralReversi.TranspositionTable.Access
+module
+public import NeuralReversi.PvsParallel.SerialExecution
+public import NeuralReversi.TranspositionTable.Access
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.Writes
 
@@ -64,7 +67,7 @@ private theorem map_id (p : Program Req A) : p.map id = p := by
   | pure | fail => rfl
   | call q k ih => exact congrArg (Program.call q) (funext ih)
 
-private def owner (req : Move → Request) (a : Int) :
+def owner (req : Move → Request) (a : Int) :
     List Move → Int → Option Move → Program Request (Decision Move a)
   | [],best,previous => .pure ⟨best,.tail previous⟩
   | m :: more,best,previous =>
@@ -144,7 +147,7 @@ def nonPv (mc : X86Config) (fc : FlipConfig) (b : Position) (d : Depth) (a z : S
   (nonPvDecision mc fc b d a z paired checked cut mem attempts reads priority).map
     (Decision.emit d false (parentPv false b attempts) a.raw.toInt z.raw.toInt)
 
-private def pvUpdate (beta : Int) (previous : Int × Option Move) (visit : RootOwnerMir.Slice.Visit Move) :
+def pvUpdate (beta : Int) (previous : Int × Option Move) (visit : RootOwnerMir.Slice.Visit Move) :
     Int × Option Move :=
   match visit.wide.or visit.scout with
   | none => previous

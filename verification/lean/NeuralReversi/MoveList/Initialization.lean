@@ -1,4 +1,7 @@
-import NeuralReversi.MoveList.Capacity
+module
+public import NeuralReversi.MoveList.Capacity
+
+@[expose] public section
 
 namespace NeuralReversi.MoveList.Initialization
 open Capacity

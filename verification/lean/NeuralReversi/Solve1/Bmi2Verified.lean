@@ -1,5 +1,8 @@
-import NeuralReversi.Solve1.Bmi2
-import NeuralReversi.Solve1.Policy
+module
+public import NeuralReversi.Solve1.Bmi2
+public import NeuralReversi.Solve1.Policy
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.Bmi2
 

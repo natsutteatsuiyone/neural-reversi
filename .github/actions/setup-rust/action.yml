@@ -36,7 +36,7 @@ runs:
       set -euo pipefail
       repo=natsutteatsuiyone/neural-reversi-weights
       names=$(grep -ohE 'eval(_sm|_wasm)?-[0-9a-f]{8}\.zst' \
-        crates/reversi-core/src/eval.rs crates/web/src/eval.rs | sort -u)
+        crates/eval-weights/src/lib.rs crates/web/src/eval.rs | sort -u)
       for name in $names; do
         # Releases are listed newest first.
         tags=$(gh api --paginate "repos/$repo/releases" \

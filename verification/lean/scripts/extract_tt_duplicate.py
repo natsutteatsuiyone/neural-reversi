@@ -138,7 +138,10 @@ def render(dump, repo):
     stores = ", ".join(f"({loc.strip('()')},{value})" for loc, value in clear)
     offsets = [f"  | {loc.strip('()')} => {index}" for index, loc in enumerate(locations)]
     fields_at = [f"  | {i} => {loc.strip('()')}" for i, loc in enumerate(locations)]
-    return """import NeuralReversi.TranspositionTable.Duplicate
+    return """module
+public import NeuralReversi.TranspositionTable.Duplicate
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Duplicate
 

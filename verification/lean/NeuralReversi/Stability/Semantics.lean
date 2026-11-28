@@ -1,4 +1,6 @@
-import Std
+module
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 abbrev Square := Fin 8 × Fin 8

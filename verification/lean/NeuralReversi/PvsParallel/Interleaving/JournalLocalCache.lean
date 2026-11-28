@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalLocalCache
 
@@ -57,7 +60,7 @@ theorem captured (es : Joint.Tape Op) (pool : Pool) (cap : NativeFrames.Capture 
 
 /-- Normalize only the worker-local time stamps used by the cache replay.
     The board, cache inputs and worker identity stay tied to the original visit. -/
-private def shift (offset : Nat) (v : Visit p) : Visit p := {
+def shift (offset : Nat) (v : Visit p) : Visit p := {
   v with first := offset + v.first, last := offset + v.last,
          inOrder := Nat.add_le_add_left v.inOrder offset,
          scoredAt := v.scoredAt.map (offset + ·),

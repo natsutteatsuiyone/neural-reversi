@@ -1,4 +1,10 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerReturn
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerReturn
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerReturn
+meta import NeuralReversi.Threading.AtomicWord
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFieldsRegression
 

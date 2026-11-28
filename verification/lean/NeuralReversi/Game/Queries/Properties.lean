@@ -1,7 +1,10 @@
-import NeuralReversi.Game.Queries.Spec
-import NeuralReversi.Game.Queries.Reference
-import NeuralReversi.Game.History.Properties
-import NeuralReversi.Board.Counting
+module
+public import NeuralReversi.Game.Queries.Spec
+public import NeuralReversi.Game.Queries.Reference
+public import NeuralReversi.Game.History.Properties
+public import NeuralReversi.Board.Counting
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Queries
 open NeuralReversi.Game.History

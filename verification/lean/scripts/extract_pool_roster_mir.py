@@ -4,7 +4,7 @@ import re
 from extract_split_activation_mir import THREAD,field
 from extract_split_scheduler_mir import Body,edges
 from extract_worker_frame_mir import SUFFIX,TH,PL
-from mir_common import PASS, run_extractor_cli, CALL, checked
+from mir_common import PASS, run_extractor_cli, CALL, checked, iter_mir_texts
 
 
 def cursor(body,initialize,advance,consume,must_consume):
@@ -38,16 +38,19 @@ def cursor(body,initialize,advance,consume,must_consume):
 def render(dump):
     # Only the two protected implementations can ever book a split point.
     sites=set();writers=set()
-    for f in dump.glob('*'+SUFFIX):
-        src=f.read_text(encoding='utf8')
+    roster_field='.0: std::vec::Vec<std::sync::Arc<search::threading::thread::Thread>>'
+    book_call=THREAD+'book_into'
+    for f, src in iter_mir_texts(dump, SUFFIX):
+        if roster_field not in src and book_call not in src:
+            continue
         for line in src.splitlines():
-            if '.0: std::vec::Vec<std::sync::Arc<search::threading::thread::Thread>>' in line:
+            if roster_field in line:
                 if not re.fullmatch(r'\s*_\d+ = &\(\(\*_\d+\)\.0: .+\);',line):
                     checked(re.fullmatch(r'\s*_\d+ = &mut \(\(\*_\d+\)\.0: .+\);',line),'unsupported roster field access')
                     writers.add(f.name.removesuffix(SUFFIX))
-            if line.startswith('        ') and THREAD+'book_into' in line:
+            if line.startswith('        ') and book_call in line:
                 m=re.fullmatch(CALL,line.strip())
-                checked(m and m[2]==THREAD+'book_into','indirect split reservation')
+                checked(m and m[2]==book_call,'indirect split reservation')
                 sites.add(f.name.removesuffix(SUFFIX))
     checked(sites=={PL+'assign_helpers_to_split_point',TH+'try_late_join'},'new split enrollment site')
     checked(writers=={PL+'add_thread',PL+'exit'},'new pool mutation')
@@ -86,8 +89,8 @@ def render(dump):
     late=Body(dump,'try_late_join',['u'])
     m,=[m for ls in late.cfg.values() if (m:=re.fullmatch(CALL,ls[-1])) and m[2]==THREAD+'book_into']
     checked(late.val(m[3].split(', ')[0])=='u','late reservation is not by the target thread')
-    return '\n'.join(['import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','',
-        'namespace NeuralReversi.PvsParallel.SlotFrameMir','',
+    return '\n'.join(['module', 'public import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','',
+        '@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SlotFrameMir','',
         "def poolIndices (size : Nat) : List Nat := 0 :: List.range' 1 (size-1)",
         'def lateTarget (worker : Worker) : Worker := worker','',
         'end NeuralReversi.PvsParallel.SlotFrameMir',''])

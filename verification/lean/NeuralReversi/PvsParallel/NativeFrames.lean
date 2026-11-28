@@ -1,6 +1,9 @@
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
-import NeuralReversi.PvsParallel.FrameWrites
-import NeuralReversi.PvsParallel.FrameCache
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+public import NeuralReversi.PvsParallel.FrameWrites
+public import NeuralReversi.PvsParallel.FrameCache
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames
 

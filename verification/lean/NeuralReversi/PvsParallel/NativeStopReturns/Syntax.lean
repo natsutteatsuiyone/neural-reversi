@@ -1,4 +1,7 @@
-import NeuralReversi.ScoreRefresh.BoardBridge
+module
+public import NeuralReversi.ScoreRefresh.BoardBridge
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeStopReturns
 

@@ -1,4 +1,7 @@
-import NeuralReversi.Square.Model
+module
+public import NeuralReversi.Square.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Square
 

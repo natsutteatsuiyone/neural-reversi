@@ -216,9 +216,9 @@ def render(dump, repo):
     cluster = read_method(dump, "lookup", "(_1: &TranspositionTable, _2: &Board, _3: u64) -> Option<TTEntryData>")
     locations, limit = probe_receivers(dump, repo, fields)
     return "\n".join([
-        "import NeuralReversi.TranspositionTable.ReaderMir.Syntax", "import NeuralReversi.TranspositionTable.Clear",
-        "import NeuralReversi.TranspositionTable.ProbeRetry", "",
-        "namespace NeuralReversi.TranspositionTable.ReaderMir", "", "open SeqLock (Word)", "",
+        "module", "public import NeuralReversi.TranspositionTable.ReaderMir.Syntax", "public import NeuralReversi.TranspositionTable.Clear",
+        "public import NeuralReversi.TranspositionTable.ProbeRetry", "",
+        "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.ReaderMir", "", "open SeqLock (Word)", "",
         "def lookupRun (endian : Bool) (player opponent : Word) (w : Nat → Word) : List AtomicAction × Option EntryData :=",
         *lower(slot, fields, {"_2": "player", "_3": "opponent"}, True), "",
         "def lookupCluster (clusters key player opponent : Word) (read : Nat → Word → Word → Option EntryData) : Option EntryData :=",

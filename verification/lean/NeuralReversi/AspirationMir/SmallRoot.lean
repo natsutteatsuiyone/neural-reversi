@@ -1,7 +1,10 @@
-import NeuralReversi.AspirationMir.Serial
-import NeuralReversi.PvsParallel.SmallPv
-import NeuralReversi.PvsParallel.RootFrameMir
-import NeuralReversi.OuterMir.Program
+module
+public import NeuralReversi.AspirationMir.Serial
+public import NeuralReversi.PvsParallel.SmallPv
+public import NeuralReversi.PvsParallel.RootFrameMir
+public import NeuralReversi.OuterMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SmallRoot
 

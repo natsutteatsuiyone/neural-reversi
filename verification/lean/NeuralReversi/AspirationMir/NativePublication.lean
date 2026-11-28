@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.NativeExecution
-import NeuralReversi.PublicationMir.ReturnedCapture
+module
+public import NeuralReversi.AspirationMir.NativeExecution
+public import NeuralReversi.PublicationMir.ReturnedCapture
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativePublication
 
@@ -21,7 +24,7 @@ inductive Start where
   | single (trial opening returned : Nat) (score : ScoreRefresh.Score)
   | multi (index sortedAt : Nat)
 
-private def begins (w object : Nat) (start : Start) : Event → Bool
+def begins (w object : Nat) (start : Start) : Event → Bool
   | .sample (.engine (.localCall who (.leave t op .pvs _ (some v)))) =>
     match start with
     | .single _ opening returned score => who == w && op == opening && t == returned && v == score
@@ -32,7 +35,7 @@ private def begins (w object : Nat) (start : Start) : Event → Bool
     | _ => false
   | _ => false
 
-private inductive Phase where
+inductive Phase where
   | leaving (trial : Nat)
   | sorting
   | ready
@@ -40,7 +43,7 @@ private inductive Phase where
 
 abbrev values (rows : List RootMoveStorage.Row) : List Value := rows.map fun r => (r.square,r.score)
 
-private def after (w solve object depth : Nat) (roots : List Value) :
+def after (w solve object depth : Nat) (roots : List Value) :
     Phase → Option (List Move) → List Event → Option Report
   | _, _, [] => none
   | phase, last, .returned who _ opening _ result :: rest =>

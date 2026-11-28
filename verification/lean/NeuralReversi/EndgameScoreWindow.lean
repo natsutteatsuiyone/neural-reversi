@@ -1,6 +1,9 @@
-import NeuralReversi.ScoreRefresh.Properties
-import NeuralReversi.Solve34.Target
-import NeuralReversi.TranspositionTable.Proofs
+module
+public import NeuralReversi.ScoreRefresh.Properties
+public import NeuralReversi.Solve34.Target
+public import NeuralReversi.TranspositionTable.Proofs
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameScoreWindow
 open ScoreRefresh (Score DiscScore toDiscDiff fromDiscDiff legacy)
@@ -63,7 +66,7 @@ theorem solve4_window (checked : Bool) (board : Solve34.EmptyBoard 4) (alpha bet
 open PvsBoardTree (Position minimax)
 open EndgameTreeCache (discValue)
 
-private def DirectResult (value : Int) (checked : Bool) (alpha beta : Score) (result : DiscScore) : Prop :=
+def DirectResult (value : Int) (checked : Bool) (alpha beta : Score) (result : DiscScore) : Prop :=
   ∃ score, fromDiscDiff checked result = .ok score ∧
     Solve2.NWS alpha.raw.toInt value score.raw.toInt ∧
     let bound := classify false (legacy score) (legacy alpha) (legacy beta)

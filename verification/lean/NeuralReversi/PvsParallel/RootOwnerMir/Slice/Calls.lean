@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.RootOwnerMir.Slice
+module
+public import NeuralReversi.PvsParallel.RootOwnerMir.Slice
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootOwnerMir.Slice
 
@@ -20,18 +23,18 @@ def Visit.lower (v : Visit Move) (pv : Bool) (beta : Int) :=
 def Visit.record (m : Move) (a scout wide : Int) (ns nw : Bool) : Visit Move :=
   ⟨m,a,if ns then some scout else none,if nw then some wide else none⟩
 
-private def issuedAt (schedule : Nat → Bool × Bool) (depth limit i : Nat)
+def issuedAt (schedule : Nat → Bool × Bool) (depth limit i : Nat)
     (prior pending : List Move) (fresh : Nat) (s : Snapshot) (scout wide : Int) :=
   headerAction prior.length (prior.length + pending.length) fresh depth limit
     (schedule i).1 (schedule i).2 s.state.alpha scout wide
 
-private abbrev decision (idx : Nat) (s : Snapshot) (beta score : Int) :=
+abbrev decision (idx : Nat) (s : Snapshot) (beta score : Int) :=
   RootUpdateMir.decision (decide (idx = 1)) s.state.alpha beta s.state.best score
 
-private abbrev scoutAt (source : Nat → PvsMoveLoop.ChildSearch Move) (i : Nat) (m : Move) (s : Snapshot) :=
+abbrev scoutAt (source : Nat → PvsMoveLoop.ChildSearch Move) (i : Nat) (m : Move) (s : Snapshot) :=
   source i m false (-(s.state.alpha+1)) (-s.state.alpha)
 
-private abbrev wideAt (source : Nat → PvsMoveLoop.ChildSearch Move) (i : Nat) (m : Move) (s : Snapshot) (beta : Int) :=
+abbrev wideAt (source : Nat → PvsMoveLoop.ChildSearch Move) (i : Nat) (m : Move) (s : Snapshot) (beta : Int) :=
   source i m true (-beta) (-s.state.alpha)
 
 /-- A loop execution labelled by precisely the child returns Rust used. The consumed

@@ -1,6 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.Turn
-import NeuralReversi.PvsParallel.Interleaving.CausalReads
-import NeuralReversi.EndgameSearch.CacheHistory
+module
+public import NeuralReversi.PvsParallel.Interleaving.Turn
+public import NeuralReversi.PvsParallel.Interleaving.CausalTable
+public import NeuralReversi.EndgameSearch.CacheHistory
+public import NeuralReversi.EndgameSearch.Direct
+public import NeuralReversi.EndgameSearch.Cancellation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.BoardFrame
 

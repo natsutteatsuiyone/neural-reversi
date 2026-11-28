@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites.Memory
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ModificationIndex
 
@@ -13,7 +16,7 @@ def tag : Location → Nat
   | .payload .opponent => 2
   | .payload .metadata => 3
 
-private def locations : List Location := [.sequence,.payload .player,.payload .opponent,.payload .metadata]
+def locations : List Location := [.sequence,.payload .player,.payload .opponent,.payload .metadata]
 
 private theorem locationAt (l : Location) : locations[tag l]? = some l := by
   cases l with | sequence => rfl | payload f => cases f <;> rfl
@@ -24,7 +27,7 @@ private theorem tag_lt (l : Location) : tag l < 4 := by
 private theorem tag_unique {l k : Location} (same : tag l = tag k) : l = k := by
   exact Option.some.inj ((locationAt l).symm.trans (same ▸ locationAt k))
 
-private def stamps (c : Calls) (rs : List Record) (n : Nat) (a : Address) (loc : Location) : List Nat :=
+def stamps (c : Calls) (rs : List Record) (n : Nat) (a : Address) (loc : Location) : List Nat :=
   (n + tag loc) :: (mods c rs a loc).map (Site.event c)
 
 /-- Events below n are emitted instructions. Each atomic location in one slot has its own
@@ -102,7 +105,7 @@ theorem event_injective (timed : Timed c rs n) (inside : i ≤ (mods c rs a loc)
         (by simp; omega) (by simp [List.getElem?_map,hit,hit',eq])
       exact ⟨rfl,congrArg Nat.succ ranked⟩
 
-private def catalog (c : Calls) (rs : List Record) (n : Nat) (a : Address) :=
+def catalog (c : Calls) (rs : List Record) (n : Nat) (a : Address) :=
   locations.flatMap fun loc => (stamps c rs n a loc).zipIdx.map fun (ev,i) => (ev,(loc,i))
 
 private theorem member : (w,(loc,i)) ∈ catalog c rs n a ↔ (stamps c rs n a loc)[i]? = some w := by

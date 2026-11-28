@@ -1,5 +1,8 @@
-import NeuralReversi.PrincipalVariation.Buffer
-import NeuralReversi.Threading.SplitWindow
+module
+public import NeuralReversi.PrincipalVariation.Buffer
+public import NeuralReversi.Threading.SplitWindow
+
+@[expose] public section
 
 namespace NeuralReversi.PrincipalVariation
 

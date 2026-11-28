@@ -1,7 +1,11 @@
-import NeuralReversi.PvsParallel.Interleaving.RootProgram
-import NeuralReversi.PvsParallel.Interleaving.NativeNodes
-import NeuralReversi.PvsParallel.Interleaving.WeakFrame
-import NeuralReversi.PvsParallel.Interleaving.FiniteTable
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootProgram
+public import NeuralReversi.PvsParallel.Interleaving.Publication
+public import NeuralReversi.PvsParallel.Interleaving.NativeNodes
+public import NeuralReversi.PvsParallel.Interleaving.WeakFrame
+public import NeuralReversi.PvsParallel.Interleaving.FiniteTable
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootCausal
 

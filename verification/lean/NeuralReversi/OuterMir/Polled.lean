@@ -1,8 +1,11 @@
-import NeuralReversi.OuterMir.PolledProgram
-import NeuralReversi.OuterMir.Completion
-import NeuralReversi.Threading.SearchAbort.Persistent
-import NeuralReversi.AspirationMir.SerialTable.InterruptedPublic
-import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir
+module
+public import NeuralReversi.OuterMir.PolledProgram
+public import NeuralReversi.OuterMir.Completion
+public import NeuralReversi.Threading.SearchAbort.Persistent
+public import NeuralReversi.AspirationMir.SerialTable.InterruptedPublic
+public import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir.Polled
 

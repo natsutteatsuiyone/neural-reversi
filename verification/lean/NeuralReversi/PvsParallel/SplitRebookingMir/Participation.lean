@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitRebookingMir.Fields
+module
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Fields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitRebookingMir
 

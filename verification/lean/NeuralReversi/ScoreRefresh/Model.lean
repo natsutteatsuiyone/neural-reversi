@@ -1,6 +1,9 @@
-import NeuralReversi.ScaledScore.ArithmeticModel
-import NeuralReversi.ScaledScore.FloatModel
-import NeuralReversi.ScaledScore.DisplayModel
+module
+public import NeuralReversi.ScaledScore.ArithmeticModel
+public import NeuralReversi.ScaledScore.FloatModel
+public import NeuralReversi.ScaledScore.DisplayModel
+
+@[expose] public section
 
 namespace NeuralReversi.ScoreRefresh
 abbrev Word := BitVec 32

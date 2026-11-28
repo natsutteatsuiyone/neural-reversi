@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.PotentialModel
-import NeuralReversi.Bitboard.PotentialSpec
+module
+public import NeuralReversi.Bitboard.PotentialModel
+public import NeuralReversi.Bitboard.PotentialSpec
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

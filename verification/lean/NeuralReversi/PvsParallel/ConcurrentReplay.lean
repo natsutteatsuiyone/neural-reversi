@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.CausalReplay
-import NeuralReversi.MoveList.Ordering
+module
+public import NeuralReversi.PvsParallel.CausalReplay
+public import NeuralReversi.MoveList.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ConcurrentReplay
 
@@ -42,7 +45,7 @@ private theorem splitMember {events : List α} {event : α} (member : event ∈ 
     · obtain ⟨left, right, same⟩ := ih inTail
       exact ⟨head :: left, right, congrArg (List.cons head) same⟩
 
-private theorem linearize {before : α → α → Prop}
+theorem linearize {before : α → α → Prop}
     (irrefl : ∀ a, ¬before a a) (trans : ∀ {a b c}, before a b → before b c → before a c)
     (events : List α) :
     ∃ ordered, events.Perm ordered ∧ ordered.Pairwise (fun earlier later => ¬before later earlier) := by
@@ -140,17 +143,17 @@ def Action.Words (endian : Bool) : Action → Prop
   | .cleared call => call.payload = ⟨0, 0, 0⟩
   | .stored _ call board entry => call.payload = SlotJournal.packed endian board entry
 
-private theorem filterMapIncluded (f : Event → Option α) {earlier later : List Event}
+theorem filterMapIncluded (f : Event → Option α) {earlier later : List Event}
     (included : ∀ e ∈ earlier, e ∈ later) : ∀ x ∈ earlier.filterMap f, x ∈ later.filterMap f := by
   intro x present
   obtain ⟨event, member, mapped⟩ := List.mem_filterMap.mp present
   exact List.mem_filterMap.mpr ⟨event, included _ member, mapped⟩
 
-private theorem scoresIncluded {earlier later : List Event}
+theorem scoresIncluded {earlier later : List Event}
     (included : ∀ e ∈ earlier, e ∈ later) : ∀ r ∈ scores earlier, r ∈ scores later :=
   filterMapIncluded Event.score fun e member => by simpa using included e (by simpa using member)
 
-private theorem Action.Valid.weaken (valid : Action.Valid mc fc endian children reads earlier action)
+theorem Action.Valid.weaken (valid : Action.Valid mc fc endian children reads earlier action)
     (included : ∀ e ∈ earlier, e ∈ later)
     (childBefore : ∀ stage tree pv a b s, children stage tree pv a b s → Recorded (scores later) tree pv a b s)
     (readBefore : ∀ sample, reads sample → sample.publication (history later)) :
@@ -168,7 +171,7 @@ private theorem Action.Valid.weaken (valid : Action.Valid mc fc endian children 
     rintro _ _ _ _ _ ⟨frame, owner, event, present, tag⟩
     exact ⟨frame, owner, event, included event present, tag⟩
 
-private theorem replayEvent {event : Event} (run : Run mc fc endian (scores past) (calls past) (history past))
+theorem replayEvent {event : Event} (run : Run mc fc endian (scores past) (calls past) (history past))
     (words : event.action.Words endian)
     (valid : event.action.Valid mc fc endian (fun _ => Recorded (scores past)) (·.publication (history past)) past) :
     Run mc fc endian (scores (past ++ [event])) (calls (past ++ [event])) (history (past ++ [event])) := by

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.RootReplay
+module
+public import NeuralReversi.PvsParallel.RootReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootReplay.Split
 
@@ -125,10 +128,10 @@ theorem contract_proven : Contract := by
     (RootOrder.visibleScore locked.seen.isEmpty locked.state.alpha report.score) (square report.index) = _
   simp [RootOrder.writeScore, RootOrder.visibleScore, nonempty]
 
-private def childTree (mc : X86Config) (fc : Root.FlipConfig) (b : Position)
+def childTree (mc : X86Config) (fc : Root.FlipConfig) (b : Position)
     (move : GeneratedSquare mc b.val) : Tree := PvsBoardTree.build mc fc (PvsBoardTree.play mc fc b move).val
 
-private def moveAt (first : Move) (rest : List Move) (i : Nat) : Move :=
+def moveAt (first : Move) (rest : List Move) (i : Nat) : Move :=
   ((first :: rest)[i]?).getD first
 
 private theorem movesAt_map (first : Move) (rest : List Move) (stop : Nat)

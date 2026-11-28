@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.IteratorCutoff
-import NeuralReversi.Threading.CutoffVisibility.StopSource
+module
+public import NeuralReversi.PvsParallel.IteratorCutoff
+public import NeuralReversi.Threading.CutoffVisibility.StopSource
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitWorkerMir.Stop
 

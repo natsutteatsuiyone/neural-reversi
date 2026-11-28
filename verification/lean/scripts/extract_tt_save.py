@@ -271,8 +271,8 @@ def lean_tree(tree):
 def render(dump, repo):
     locs = layout(repo)
     source_checks(repo,dump)
-    lines = ["import NeuralReversi.TranspositionTable.WriterMir.SourceSyntax", "",
-             "namespace NeuralReversi.TranspositionTable.WriterMir", "", "open SeqLock (Word)", ""]
+    lines = ["module", "public import NeuralReversi.TranspositionTable.WriterMir.SourceSyntax", "",
+             "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.WriterMir", "", "open SeqLock (Word)", ""]
     signatures = {
         "save": ("(_1: &TTEntry, _2: &Board, _3: TTEntryData) -> ()",
                  "def saveStep (more found cas : Bool) (p o : Word) (entry : EntryData)"

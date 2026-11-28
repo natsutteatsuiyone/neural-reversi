@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.Returned
-import NeuralReversi.AspirationMir.Termination
+module
+public import NeuralReversi.AspirationMir.Returned
+public import NeuralReversi.AspirationMir.Termination
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

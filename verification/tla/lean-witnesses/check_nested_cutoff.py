@@ -13,6 +13,7 @@ def main():
     module = "NestedCutoff"
     compile_model(quint, work, HERE / f"{module}.qnt")
     build_lean("NeuralReversi.PvsParallel.SlotFrameMir.Program",
+               "NeuralReversi.PvsParallel.WorkerFrameMir.Program",
                "NeuralReversi.Threading.SplitReturn.Observation")
     tlc(work, jar, module, "step", "safe")
     for mode, prop in [

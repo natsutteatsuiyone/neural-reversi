@@ -1,5 +1,13 @@
-import NeuralReversi.PvsParallel.IteratorFrames.EntryRegisters
-import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+module
+public import NeuralReversi.PvsParallel.IteratorFrames.EntryRegisters
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+meta import NeuralReversi.PvsParallel.IteratorFrames
+meta import NeuralReversi.PvsParallel.IteratorFrames.EntryRegisters
+meta import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
+meta import NeuralReversi.PvsParallel.SplitWorkerMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorFrames.ChildSitesRegression
 

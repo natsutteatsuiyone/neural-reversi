@@ -1,5 +1,8 @@
-import NeuralReversi.PublicationMir.Program
-import NeuralReversi.PublicationMir.ReturnedScores
+module
+public import NeuralReversi.PublicationMir.Program
+public import NeuralReversi.PublicationMir.ReturnedScores
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir.ReturnedScores
 

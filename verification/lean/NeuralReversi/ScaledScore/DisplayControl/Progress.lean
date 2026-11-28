@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayControl.Consequences
+module
+public import NeuralReversi.ScaledScore.DisplayControl.Consequences
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore.DisplayControl
 variable {Frame Receiver Ref Payload Stop Context Local World Child Event : Type}

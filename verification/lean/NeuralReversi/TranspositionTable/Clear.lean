@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.LookupCut
+module
+public import NeuralReversi.TranspositionTable.LookupCut
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Clear
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.WorkerFrameMir.Syntax
+module
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerFrameMir
 

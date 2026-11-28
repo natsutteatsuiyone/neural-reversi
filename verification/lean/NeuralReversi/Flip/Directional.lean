@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.Geometry
-import NeuralReversi.Flip.ScalarProperties
+module
+public import NeuralReversi.Flip.Geometry
+public import NeuralReversi.Flip.ScalarProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip
 open Scalar

@@ -1,4 +1,7 @@
-import NeuralReversi.Board.Model
+module
+public import NeuralReversi.Board.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

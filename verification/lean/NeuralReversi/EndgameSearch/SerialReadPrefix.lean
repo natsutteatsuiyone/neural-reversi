@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.SerialLeafRestore
+module
+public import NeuralReversi.EndgameSearch.SerialLeafRestore
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.SerialLeafRestore
 
@@ -20,7 +23,7 @@ private def saved : Stage → History
   | .next _ h => h
   | .cutoff r => r.history
 
-private def Related (history : α → History) (before : History) (x y : α) : Prop :=
+def Related (history : α → History) (before : History) (x y : α) : Prop :=
   x = y ∧ before <+: history y
 
 private abbrev Agrees (base : History) (l r : Move → EmptyState → History → Post) :=

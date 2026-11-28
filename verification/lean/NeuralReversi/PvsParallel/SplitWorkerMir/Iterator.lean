@@ -1,5 +1,8 @@
-import NeuralReversi.MoveList.ConcurrentExecution
-import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
+module
+public import NeuralReversi.MoveList.ConcurrentExecution
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Loop
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitWorkerMir.Iterator
 

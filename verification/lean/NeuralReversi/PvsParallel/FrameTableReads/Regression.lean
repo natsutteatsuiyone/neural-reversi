@@ -1,4 +1,10 @@
-import NeuralReversi.PvsParallel.FrameTableReads.ProbeRegisters
+module
+public import NeuralReversi.PvsParallel.FrameTableReads.ProbeRegisters
+meta import NeuralReversi.PvsParallel.FrameTableReads.Execution
+meta import NeuralReversi.PvsParallel.FrameTableReads.ProbeRegisters
+meta import NeuralReversi.PvsParallel.FrameTableReads.Schedule
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameTableReads.Operations.Regression
 

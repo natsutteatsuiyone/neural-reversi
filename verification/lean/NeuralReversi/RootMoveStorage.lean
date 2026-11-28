@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Root
+module
+public import NeuralReversi.PvsParallel.Root
+
+@[expose] public section
 
 namespace NeuralReversi.RootMoveStorage
 

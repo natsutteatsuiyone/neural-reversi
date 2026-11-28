@@ -252,9 +252,12 @@ def verify(d,repo):
             rows.append(f"  | {str(worker).lower()}, {pc} => some {k}")
     return PROGRAM.replace('{sites}','\n'.join(rows))
 
-PROGRAM='''import NeuralReversi.SearchContextState
-import NeuralReversi.PvsParallel.ExactDepth
-import NeuralReversi.EndgameSearch.Cancellation
+PROGRAM='''module
+public import NeuralReversi.SearchContextState
+public import NeuralReversi.PvsParallel.ExactDepth
+public import NeuralReversi.EndgameSearch.Cancellation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ContextPathMir
 

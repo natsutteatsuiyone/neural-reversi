@@ -1,4 +1,7 @@
-import NeuralReversi.AlignedBuffer.Construction
+module
+public import NeuralReversi.AlignedBuffer.Construction
+
+@[expose] public section
 
 namespace NeuralReversi.AlignedBuffer
 

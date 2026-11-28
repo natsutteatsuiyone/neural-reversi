@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.Avx2.Spec
-import NeuralReversi.Flip.Avx2.Assembly
+module
+public import NeuralReversi.Flip.Avx2.Spec
+public import NeuralReversi.Flip.Avx2.Assembly
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx2
 open NeuralReversi.Flip

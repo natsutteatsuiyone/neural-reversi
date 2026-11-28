@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.Polled
-import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt
+module
+public import NeuralReversi.AspirationMir.Polled
+public import NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt.Mir
 
@@ -124,7 +127,7 @@ theorem Path.invocations (path : Path trial root s before prior last) :
     · exact returned
     · exact ih o later
 
-private def key (o : Observation M) := (o.state.index,o.state.regs.alpha,o.state.regs.beta)
+def key (o : Observation M) := (o.state.index,o.state.regs.alpha,o.state.regs.beta)
 
 /-- Both oracles are built from the root calls actually consumed by `run`.
     Their defaults are unreachable on the corresponding MIR execution. -/

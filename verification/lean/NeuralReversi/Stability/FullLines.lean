@@ -1,270 +1,263 @@
-import NeuralReversi.Stability.FullLines.Group7
-import NeuralReversi.Stability.HorizontalProofs.Group7
+module
+public import NeuralReversi.Stability.Horizontal
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
+
+private abbrev Support := Nat → List Nat
+
+private def Matches (w : Word) (disc : Word) (s : Support) : Prop :=
+  ∀ i, i < 64 → w.getLsbD i = (s i).all disc.getLsbD
+
+private theorem matches_self (disc : Word) : Matches disc disc (fun i => [i]) := by
+  intro i _
+  simp
+
+private theorem matches_and {w₁ w₂ disc : Word} {s₁ s₂ : Support}
+    (h₁ : Matches w₁ disc s₁) (h₂ : Matches w₂ disc s₂) :
+    Matches (w₁ &&& w₂) disc (fun i => s₁ i ++ s₂ i) := by
+  intro i hi
+  rw [BitVec.getLsbD_and, h₁ i hi, h₂ i hi, List.all_append]
+
+private theorem matches_shr_and {w disc : Word} {s : Support}
+    (h : Matches w disc s) (k : Nat) :
+    Matches (w &&& (w >>> k)) disc
+      (fun i => if i + k < 64 then s i ++ s (i + k) else [64]) := by
+  intro i hi
+  rw [BitVec.getLsbD_and, BitVec.getLsbD_ushiftRight, h i hi]
+  by_cases hlt : i + k < 64
+  · simp only [hlt, ↓reduceIte, List.all_append, Nat.add_comm k i, h (i + k) hlt]
+  · have hge : w.getLsbD (k + i) = false := BitVec.getLsbD_of_ge w _ (by omega)
+    simp [hlt, hge]
+
+private theorem matches_rotateRight {w disc : Word} {s : Support}
+    (h : Matches w disc s) (k : Nat) (hk0 : 0 < k) (hk64 : k < 64) :
+    Matches (rotateRight w k) disc (fun i => s ((i + k) % 64)) := by
+  intro i hi
+  unfold rotateRight
+  rw [BitVec.getLsbD_or, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft]
+  by_cases hlt : k + i < 64
+  · have hmod : (i + k) % 64 = k + i := by omega
+    have hlt2 : i < 64 - k := by omega
+    simp only [hi, decide_true, Bool.true_and, hlt2, Bool.not_true, Bool.false_and, Bool.or_false,
+      hmod, h (k + i) hlt]
+  · have hge : w.getLsbD (k + i) = false := BitVec.getLsbD_of_ge w _ (by omega)
+    have hmod : (i + k) % 64 = i - (64 - k) := by omega
+    have hnot : ¬ (i < 64 - k) := by omega
+    simp only [hge, Bool.false_or, hi, decide_true, Bool.true_and, hnot, decide_false,
+      Bool.not_false, hmod, h (i - (64 - k)) (by omega)]
+
+private theorem matches_rotateLeft {w disc : Word} {s : Support}
+    (h : Matches w disc s) (k : Nat) (hk0 : 0 < k) (hk64 : k < 64) :
+    Matches (rotateLeft w k) disc (fun i => s ((i + (64 - k)) % 64)) := by
+  intro i hi
+  unfold rotateLeft
+  rw [BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft, BitVec.getLsbD_ushiftRight]
+  by_cases hlt : i < k
+  · have hmod : (i + (64 - k)) % 64 = 64 - k + i := by omega
+    simp only [hi, decide_true, Bool.true_and, hlt, Bool.not_true, Bool.false_and, Bool.false_or,
+      hmod, h (64 - k + i) (by omega)]
+  · have hge : w.getLsbD (64 - k + i) = false := BitVec.getLsbD_of_ge w _ (by omega)
+    have hmod : (i + (64 - k)) % 64 = i - k := by omega
+    simp only [hi, decide_true, Bool.true_and, hlt, decide_false, Bool.not_false, hge,
+      Bool.or_false, hmod, h (i - k) (by omega)]
+
+private theorem matches_mask_shr {w disc : Word} {s : Support}
+    (h : Matches w disc s) (mask : Word) (k : Nat)
+    (hsafe : ∀ i, i < 64 → mask.getLsbD i = false → i + k < 64) :
+    Matches (mask ||| (w >>> k)) disc (fun i => if mask.getLsbD i then [] else s (i + k)) := by
+  intro i hi
+  dsimp only
+  rw [BitVec.getLsbD_or, BitVec.getLsbD_ushiftRight]
+  cases hm : mask.getLsbD i
+  · have hlt := hsafe i hi hm
+    simp only [Bool.false_or, Bool.false_eq_true, ↓reduceIte, Nat.add_comm k i, h (i + k) hlt]
+  · simp
+
+private theorem matches_mask_shl {w disc : Word} {s : Support}
+    (h : Matches w disc s) (mask : Word) (k : Nat)
+    (hsafe : ∀ i, i < 64 → mask.getLsbD i = false → k ≤ i) :
+    Matches (mask ||| (w <<< k)) disc (fun i => if mask.getLsbD i then [] else s (i - k)) := by
+  intro i hi
+  dsimp only
+  rw [BitVec.getLsbD_or, BitVec.getLsbD_shiftLeft]
+  cases hm : mask.getLsbD i
+  · have hle := hsafe i hi hm
+    have hnot : ¬ i < k := by omega
+    simp only [Bool.false_or, Bool.false_eq_true, ↓reduceIte, hi, decide_true, Bool.true_and,
+      hnot, decide_false, Bool.not_false, h (i - k) (by omega)]
+  · simp
+
+private theorem matches_mask_shr_shl {w₁ w₂ disc : Word} {s₁ s₂ : Support}
+    (h₁ : Matches w₁ disc s₁) (h₂ : Matches w₂ disc s₂) (mask : Word) (k : Nat)
+    (hsafe : ∀ i, i < 64 → mask.getLsbD i = false →
+      (i + k < 64 ∧ i < k) ∨ (k ≤ i ∧ 64 ≤ i + k)) :
+    Matches (mask ||| (w₁ >>> k) ||| (w₂ <<< k)) disc
+      (fun i => if mask.getLsbD i then [] else if i + k < 64 then s₁ (i + k) else s₂ (i - k)) := by
+  intro i hi
+  dsimp only
+  rw [BitVec.getLsbD_or, BitVec.getLsbD_or, BitVec.getLsbD_ushiftRight, BitVec.getLsbD_shiftLeft]
+  cases hm : mask.getLsbD i
+  · rcases hsafe i hi hm with ⟨hlt1, hlt2⟩ | ⟨hle, hge⟩
+    · simp only [Bool.false_or, Bool.false_eq_true, ↓reduceIte, hlt1, hi, decide_true, Bool.true_and,
+        hlt2, Bool.not_true, Bool.false_and, Bool.or_false, Nat.add_comm k i, h₁ (i + k) hlt1]
+    · have h1 : w₁.getLsbD (k + i) = false := BitVec.getLsbD_of_ge w₁ _ (by omega)
+      have hnot1 : ¬ i + k < 64 := by omega
+      have hnot2 : ¬ i < k := by omega
+      simp only [Bool.false_or, Bool.false_eq_true, ↓reduceIte, h1, hi, decide_true, Bool.true_and,
+        hnot1, hnot2, decide_false, Bool.not_false, h₂ (i - k) (by omega)]
+  · simp
+
+private theorem word255_getLsbD (j : Nat) (hj : j < 64) :
+    (255 : Word).getLsbD j = decide (j < 8) := by
+  have hall : ∀ x : Fin 64, (255 : Word).getLsbD x.val = decide (x.val < 8) := by decide
+  exact hall ⟨j, hj⟩
+
+private theorem spread_getLsbD (p : Word) (i : Nat) (hi : i < 64) :
+    (spread p [0,1,2,3,4,5,6,7]).getLsbD i = p.getLsbD (8 * (i / 8)) := by
+  have hrow : ∀ (r : Nat),
+      ((if p.getLsbD (8 * r) then ((255 : Word) <<< (8 * r)) else 0).getLsbD i) =
+        (decide (i / 8 = r) && p.getLsbD (8 * r)) := by
+    intro r
+    cases hbit : p.getLsbD (8 * r)
+    · simp
+    · simp only [↓reduceIte, Bool.and_true, BitVec.getLsbD_shiftLeft, hi, decide_true, Bool.true_and]
+      by_cases hlt : i < 8 * r
+      · have hne : i / 8 ≠ r := by omega
+        simp [hlt, hne]
+      · have hsub64 : i - 8 * r < 64 := by omega
+        have hlt8 : (i - 8 * r < 8) ↔ (i / 8 = r) := by omega
+        simp only [hlt, decide_false, Bool.not_false, Bool.true_and, word255_getLsbD _ hsub64, hlt8]
+  simp only [spread, BitVec.getLsbD_or, hrow]
+  have hr : i / 8 = 0 ∨ i / 8 = 1 ∨ i / 8 = 2 ∨ i / 8 = 3 ∨
+      i / 8 = 4 ∨ i / 8 = 5 ∨ i / 8 = 6 ∨ i / 8 = 7 := by omega
+  rcases hr with hr | hr | hr | hr | hr | hr | hr | hr <;> simp [hr]
+
+private def stepAnd (s₁ s₂ : Support) : Support := fun i => s₁ i ++ s₂ i
+private def stepShrAnd (s : Support) (k : Nat) : Support :=
+  fun i => if i + k < 64 then s i ++ s (i + k) else [64]
+private def stepRotR (s : Support) (k : Nat) : Support := fun i => s ((i + k) % 64)
+private def stepRotL (s : Support) (k : Nat) : Support := fun i => s ((i + (64 - k)) % 64)
+private def stepMaskShr (s : Support) (mask : Word) (k : Nat) : Support :=
+  fun i => if mask.getLsbD i then [] else s (i + k)
+private def stepMaskShl (s : Support) (mask : Word) (k : Nat) : Support :=
+  fun i => if mask.getLsbD i then [] else s (i - k)
+private def stepMaskBoth (s₁ s₂ : Support) (mask : Word) (k : Nat) : Support :=
+  fun i => if mask.getLsbD i then [] else if i + k < 64 then s₁ (i + k) else s₂ (i - k)
+
+private def hSupport : Support :=
+  let s0 : Support := fun i => [i]
+  let s1 := stepShrAnd s0 1
+  let s2 := stepShrAnd s1 2
+  let s3 := stepShrAnd s2 4
+  fun i => s3 (8 * (i / 8))
+
+private def vSupport : Support :=
+  let s0 : Support := fun i => [i]
+  let s1 := stepAnd s0 (stepRotR s0 8)
+  let s2 := stepAnd s1 (stepRotR s1 16)
+  stepAnd s2 (stepRotL s2 32)
+
+private def d7Support : Support :=
+  let s0 : Support := fun i => [i]
+  let l1 := stepAnd s0 (stepMaskShr s0 0xff01010101010101 7)
+  let r1 := stepAnd s0 (stepMaskShl s0 0x80808080808080ff 7)
+  let l2 := stepAnd l1 (stepMaskShr l1 0xffff030303030303 14)
+  let r2 := stepAnd r1 (stepMaskShl r1 0xc0c0c0c0c0c0ffff 14)
+  let l3 := stepAnd l2 (stepMaskShr l2 0xffffffff0f0f0f0f 28)
+  let r3 := stepAnd r2 (stepMaskShl r2 0xf0f0f0f0ffffffff 28)
+  stepAnd l3 r3
+
+private def d9Support : Support :=
+  let s0 : Support := fun i => [i]
+  let l1 := stepAnd s0 (stepMaskShr s0 0xff80808080808080 9)
+  let r1 := stepAnd s0 (stepMaskShl s0 0x01010101010101ff 9)
+  let l2 := stepAnd l1 (stepMaskShr l1 0xffffc0c0c0c0c0c0 18)
+  let r2 := stepAnd r1 (stepMaskShl r1 0x030303030303ffff 18)
+  stepAnd (stepAnd l2 r2) (stepMaskBoth l2 r2 0x0f0f0f0ff0f0f0f0 36)
+
+private def axisSupport (axis : Fin 4) : Support :=
+  match axis.val with
+  | 0 => hSupport
+  | 1 => vSupport
+  | 2 => d7Support
+  | _ => d9Support
+
+private theorem mask_bounds_ok :
+    (∀ i : Fin 64, (0xff01010101010101 : Word).getLsbD i.val = false → i.val + 7 < 64) ∧
+    (∀ i : Fin 64, (0x80808080808080ff : Word).getLsbD i.val = false → 7 ≤ i.val) ∧
+    (∀ i : Fin 64, (0xffff030303030303 : Word).getLsbD i.val = false → i.val + 14 < 64) ∧
+    (∀ i : Fin 64, (0xc0c0c0c0c0c0ffff : Word).getLsbD i.val = false → 14 ≤ i.val) ∧
+    (∀ i : Fin 64, (0xffffffff0f0f0f0f : Word).getLsbD i.val = false → i.val + 28 < 64) ∧
+    (∀ i : Fin 64, (0xf0f0f0f0ffffffff : Word).getLsbD i.val = false → 28 ≤ i.val) ∧
+    (∀ i : Fin 64, (0xff80808080808080 : Word).getLsbD i.val = false → i.val + 9 < 64) ∧
+    (∀ i : Fin 64, (0x01010101010101ff : Word).getLsbD i.val = false → 9 ≤ i.val) ∧
+    (∀ i : Fin 64, (0xffffc0c0c0c0c0c0 : Word).getLsbD i.val = false → i.val + 18 < 64) ∧
+    (∀ i : Fin 64, (0x030303030303ffff : Word).getLsbD i.val = false → 18 ≤ i.val) ∧
+    (∀ i : Fin 64, (0x0f0f0f0ff0f0f0f0 : Word).getLsbD i.val = false →
+      (i.val + 36 < 64 ∧ i.val < 36) ∨ (36 ≤ i.val ∧ 64 ≤ i.val + 36)) := by decide +kernel
+
+private theorem field_matches (disc : Word) (axis : Fin 4) :
+    Matches (field (getFullLines disc) axis) disc (axisSupport axis) := by
+  have mb := mask_bounds_ok
+  have h0 := matches_self disc
+  rcases axis with ⟨a, ha⟩
+  match a with
+  | 0 =>
+    intro i hi
+    simp only [field, getFullLines, Id.run, pure]
+    rw [dilate_eq_spread, spread_getLsbD _ i hi]
+    have h1 := matches_shr_and h0 1
+    have h2 := matches_shr_and h1 2
+    have h3 := matches_shr_and h2 4
+    exact h3 (8 * (i / 8)) (by omega)
+  | 1 =>
+    simp only [field, getFullLines, Id.run, pure, axisSupport, vSupport]
+    have v1 := matches_and h0 (matches_rotateRight h0 8 (by decide) (by decide))
+    have v2 := matches_and v1 (matches_rotateRight v1 16 (by decide) (by decide))
+    exact matches_and v2 (matches_rotateLeft v2 32 (by decide) (by decide))
+  | 2 =>
+    simp only [field, getFullLines, Id.run, pure, axisSupport, d7Support]
+    have l1 := matches_and h0 (matches_mask_shr h0 _ 7 (fun i hi h => mb.1 ⟨i, hi⟩ h))
+    have r1 := matches_and h0 (matches_mask_shl h0 _ 7 (fun i hi h => mb.2.1 ⟨i, hi⟩ h))
+    have l2 := matches_and l1 (matches_mask_shr l1 _ 14 (fun i hi h => mb.2.2.1 ⟨i, hi⟩ h))
+    have r2 := matches_and r1 (matches_mask_shl r1 _ 14 (fun i hi h => mb.2.2.2.1 ⟨i, hi⟩ h))
+    have l3 := matches_and l2 (matches_mask_shr l2 _ 28 (fun i hi h => mb.2.2.2.2.1 ⟨i, hi⟩ h))
+    have r3 := matches_and r2 (matches_mask_shl r2 _ 28 (fun i hi h => mb.2.2.2.2.2.1 ⟨i, hi⟩ h))
+    exact matches_and l3 r3
+  | 3 =>
+    simp only [field, getFullLines, Id.run, pure, axisSupport, d9Support]
+    have l1 := matches_and h0 (matches_mask_shr h0 _ 9 (fun i hi h => mb.2.2.2.2.2.2.1 ⟨i, hi⟩ h))
+    have r1 := matches_and h0 (matches_mask_shl h0 _ 9 (fun i hi h => mb.2.2.2.2.2.2.2.1 ⟨i, hi⟩ h))
+    have l2 := matches_and l1 (matches_mask_shr l1 _ 18 (fun i hi h => mb.2.2.2.2.2.2.2.2.1 ⟨i, hi⟩ h))
+    have r2 := matches_and r1 (matches_mask_shl r1 _ 18 (fun i hi h => mb.2.2.2.2.2.2.2.2.2.1 ⟨i, hi⟩ h))
+    have both := matches_mask_shr_shl l2 r2 _ 36 (fun i hi h => mb.2.2.2.2.2.2.2.2.2.2 ⟨i, hi⟩ h)
+    exact matches_and (matches_and l2 r2) both
+  | _ + 4 => omega
+
+private theorem support_equiv_lineCells : ∀ (axis : Fin 4) (sq : Fin 64),
+    (axisSupport axis sq.val).all (fun t => decide (t ∈ lineCells axis sq.val)) = true ∧
+    (lineCells axis sq.val).all (fun t => decide (t ∈ axisSupport axis sq.val)) = true := by
+  decide +kernel
+
+private theorem list_all_eq_of_subset {α : Type} (p : α → Bool) (xs ys : List α)
+    (h1 : ∀ x ∈ xs, x ∈ ys) (h2 : ∀ y ∈ ys, y ∈ xs) :
+    xs.all p = ys.all p := by
+  apply Bool.eq_iff_iff.mpr
+  simp only [List.all_eq_true]
+  exact ⟨fun h y hy => h y (h2 y hy), fun h x hx => h x (h1 x hx)⟩
 
 theorem fullLines_bits (disc : Word) (axis : Fin 4) (sq : Fin 64) :
     (field (getFullLines disc) axis).getLsbD sq.val = lineBits disc axis sq.val := by
-  rcases axis with ⟨a, ha⟩
-  rcases sq with ⟨s, hs⟩
-  match a, s with
-  | 0, 0 => exact full_0_0 disc
-  | 0, 1 => exact full_0_1 disc
-  | 0, 2 => exact full_0_2 disc
-  | 0, 3 => exact full_0_3 disc
-  | 0, 4 => exact full_0_4 disc
-  | 0, 5 => exact full_0_5 disc
-  | 0, 6 => exact full_0_6 disc
-  | 0, 7 => exact full_0_7 disc
-  | 0, 8 => exact full_0_8 disc
-  | 0, 9 => exact full_0_9 disc
-  | 0, 10 => exact full_0_10 disc
-  | 0, 11 => exact full_0_11 disc
-  | 0, 12 => exact full_0_12 disc
-  | 0, 13 => exact full_0_13 disc
-  | 0, 14 => exact full_0_14 disc
-  | 0, 15 => exact full_0_15 disc
-  | 0, 16 => exact full_0_16 disc
-  | 0, 17 => exact full_0_17 disc
-  | 0, 18 => exact full_0_18 disc
-  | 0, 19 => exact full_0_19 disc
-  | 0, 20 => exact full_0_20 disc
-  | 0, 21 => exact full_0_21 disc
-  | 0, 22 => exact full_0_22 disc
-  | 0, 23 => exact full_0_23 disc
-  | 0, 24 => exact full_0_24 disc
-  | 0, 25 => exact full_0_25 disc
-  | 0, 26 => exact full_0_26 disc
-  | 0, 27 => exact full_0_27 disc
-  | 0, 28 => exact full_0_28 disc
-  | 0, 29 => exact full_0_29 disc
-  | 0, 30 => exact full_0_30 disc
-  | 0, 31 => exact full_0_31 disc
-  | 0, 32 => exact full_0_32 disc
-  | 0, 33 => exact full_0_33 disc
-  | 0, 34 => exact full_0_34 disc
-  | 0, 35 => exact full_0_35 disc
-  | 0, 36 => exact full_0_36 disc
-  | 0, 37 => exact full_0_37 disc
-  | 0, 38 => exact full_0_38 disc
-  | 0, 39 => exact full_0_39 disc
-  | 0, 40 => exact full_0_40 disc
-  | 0, 41 => exact full_0_41 disc
-  | 0, 42 => exact full_0_42 disc
-  | 0, 43 => exact full_0_43 disc
-  | 0, 44 => exact full_0_44 disc
-  | 0, 45 => exact full_0_45 disc
-  | 0, 46 => exact full_0_46 disc
-  | 0, 47 => exact full_0_47 disc
-  | 0, 48 => exact full_0_48 disc
-  | 0, 49 => exact full_0_49 disc
-  | 0, 50 => exact full_0_50 disc
-  | 0, 51 => exact full_0_51 disc
-  | 0, 52 => exact full_0_52 disc
-  | 0, 53 => exact full_0_53 disc
-  | 0, 54 => exact full_0_54 disc
-  | 0, 55 => exact full_0_55 disc
-  | 0, 56 => exact full_0_56 disc
-  | 0, 57 => exact full_0_57 disc
-  | 0, 58 => exact full_0_58 disc
-  | 0, 59 => exact full_0_59 disc
-  | 0, 60 => exact full_0_60 disc
-  | 0, 61 => exact full_0_61 disc
-  | 0, 62 => exact full_0_62 disc
-  | 0, 63 => exact full_0_63 disc
-  | 1, 0 => exact full_1_0 disc
-  | 1, 1 => exact full_1_1 disc
-  | 1, 2 => exact full_1_2 disc
-  | 1, 3 => exact full_1_3 disc
-  | 1, 4 => exact full_1_4 disc
-  | 1, 5 => exact full_1_5 disc
-  | 1, 6 => exact full_1_6 disc
-  | 1, 7 => exact full_1_7 disc
-  | 1, 8 => exact full_1_8 disc
-  | 1, 9 => exact full_1_9 disc
-  | 1, 10 => exact full_1_10 disc
-  | 1, 11 => exact full_1_11 disc
-  | 1, 12 => exact full_1_12 disc
-  | 1, 13 => exact full_1_13 disc
-  | 1, 14 => exact full_1_14 disc
-  | 1, 15 => exact full_1_15 disc
-  | 1, 16 => exact full_1_16 disc
-  | 1, 17 => exact full_1_17 disc
-  | 1, 18 => exact full_1_18 disc
-  | 1, 19 => exact full_1_19 disc
-  | 1, 20 => exact full_1_20 disc
-  | 1, 21 => exact full_1_21 disc
-  | 1, 22 => exact full_1_22 disc
-  | 1, 23 => exact full_1_23 disc
-  | 1, 24 => exact full_1_24 disc
-  | 1, 25 => exact full_1_25 disc
-  | 1, 26 => exact full_1_26 disc
-  | 1, 27 => exact full_1_27 disc
-  | 1, 28 => exact full_1_28 disc
-  | 1, 29 => exact full_1_29 disc
-  | 1, 30 => exact full_1_30 disc
-  | 1, 31 => exact full_1_31 disc
-  | 1, 32 => exact full_1_32 disc
-  | 1, 33 => exact full_1_33 disc
-  | 1, 34 => exact full_1_34 disc
-  | 1, 35 => exact full_1_35 disc
-  | 1, 36 => exact full_1_36 disc
-  | 1, 37 => exact full_1_37 disc
-  | 1, 38 => exact full_1_38 disc
-  | 1, 39 => exact full_1_39 disc
-  | 1, 40 => exact full_1_40 disc
-  | 1, 41 => exact full_1_41 disc
-  | 1, 42 => exact full_1_42 disc
-  | 1, 43 => exact full_1_43 disc
-  | 1, 44 => exact full_1_44 disc
-  | 1, 45 => exact full_1_45 disc
-  | 1, 46 => exact full_1_46 disc
-  | 1, 47 => exact full_1_47 disc
-  | 1, 48 => exact full_1_48 disc
-  | 1, 49 => exact full_1_49 disc
-  | 1, 50 => exact full_1_50 disc
-  | 1, 51 => exact full_1_51 disc
-  | 1, 52 => exact full_1_52 disc
-  | 1, 53 => exact full_1_53 disc
-  | 1, 54 => exact full_1_54 disc
-  | 1, 55 => exact full_1_55 disc
-  | 1, 56 => exact full_1_56 disc
-  | 1, 57 => exact full_1_57 disc
-  | 1, 58 => exact full_1_58 disc
-  | 1, 59 => exact full_1_59 disc
-  | 1, 60 => exact full_1_60 disc
-  | 1, 61 => exact full_1_61 disc
-  | 1, 62 => exact full_1_62 disc
-  | 1, 63 => exact full_1_63 disc
-  | 2, 0 => exact full_2_0 disc
-  | 2, 1 => exact full_2_1 disc
-  | 2, 2 => exact full_2_2 disc
-  | 2, 3 => exact full_2_3 disc
-  | 2, 4 => exact full_2_4 disc
-  | 2, 5 => exact full_2_5 disc
-  | 2, 6 => exact full_2_6 disc
-  | 2, 7 => exact full_2_7 disc
-  | 2, 8 => exact full_2_8 disc
-  | 2, 9 => exact full_2_9 disc
-  | 2, 10 => exact full_2_10 disc
-  | 2, 11 => exact full_2_11 disc
-  | 2, 12 => exact full_2_12 disc
-  | 2, 13 => exact full_2_13 disc
-  | 2, 14 => exact full_2_14 disc
-  | 2, 15 => exact full_2_15 disc
-  | 2, 16 => exact full_2_16 disc
-  | 2, 17 => exact full_2_17 disc
-  | 2, 18 => exact full_2_18 disc
-  | 2, 19 => exact full_2_19 disc
-  | 2, 20 => exact full_2_20 disc
-  | 2, 21 => exact full_2_21 disc
-  | 2, 22 => exact full_2_22 disc
-  | 2, 23 => exact full_2_23 disc
-  | 2, 24 => exact full_2_24 disc
-  | 2, 25 => exact full_2_25 disc
-  | 2, 26 => exact full_2_26 disc
-  | 2, 27 => exact full_2_27 disc
-  | 2, 28 => exact full_2_28 disc
-  | 2, 29 => exact full_2_29 disc
-  | 2, 30 => exact full_2_30 disc
-  | 2, 31 => exact full_2_31 disc
-  | 2, 32 => exact full_2_32 disc
-  | 2, 33 => exact full_2_33 disc
-  | 2, 34 => exact full_2_34 disc
-  | 2, 35 => exact full_2_35 disc
-  | 2, 36 => exact full_2_36 disc
-  | 2, 37 => exact full_2_37 disc
-  | 2, 38 => exact full_2_38 disc
-  | 2, 39 => exact full_2_39 disc
-  | 2, 40 => exact full_2_40 disc
-  | 2, 41 => exact full_2_41 disc
-  | 2, 42 => exact full_2_42 disc
-  | 2, 43 => exact full_2_43 disc
-  | 2, 44 => exact full_2_44 disc
-  | 2, 45 => exact full_2_45 disc
-  | 2, 46 => exact full_2_46 disc
-  | 2, 47 => exact full_2_47 disc
-  | 2, 48 => exact full_2_48 disc
-  | 2, 49 => exact full_2_49 disc
-  | 2, 50 => exact full_2_50 disc
-  | 2, 51 => exact full_2_51 disc
-  | 2, 52 => exact full_2_52 disc
-  | 2, 53 => exact full_2_53 disc
-  | 2, 54 => exact full_2_54 disc
-  | 2, 55 => exact full_2_55 disc
-  | 2, 56 => exact full_2_56 disc
-  | 2, 57 => exact full_2_57 disc
-  | 2, 58 => exact full_2_58 disc
-  | 2, 59 => exact full_2_59 disc
-  | 2, 60 => exact full_2_60 disc
-  | 2, 61 => exact full_2_61 disc
-  | 2, 62 => exact full_2_62 disc
-  | 2, 63 => exact full_2_63 disc
-  | 3, 0 => exact full_3_0 disc
-  | 3, 1 => exact full_3_1 disc
-  | 3, 2 => exact full_3_2 disc
-  | 3, 3 => exact full_3_3 disc
-  | 3, 4 => exact full_3_4 disc
-  | 3, 5 => exact full_3_5 disc
-  | 3, 6 => exact full_3_6 disc
-  | 3, 7 => exact full_3_7 disc
-  | 3, 8 => exact full_3_8 disc
-  | 3, 9 => exact full_3_9 disc
-  | 3, 10 => exact full_3_10 disc
-  | 3, 11 => exact full_3_11 disc
-  | 3, 12 => exact full_3_12 disc
-  | 3, 13 => exact full_3_13 disc
-  | 3, 14 => exact full_3_14 disc
-  | 3, 15 => exact full_3_15 disc
-  | 3, 16 => exact full_3_16 disc
-  | 3, 17 => exact full_3_17 disc
-  | 3, 18 => exact full_3_18 disc
-  | 3, 19 => exact full_3_19 disc
-  | 3, 20 => exact full_3_20 disc
-  | 3, 21 => exact full_3_21 disc
-  | 3, 22 => exact full_3_22 disc
-  | 3, 23 => exact full_3_23 disc
-  | 3, 24 => exact full_3_24 disc
-  | 3, 25 => exact full_3_25 disc
-  | 3, 26 => exact full_3_26 disc
-  | 3, 27 => exact full_3_27 disc
-  | 3, 28 => exact full_3_28 disc
-  | 3, 29 => exact full_3_29 disc
-  | 3, 30 => exact full_3_30 disc
-  | 3, 31 => exact full_3_31 disc
-  | 3, 32 => exact full_3_32 disc
-  | 3, 33 => exact full_3_33 disc
-  | 3, 34 => exact full_3_34 disc
-  | 3, 35 => exact full_3_35 disc
-  | 3, 36 => exact full_3_36 disc
-  | 3, 37 => exact full_3_37 disc
-  | 3, 38 => exact full_3_38 disc
-  | 3, 39 => exact full_3_39 disc
-  | 3, 40 => exact full_3_40 disc
-  | 3, 41 => exact full_3_41 disc
-  | 3, 42 => exact full_3_42 disc
-  | 3, 43 => exact full_3_43 disc
-  | 3, 44 => exact full_3_44 disc
-  | 3, 45 => exact full_3_45 disc
-  | 3, 46 => exact full_3_46 disc
-  | 3, 47 => exact full_3_47 disc
-  | 3, 48 => exact full_3_48 disc
-  | 3, 49 => exact full_3_49 disc
-  | 3, 50 => exact full_3_50 disc
-  | 3, 51 => exact full_3_51 disc
-  | 3, 52 => exact full_3_52 disc
-  | 3, 53 => exact full_3_53 disc
-  | 3, 54 => exact full_3_54 disc
-  | 3, 55 => exact full_3_55 disc
-  | 3, 56 => exact full_3_56 disc
-  | 3, 57 => exact full_3_57 disc
-  | 3, 58 => exact full_3_58 disc
-  | 3, 59 => exact full_3_59 disc
-  | 3, 60 => exact full_3_60 disc
-  | 3, 61 => exact full_3_61 disc
-  | 3, 62 => exact full_3_62 disc
-  | 3, 63 => exact full_3_63 disc
-  | a + 4, _ => omega
-  | _, s + 64 => omega
+  rw [field_matches disc axis sq.val sq.isLt]
+  unfold lineBits
+  have heq := support_equiv_lineCells axis sq
+  apply list_all_eq_of_subset
+  · intro x hx
+    exact of_decide_eq_true (List.all_eq_true.mp heq.1 x hx)
+  · intro y hy
+    exact of_decide_eq_true (List.all_eq_true.mp heq.2 y hy)
 
 theorem fullLines_correct (disc : Word) (axis : Fin 4) (sq : Fin 64) :
     (field (getFullLines disc) axis).getLsbD sq.val = true ↔ FullAt disc axis sq := by

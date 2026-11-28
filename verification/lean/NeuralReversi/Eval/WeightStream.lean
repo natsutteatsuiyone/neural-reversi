@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.SmallNetwork.Layout
+module
+public import NeuralReversi.Eval.SmallNetwork.Layout
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.WeightStream
 

@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialOwnerCalls
-import NeuralReversi.PvsParallel.RootReplay
-import NeuralReversi.TranspositionTable.Proofs
+module
+public import NeuralReversi.PvsParallel.SerialOwnerCalls
+public import NeuralReversi.PvsParallel.RootReplay
+public import NeuralReversi.TranspositionTable.Proofs
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.PvInterior
 

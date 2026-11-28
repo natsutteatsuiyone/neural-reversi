@@ -1,10 +1,13 @@
-import NeuralReversi.EndgameSearch.SourceFour
-import NeuralReversi.EmptyListParity
-import NeuralReversi.Empties
-import NeuralReversi.MoveList.BestFirst
-import NeuralReversi.MoveList.SmallGenerate
-import NeuralReversi.ShallowMoveOrder
-import NeuralReversi.MoveList.Ordering
+module
+public import NeuralReversi.EndgameSearch
+public import NeuralReversi.EmptyListParity
+public import NeuralReversi.Empties
+public import NeuralReversi.MoveList.BestFirst
+public import NeuralReversi.MoveList.SmallGenerate
+public import NeuralReversi.ShallowMoveOrder
+public import NeuralReversi.MoveList.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch
 
@@ -42,13 +45,13 @@ structure EvaluatedMove where
   value : Int32
   deriving DecidableEq
 
-private def evaluateMove (mc : X86Config) (fc : FlipConfig) (b : Board.Board)
+def evaluateMove (mc : X86Config) (fc : FlipConfig) (b : Board.Board)
     (sq : Bitboard.Square) : EvaluatedMove :=
   let next := Board.place b (Flip.Dispatch.resultValue fc sq b.player b.opponent) sq
   let nextMoves := Board.getMoves mc next
   ⟨sq, next, nextMoves, fastMoveValue sq next nextMoves⟩
 
-private def evaluated (mc : X86Config) (fc : FlipConfig) (b : Position)
+def evaluated (mc : X86Config) (fc : FlipConfig) (b : Position)
     (sq : GeneratedSquare mc b.val) : EvaluatedMove :=
   evaluateMove mc fc b.val sq.val
 
@@ -90,7 +93,7 @@ theorem deepOrderContract_proven : DeepOrderContract := by
   rw [deepOrder, MoveList.BestFirst.ordered_map, complete success, ← same, List.map_map]
   rfl
 
-private def groups (mc : X86Config) (b : Position) (parity : Fin 16) : List LegalMoves.Raw :=
+def groups (mc : X86Config) (b : Position) (parity : Fin 16) : List LegalMoves.Raw :=
   ShallowMoveOrder.groups ⟨Board.getMoves mc b.val⟩ (Board.emptySquares b.val) parity
 
 def shallowOrder (mc : X86Config) (b : Position) (parity : Fin 16) : List (GeneratedSquare mc b.val) :=

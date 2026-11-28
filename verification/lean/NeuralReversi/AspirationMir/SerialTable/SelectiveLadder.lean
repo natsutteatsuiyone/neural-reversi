@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.FromBoard
-import NeuralReversi.AspirationMir.SerialEntry
-import NeuralReversi.PvsParallel.SerialTable.Finite
+module
+public import NeuralReversi.AspirationMir.SerialTable.FromBoard
+public import NeuralReversi.AspirationMir.SerialEntry
+public import NeuralReversi.PvsParallel.SerialTable.Finite
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.SelectiveLadder
 

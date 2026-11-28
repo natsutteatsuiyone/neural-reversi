@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.MaskGeneration
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+module
+public import NeuralReversi.PvsParallel.Interleaving.MaskGeneration
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
 
@@ -15,7 +18,7 @@ def operations (o : Worker) (bank : Nat) (es : Joint.Tape Operand) : List Operat
     | .splitWord w t (.unlock p b) => if p = o.val ∧ b = bank then some (.release ⟨w,t⟩) else none
     | _ => none
 
-private def handoff (ops : List Operation) (n : Nat) : Option (Event × Event) := do
+def handoff (ops : List Operation) (n : Nat) : Option (Event × Event) := do
   let .release r ← ops[n]? | none
   let .acquire a ← ops[n+1]? | none
   return (r,a)
@@ -55,7 +58,7 @@ theorem adjacent : LockContract := by
 def edges (o : Worker) (bank : Nat) (es : Joint.Tape Operand) :=
   lockEdges (operations o bank es) ++ MaskGeneration.releaseEdges o (MaskGeneration.rows o bank es)
 
-private def address : Joint.Event Operand → Option (Nat × Nat)
+def address : Joint.Event Operand → Option (Nat × Nat)
   | .splitWord _ _ (.lock p b) | .splitWord _ _ (.unlock p b) | .splitWord _ _ (.maskRmw p b ..) => some (p,b)
   | .splitWord p _ (.mark b) | .maskWord p _ (.load b ..) => some (p,b)
   | _ => none

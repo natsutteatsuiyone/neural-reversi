@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.TaskRetention
-import NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards
-import NeuralReversi.PvsParallel.Interleaving.MaskClock
+module
+public import NeuralReversi.PvsParallel.Interleaving.TaskRetention
+public import NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards
+public import NeuralReversi.PvsParallel.Interleaving.MaskClock
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.MaskGeneration
 
@@ -10,7 +13,7 @@ open CutoffVisibility (History HappensBefore)
 open SplitCompletion (Action Worker)
 open SlotFrameMir (RawMask ClosedAfterFirst)
 
-private local instance {ws : List Write} : DecidableEq (SplitSchedulerMir.Guard ws)
+local instance {ws : List Write} : DecidableEq (SplitSchedulerMir.Guard ws)
   | .shutdown a, .shutdown b => if eq : a=b then isTrue (eq ▸ rfl) else isFalse (fun h => eq (SplitSchedulerMir.Guard.shutdown.inj h))
   | .mask a, .mask b => if eq : a=b then isTrue (eq ▸ rfl) else isFalse (fun h => eq (SplitSchedulerMir.Guard.mask.inj h))
   | .shutdown _, .mask _ | .mask _, .shutdown _ => isFalse (by intro eq; cases eq)
@@ -58,9 +61,9 @@ def Row.guardRow (row : Row) : Option OwnerMaskGuards.Operand :=
 
 def Row.pc? (r : Row) : Option (Fin 80) := match r.op with | .pc pc => some pc | _ => none
 
-private def delim (r : Row) := r.op == .clear || r.op == .mark
+def delim (r : Row) := r.op == .clear || r.op == .mark
 
-private def slice (log : List Row) (mark : Event) : Option (List Row × List Row) := do
+def slice (log : List Row) (mark : Event) : Option (List Row × List Row) := do
   let before := log.takeWhile (fun r => r != ⟨mark,.mark⟩)
   let chosen :: rest := log.drop before.length | none
   guard (chosen == ⟨mark,.mark⟩)
@@ -69,7 +72,7 @@ private def slice (log : List Row) (mark : Event) : Option (List Row × List Row
   guard (((rest.drop current.length).head?).all (fun r => r.op == .clear))
   return (before,current)
 
-private def change (row : Row) : Option (Option (Action × BitVec 64)) :=
+def change (row : Row) : Option (Option (Action × BitVec 64)) :=
   match row.op with
   | .change who book old _ =>
     if bound : who < 64 then
@@ -79,7 +82,7 @@ private def change (row : Row) : Option (Option (Action × BitVec 64)) :=
     else none
   | _ => some none
 
-private def actor (a : Action) := match a with | .book w _ | .finish w _ => w
+def actor (a : Action) := match a with | .book w _ | .finish w _ => w
 
 structure Decoded (owner : Worker) (log : List Row) where
   mask : RawMask (log.filterMap (Row.write owner))
@@ -87,7 +90,7 @@ structure Decoded (owner : Worker) (log : List Row) where
   actors : ∀ i w e, mask.actions.get i = .finish w e → e.worker = w.val
   span : List Row
 
-private def raw (owner : Worker) (log : List Row) (mark : Event) : Option (Decoded owner log) := do
+def raw (owner : Worker) (log : List Row) (mark : Event) : Option (Decoded owner log) := do
   let (pre,body) ← slice log mark
   let changes := (← body.mapM change).reduceOption
   let as_ := changes.map Prod.fst
@@ -116,19 +119,19 @@ private def raw (owner : Worker) (log : List Row) (mark : Event) : Option (Decod
               rw [reset] at ok; exact ok,body⟩
   none
 
-private def idleRow : Row → Bool
+def idleRow : Row → Bool
   | ⟨_,.shutdown _⟩ | ⟨_,.load ..⟩ | ⟨_,.returned⟩ | ⟨_,.pc _⟩ => true
   | _ => false
 
-private def shortPath (ws : List Write) (guards : List (SplitSchedulerMir.Guard ws)) : List (Fin 80) :=
+def shortPath (ws : List Write) (guards : List (SplitSchedulerMir.Guard ws)) : List (Fin 80) :=
   ([1,2,3,4,5,6,7] : List (Fin 80)) ++ guards.flatMap (β := Fin 80) fun
     | .shutdown _ => [9,10,11,12,13,14,15]
     | .mask src => if (ws.get src).value = 0 then [16,78,79] else
       [17,18,19,20,21,22,23,40,41,42,43,44,76,77,4,5,6,7]
 
-private abbrev Cursor := Fin 80 × Nat
+abbrev Cursor := Fin 80 × Nat
 
-private def successors (ws : List Write) (guards : Array (SplitSchedulerMir.Guard ws)) (c : Cursor) : List Cursor :=
+def successors (ws : List Write) (guards : Array (SplitSchedulerMir.Guard ws)) (c : Cursor) : List Cursor :=
   match SplitSchedulerMir.idle c.1 with
   | .done => []
   | .any targets => targets.map (fun pc => (pc,c.2))
@@ -142,7 +145,7 @@ private def successors (ws : List Write) (guards : Array (SplitSchedulerMir.Guar
 /-- With no PC capture, search the finite product of the 80 MIR blocks and the
     guard cursor. Mark states at insertion so a silent cycle cannot exhaust the
     search before another outgoing edge has been tried. -/
-private def findPath (ws : List Write) (gs : Array (SplitSchedulerMir.Guard ws)) :
+def findPath (ws : List Write) (gs : Array (SplitSchedulerMir.Guard ws)) :
     Nat → List (Cursor × List (Fin 80)) → Std.HashSet Cursor → Option (List (Fin 80))
   | 0, _, _ | _, [], _ => none
   | fuel+1, (c,path)::todo, seen =>
@@ -153,14 +156,14 @@ private def findPath (ws : List Write) (gs : Array (SplitSchedulerMir.Guard ws))
         if state.2.contains x then state else ((x,x.1::path)::state.1,state.2.insert x)) (todo,seen)
       findPath ws gs fuel work known
 
-private inductive Pending where
+inductive Pending where
   | none | shutdown | mask
   deriving DecidableEq
 
 /-- A recorded basic-block entrance precedes the register load in that block.
     Matching the two projected lists separately would also accept a PC stream
     placed entirely before the first guard. -/
-private def blockGuards (idle : List Row) : Bool := Id.run do
+def blockGuards (idle : List Row) : Bool := Id.run do
   let mut pending := Pending.none
   for r in idle do
     match r.op with
@@ -179,7 +182,7 @@ private def blockGuards (idle : List Row) : Bool := Id.run do
 
 /-- Even an inferred path is checked against the MIR CFG. If PCs are recorded,
     use those exact block entries, starting at zero, with their original guards. -/
-private def pathFor (ws : List Write) (gs : List (SplitSchedulerMir.Guard ws))
+def pathFor (ws : List Write) (gs : List (SplitSchedulerMir.Guard ws))
     (pcs : List (Fin 80)) : Option (List (Fin 80)) :=
   match pcs with
   | [] =>
@@ -268,7 +271,7 @@ structure Memory (h : History) (owner : Worker) (rs : List Row) : Prop where
   sync : ∀ row ∈ operands rs, ∀ src, row.guard (writes owner rs) = some (.mask src) →
     ∀ j, InReleaseSequence (writes owner rs) j src → h.otherSync ((writes owner rs).get j).event row.site
 
-private def sourceRank (ws : List Write) (op : OwnerMaskGuards.Operand) : Option (Fin ws.length) :=
+def sourceRank (ws : List Write) (op : OwnerMaskGuards.Operand) : Option (Fin ws.length) :=
   match op.guard ws with
   | some (.mask i) => some i
   | _ => none
@@ -280,7 +283,7 @@ private theorem sourceRank_eq (ws : List Write) (op : OwnerMaskGuards.Operand) (
   | none => simp
   | some g => cases g <;> simp
 
-private instance {ws : List Write} {i j : Fin ws.length} : Decidable (InReleaseSequence ws i j) :=
+instance {ws : List Write} {i j : Fin ws.length} : Decidable (InReleaseSequence ws i j) :=
   inferInstanceAs (Decidable ((ws.get i).release = true ∧ i.val ≤ j.val ∧
     ∀ k : Fin ws.length, i.val < k.val → k.val ≤ j.val → (ws.get k).rmw = true))
 
@@ -377,15 +380,15 @@ def input (c : MaskClock.Capture h) (es : Joint.Tape Operand) (address : TaskRet
 
 namespace Regression
 
-private abbrev owner : Worker := 0
-private abbrev maskOp (w t : Nat) (op : Joint.MaskWord) : Joint.Event Unit := .maskWord w t op
-private abbrev splitOp (w t : Nat) (op : Joint.SplitWord) : Joint.Event Unit := .splitWord w t op
-private def mark : Event := ⟨0,20⟩
-private def firstZero : Event := ⟨1,70⟩
-private def repeatedZero : Event := ⟨1,110⟩
-private def reuse : Event := ⟨0,120⟩
+abbrev owner : Worker := 0
+abbrev maskOp (w t : Nat) (op : Joint.MaskWord) : Joint.Event Unit := .maskWord w t op
+abbrev splitOp (w t : Nat) (op : Joint.SplitWord) : Joint.Event Unit := .splitWord w t op
+def mark : Event := ⟨0,20⟩
+def firstZero : Event := ⟨1,70⟩
+def repeatedZero : Event := ⟨1,110⟩
+def reuse : Event := ⟨0,120⟩
 
-private def sample (rf : Event) (acquire : Bool) (busy : BitVec 64) (extra : Joint.Tape Unit) :
+def sample (rf : Event) (acquire : Bool) (busy : BitVec 64) (extra : Joint.Tape Unit) :
     Joint.Tape Unit :=
   [maskOp 0 10 (.clear 0),splitOp 0 20 (.mark 0),splitOp 0 30 (.maskRmw 0 0 1 true 1 3),
    maskOp 0 40 (.shutdown 0 false),maskOp 0 50 (.load 0 ⟨0,30⟩ busy true),
@@ -393,10 +396,10 @@ private def sample (rf : Event) (acquire : Bool) (busy : BitVec 64) (extra : Joi
   extra ++ [maskOp 0 80 (.shutdown 0 false),maskOp 0 90 (.load 0 rf 0 acquire),
    maskOp 0 100 (.returned 0),splitOp 1 110 (.maskRmw 0 0 1 false 0 0),maskOp 0 120 (.clear 0)]
 
-private def es := sample firstZero true 3 []
-private abbrev rs := rows owner 0 es
+def es := sample firstZero true 3 []
+abbrev rs := rows owner 0 es
 private abbrev ws := writes owner rs
-private def result (es : Joint.Tape Unit) :=
+def result (es : Joint.Tape Unit) :=
   (observe owner (rows owner 0 es) mark).map fun o =>
     (o.read.source.val,o.read.event,o.exit,o.mask.actions.length)
 
@@ -409,8 +412,8 @@ theorem two_equal_releases :
       splitOp 2 76 (.maskRmw 0 0 2 false 4 0)]) = none := by
   decide +kernel
 
-private def edges (x y : Event) := y = ⟨0,90⟩ ∧ (x = ⟨0,60⟩ ∨ x = ⟨1,70⟩)
-private def history : History := ⟨[],fun _ => [],[],[],edges⟩
+def edges (x y : Event) := y = ⟨0,90⟩ ∧ (x = ⟨0,60⟩ ∨ x = ⟨1,70⟩)
+def history : History := ⟨[],fun _ => [],[],[],edges⟩
 
 private theorem earlier (hb : HappensBefore history x y) : x.step < y.step := by
   induction hb with
@@ -423,7 +426,7 @@ private theorem earlier (hb : HappensBefore history x y) : x.step < y.step := by
 private def rank (op : OwnerMaskGuards.Operand) := (op.guard ws).bind fun
   | .mask src => some src.val | _ => none
 
-private theorem memory : Memory history owner rs := by
+theorem memory : Memory history owner rs := by
   constructor
   · intro row inReads i found
     obtain ⟨r,rfl⟩ := List.get_of_mem inReads

@@ -1,6 +1,9 @@
-import NeuralReversi.Eval.PatternUpdate.Tables
-import NeuralReversi.Board.Model
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Eval.PatternUpdate.Tables
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.PatternUpdate
 

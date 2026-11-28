@@ -1,5 +1,8 @@
-import NeuralReversi.Game.History.Types
-import NeuralReversi.Bitboard.MovesSpec
+module
+public import NeuralReversi.Game.History.Types
+public import NeuralReversi.Bitboard.MovesSpec
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Terminal
 open NeuralReversi.Game.History

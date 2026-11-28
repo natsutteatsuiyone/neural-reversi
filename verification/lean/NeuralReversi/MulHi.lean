@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Clear
+module
+public import NeuralReversi.TranspositionTable.Clear
+
+@[expose] public section
 
 namespace NeuralReversi.MulHi
 

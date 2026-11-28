@@ -1,4 +1,7 @@
-import NeuralReversi.SearchPublication
+module
+public import NeuralReversi.SearchPublication
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameProgress
 
@@ -167,7 +170,7 @@ theorem prefixContract_proven : PrefixContract := by
     List.Pairwise.sublist (reached_in_ladder _ _ _).sublist sorted
   exact ⟨prefixOf, fun _ _ old new => last_mono ordered prefixOf new old⟩
 
-private def lastStamp (minimum depth : Nat) (levels : List Nat) : Option Stamp :=
+def lastStamp (minimum depth : Nat) (levels : List Nat) : Option Stamp :=
   match levels.getLast? with
   | none => none
   | some level => if minimum ≤ level then some ⟨depth, level⟩ else none
@@ -214,7 +217,7 @@ theorem finalContract_proven : FinalContract := by
   change (lineLevels allowed keep time).getLast? = some level at completed
   exact ⟨⟨depth, level⟩, by simp [lineStamp, lastStamp, completed, eligible], Nat.le_refl _, smallest⟩
 
-private def attemptAt (index depth : Nat) (rows : Nat → List Row) (level : Nat) : Attempt :=
+def attemptAt (index depth : Nat) (rows : Nat → List Row) (level : Nat) : Attempt :=
   ⟨index, ⟨depth, level⟩, true, rows level, false⟩
 
 private theorem step_mark (minimum depth level : Nat) (rows : Nat → List Row) (state : Completed)

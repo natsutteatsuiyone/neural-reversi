@@ -1,10 +1,13 @@
-import NeuralReversi.Game.Transitions.Model
-import NeuralReversi.Game.History.ReferenceProperties
-import NeuralReversi.Game.History.Properties
-import NeuralReversi.Board.MovesProperties
-import NeuralReversi.Board.Move.Properties
-import NeuralReversi.Board.InitializationProperties
-import NeuralReversi.Board.SetPlacement
+module
+public import NeuralReversi.Game.Transitions.Model
+public import NeuralReversi.Game.History.ReferenceProperties
+public import NeuralReversi.Game.History.Properties
+public import NeuralReversi.Board.MovesProperties
+public import NeuralReversi.Board.Move.Properties
+public import NeuralReversi.Board.InitializationProperties
+public import NeuralReversi.Board.SetPlacement
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Transitions
 open NeuralReversi.Game.History

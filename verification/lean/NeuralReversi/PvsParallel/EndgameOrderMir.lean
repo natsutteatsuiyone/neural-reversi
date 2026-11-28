@@ -1,11 +1,14 @@
-import NeuralReversi.PvsParallel.EndgameOrderMir.Program
-import NeuralReversi.PvsParallel.GeneralNonPvMir
-import NeuralReversi.PvsParallel.RootFrameMir
+module
+public import NeuralReversi.PvsParallel.EndgameOrderMir.Program
+public import NeuralReversi.PvsParallel.GeneralNonPvMir
+public import NeuralReversi.PvsParallel.RootFrameMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.EndgameOrderMir
 
 open Bitboard.Moves (X86Config)
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 open PvsBoardTree (Position GeneratedSquare legalSquares play)
 open MoveList.Ordering (ttMoveValue SortedDesc sortByKeyDesc)
 open MoveList.OrderWeights

@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Replacement
+module
+public import NeuralReversi.TranspositionTable.Replacement
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ProbeRetry
 
@@ -33,7 +36,7 @@ def scan (fallback : Fin 2) : List Attempt → Result
 def probe (attempts : List Attempt) : Result :=
   scan 0 (attempts.take 3)
 
-private def slotResult (slot : Fin 2) : Observation → Option Result
+def slotResult (slot : Fin 2) : Observation → Option Result
   | .empty => some (.miss slot)
   | .matching data => some (.hit slot data)
   | _ => none

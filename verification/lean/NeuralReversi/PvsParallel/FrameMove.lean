@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.CausalReplay
-import NeuralReversi.PvsParallel.GeneralNonPvMir
-import NeuralReversi.MoveList.Generation
+module
+public import NeuralReversi.PvsParallel.CausalReplay
+public import NeuralReversi.PvsParallel.GeneralNonPvMir
+public import NeuralReversi.MoveList.Generation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameReturns
 

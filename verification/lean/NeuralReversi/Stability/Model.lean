@@ -1,4 +1,7 @@
-import Std
+module
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
 abbrev Word := BitVec 64
 

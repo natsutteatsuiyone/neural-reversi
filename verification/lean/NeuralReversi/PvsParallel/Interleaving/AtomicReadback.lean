@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+module
+public import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.AtomicReadback
 
@@ -52,7 +55,7 @@ theorem keeps (obs : Observed x es) (coherent : ReadWrite x)
     have lt := coherent a loc r i j s (List.mem_zipIdx_iff_getElem?.mp indexed) rf (sameHB obs a later)
     exact decide_eq_true (by omega)
 
-private def withSource (n : Nat) : Joint.Event Op → Joint.Event Op
+def withSource (n : Nat) : Joint.Event Op → Joint.Event Op
   | .issue w code _ value => .issue w code n value
   | e => e
 

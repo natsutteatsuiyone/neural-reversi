@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.Model
+module
+public import NeuralReversi.ScaledScore.Model
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable
 

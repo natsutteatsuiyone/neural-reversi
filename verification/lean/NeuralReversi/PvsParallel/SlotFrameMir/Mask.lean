@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Trace
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Trace
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Pending
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

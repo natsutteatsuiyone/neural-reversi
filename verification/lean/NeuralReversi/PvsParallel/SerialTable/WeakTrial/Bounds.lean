@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.PvInterior
-import NeuralReversi.PvsParallel.SerialTable.WeakTrial
-import NeuralReversi.PvsParallel.SerialTable.ExactScores
+module
+public import NeuralReversi.AspirationMir.SerialTable.PvInterior
+public import NeuralReversi.PvsParallel.SerialTable.WeakTrial
+public import NeuralReversi.PvsParallel.SerialTable.ExactScores
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.WeakTrial
 

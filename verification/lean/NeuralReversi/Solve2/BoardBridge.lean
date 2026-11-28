@@ -1,6 +1,9 @@
-import NeuralReversi.Board.SetPlacement
-import NeuralReversi.Bitboard.SquareProperties
-import NeuralReversi.Flip.Properties
+module
+public import NeuralReversi.Board.SetPlacement
+public import NeuralReversi.Bitboard.SquareProperties
+public import NeuralReversi.Flip.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 abbrev Word := BitVec 64

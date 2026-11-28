@@ -25,10 +25,10 @@ def render(dump, repo):
     checked(sites.keys() == set(selectors.values()), "missing boundary call")
     first = sites["access"]
     return "\n".join([
-        "import NeuralReversi.EndgameSearch.CacheHistory.Boundary",
-        "import NeuralReversi.EndgameSearch.CacheOwner.Syntax",
+        "module", "public import NeuralReversi.EndgameSearch.CacheHistory.Boundary",
+        "public import NeuralReversi.EndgameSearch.CacheOwner.Syntax",
         "",
-        "namespace NeuralReversi.EndgameSearch.CacheHistory.NativeTrace",
+        "@[expose] public section", "", "namespace NeuralReversi.EndgameSearch.CacheHistory.NativeTrace",
         "",
         "def expectedSites : Arm → Option (List (Nat × CacheOwner.Node))",
         "  | .failed => none",

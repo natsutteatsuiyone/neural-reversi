@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.CacheHistory
-import NeuralReversi.PvsParallel.FrameReturns
+module
+public import NeuralReversi.EndgameSearch.CacheHistory
+public import NeuralReversi.PvsParallel.FrameReturns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameReturns
 

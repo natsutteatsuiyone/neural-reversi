@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Mask
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Mask
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir
 

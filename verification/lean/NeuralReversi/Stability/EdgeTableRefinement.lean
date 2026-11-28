@@ -1,6 +1,9 @@
-import NeuralReversi.Stability.EdgeTableInvariant
-import NeuralReversi.Stability.EdgeLayers
-import NeuralReversi.Stability.EdgeFixedPoint
+module
+public import NeuralReversi.Stability.EdgeTableInvariant
+public import NeuralReversi.Stability.EdgeLayers
+public import NeuralReversi.Stability.EdgeFixedPoint
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 set_option linter.unusedSimpArgs false

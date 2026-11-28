@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.RootOwnerMir.Slice.Calls
-import NeuralReversi.PvsParallel.RootSerialMir
+module
+public import NeuralReversi.PvsParallel.RootOwnerMir.Slice.Calls
+public import NeuralReversi.PvsParallel.RootSerialMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootOwnerMir.Serial
 

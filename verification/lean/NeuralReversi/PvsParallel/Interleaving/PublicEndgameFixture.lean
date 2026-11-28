@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.PublicEndgame
-import NeuralReversi.PvsParallel.Interleaving.JournalCoverageFixture
+module
+public import NeuralReversi.PvsParallel.Interleaving.PublicEndgame
+public import NeuralReversi.PvsParallel.Interleaving.JournalCoverageFixture
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.PublicEndgameFixture
 
@@ -10,16 +13,16 @@ open PvsBoardTree (Position)
 open EndgameSearch.CacheHistory (Pool)
 open ParallelOperational (CutPrefix OperationalRun OperationalBranch BranchComplete)
 
-private def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
-private def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
-private def board : Position := JournalCoverageFixture.board
-private def calls : Calls := JournalCoverageFixture.calls
-private def pool : Pool := ⟨4,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
+def mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+def fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+def board : Position := JournalCoverageFixture.board
+def calls : Calls := JournalCoverageFixture.calls
+def pool : Pool := ⟨4,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
 
-private def args : NativeFrames.Args :=
+def args : NativeFrames.Args :=
   ⟨board.val,1,⟨BitVec.ofInt 32 (-512)⟩,⟨512⟩,true,5,true,false,none⟩
 
-private def unitTape : Joint.Tape Unit :=
+def unitTape : Joint.Tape Unit :=
   [.engine (.localCall 0 (.entry 0 0 .pvs .none none) (some args)),
    .engine (.localCall 0 (.scored 1 ⟨BitVec.ofInt 32 16384⟩) none),
    .engine (.localCall 0 (.leave 2 0 .pvs none (some ⟨BitVec.ofInt 32 16384⟩)) none)]
@@ -29,18 +32,18 @@ private def records : List Record :=
    .localCall 0 (.scored 1 ⟨BitVec.ofInt 32 16384⟩),
    .localCall 0 (.leave 2 0 .pvs none (some ⟨BitVec.ofInt 32 16384⟩))]
 
-private def graph : Graph := ⟨fun _ _ => 0,fun _ _ => none,SB unitTape⟩
+def graph : Graph := ⟨fun _ _ => 0,fun _ _ => none,SB unitTape⟩
 
 private theorem noWriters : ∀ s, Record.writer s ∉ records := by
   intro s h; simp [records] at h
 
-private theorem unitRunSome : (CallJournal.run mc fc calls false (unitTape.map Joint.Event.engineEvent)).isSome = true := by
+theorem unitRunSome : (CallJournal.run mc fc calls false (unitTape.map Joint.Event.engineEvent)).isSome = true := by
   decide
 
-private def uState : CallJournal.State Unit :=
+def uState : CallJournal.State Unit :=
   (CallJournal.run mc fc calls false (unitTape.map Joint.Event.engineEvent)).get unitRunSome
 
-private theorem uRan : CallJournal.run mc fc calls false (unitTape.map Joint.Event.engineEvent) = some uState :=
+theorem uRan : CallJournal.run mc fc calls false (unitTape.map Joint.Event.engineEvent) = some uState :=
   (Option.some_get unitRunSome).symm
 
 private theorem uRecords : uState.records = records := by rfl
@@ -81,7 +84,7 @@ private theorem unitRules : Rules graph calls false uState.records unitTape wher
   load r _ _ _ op := by rcases r with _|(_|(_|r)) <;> cases op
 
 /-- Concrete Task 3 RF+HB-closed `CutPrefix` on `board` (3 events, `cut = 3`). -/
-private def unitCut : CutPrefix mc fc where
+def unitCut : CutPrefix mc fc where
   calls := calls
   endian := false
   fullTape := unitTape
@@ -100,54 +103,54 @@ private def unitCut : CutPrefix mc fc where
   rfClosed := fun _ _ _ rf _ => by cases rf.1
   ordered := fun _ _ hb => hb.2.2.1
 
-private theorem unitInitEven : ∀ a, Even (unitCut.toPrefix.memory.memory a) := fun _ => by
+theorem unitInitEven : ∀ a, Even (unitCut.toPrefix.memory.memory a) := fun _ => by
   change (0 : BitVec 64) &&& 1 = 0
   decide
 
-private theorem unitOrigin : ∀ a,
+theorem unitOrigin : ∀ a,
     MultiSessionCarry.SlotOrigin mc fc unitCut.endian
       ((unitCut.toPrefix.memory.slot a (unitInitEven a)).payloadAt 0) :=
   fun _ => .empty
 
-private abbrev UnitOp := CallJournal.Operand unitCut.calls unitCut.endian
+abbrev UnitOp := CallJournal.Operand unitCut.calls unitCut.endian
   (CallJournal.observed unitCut.toPrefix.memory unitInitEven)
 
-private def scoredTape : Joint.Tape UnitOp :=
+def scoredTape : Joint.Tape UnitOp :=
   [.engine (.localCall 0 (.entry 0 0 .pvs .none none) (some args)),
    .engine (.localCall 0 (.scored 1 ⟨BitVec.ofInt 32 16384⟩) none),
    .engine (.localCall 0 (.leave 2 0 .pvs none (some ⟨BitVec.ofInt 32 16384⟩)) none)]
 
-private theorem scoredErases : scoredTape.map PhysicalReadback.rawEvent = unitCut.toPrefix.events := rfl
+theorem scoredErases : scoredTape.map PhysicalReadback.rawEvent = unitCut.toPrefix.events := rfl
 
-private theorem scoredDecodedSome :
+theorem scoredDecodedSome :
     (CallJournal.decode mc fc unitCut.calls unitCut.endian
       (CallJournal.observed unitCut.toPrefix.memory unitInitEven)
       (scoredTape.map Joint.Event.engineEvent)).isSome = true := by
   decide
 
-private def scoredState : CallJournal.State UnitOp :=
+def scoredState : CallJournal.State UnitOp :=
   (CallJournal.decode mc fc unitCut.calls unitCut.endian
     (CallJournal.observed unitCut.toPrefix.memory unitInitEven)
     (scoredTape.map Joint.Event.engineEvent)).get scoredDecodedSome
 
-private theorem scoredDecoded :
+theorem scoredDecoded :
     CallJournal.decode mc fc unitCut.calls unitCut.endian
       (CallJournal.observed unitCut.toPrefix.memory unitInitEven)
       (scoredTape.map Joint.Event.engineEvent) = some scoredState :=
   (Option.some_get scoredDecodedSome).symm
 
-private def unitOwners :
+def unitOwners :
     JournalCoverage.Owners mc fc (unitCut.toPrefix.attach scoredTape) scoredState where
   pv := fun _ => ⟨fun _ => .skip,fun m => m.val,fun _ => (false,false)⟩
   scout := fun _ => ⟨fun _ => .skip,fun m => m.val,⟨fun _ _ => false,fun _ _ => false⟩⟩
   pvSplit := fun _ _ _ _ _ => ⟨7,fun _ _ _ => none⟩
   scoutSplit := fun _ _ _ _ _ _ => none
 
-private def unitRootOptions : CausalTable.Frame → JournalRootStore.Options := fun _ =>
+def unitRootOptions : CausalTable.Frame → JournalRootStore.Options := fun _ =>
   ⟨fun _ => none,false,⟨fun _ => 0,fun xs => ⟨xs,.refl _⟩,fun _ => []⟩,fun _ => (false,false)⟩
 
 /-- Concrete `OperationalRun` built WITHOUT assuming `raw.covered = true` or child scores. -/
-private def unitOpRun : OperationalRun mc fc where
+def unitOpRun : OperationalRun mc fc where
   prefix_ := unitCut
   initEven := unitInitEven
   slotOrigin := unitOrigin

@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.RootReplay.Split
+module
+public import NeuralReversi.PvsParallel.RootOrder
+public import NeuralReversi.Aspiration
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootAspiration
 

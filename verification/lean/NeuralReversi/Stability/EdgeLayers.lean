@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.EdgeEnumeration
+module
+public import NeuralReversi.Stability.EdgeEnumeration
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 

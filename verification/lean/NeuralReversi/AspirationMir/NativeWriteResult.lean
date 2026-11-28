@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.NativeCacheResult
-import NeuralReversi.PvsParallel.NativeTableWrites
+module
+public import NeuralReversi.AspirationMir.NativeCacheResult
+public import NeuralReversi.PvsParallel.NativeTableWrites
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

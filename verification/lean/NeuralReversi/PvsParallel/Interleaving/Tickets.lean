@@ -1,5 +1,8 @@
-import NeuralReversi.MoveList.ConcurrentTrace
-import NeuralReversi.Threading.SplitResult
+module
+public import NeuralReversi.MoveList.ConcurrentTrace
+public import NeuralReversi.Threading.SplitResult
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Tickets
 

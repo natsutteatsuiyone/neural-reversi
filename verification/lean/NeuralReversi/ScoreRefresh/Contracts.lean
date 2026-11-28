@@ -1,5 +1,8 @@
-import NeuralReversi.ScoreRefresh.BoardBridge
-import NeuralReversi.ScoreRefresh.Properties
+module
+public import NeuralReversi.ScoreRefresh.BoardBridge
+public import NeuralReversi.ScoreRefresh.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.ScoreRefresh
 

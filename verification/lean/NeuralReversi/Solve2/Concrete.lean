@@ -1,5 +1,8 @@
-import NeuralReversi.Solve2.ChildCalls
-import NeuralReversi.Solve2.Terminal
+module
+public import NeuralReversi.Solve2.ChildCalls
+public import NeuralReversi.Solve2.Terminal
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 

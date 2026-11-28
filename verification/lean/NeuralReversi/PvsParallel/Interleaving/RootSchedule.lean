@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Root
-import NeuralReversi.PvsParallel.Interleaving.Join
+module
+public import NeuralReversi.PvsParallel.Interleaving.Root
+public import NeuralReversi.PvsParallel.Interleaving.Join
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootSchedule
 

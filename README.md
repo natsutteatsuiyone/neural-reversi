@@ -64,7 +64,7 @@ version: [docs/6.3.0/benchmarks.md](docs/6.3.0/benchmarks.md).
 2. Download the neural network weight files from the [weights releases](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases)
    and place them in the project root directory. The build embeds the exact
    file names written in the source, which are not always in the latest release:
-   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/reversi-core/src/eval.rs`
+   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/eval-weights/src/lib.rs`
    - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 3. Run the interface you want to use:
@@ -141,7 +141,7 @@ Distribution builds are driven by [cargo-make](https://github.com/sagiegurari/ca
 2. Download the neural network weight files from the [weights releases](https://github.com/natsutteatsuiyone/neural-reversi-weights/releases)
    and place them in the project root directory. The build embeds the exact
    file names written in the source, which are not always in the latest release:
-   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/reversi-core/src/eval.rs`
+   - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/eval-weights/src/lib.rs`
    - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 ### Distribution builds

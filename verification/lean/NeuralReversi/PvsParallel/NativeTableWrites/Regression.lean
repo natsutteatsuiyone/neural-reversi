@@ -1,7 +1,24 @@
-import NeuralReversi.PvsParallel.NativeTableWrites
-import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
-import NeuralReversi.PvsParallel.FrameTableReads.WriterWindow
-import NeuralReversi.TranspositionTable.Duplicate.Image
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites
+public import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
+public import NeuralReversi.PvsParallel.FrameTableReads.WriterWindow
+public import NeuralReversi.TranspositionTable.Duplicate.Image
+meta import NeuralReversi.EndgameSearch.CacheHistory.Boundary
+meta import NeuralReversi.PvsParallel.Cutoffs
+meta import NeuralReversi.PvsParallel.FrameTableReads
+meta import NeuralReversi.PvsParallel.FrameTableReads.WriterWindow
+meta import NeuralReversi.PvsParallel.NativeFrames
+meta import NeuralReversi.PvsParallel.NativeTableWrites
+meta import NeuralReversi.PvsParallel.NativeTableWrites.Journal
+meta import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
+meta import NeuralReversi.TranspositionTable.Duplicate.Image
+meta import NeuralReversi.TranspositionTable.Duplicate.Program
+meta import NeuralReversi.TranspositionTable.ReaderMir.Program
+meta import NeuralReversi.TranspositionTable.SeqLock
+meta import NeuralReversi.TranspositionTable.WriterMir.SourceProof
+meta import NeuralReversi.TranspositionTable.WriterMir.SourceSyntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Regression
 

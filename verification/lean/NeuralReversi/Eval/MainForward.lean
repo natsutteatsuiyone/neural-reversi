@@ -1,7 +1,10 @@
-import NeuralReversi.Eval.Activations
-import NeuralReversi.Eval.LinearLayer.Forward
-import NeuralReversi.Eval.MainScratch
-import NeuralReversi.Eval.OutputLayer.Score
+module
+public import NeuralReversi.Eval.Activations
+public import NeuralReversi.Eval.LinearLayer.Forward
+public import NeuralReversi.Eval.MainScratch
+public import NeuralReversi.Eval.OutputLayer.Score
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.MainForward
 

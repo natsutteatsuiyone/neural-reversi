@@ -406,7 +406,11 @@ def render_weights(dump):
     lines+=[f"def {name} : Int := {value}" for name,value in weights.items()]
     return WEIGHTS_MODULE.replace("@DEFS@","\n".join(lines))
 
-WEIGHTS_MODULE="""/-! Move-ordering table and weights extracted from the rustc MIR of `move_list::ordering` by
+WEIGHTS_MODULE="""module
+
+@[expose] public section
+
+/-! Move-ordering table and weights extracted from the rustc MIR of `move_list::ordering` by
 `verification/lean/scripts/extract_endgame_order_mir.py`. Regenerate with
 `check_endgame_mir.py --write` instead of editing. -/
 
@@ -417,9 +421,12 @@ namespace NeuralReversi.MoveList.OrderWeights
 end NeuralReversi.MoveList.OrderWeights
 """
 
-PROGRAM="""import NeuralReversi.EndgameSearch.MoveOrder
-import NeuralReversi.MoveList.Ordering
-import NeuralReversi.MoveList.OrderWeights
+PROGRAM="""module
+public import NeuralReversi.EndgameSearch.MoveOrder
+public import NeuralReversi.MoveList.Ordering
+public import NeuralReversi.MoveList.OrderWeights
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.EndgameOrderMir
 

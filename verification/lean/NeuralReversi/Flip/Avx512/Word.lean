@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.ScalarProperties
-import NeuralReversi.Simd.TernaryProperties
+module
+public import NeuralReversi.Flip.ScalarProperties
+public import NeuralReversi.Simd.TernaryProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Avx512.Algebra
 open NeuralReversi.Flip.Scalar

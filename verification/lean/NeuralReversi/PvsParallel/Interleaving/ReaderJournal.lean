@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Entry
-import NeuralReversi.PvsParallel.FrameTableReads.ProbeRegisters
+module
+public import NeuralReversi.PvsParallel.Interleaving.CausalReads
+public import NeuralReversi.PvsParallel.FrameTableReads.ProbeRegisters
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ReaderJournal
 

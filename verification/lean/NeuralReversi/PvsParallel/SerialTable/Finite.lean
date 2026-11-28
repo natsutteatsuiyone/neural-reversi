@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Prefix
-import NeuralReversi.PvsParallel.SerialTable.State
+module
+public import NeuralReversi.PvsParallel.SerialTable.Prefix
+public import NeuralReversi.PvsParallel.SerialTable.State
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

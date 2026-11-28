@@ -1,4 +1,7 @@
-import NeuralReversi.OuterMir.Program
+module
+public import NeuralReversi.OuterMir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir.Completion
 

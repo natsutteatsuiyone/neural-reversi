@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.ConcurrentReplay
-import NeuralReversi.RootMoveStorage
+module
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+public import NeuralReversi.RootMoveStorage
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootSuffix
 

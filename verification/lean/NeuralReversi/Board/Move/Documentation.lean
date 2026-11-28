@@ -1,5 +1,8 @@
-import NeuralReversi.Board.Move.Properties
-import NeuralReversi.Board.MovesProperties
+module
+public import NeuralReversi.Board.Move.Properties
+public import NeuralReversi.Board.MovesProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

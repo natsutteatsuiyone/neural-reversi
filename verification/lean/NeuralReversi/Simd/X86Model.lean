@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.Model
+module
+public import NeuralReversi.Bitboard.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
 abbrev Word := BitVec 64

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.RootFinite
-import NeuralReversi.AspirationMir.SerialTable.MultiPublic
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootFinite
+public import NeuralReversi.AspirationMir.SerialTable.MultiPublic
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootLadder
 

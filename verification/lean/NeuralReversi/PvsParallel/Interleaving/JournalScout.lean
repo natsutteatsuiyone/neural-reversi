@@ -1,4 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalPv
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalPv
+meta import NeuralReversi.TranspositionTable.Proofs
+meta import NeuralReversi.PvsParallel.Interleaving.JournalPv
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalScout
 
@@ -18,7 +23,7 @@ structure Window (M : Type) where
   finish : Nat
   word : Option EntryData
 
-private def consume (b : Position) (tape : List (Joint.Event Op × Nat)) : Option ((Nat × Nat × Option EntryData) × List (Joint.Event Op × Nat)) := do
+def consume (b : Position) (tape : List (Joint.Event Op × Nat)) : Option ((Nat × Nat × Option EntryData) × List (Joint.Event Op × Nat)) := do
   let (.enter _ args,opening) :: tail := tape | none
   let .lookup actual := args.method | none
   guard (actual = b)
@@ -53,13 +58,13 @@ def child (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Positio
   guard (got.opening = w.opening ∧ got.finish = w.finish ∧ (bound.row init).observation.2 = w.word)
   return bound
 
-private def noCalls : NativeNodes.Returns := ⟨[],fun _ => 0,fun _ => false,fun _ _ => false,0,fun _ _ _ _ _ _ => none⟩
-private theorem noCalls_inside (prior : CausalTable.Values) : noCalls.InPrefix prior := by
+def noCalls : NativeNodes.Returns := ⟨[],fun _ => 0,fun _ => false,fun _ _ => false,0,fun _ _ _ _ _ _ => none⟩
+theorem noCalls_inside (prior : CausalTable.Values) : noCalls.InPrefix prior := by
   intro b p a z v h
   obtain ⟨_,no,_⟩ := h
   contradiction
 
-private def checkedBodies (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def checkedBodies (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (a z : Score) (d : Depth) (checked cut : Bool) (level : Selectivity) (score : Int) (reads : Lookups)
     (attempts : List ProbeRetry.RawAttempt) (rows : List (TableReads.ChildLookupFrom mc fc b (fun _ => True)))
     (seen : NativeNodes.Probed mc fc b reads attempts rows) (full : ExactDepth.Full b d)
@@ -87,7 +92,7 @@ private def checkedBodies (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConf
     else exact .rejected
   else exact .proved ⟨fun ok => (exact_ ok).elim,weak⟩
 
-private def opened (es : Joint.Tape Op) (owner : CallJournal.Choice) (f : Frame) : Option Nat := do
+def opened (es : Joint.Tape Op) (owner : CallJournal.Choice) (f : Frame) : Option Nat := do
   let calls ← CallReturns.captureTimed (es.map Joint.Event.frameSample)
   let (act,id) ← calls.calls.toList.zipIdx.find? fun (a,_) =>
     a.worker == owner.worker && a.first == owner.opening && a.callee == .pvs
@@ -102,7 +107,7 @@ def parentCuts (checked : Bool) (d : Depth) (level : Selectivity) (beta : Score)
   | .hit _ e => TranspositionTable.canCut checked e ⟨beta.raw⟩ d level true
 
 /-- A zero-move, wipeout, stable or shallow frame returns before the ETC loop. -/
-private def reachesEtc (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) : Bool :=
+def reachesEtc (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) : Bool :=
   let generated := PvEntryMir.generated mc fc b false (fun _ => none)
   let stable := EndgameStability.tryCutoff b.val d.toNat ⟨(ScoreRefresh.toDiscDiff a).raw.toInt⟩
   decide (GeneralNonPvMir.dispatch d.toNat stable.isSome (generated.len.getD 0 != 0)

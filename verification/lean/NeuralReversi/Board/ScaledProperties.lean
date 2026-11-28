@@ -1,6 +1,9 @@
-import NeuralReversi.Board.ScaledModel
-import NeuralReversi.Board.ScoreProperties
-import NeuralReversi.ScaledScore.Properties
+module
+public import NeuralReversi.Board.ScaledModel
+public import NeuralReversi.Board.ScoreProperties
+public import NeuralReversi.ScaledScore.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 open Bitboard

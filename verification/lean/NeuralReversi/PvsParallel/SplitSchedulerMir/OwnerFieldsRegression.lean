@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFields
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFields
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.OwnerFieldsRegression
 

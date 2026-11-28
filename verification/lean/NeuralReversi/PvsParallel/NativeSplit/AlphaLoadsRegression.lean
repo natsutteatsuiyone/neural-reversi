@@ -1,5 +1,11 @@
-import NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
+module
+public import NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
+meta import NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
+meta import NeuralReversi.Threading.AtomicWord
+meta import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeSplit.AlphaLoadsRegression
 

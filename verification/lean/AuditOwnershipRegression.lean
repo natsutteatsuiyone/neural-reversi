@@ -1,4 +1,5 @@
 import NeuralReversi
+import NeuralReversi.CSimpAudit
 import NeuralReversi.AuditPrivateFixture
 
 open Lean Elab Command NeuralReversi.Audit

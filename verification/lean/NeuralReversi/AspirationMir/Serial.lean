@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.PublicScore
-import NeuralReversi.PvsParallel.RootSerialMir
+module
+public import NeuralReversi.AspirationMir.PublicScore
+public import NeuralReversi.PvsParallel.RootSerialMir
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

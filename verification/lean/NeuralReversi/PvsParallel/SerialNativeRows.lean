@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTermination
-import NeuralReversi.PvsParallel.NativeFrames.Returns
+module
+public import NeuralReversi.PvsParallel.SerialTermination
+public import NeuralReversi.PvsParallel.NativeFrames.Returns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialNativeRows
 
@@ -120,7 +123,7 @@ theorem Recorded.fields (rec : Recorded q word line size worker opening parent s
   exact congrArg NativeFrames.Returns.Returned.call same
 
 mutual
-  private def nodeReturns : Tree Request → List (Nat × FrameReturns.OwnerCalls.ChildReturn)
+  def nodeReturns : Tree Request → List (Nat × FrameReturns.OwnerCalls.ChildReturn)
     | .node issue q word children => returnOrder children ++ [(issue, returnedFields q word)]
 
   /-- ABI fields in postorder: a nested result reaches its caller before the caller returns. -/

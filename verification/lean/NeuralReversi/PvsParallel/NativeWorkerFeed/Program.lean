@@ -1,5 +1,8 @@
-import NeuralReversi.MoveList.Concurrent
-import NeuralReversi.Move.Model
+module
+public import NeuralReversi.MoveList.Concurrent
+public import NeuralReversi.Move.Model
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeWorkerFeed
 

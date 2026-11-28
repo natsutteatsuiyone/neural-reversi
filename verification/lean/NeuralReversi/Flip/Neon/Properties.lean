@@ -1,6 +1,9 @@
-import NeuralReversi.Flip.Neon.Model
-import NeuralReversi.Flip.Properties
-import NeuralReversi.Flip.Avx512.Properties
+module
+public import NeuralReversi.Flip.Neon.Model
+public import NeuralReversi.Flip.Properties
+public import NeuralReversi.Flip.Avx512.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Neon
 open NeuralReversi.Flip

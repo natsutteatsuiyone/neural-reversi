@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.AdjacencyModel
+module
+public import NeuralReversi.Bitboard.AdjacencyModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard
 

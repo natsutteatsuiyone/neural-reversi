@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+module
+public import NeuralReversi.EndgameSearch.CacheOwner.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheOwner
 

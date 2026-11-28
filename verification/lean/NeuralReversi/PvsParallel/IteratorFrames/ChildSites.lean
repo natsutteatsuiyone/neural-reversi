@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.IteratorFrames
-import NeuralReversi.PvsParallel.NativeFrames.Returns
+module
+public import NeuralReversi.PvsParallel.IteratorFrames
+public import NeuralReversi.PvsParallel.NativeFrames.Returns
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorFrames
 

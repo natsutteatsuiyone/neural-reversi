@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Joint
+module
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.ReadCandidates
 
@@ -7,7 +10,7 @@ open SeqLock (Word Location)
 open FrameTableReads (Address)
 open NativeTableWrites.Journal (Calls Record Site mods)
 
-private def lower (c : Calls) (sites : List Site) (before : Nat → Bool) : Nat :=
+def lower (c : Calls) (sites : List Site) (before : Nat → Bool) : Nat :=
   ((sites.zipIdx.filter fun row => before (row.1.event c)).map (fun row => row.2 + 1)).max?.getD 0
 
 /-- Zero denotes the initial word. Positive indices enumerate successful modifications to this

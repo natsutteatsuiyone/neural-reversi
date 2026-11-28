@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Duplicate
+module
+public import NeuralReversi.TranspositionTable.Duplicate
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Duplicate
 

@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.RootCausal
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootCausal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RootNative
 

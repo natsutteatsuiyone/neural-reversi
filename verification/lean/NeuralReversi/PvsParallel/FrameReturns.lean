@@ -1,11 +1,14 @@
-import NeuralReversi.PvsParallel.ConcurrentReplay
-import NeuralReversi.PvsParallel.DeepLeafMir
-import NeuralReversi.PvsParallel.EndgameOrderMir
-import NeuralReversi.PvsParallel.GeneralOwnerMir
-import NeuralReversi.PvsParallel.NonPvMir
-import NeuralReversi.PvsParallel.PvSerialMir
-import NeuralReversi.PvsParallel.RootWipeout
-import NeuralReversi.PvsParallel.TraceCheck.Frames
+module
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+public import NeuralReversi.PvsParallel.DeepLeafMir
+public import NeuralReversi.PvsParallel.EndgameOrderMir
+public import NeuralReversi.PvsParallel.GeneralOwnerMir
+public import NeuralReversi.PvsParallel.NonPvMir
+public import NeuralReversi.PvsParallel.PvSerialMir
+public import NeuralReversi.PvsParallel.RootWipeout
+public import NeuralReversi.PvsParallel.TraceCheck.Frames
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.FrameReturns
 
@@ -267,7 +270,7 @@ structure Decoded (log : Log mc fc) (endian : Bool) : Prop where
       (ConcurrentReplay.ReadAt log.before log.events e.id endian)
       (ConcurrentReplay.predecessors log.before log.events e.id))
 
-private theorem Log.cases_event (log : Log mc fc) (e : ConcurrentReplay.Event) (member : e ∈ log.events) :
+theorem Log.cases_event (log : Log mc fc) (e : ConcurrentReplay.Event) (member : e ∈ log.events) :
     e ∈ log.writes ∨ ∃ f ∈ log.frames,
       e = ⟨log.identify f.use, .scored f.id (f.result mc fc)⟩ ∨
       ∃ n, f.returnStep = some n ∧ e = ⟨log.identify ⟨f.worker,n⟩, .returned f.id (f.result mc fc)⟩ := by

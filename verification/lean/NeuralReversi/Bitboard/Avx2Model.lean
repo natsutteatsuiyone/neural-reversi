@@ -1,5 +1,8 @@
-import NeuralReversi.Simd.X86Model
-import NeuralReversi.Bitboard.PotentialModel
+module
+public import NeuralReversi.Simd.X86Model
+public import NeuralReversi.Bitboard.PotentialModel
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86

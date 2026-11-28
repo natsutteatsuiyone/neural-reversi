@@ -1,9 +1,12 @@
-import NeuralReversi.EndgameSearch.SerialLeafRestore
-import NeuralReversi.PvsParallel.SerialCalls.Stack
-import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
-import NeuralReversi.PvsParallel.SerialRecursion
-import NeuralReversi.PvsParallel.SerialNonPvCalls
-import NeuralReversi.PvsParallel.SerialPvCalls
+module
+public import NeuralReversi.EndgameSearch.SerialLeafRestore
+public import NeuralReversi.PvsParallel.SerialCalls.Stack
+public import NeuralReversi.PvsParallel.SerialCalls.ScoreWords
+public import NeuralReversi.PvsParallel.SerialRecursion
+public import NeuralReversi.PvsParallel.SerialNonPvCalls
+public import NeuralReversi.PvsParallel.SerialPvCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialExecution
 
@@ -25,7 +28,7 @@ def push (mc : X86Config) (fc : FlipConfig) (ctx : Frame) (r : Request) : Option
 abbrev Inputs (mc : X86Config) (fc : FlipConfig) :=
   Nat → (ctx : Frame) → SerialRecursion.Operands mc fc ctx.request.board
 
-private abbrev raw := SerialCalls.ScoreWords.encode
+abbrev raw := SerialCalls.ScoreWords.encode
 
 def body (c : SerialScout.Config) (inputs : Inputs mc fc) (i : Nat) (ctx : Frame) : Program Request Int :=
   let r := ctx.request

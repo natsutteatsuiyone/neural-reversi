@@ -1,26 +1,29 @@
-import NeuralReversi.SearchContextState
+module
+public import NeuralReversi.SearchContextState
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCalls.TraceReplay.Context
 
 open SearchContextState (EmptyState)
 
-private structure Snapshot where
+structure Snapshot where
   state : EmptyState
   side : Nat
 
-private def snapshot (word : String) : Option Snapshot := do
+def snapshot (word : String) : Option Snapshot := do
   let [count, ply, side] ← (word.splitOn ",").mapM String.toNat? | none
   guard (count ≤ 60 && ply == 60 - count && side < 2)
   return ⟨⟨BitVec.ofNat 32 count⟩, side⟩
 
-private def same (x y : EmptyState) : Bool := x.count == y.count
+def same (x y : EmptyState) : Bool := x.count == y.count
 
 theorem same_iff (x y : EmptyState) : same x y = true ↔ x = y := by
   cases x
   cases y
   simp [same]
 
-private def check : List String → Option Bool
+def check : List String → Option Bool
   | ["root", p, o, observed] => do
     let b : Board.Board := ⟨BitVec.ofNat 64 (← p.toNat?), BitVec.ofNat 64 (← o.toNat?)⟩
     let s ← snapshot observed

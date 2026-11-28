@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 
 from mir_common import (
     Block,
@@ -175,21 +176,38 @@ def widen_paths(body):
     return paths
 
 
+_SCORE_CONSTANTS_LOCK = threading.Lock()
+_SCORE_CONSTANTS_CACHE = {}
+
+
+def seed_score_constants(repo, value):
+    with _SCORE_CONSTANTS_LOCK:
+        _SCORE_CONSTANTS_CACHE[Path(repo).resolve()] = value
+
+
 def score_constants(repo):
-    endgame = (repo / "crates/reversi-core/src/search/endgame.rs").read_text(encoding="utf-8")
+    key = Path(repo).resolve()
+    with _SCORE_CONSTANTS_LOCK:
+        cached = _SCORE_CONSTANTS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    endgame = (key / "crates/reversi-core/src/search/endgame.rs").read_text(encoding="utf-8")
     constants = re.findall(r"^const ASPIRATION_DELTA: Score = [^;]+;", endgame, re.M)
     checked(len(constants) == 1, "missing or duplicate ASPIRATION_DELTA")
-    score = repo / "crates/reversi-core/src/score.rs"
+    score = key / "crates/reversi-core/src/score.rs"
     source = f'#[path = r#"{score}"#] mod score;\nuse score::{{Score, DiscScore}};\n{constants[0]}\n'
     source += 'fn main() { println!("{} {}", ASPIRATION_DELTA.value(), Score::INF.value()); }\n'
     with tempfile.TemporaryDirectory() as temporary:
         folder = Path(temporary)
         fixture, binary = folder / "constants.rs", folder / "constants.exe"
         fixture.write_text(source, encoding="utf-8")
-        subprocess.run(["rustc", "--edition=2024", "-Adead_code", str(fixture), "-o", str(binary)], cwd=repo, check=True)
+        subprocess.run(["rustc", "--edition=2024", "-Adead_code", str(fixture), "-o", str(binary)], cwd=key, check=True)
         values = subprocess.check_output([str(binary)], text=True).split()
     checked(len(values) == 2, "expected delta and infinity")
-    return tuple(map(int, values))
+    result = tuple(map(int, values))
+    with _SCORE_CONSTANTS_LOCK:
+        _SCORE_CONSTANTS_CACHE[key] = result
+    return result
 
 
 def render(dump, repo):
@@ -207,7 +225,9 @@ def render(dump, repo):
         conditions = ", ".join(f"({guard.lean()}, {str(value).lower()})" for guard, value in guards)
         rows.append(f"([{conditions}], {alpha.lean()}, {beta.lean()}, {str(result).lower()})")
     return "\n".join([
-        "import NeuralReversi.AspirationMir.Syntax", "",
+        "module",
+        "public import NeuralReversi.AspirationMir.Syntax", "",
+        "@[expose] public section", "",
         "namespace NeuralReversi.AspirationMir", "",
         f"def initialDelta : Int := {delta}", f"def infinity : Int := {infinity}", "",
         "def driverCode : List DriverOp := [", "  " + ",\n  ".join(program) + "]", "",

@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.InputLayer.Arithmetic
+module
+public import NeuralReversi.Eval.InputLayer.Arithmetic
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.InputLayer
 

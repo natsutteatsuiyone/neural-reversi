@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeSplit
-import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+module
+public import NeuralReversi.PvsParallel.NativeSplit
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Ordering
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
 
@@ -40,7 +43,7 @@ theorem Memory.load_source (m : Memory hist words) (hit : operand m.reads event 
   unfold Memory.load
   split <;> simp_all
 
-private def safeWords (i : Input) : Bool :=
+def safeWords (i : Input) : Bool :=
   decide (-2147483648 < i.alpha.toInt ∧ i.alpha.toInt < 2147483647 ∧ -2147483648 < i.scout.toInt ∧
     (retry i = true → -2147483648 < i.beta.toInt ∧ -2147483648 < i.fresh.toInt ∧ -2147483648 < i.wide.toInt))
 

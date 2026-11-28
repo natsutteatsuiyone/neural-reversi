@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadback
+module
+public import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadback.Regression
 
@@ -12,9 +15,9 @@ open SplitSchedulerMir (Clock Guard)
 
 /-- An owner exhausts its iterator and returns its negative seed and move.
     The slot was used earlier; a subsequent initializer reuses both values. -/
-private def clock : Clock := ⟨0,fun i => 10+10*i,by omega⟩
-private def stamp (n : Nat) : Event := ⟨0,n⟩
-private def writes : List Write := [
+def clock : Clock := ⟨0,fun i => 10+10*i,by omega⟩
+def stamp (n : Nat) : Event := ⟨0,n⟩
+def writes : List Write := [
   ⟨stamp 10,0,false,false⟩, ⟨stamp 20,1,false,true⟩,
   ⟨stamp 85,0,true,true⟩, ⟨stamp 150,0,false,false⟩]
 local instance : NeZero writes.length := ⟨by decide⟩
@@ -22,18 +25,18 @@ def gen : RawMask writes := ⟨0,[.finish 0 (stamp 85)],1,by decide,by decide,by
 def hist : History := ⟨[],fun _ => [],[],[],
   fun a b => a = stamp 85 ∧ b = stamp 100⟩
 
-private theorem localOrder (h : HappensBefore hist a b) : SequencedBefore a b := by
+theorem localOrder (h : HappensBefore hist a b) : SequencedBefore a b := by
   induction h with
   | sequenced sb => exact sb
   | synchronized n => exact Fin.elim0 n
   | other h => obtain ⟨rfl,rfl⟩ := h; exact ⟨rfl,by decide⟩
   | trans _ _ left right => exact ⟨left.1.trans right.1,Nat.lt_trans left.2 right.2⟩
 
-private def raw : List OwnerMaskGuards.Operand := [
+def raw : List OwnerMaskGuards.Operand := [
   .shutdown (stamp 70) false, .mask (stamp 80) (stamp 20) 1 true,
   .shutdown (stamp 90) false, .mask (stamp 100) (stamp 85) 0 true]
-private def log : List (Guard writes) := [.shutdown false,.mask 1,.shutdown false,.mask 2]
-private def path : List (Fin 80) := [
+def log : List (Guard writes) := [.shutdown false,.mask 1,.shutdown false,.mask 2]
+def path : List (Fin 80) := [
   1,2,3,4,5,6,7,9,10,11,12,13,14,15,17,18,19,20,21,22,23,24,25,26,27,28,
   29,30,32,34,35,36,38,39,19,20,21,22,23,40,41,42,43,44,76,77,4,5,6,7,9,
   10,11,12,13,14,15,16,78,79]
@@ -41,7 +44,7 @@ private def maskRank : Guard writes → Option Nat
   | .mask i => some i.val
   | _ => none
 
-private theorem maskCoherent : OwnerMaskGuards.Coherent hist writes raw := by
+theorem maskCoherent : OwnerMaskGuards.Coherent hist writes raw := by
   intro row member i decoded
   obtain ⟨k,rfl⟩ := List.get_of_mem member
   have verify : ∀ k : Fin raw.length, ∀ i j : Fin writes.length,
@@ -53,17 +56,17 @@ private theorem maskCoherent : OwnerMaskGuards.Coherent hist writes raw := by
   exact ⟨fun j edge => (verify k i j got).1 (localOrder edge),
     fun j edge => (verify k i j got).2 (localOrder edge)⟩
 
-private def exit_ : OwnerExit hist gen :=
+def exit_ : OwnerExit hist gen :=
   OwnerMaskGuards.ownerExit hist gen clock raw (log := log) rfl path (by decide) (by decide)
     rfl (by decide) maskCoherent
 
-private def scoreWord := (-1536 : BitVec 32)
-private def object (n : Nat) (v : BitVec w) : Write := ⟨stamp n,v.setWidth 64,false,false⟩
-private def tested : MoveList.ConcurrentTrace.State 64 :=
+def scoreWord := (-1536 : BitVec 32)
+def object (n : Nat) (v : BitVec w) : Write := ⟨stamp n,v.setWidth 64,false,false⟩
+def tested : MoveList.ConcurrentTrace.State 64 :=
   ⟨0,[],MoveList.ConcurrentTrace.replace (fun _ => .idle) 0 (.testing 81 0)⟩
-private def drained : MoveList.ConcurrentTrace.State 64 :=
+def drained : MoveList.ConcurrentTrace.State 64 :=
   { tested with localAt := MoveList.ConcurrentTrace.replace tested.localAt 0 (.drained 81 0) }
-private theorem exhausted : MoveList.ConcurrentTrace.Execution 0 0 drained :=
+theorem exhausted : MoveList.ConcurrentTrace.Execution 0 0 drained :=
   .decline (worker := 0) (opening := 81) (prev := 0)
     (.load (worker := 0) (source := 0) (seen := 0) .init rfl rfl 81) rfl rfl
 
@@ -98,7 +101,7 @@ def tickets : NativeSplit.Tickets [] true 100 where
     rw [show drained.writes = [] by rfl, done_]
     rfl
 
-private theorem sync {pre s post} (part : log = pre ++ Guard.mask s :: post) (i : Fin writes.length)
+theorem sync {pre s post} (part : log = pre ++ Guard.mask s :: post) (i : Fin writes.length)
     (seq : AtomicWord.InReleaseSequence writes i s) :
     hist.otherSync (writes.get i).event (exit_.clock.atStep (4+pre.length)) := by
   have loc : log[pre.length]? = some (.mask s) := by rw [part]; simp
@@ -114,7 +117,7 @@ private theorem sync {pre s post} (part : log = pre ++ Guard.mask s :: post) (i 
       (writes.get i).event = stamp 85 ∧ exit_.clock.atStep (4+k.val) = stamp 100 := by decide
   exact check k s i selected seq.1 seq.2.1
 
-private def setup : OwnerSetup gen hist Event.step (0,0) tickets where
+def setup : OwnerSetup gen hist Event.step (0,0) tickets where
   exit := exit_
   gates := ⟨0,by simp,by
     intro j _ w e book
@@ -137,11 +140,11 @@ private def setup : OwnerSetup gen hist Event.step (0,0) tickets where
     some ⟨[object 3 (1#64)],⟨stamp 109,0,true⟩⟩,by simp,false⟩
   running := rfl
 
-private def score : Load := ⟨(0,0),stamp 120,.score scoreWord,false,stamp 30⟩
-private def picked : Load := ⟨(0,0),stamp 130,.move 37,false,stamp 40⟩
-private def rows := [score,picked]
+def score : Load := ⟨(0,0),stamp 120,.score scoreWord,false,stamp 30⟩
+def picked : Load := ⟨(0,0),stamp 130,.move 37,false,stamp 40⟩
+def rows := [score,picked]
 
-private def sbCoherent (ws : List Write) (r : Load) : Bool :=
+def sbCoherent (ws : List Write) (r : Load) : Bool :=
   ws.all fun w =>
     let ids := ws.map Write.event
     let i := ids.idxOf w.event
@@ -149,7 +152,7 @@ private def sbCoherent (ws : List Write) (r : Load) : Bool :=
     (w.event.worker != r.site.worker || w.event.step ≥ r.site.step || i ≤ s) &&
     (r.site.worker != w.event.worker || r.site.step ≥ w.event.step || s < i)
 
-private theorem shared (good : sbCoherent ws r) : Coherent hist ws r := by
+theorem shared (good : sbCoherent ws r) : Coherent hist ws r := by
   constructor
   · intro w mem h
     obtain ⟨eq,lt⟩ := localOrder h

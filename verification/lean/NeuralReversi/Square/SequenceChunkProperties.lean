@@ -1,5 +1,9 @@
-import NeuralReversi.Square.TextProperties
-import NeuralReversi.Square.SequenceModel
+module
+public import NeuralReversi.Square.TextProperties
+public import NeuralReversi.Square.SequenceModel
+
+@[expose] public section
+
 namespace NeuralReversi.Square
 set_option maxRecDepth 4096
 set_option maxHeartbeats 2000000

@@ -185,7 +185,7 @@ def verify(dump, repo):
         actual = path_result(body, n, nws_depth, shallow_depth)
         checked(actual == expected(n), f"{n} empties: MIR call sequence or return differs: {actual!r}")
         arms.append(actual[0][1][0])
-    return "\n".join(["namespace NeuralReversi.EndgameSearch.Direct.Mir", "",
+    return "\n".join(["module", "", "@[expose] public section", "", "namespace NeuralReversi.EndgameSearch.Direct.Mir", "",
                       "inductive Arm where", "  | terminal | solve1 | solve2 | solve3 | solve4", "",
                       "def dispatch : Nat → Option Arm",
                       *(f"  | {n} => some .{name}" for n, name in enumerate(arms)),

@@ -1,11 +1,14 @@
-import NeuralReversi.Solve2.Target
-import NeuralReversi.Solve34.TreeBridge
+module
+public import NeuralReversi.Solve2.Target
+public import NeuralReversi.Solve34.TreeBridge
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 
 open Flip.Dispatch (TargetConfig Backend backendFor triple_eq quad_eq)
 
-private def squareAt (b : EmptyBoard n) (i : Fin n) : Square :=
+def squareAt (b : EmptyBoard n) (i : Fin n) : Square :=
   b.squares[i.val]'(b.length_eq.symm ▸ i.isLt)
 
 private theorem squareOrder (b : EmptyBoard n) : List.ofFn (squareAt b) = b.squares := by
@@ -18,11 +21,11 @@ private theorem squareOrder (b : EmptyBoard n) : List.ofFn (squareAt b) = b.squa
 private theorem slotOrder (b : EmptyBoard n) : (boardSlots b).map Prod.fst = b.squares := by
   simp [boardSlots, List.map_map, Function.comp_def]
 
-private def masks3 (backend : Backend) (b : EmptyBoard 3) (p o : Word) : List Word :=
+def masks3 (backend : Backend) (b : EmptyBoard 3) (p o : Word) : List Word :=
   let masks := backend.triple (squareAt b 0) (squareAt b 1) (squareAt b 2) p o
   [masks.1, masks.2.1, masks.2.2]
 
-private def masks4 (backend : Backend) (b : EmptyBoard 4) (p o : Word) : List Word :=
+def masks4 (backend : Backend) (b : EmptyBoard 4) (p o : Word) : List Word :=
   let masks := backend.quad (squareAt b 0) (squareAt b 1) (squareAt b 2) (squareAt b 3) p o
   [masks.1, masks.2.1, masks.2.2.1, masks.2.2.2]
 
@@ -36,7 +39,7 @@ private theorem masks4_eq (backend : Backend) (b : EmptyBoard 4) (p o : Word) (w
   rw [masks4, quad_eq _ _ _ _ _ _ _ wf, slotOrder, ← squareOrder b]
   rfl
 
-private def runOn (backend : Backend) (charge : Bool) (oracle : Dispatch.Oracle)
+def runOn (backend : Backend) (charge : Bool) (oracle : Dispatch.Oracle)
     (b : EmptyBoard n) (alpha : Score) (masks : Word → Word → List Word) : Dispatch.Outcome :=
   if backend = .scalar then
     Dispatch.fallback charge oracle Solve2.Guard.scalarFlip Solve2.Guard.adjacent
@@ -58,7 +61,7 @@ private theorem runOn_eq (backend : Backend) (charge : Bool) (oracle : Dispatch.
   · rw [← Dispatch.scalar_eager_eq_fallback]
     simp only [Dispatch.eager, own, other]
 
-private def target2Oracle (target : TargetConfig) (bmi2 : Bool) : Dispatch.Oracle :=
+def target2Oracle (target : TargetConfig) (bmi2 : Bool) : Dispatch.Oracle :=
   verifiedOracle (fun b a => (Solve2.targetRun target bmi2 b.toTwoEmpty a).score)
     (decodedNodeCost fun b a => (Solve2.targetRun target bmi2 b.toTwoEmpty a).nodeDelta)
 
@@ -78,7 +81,7 @@ theorem target3Run_eq (target : TargetConfig) (bmi2 : Bool) (b : EmptyBoard 3) (
   rw [target2Oracle_eq]
   exact runOn_eq _ _ _ _ _ _ (masks3_eq _ b _ _ b.disjoint) (masks3_eq _ b _ _ swapped)
 
-private def target3Oracle (target : TargetConfig) (bmi2 : Bool) : Dispatch.Oracle :=
+def target3Oracle (target : TargetConfig) (bmi2 : Bool) : Dispatch.Oracle :=
   verifiedOracle (fun b a => (target3Run target bmi2 b a).score)
     (decodedNodeCost fun b a => (target3Run target bmi2 b a).nodes)
 

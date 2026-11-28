@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiMidgame
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiMidgame
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiMidgamePrefix
 
@@ -17,13 +20,13 @@ structure Point where
   retries : Nat
   rootStop : SerialCalls.Request → Bool
 
-private def active (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def active (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (level : Selectivity) (ops : Inputs l) (point : Point) (depth idx : Nat) (s : State (Memory l)) (w : Attempt) :=
   let f := MidgameSession.frames (mc := mc) (fc := fc) (ops idx) c level q.board true depth s w
   MidgamePolledRoot.runAt idx p q.board (BitVec.ofNat 32 depth) c.paired f.scratch f.order level f.children point.rootStop
     s.rows (BitVec.ofInt 32 w.alpha) (BitVec.ofInt 32 w.beta) s.memory
 
-private def retry (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def retry (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (level : Selectivity) (ops : Inputs l) (point : Point) (depth idx : Nat) : Nat → State (Memory l) → Attempt → Option (Memory l)
   | 0, s, w => active q p c fc level ops point depth idx s w
   | n+1, s, w => do
@@ -52,7 +55,7 @@ private theorem retry_returns (q : Repeated.Call mc) (p : Pool) (c : SerialScout
       obtain ⟨out,more,good⟩ := ih _ next safe (len ▸ within) window (by rw [width]; unfold MidgameAspiration.grow; omega)
       exact ⟨out,by simpa [retry,ran,widen] using more,good⟩
 
-private def lines (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def lines (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (level : Selectivity) (ops : Inputs l) (point : Point) (depth : Nat) : Nat → Nat → State (Memory l) → Option (Memory l)
   | 0, idx, s => if idx < s.rows.length then
       retry q p c fc level ops point depth idx point.retries s (MidgameAspiration.initial depth (s.rows[idx]?.map MidgameRows.stats) 0)
@@ -83,7 +86,7 @@ private theorem lines_return (q : Repeated.Call mc) (p : Pool) (c : SerialScout.
     obtain ⟨m,rest,safe⟩ := ih (idx+1) next good
     exact ⟨m,by simpa [lines,past,ran] using rest,safe⟩
 
-private def depths (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
+def depths (q : Repeated.Call mc) (p : Pool) (c : SerialScout.Config) (fc : Cutoffs.FlipConfig)
     (level : Selectivity) (ops : Inputs l) (point : Point) (target : Nat) : Nat → Nat → State (Memory l) → Option (Memory l)
   | 0, d, s => if target < d then some s.memory else lines q p c fc level ops point d point.lines 0 s
   | n+1, d, s => do

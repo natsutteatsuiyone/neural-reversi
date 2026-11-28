@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrameCache
-import NeuralReversi.PvsParallel.NativeTableWrites.Journal
+module
+public import NeuralReversi.PvsParallel.NativeFrameCache
+public import NeuralReversi.PvsParallel.NativeTableWrites.Journal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites
 
@@ -37,19 +40,19 @@ private theorem call_eq {c d : Call} (same : callKey c = callKey d) : c = d := b
       have eq : store = store' := by funext fld; cases fld <;> assumption
       rw [eq]
 
-private structure StoreKey where
+structure StoreKey where
   frame : Option Nat
   board : Board.Board
   entry : EntryData
   deriving DecidableEq
 
-private structure EventKey where
+structure EventKey where
   id : Nat
   call : CallKey
   stored : Option StoreKey
   deriving DecidableEq
 
-private def signature (e : Event) : Option EventKey := match e.action with
+def signature (e : Event) : Option EventKey := match e.action with
   | .cleared c => some ⟨e.id,callKey c,none⟩
   | .stored frame c b entry => some ⟨e.id,callKey c,some ⟨frame,b.val,entry⟩⟩
   | _ => none
@@ -85,7 +88,7 @@ def Stamp.claimIndex {log : Log mc fc} (t : Table log) (w : Stamp) :=
 
 def Stamp.current {log : Log mc fc} (t : Table log) (w : Stamp) := (t.memory w.address).writeValue .sequence (w.claimIndex t)
 
-private def actionMatches (claimed : Bool) (call : Call) : Option (WriterTrace.Action Nat) → Bool
+def actionMatches (claimed : Bool) (call : Call) : Option (WriterTrace.Action Nat) → Bool
   | some (.claim c) => claimed && decide (callKey c = callKey call)
   | some (.publish c) => !claimed && decide (callKey c = callKey call)
   | none => false
@@ -162,7 +165,7 @@ theorem SaveRead.checked {log : Log mc fc} {t : Table log} {w : Stamp} (r : Save
     intro _
     exact FrameTableReads.save_read t endian r.toInvocationAt _
 
-private def candidates (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) :=
+def candidates (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) :=
   (MoveList.Generation.records fc b.val (Board.getMoves mc b.val)).map Move.Move.sq
 
 def validMove (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) : Option Bitboard.Square → Bool
@@ -194,7 +197,7 @@ structure Arguments where
   endgame : Bool
   pv : Bool
 
-private def checkedCall {log : Log mc fc} (t : Table log) (w : Stamp) (call : Call)
+def checkedCall {log : Log mc fc} (t : Table log) (w : Stamp) (call : Call)
     (receipt : Certified log endian) : Option (Certified log endian) :=
   if w.present t call then some receipt else none
 
@@ -255,7 +258,7 @@ def searched {log : Log mc fc} (t : Table log) (c : Catalog p log) (w : Stamp) (
         if id : call.finish = w.ev log 5 then
           have valid : row.opening = site.opening ∧ row.frame.id = site.frame ∧ row.frame.scoreStep = site.scored ∧
               NativeFrames.whole row = true ∧ row.frame.worker = w.worker ∧ row.frame.scoreStep < w.claim ∧
-              w.claim < w.finish ∧ _ := by
+              w.claim < w.finish ∧ (row.frame.returnStep.map (fun ret => decide (w.finish < ret)) |>.getD true) = true := by
             simpa only [identifyRow,decide_eq_true_eq] using List.find?_some found
           have member : f ∈ log.frames := by
             rw [c.rows]
@@ -320,7 +323,7 @@ def boundary {log : Log mc fc} (t : Table log) (c : Catalog p log) (w : Stamp) (
     | _ => none
   else none
 
-private theorem prior_lookup {b : Position} (seen : TableReads.SnapshotReadFrom source (some (Cutoffs.key b,expected)))
+theorem prior_lookup {b : Position} (seen : TableReads.SnapshotReadFrom source (some (Cutoffs.key b,expected)))
     (occupied : expected.bound ≠ 0) : TableReads.SlotLookupFrom source b (some expected) := by
   generalize obs : some (Cutoffs.key b,expected) = o at seen
   cases seen with

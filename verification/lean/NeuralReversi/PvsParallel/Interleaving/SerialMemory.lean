@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+module
+public import NeuralReversi.PvsParallel.Interleaving.ReadCandidates
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SerialMemory
 

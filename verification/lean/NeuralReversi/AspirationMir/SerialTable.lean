@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialCache.Driver
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.AspirationMir.SerialCache.Driver
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable
 

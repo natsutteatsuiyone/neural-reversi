@@ -1,4 +1,7 @@
-import NeuralReversi.Board.MovesProperties
+module
+public import NeuralReversi.Board.MovesProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Board.WrapperWitnesses
 open Bitboard.Moves (X86Config BothCoordinateOutputs getMovesAndPotentialX86)

@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.ContextPathMir
-import NeuralReversi.PvsParallel.GeneralNonPvMir
+module
+public import NeuralReversi.PvsParallel.ContextPathMir
+public import NeuralReversi.PvsParallel.GeneralNonPvMir
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ContextPathMir
 

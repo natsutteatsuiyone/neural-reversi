@@ -4,8 +4,16 @@ import mmap
 import re
 
 from cache_owner_mir import PASS, POOL, THREAD, WORKER
-from mir_common import checked
+from mir_common import checked, iter_mir_texts
 from cache_owner_queue import EXECUTE, LAUNCH
+
+
+_FRONTIER_MARKERS = (
+    ".13: std::cell::SyncUnsafeCell<search::endgame::EndGameCaches>",
+    ".6: std::sync::Mutex<std::option::Option<std::sync::Arc<dyn for",
+    " -> ",
+    "PointerCoercion(ReifyFnPointer",
+)
 
 
 def lines(path):
@@ -72,12 +80,14 @@ def inspect(stem, source, targets, nodes):
 
 
 def frontier(dump, targets, nodes):
-    files = list(dump.glob("reversi_core.*"+PASS))
-    names = {p.name.removeprefix("reversi_core.").removesuffix(PASS) for p in files}
+    files = list(iter_mir_texts(dump, PASS, prefix="reversi_core."))
+    names = {p.name.removeprefix("reversi_core.").removesuffix(PASS) for p, _ in files}
     required = {"board-{impl#1}-make_move", "eval-{impl#0}-with_weight_files", "probcut-MIDGAME_TABLE"}
     checked(required <= names and set(nodes) <= names, "ownership frontier needs whole-crate MIR")
-    seen=set()
-    for path in files:
-        stem=path.name.removeprefix("reversi_core.").removesuffix(PASS)
-        seen.update(inspect(stem,lines(path),targets,nodes))
-    checked(len(seen)==5,"external engine entry set changed")
+    seen = set()
+    for path, text in files:
+        if not any(marker in text for marker in _FRONTIER_MARKERS):
+            continue
+        stem = path.name.removeprefix("reversi_core.").removesuffix(PASS)
+        seen.update(inspect(stem, text.splitlines(), targets, nodes))
+    checked(len(seen) == 5, "external engine entry set changed")

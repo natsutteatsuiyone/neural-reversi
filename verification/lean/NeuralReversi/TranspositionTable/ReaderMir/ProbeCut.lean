@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.TraceCheck
-import NeuralReversi.TranspositionTable.ReaderMir.Publication
+module
+public import NeuralReversi.PvsParallel.TraceCheck
+public import NeuralReversi.TranspositionTable.ReaderMir.Publication
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.TraceCheck.Sample
 

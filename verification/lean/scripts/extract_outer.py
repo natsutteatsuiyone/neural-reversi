@@ -406,7 +406,9 @@ def render_polled(dump, _repo):
         return [f"def {name} : List (({typ}) × Transition) := [", ",\n".join(rows) + "]", ""]
 
     return "\n".join([
-        "import NeuralReversi.OuterMir.Program", "",
+        "module",
+        "public import NeuralReversi.OuterMir.Program", "",
+        "@[expose] public section", "",
         "namespace NeuralReversi.OuterMir.Polled", "",
         "/-- Generated from the normal edges of the pinned `solve_root` MIR.",
         "    Separate inputs retain the two independently observed abort values. -/",
@@ -458,7 +460,10 @@ def render(dump, repo):
     check_ladder(dump)
     check_state(dump)
     levels=ladder_constants(dump,repo)
-    return f"""import NeuralReversi.PublicationMir.Correct
+    return f"""module
+public import NeuralReversi.PublicationMir.Correct
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir
 

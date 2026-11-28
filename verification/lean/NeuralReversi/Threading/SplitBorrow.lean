@@ -1,4 +1,7 @@
-import NeuralReversi.Threading.SplitShutdown
+module
+public import NeuralReversi.Threading.SplitShutdown
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitBorrow
 

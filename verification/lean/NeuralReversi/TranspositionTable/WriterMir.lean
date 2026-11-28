@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.WriterMir.Program
-import NeuralReversi.PvsParallel.ConcurrentReplay
+module
+public import NeuralReversi.TranspositionTable.WriterMir.Program
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterMir
 

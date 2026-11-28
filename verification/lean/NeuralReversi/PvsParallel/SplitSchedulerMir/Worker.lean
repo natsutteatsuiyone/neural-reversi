@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Correct
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Correct
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Dispatch
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir
 
@@ -37,7 +41,7 @@ theorem releaseIndex_eq (steps : List Step) : releaseIndex steps = steps.length 
 
 theorem dispatch_eq : dispatchModes = [.NonPV, .PV, .Root] := rfl
 
-private theorem worker_position {a : α} {leading suffix : List α} :
+theorem worker_position {a : α} {leading suffix : List α} :
     (leading ++ a :: suffix)[leading.length]? = some a := by simp
 
 /-- The clock indexes all projected worker events in the activation, including every child return,

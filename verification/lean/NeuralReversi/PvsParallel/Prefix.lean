@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SplitWindow
-import NeuralReversi.PvsPostpone
+module
+public import NeuralReversi.Threading.SplitWindow
+public import NeuralReversi.PvsPostpone
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Prefix
 

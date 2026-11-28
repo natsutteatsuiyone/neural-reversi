@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SplitWorkerMir.FieldProgram
-import NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores
+module
+public import NeuralReversi.PvsParallel.SplitWorkerMir.FieldProgram
+public import NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores
 

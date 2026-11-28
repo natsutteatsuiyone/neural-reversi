@@ -1,5 +1,9 @@
-import NeuralReversi.EndgameSearch.MoveOrder
-import NeuralReversi.Empties
+module
+public import NeuralReversi.EndgameSearch.MoveOrder
+public import NeuralReversi.EndgameSearch.SourceFour
+public import NeuralReversi.Empties
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch
 
@@ -9,10 +13,10 @@ open EndgameTreeCache (Address Store Table soundHistory)
 open ScoreRefresh (Score fromDiscDiff toDiscDiff)
 open Flip.Dispatch (TargetConfig)
 
-private def presortedEmpties (b : Board.Board) : List Bitboard.Square :=
+def presortedEmpties (b : Board.Board) : List Bitboard.Square :=
   Empties.presorted.filter fun sq => (Board.emptySquares b).getLsbD sq.val
 
-private theorem presorted_perm (b : Position) :
+theorem presorted_perm (b : Position) :
     (presortedEmpties b.val).Perm (Solve34.EmptyBoard.ofBoard b.val b.property).squares :=
   Empties.presorted_perm.filter _
 
@@ -24,7 +28,7 @@ private theorem exactlyFour {α : Type} (xs : List α) (h : xs.length = 4) :
   | _ :: _ :: _ :: _ :: _ :: _ => simp at h
 
 /-- The empty squares in odd quadrants first, each group in presorted order. -/
-private def sortedEmpties (b : Board.Board) : List Bitboard.Square :=
+def sortedEmpties (b : Board.Board) : List Bitboard.Square :=
   let xs := presortedEmpties b
   xs.filter (Empties.oddIn xs) ++ xs.filter (fun x => !Empties.oddIn xs x)
 

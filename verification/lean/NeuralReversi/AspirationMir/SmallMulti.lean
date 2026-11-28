@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SmallRoot
+module
+public import NeuralReversi.AspirationMir.SmallRoot
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SmallRoot
 

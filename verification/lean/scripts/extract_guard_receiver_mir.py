@@ -4,7 +4,7 @@ from extract_split_activation_mir import THREAD, field, idle_authorization
 from extract_split_scheduler_mir import Body, edges
 from extract_split_rebooking_mir import nested
 from extract_worker_frame_mir import KINDS, PL, SUFFIX, TH, ANY_FIELD, inspect_fields
-from mir_common import PASS, run_extractor_cli, blocks, CALL, checked
+from mir_common import PASS, run_extractor_cli, blocks, CALL, checked, iter_mir_texts
 
 PVS='reversi_core.search-pvs-search'
 SCOUT=PVS+'_split_point'
@@ -128,9 +128,8 @@ def render(dump):
     byname={v:TYPES[k] for k,v in METHODS.items()}
     guardUsers={g:set() for g in ('SplitUnwindGuard','UnwindCleanup','FinishJob')}
     active=set(); flags=set()
-    for f in dump.glob('*'+SUFFIX):
+    for f, raw in iter_mir_texts(dump, SUFFIX):
         name=f.name.removesuffix(SUFFIX);role=TYPES.get(name,'other')
-        raw=f.read_text(encoding='utf8')
         checked('catch_unwind' not in raw,'panic can resume inside crate body '+name)
         if role in ('work','ownerInit','split','pvs','scout','dispatch'):
             clean=re.findall(r'^    bb(\d+) \(cleanup\): \{\n((?:        [^\n]+\n)+)    \}',raw,re.M)
@@ -158,8 +157,8 @@ def render(dump):
     checked(active=={'ownerInit','finalize','book','detach'},'active Arc writer inventory: '+str(active))
     checked(flags and 'other' not in {k for k,_ in flags},'unknown searching write')
     r=lambda xs: ', '.join('.'+x for x in sorted(xs))
-    output=['import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','',
-            'namespace NeuralReversi.PvsParallel.SlotFrameMir.Receiver','',
+    output=['module', 'public import NeuralReversi.PvsParallel.SlotFrameMir.Syntax','',
+            '@[expose] public section', '', 'namespace NeuralReversi.PvsParallel.SlotFrameMir.Receiver','',
             'inductive Site','  | '+' | '.join(sorted({'other',*TYPES.values()})),
             '  deriving DecidableEq','',
             'def incoming : Site → Option (List Site)']

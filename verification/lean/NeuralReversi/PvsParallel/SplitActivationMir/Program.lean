@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitActivationMir.Syntax
+module
+public import NeuralReversi.PvsParallel.SplitActivationMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitActivationMir
 

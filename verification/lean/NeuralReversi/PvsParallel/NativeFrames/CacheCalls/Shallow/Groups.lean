@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Program
+module
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls.Shallow
 
@@ -30,7 +33,7 @@ def group (b : Position) (a : Int) (safe : SafeThreshold a) (sub : M → List St
     · exact group b a safe sub child rest (max best (sub m h).score) (sub m h).history
 termination_by ms.length
 
-private theorem groupEdge (index : Nat) (small : index < 5) :
+theorem groupEdge (index : Nat) (small : index < 5) :
     Edge.mk .shallow (5+index) .shallowMoves .forward ∈ transfers :=
   (show ∀ k : Fin 5, Edge.mk .shallow (5+k.val) .shallowMoves .forward ∈ transfers by decide) ⟨index,small⟩
 

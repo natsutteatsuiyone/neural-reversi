@@ -126,8 +126,8 @@ def render(dump, repo):
     branches = walk(0, {}, [], set(), "  ")
     checked(all(bb in visited or block == Block([], "resume;", True) for bb, block in body.items()),
             "unmodeled MIR block")
-    return "\n".join(["import NeuralReversi.TranspositionTable.ReaderMir.Syntax", "",
-        "namespace NeuralReversi.TranspositionTable.ReaderMir", "", "open SeqLock (Word)", "",
+    return "\n".join(["module", "public import NeuralReversi.TranspositionTable.ReaderMir.Syntax", "",
+        "@[expose] public section", "", "namespace NeuralReversi.TranspositionTable.ReaderMir", "", "open SeqLock (Word)", "",
         "def run (bigEndian : Bool) (word : Nat → Word) : Outcome :=", *branches, "",
         "end NeuralReversi.TranspositionTable.ReaderMir", ""])
 

@@ -1,4 +1,7 @@
-import NeuralReversi.Game.History.Reference
+module
+public import NeuralReversi.Game.History.Reference
+
+@[expose] public section
 
 namespace NeuralReversi.Game.History.Reference
 

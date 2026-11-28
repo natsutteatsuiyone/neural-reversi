@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 namespace NeuralReversi.EndgameSearch.CacheOwner
 
 inductive EntryPoint where

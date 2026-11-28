@@ -158,10 +158,12 @@ def validate(lean_dir: Path, *, write: bool = False) -> int:
     check_build_roots(lean_dir, modules)
     for name, expected in generated_texts(modules).items():
         path = lean_dir / name
+        expected_bytes = expected.encode('utf-8')
         if write:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(expected.encode('utf-8'))
-        elif not path.is_file() or path.read_text(encoding='utf-8') != expected:
+            if not path.is_file() or path.read_bytes() != expected_bytes:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(expected_bytes)
+        elif not path.is_file() or path.read_bytes() != expected_bytes:
             raise ValueError(
                 f'Stale complete-audit metadata: {name}; '
                 'run python verification/lean/scripts/audit_modules.py --write'

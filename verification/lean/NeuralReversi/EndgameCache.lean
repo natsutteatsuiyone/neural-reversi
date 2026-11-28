@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Solve2.Control
-import NeuralReversi.TranspositionTable.Clear
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Solve2.Control
+public import NeuralReversi.TranspositionTable.Clear
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameCache
 

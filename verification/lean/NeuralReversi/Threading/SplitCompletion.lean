@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.CutoffVisibility
-import NeuralReversi.Bitboard.SquareProperties
+module
+public import NeuralReversi.Threading.CutoffVisibility
+public import NeuralReversi.Bitboard.SquareProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitCompletion
 

@@ -1,6 +1,9 @@
-import NeuralReversi.Solve1.Bmi2
-import NeuralReversi.Board.Counting
-import NeuralReversi.Flip.Properties
+module
+public import NeuralReversi.Solve1.Bmi2
+public import NeuralReversi.Board.Counting
+public import NeuralReversi.Flip.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1
 
@@ -15,15 +18,37 @@ local instance (d : Fin 8) (i j : Nat) : Decidable (Before d i j) := by
   unfold Before
   split <;> infer_instance
 
-set_option maxRecDepth 8192 in
-set_option maxHeartbeats 12000000 in
 private theorem cells_geometry : ∀ (sq : Fin 64) (d : Fin 8),
-    (cells sq d).Pairwise (Before d) ∧ (∀ i ∈ cells sq d, i < 64 ∧ i ≠ sq.val) := by decide
+    (cells sq d).Pairwise (Before d) ∧ (∀ i ∈ cells sq d, i < 64 ∧ i ≠ sq.val) := by decide +kernel
 
-set_option maxRecDepth 8192 in
-set_option maxHeartbeats 12000000 in
+private def cellsMask (xs : List Nat) : Geometry.Word :=
+  xs.foldr (fun k acc => (1#64 <<< k) ||| acc) 0#64
+
+private theorem cellsMask_bit (xs : List Nat) (i : Nat) (hi : i < 64) :
+    (cellsMask xs).getLsbD i = decide (i ∈ xs) := by
+  induction xs with
+  | nil => simp [cellsMask]
+  | cons k rest ih =>
+    have h1 : ((1#64 <<< k).getLsbD i) = decide (i = k) := by
+      simp only [BitVec.getLsbD_shiftLeft, hi, decide_true, Bool.true_and]
+      by_cases heq : i = k
+      · subst heq; simp
+      · by_cases hlt : i < k
+        · simp [hlt, heq]
+        · have hne : i - k ≠ 0 := by omega
+          simp [hlt, heq, BitVec.getLsbD_one, hne]
+    change ((1#64 <<< k) ||| cellsMask rest).getLsbD i = decide (i ∈ k :: rest)
+    rw [BitVec.getLsbD_or, h1, ih]
+    by_cases heq : i = k <;> simp [heq]
+
+private theorem mask_eq_cellsMask : ∀ (sq : Fin 64) (d : Fin 8),
+    mask ⟨sq.val, by omega⟩ d = cellsMask (cells sq d) := by decide +kernel
+
 private theorem cells_mask_fin : ∀ (sq : Fin 64) (d : Fin 8) (i : Fin 64),
-    (mask ⟨sq.val, by omega⟩ d).getLsbD i.val = decide (i.val ∈ cells sq d) := by decide
+    (mask ⟨sq.val, by omega⟩ d).getLsbD i.val = decide (i.val ∈ cells sq d) := by
+  intro sq d i
+  rw [mask_eq_cellsMask]
+  exact cellsMask_bit (cells sq d) i.val i.isLt
 
 private theorem cells_mask (sq : Fin 64) (d : Fin 8) (i : Nat) :
     (mask ⟨sq.val, by omega⟩ d).getLsbD i = true ↔ i ∈ cells sq d := by
@@ -193,10 +218,53 @@ private theorem count_union (masks : List Geometry.Word)
     rw [List.foldr_cons, Bitboard.count_or_of_disjoint _ _ (apart x xs cross), ih tail]
     rfl
 
-set_option maxRecDepth 8192 in
-set_option maxHeartbeats 12000000 in
-private theorem disjoint_masks : ∀ (sq : Fin 64) (d e : Fin 8), d ≠ e →
-    mask ⟨sq.val, by omega⟩ d &&& mask ⟨sq.val, by omega⟩ e = 0 := by decide
+private def dirOk (sq d i : Nat) : Bool :=
+  let r0 := sq / 8
+  let c0 := sq % 8
+  let r := i / 8
+  let c := i % 8
+  match d with
+  | 0 => decide (r = r0 ∧ c > c0)
+  | 1 => decide (r > r0 ∧ c = c0)
+  | 2 => decide (r > r0 ∧ c > c0 ∧ r - r0 = c - c0)
+  | 3 => decide (r > r0 ∧ c < c0 ∧ r - r0 = c0 - c)
+  | 4 => decide (r = r0 ∧ c < c0)
+  | 5 => decide (r < r0 ∧ c = c0)
+  | 6 => decide (r < r0 ∧ c < c0 ∧ r0 - r = c0 - c)
+  | _ => decide (r < r0 ∧ c > c0 ∧ r0 - r = c - c0)
+
+private theorem cells_dir_spec : ∀ (sq : Fin 64) (d : Fin 8),
+    (cells sq d).all (dirOk sq.val d.val) = true := by decide +kernel
+
+private theorem disjoint_masks (sq : Fin 64) (d e : Fin 8) (hne : d ≠ e) :
+    mask ⟨sq.val, by omega⟩ d &&& mask ⟨sq.val, by omega⟩ e = 0 := by
+  apply BitVec.eq_of_getLsbD_eq
+  intro i hi
+  rw [BitVec.getLsbD_and, show (0 : Geometry.Word).getLsbD i = false from BitVec.getLsbD_zero]
+  cases hd : (mask ⟨sq.val, by omega⟩ d).getLsbD i with
+  | false => simp
+  | true =>
+    cases he : (mask ⟨sq.val, by omega⟩ e).getLsbD i with
+    | false => simp
+    | true =>
+      exfalso
+      have h1 := List.all_eq_true.mp (cells_dir_spec sq d) i ((cells_mask sq d i).mp hd)
+      have h2 := List.all_eq_true.mp (cells_dir_spec sq e) i ((cells_mask sq e i).mp he)
+      have hne' : d.val ≠ e.val := fun h => hne (Fin.ext h)
+      rcases d with ⟨dv, hdv⟩
+      rcases e with ⟨ev, hev⟩
+      match dv, ev with
+      | 0, 0 | 1, 1 | 2, 2 | 3, 3 | 4, 4 | 5, 5 | 6, 6 | 7, 7 => exact hne' rfl
+      | 0, 1 | 0, 2 | 0, 3 | 0, 4 | 0, 5 | 0, 6 | 0, 7
+      | 1, 0 | 1, 2 | 1, 3 | 1, 4 | 1, 5 | 1, 6 | 1, 7
+      | 2, 0 | 2, 1 | 2, 3 | 2, 4 | 2, 5 | 2, 6 | 2, 7
+      | 3, 0 | 3, 1 | 3, 2 | 3, 4 | 3, 5 | 3, 6 | 3, 7
+      | 4, 0 | 4, 1 | 4, 2 | 4, 3 | 4, 5 | 4, 6 | 4, 7
+      | 5, 0 | 5, 1 | 5, 2 | 5, 3 | 5, 4 | 5, 6 | 5, 7
+      | 6, 0 | 6, 1 | 6, 2 | 6, 3 | 6, 4 | 6, 5 | 6, 7
+      | 7, 0 | 7, 1 | 7, 2 | 7, 3 | 7, 4 | 7, 5 | 7, 6 =>
+        simp only [dirOk, decide_eq_true_eq] at h1 h2; omega
+      | _ + 8, _ | _, _ + 8 => omega
 
 private def directions : List (Fin 8) := [0, 1, 2, 3, 4, 5, 6, 7]
 

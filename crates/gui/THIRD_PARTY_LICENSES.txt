@@ -10,8 +10,8 @@ Apache License 2.0 (229)
 MIT License (79)
 Unicode License v3 (20)
 BSD 3-Clause "New" or "Revised" License (12)
+GNU General Public License v3.0 or later (3)
 zlib License (3)
-GNU General Public License v3.0 or later (2)
 BSD 2-Clause "Simplified" License (1)
 Mozilla Public License 2.0 (1)
 
@@ -6025,6 +6025,7 @@ GNU General Public License v3.0 or later
 ================================================================
 
 Applies to:
+  * eval-weights 6.3.0
   * gui 6.3.0
   * reversi-core 6.3.0
 ----------------------------------------------------------------

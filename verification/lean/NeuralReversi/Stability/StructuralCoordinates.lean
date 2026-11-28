@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.Semantics
+module
+public import NeuralReversi.Stability.Semantics
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

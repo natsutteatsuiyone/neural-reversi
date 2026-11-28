@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameCache
-import NeuralReversi.MulHi
+module
+public import NeuralReversi.EndgameCache
+public import NeuralReversi.MulHi
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheMir
 

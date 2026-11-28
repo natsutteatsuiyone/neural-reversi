@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Mask
+module
+public import NeuralReversi.PvsParallel.Interleaving.Mask
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.RawSchedule
 

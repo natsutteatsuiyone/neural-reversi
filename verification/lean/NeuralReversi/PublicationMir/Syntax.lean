@@ -1,5 +1,8 @@
-import NeuralReversi.SearchFallback
-import NeuralReversi.RootMoveStorage
+module
+public import NeuralReversi.SearchFallback
+public import NeuralReversi.RootMoveStorage
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir
 

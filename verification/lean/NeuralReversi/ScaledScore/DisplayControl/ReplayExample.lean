@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.DisplayControl.Replay
+module
+public import NeuralReversi.ScaledScore.DisplayControl.Replay
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore.DisplayControl.ReplayExample
 set_option maxRecDepth 8192

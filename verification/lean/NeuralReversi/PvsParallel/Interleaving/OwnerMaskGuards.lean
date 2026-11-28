@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.Previous
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.Previous
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.OwnerMaskGuards
 
@@ -110,7 +113,7 @@ def Coherent (hist : History) (ws : List Write) (rows : List Operand) : Prop :=
   ∀ row ∈ rows, ∀ i, row.guard ws = some (.mask i) →
     SplitRebookingMir.Coherence hist ws ⟨row.site,i,true⟩
 
-private def edge (ws : List Write) (op : Op n) (next : Fin n) (log : List (Guard ws)) :
+def edge (ws : List Write) (op : Op n) (next : Fin n) (log : List (Guard ws)) :
     Option (List (Guard ws)) :=
   match op, log with
   | .any choices, _ => if next ∈ choices then some log else none
@@ -181,7 +184,7 @@ theorem idlePath : Contract := fun _ _ _ _ _ => ⟨follows_complete,fun ⟨_,h�
 def poolOpen (log : List (Guard ws)) :=
   log.all fun | .shutdown closed => !closed | .mask _ => true
 
-private theorem notClosed (ok : poolOpen log) : Guard.shutdown true ∉ log := by
+theorem notClosed (ok : poolOpen log) : Guard.shutdown true ∉ log := by
   intro closed
   exact Bool.noConfusion (List.all_eq_true.mp ok _ closed)
 

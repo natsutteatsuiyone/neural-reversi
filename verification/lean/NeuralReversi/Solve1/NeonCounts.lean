@@ -1,10 +1,13 @@
-import NeuralReversi.Solve1.NeonXor
-import NeuralReversi.Solve1.ScalarCounts
+module
+public import NeuralReversi.Solve1.NeonXor
+public import NeuralReversi.Solve1.ScalarCounts
+
+@[expose] public section
 
 namespace NeuralReversi.Solve1.Neon
 
 theorem metadata_safe : ∀ s : Fin 64, ∀ lane : Fin 4,
-    classId s.val lane < 24 ∧ (pairKey (classId s.val lane)).1 < 8 ∧ rankShift s.val < 64 := by decide
+    classId s.val lane < 24 ∧ (pairKey (classId s.val lane)).1 < 8 ∧ rankShift s.val < 64 := by decide +kernel
 
 theorem laneCounts_eq (s : Fin 64) (lane : Fin 4) (p : Word)
     (active : lane.val < 3 ∨ hasFourth s.val = true) :

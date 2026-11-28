@@ -1,4 +1,7 @@
-import NeuralReversi.ScoreRefresh.Properties
+module
+public import NeuralReversi.ScoreRefresh.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Aspiration
 
@@ -268,8 +271,8 @@ example :
 
 open ScoreRefresh
 
-private def higher (a b : Score) : Score := if a.raw.toInt ≤ b.raw.toInt then b else a
-private def lower (a b : Score) : Score := if a.raw.toInt ≤ b.raw.toInt then a else b
+def higher (a b : Score) : Score := if a.raw.toInt ≤ b.raw.toInt then b else a
+def lower (a b : Score) : Score := if a.raw.toInt ≤ b.raw.toInt then a else b
 
 def widenScore (checked : Bool) (score alpha beta delta : Score) :
     Except String (Option (Score × Score)) := do

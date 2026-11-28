@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.Wipeout
-import NeuralReversi.PvsParallel.LeafReturn
-import NeuralReversi.PvsParallel.Single
+module
+public import NeuralReversi.AspirationMir.Wipeout
+public import NeuralReversi.PvsParallel.LeafReturn
+public import NeuralReversi.PvsParallel.Single
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

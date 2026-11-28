@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeTableWrites.Journal
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites.Journal
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Journal
 
@@ -62,7 +65,7 @@ private theorem action_event {s : Site} (mem : s ∈ mods c rs a .sequence) :
   rcases s with ⟨k,pc⟩
   rcases seqPc loc with rfl | rfl <;> rfl
 
-private theorem Execution.sequenceUnique (x : Execution c endian rs) (a : Address) :
+theorem Execution.sequenceUnique (x : Execution c endian rs) (a : Address) :
     ((sequence c endian rs a).map WriterTrace.Action.event).Nodup := by
   rw [sequence,List.map_map]
   simp only [Function.comp_def]
@@ -111,7 +114,7 @@ def Execution.toSequence (x : Execution c endian rs) (a : Address) (init : Even 
       simp [Site.event,Pc.index,Attempt.program,WriterMir.writeStable,mode,success,addr] at ordered
       exact ⟨prevClaim prior.1 addr success,addr ▸ prior.2,ordered⟩
 
-private theorem Execution.fieldUnique (x : Execution c endian rs) (a : Address) (f : Field) :
+theorem Execution.fieldUnique (x : Execution c endian rs) (a : Address) (f : Field) :
     (fields c endian rs a f).Nodup := by
   have unique := x.distinct a (.payload f)
   have same : ((fields c endian rs a f).map (fun call => call.store f)) =

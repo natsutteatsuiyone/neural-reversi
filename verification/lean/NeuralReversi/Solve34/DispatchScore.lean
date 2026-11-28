@@ -1,5 +1,8 @@
-import NeuralReversi.Solve34.Dispatch
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.Solve34.Dispatch
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34.Dispatch
 set_option linter.unusedSimpArgs false

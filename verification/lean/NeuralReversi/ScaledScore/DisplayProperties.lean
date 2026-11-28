@@ -1,5 +1,8 @@
-import NeuralReversi.ScaledScore.DisplayModel
-import NeuralReversi.ScaledScore.FloatProperties
+module
+public import NeuralReversi.ScaledScore.DisplayModel
+public import NeuralReversi.ScaledScore.FloatProperties
+
+@[expose] public section
 
 namespace NeuralReversi.ScaledScore
 
@@ -48,16 +51,16 @@ theorem magnitudeChunks_text (cents : Nat) :
       (cents / 100).repr.toList ++ ['.'] ++ (twoDigits (cents % 100)).toList := by
   unfold magnitudeChunks
   split <;> rename_i hc
-  · subst cents; decide
+  · subst cents; simp [twoDigits, String.join_cons, String.join_nil]
   · split <;> rename_i h10
     · have div : cents / 100 = 0 := by omega
       have mod : cents % 100 = cents := Nat.mod_eq_of_lt (by omega)
-      simp [div, mod, twoDigits, h10, String.join]
+      simp [div, mod, twoDigits, h10, String.join_cons, String.join_nil]
     · split <;> rename_i h100
       · have div : cents / 100 = 0 := by omega
         have mod : cents % 100 = cents := Nat.mod_eq_of_lt h100
-        simp [div, mod, twoDigits, h10, String.join]
-      · simp [String.join, List.append_assoc]
+        simp [div, mod, twoDigits, h10, String.join_cons, String.join_nil]
+      · simp [String.join_cons, String.join_nil, List.append_assoc]
 
 def FixedDecimalText (raw : Word) (cents : Nat) (text : List Char) : Prop :=
   ∃ integral : List Char, DecimalEncoding (cents / 100) integral ∧
@@ -71,7 +74,7 @@ theorem displayChunks_text (raw : Word) :
   have digits := twoDigits_chars (displayCents raw % 100) (Nat.mod_lt _ (by decide))
   unfold displayChunks
   rw [String.join_append, String.toList_append, magnitudeChunks_text, digits, mod]
-  split <;> simp [String.join]
+  split <;> simp [String.join_cons, String.join_nil]
 
 def PrecisionTwoChunks (cents : Nat) (chunks : List String) : Prop :=
   if cents = 0 then chunks = ["0.", "00"]

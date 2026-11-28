@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.Joint
+module
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JointReads
 
@@ -54,7 +57,7 @@ theorem parent (init : ∀ a, NativeTableWrites.Journal.Even (x.memory a))
 abbrev Child (m : Joint.Atomics x es) (consumer : Nat) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) :=
   (move : GeneratedSquare mc b.val) × Call m consumer (.lookup (play mc fc b move).val)
 
-private theorem operand (init : ∀ a, NativeTableWrites.Journal.Even (x.memory a)) (reader : CausalReads.Reader)
+theorem operand (init : ∀ a, NativeTableWrites.Journal.Even (x.memory a)) (reader : CausalReads.Reader)
     (b : Position) (site : Site) (actual : CausalReads.Issued x reader consumer site (FrameTableReads.lookupCode endian b)) :
     TableReads.SlotLookupFrom (fun _ => True) b (FrameTableReads.lookupValue endian b (site.words (reader.supply x))) :=
   FrameTableReads.lookup_operand (x.slot site.address (init _)) endian b (fun i => reader.event (site.opening+i))

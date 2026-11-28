@@ -1,6 +1,9 @@
-import NeuralReversi.Simd.X86Properties
-import NeuralReversi.Bitboard.Avx2Model
-import NeuralReversi.Bitboard.MovesMaskGeometry
+module
+public import NeuralReversi.Simd.X86Properties
+public import NeuralReversi.Bitboard.Avx2Model
+public import NeuralReversi.Bitboard.MovesMaskGeometry
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86

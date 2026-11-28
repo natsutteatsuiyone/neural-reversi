@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.CallJournal
-import NeuralReversi.PvsParallel.SerialTable.MidgameNative
+module
+public import NeuralReversi.PvsParallel.Interleaving.CallJournal
+public import NeuralReversi.PvsParallel.SerialTable.MidgameNative
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CallJournal
 
@@ -26,7 +29,7 @@ structure SnapshotSite (x : NativeTableWrites.Journal.Execution c endian rs) (k 
 
 def SnapshotSite.words (r : SnapshotSite x k) := (x.memory (c k).address).readValue ∘ r.event
 
-private theorem SnapshotSite.older (r : SnapshotSite x k) (s : SeqLock.Snapshot)
+theorem SnapshotSite.older (r : SnapshotSite x k) (s : SeqLock.Snapshot)
     (got : (ReaderMir.run endian r.words).returned = some s)
     (occupied : (Packing.unpack endian s.metadata).bound ≠ 0) : observed x init k ⟨s.player,s.opponent,s.metadata⟩ := by
   have length : (ReaderMir.run endian r.words).actions.length = 6 := by
@@ -39,7 +42,7 @@ private theorem SnapshotSite.older (r : SnapshotSite x k) (s : SeqLock.Snapshot)
     (by simpa [Snapshot.empty] using occupied) (r.noWrap length)
   exact hit.later ((x.memory _).sb_hb r.earlier)
 
-private theorem sameSnapshot (endian : Bool) (words : Nat → SeqLock.Word) (current : SeqLock.Word)
+theorem sameSnapshot (endian : Bool) (words : Nat → SeqLock.Word) (current : SeqLock.Word)
     (got : let obs := saveObservation endian words current
       Snapshot.read endian obs.first obs.last obs.sample = some s) (occupied : (Packing.unpack endian s.metadata).bound ≠ 0) :
     (ReaderMir.run endian words).returned = some s := by

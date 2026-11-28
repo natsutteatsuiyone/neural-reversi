@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.SplitRebookingMir.Correct
+module
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Correct
+public import NeuralReversi.PvsParallel.SplitActivationMir.Exclusive
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitRebookingMir
 

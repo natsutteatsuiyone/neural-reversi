@@ -1,4 +1,6 @@
-import Lean
+module
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.OutputLayer
 

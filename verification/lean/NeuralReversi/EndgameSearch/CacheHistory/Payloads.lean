@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.NativeTrace
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 
@@ -187,10 +190,10 @@ theorem matched_operand (values : Values) (worker : Nat) (r : Request) (accepted
 def collect (values : Values) (stream : List (Event S)) (worker first last : Nat) : Option (List Op) :=
   (requests stream worker first last).mapM (packet values worker)
 
-private instance : DecidableEq Write := fun x y =>
+instance : DecidableEq Write := fun x y =>
   decidable_of_iff (x.board=y.board ∧ x.alpha=y.alpha ∧ x.score=y.score) (by cases x; cases y; simp)
 
-private instance : DecidableEq Store := fun x y =>
+instance : DecidableEq Store := fun x y =>
   decidable_of_iff (x.table=y.table ∧ x.write=y.write) (by cases x; cases y; simp)
 
 structure Audit where

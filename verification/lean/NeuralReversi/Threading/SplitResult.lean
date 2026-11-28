@@ -1,5 +1,8 @@
-import NeuralReversi.MoveList.Concurrent
-import NeuralReversi.PvsMoveLoop
+module
+public import NeuralReversi.MoveList.Concurrent
+public import NeuralReversi.PvsMoveLoop
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitResult
 

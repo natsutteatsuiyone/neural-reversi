@@ -1,7 +1,10 @@
-import NeuralReversi.Bitboard.PotentialMasks
-import NeuralReversi.Bitboard.PotentialAssembly
-import NeuralReversi.Bitboard.PotentialSubset
-import NeuralReversi.Bitboard.MovesProperties
+module
+public import NeuralReversi.Bitboard.PotentialMasks
+public import NeuralReversi.Bitboard.PotentialAssembly
+public import NeuralReversi.Bitboard.PotentialSubset
+public import NeuralReversi.Bitboard.MovesProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 

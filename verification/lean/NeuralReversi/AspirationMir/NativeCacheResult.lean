@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.NativeResult
-import NeuralReversi.PvsParallel.NativeFrameCache
+module
+public import NeuralReversi.AspirationMir.NativeResult
+public import NeuralReversi.PvsParallel.NativeFrameCache
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

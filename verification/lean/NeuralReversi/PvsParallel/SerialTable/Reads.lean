@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.StableSample
-import NeuralReversi.PvsParallel.SerialTable.Slots
-import NeuralReversi.PvsParallel.SerialCacheStack.Program
+module
+public import NeuralReversi.PvsParallel.SerialTable.StableSample
+public import NeuralReversi.PvsParallel.SerialTable.Slots
+public import NeuralReversi.PvsParallel.SerialCacheStack.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 
@@ -94,7 +97,7 @@ theorem generation_order (mc : X86Config) (fc : FlipConfig) (b : Position) :
     (PvsBoardTree.legalSquares_values mc b.val).symm,List.map_map]
   rfl
 
-private abbrev raw := SerialCalls.ScoreWords.encode
+abbrev raw := SerialCalls.ScoreWords.encode
 
 def Image.inputs (im : Image l) (supported : im.Supported history) (c : SerialScout.Config)
     (base : SerialExecution.Inputs mc fc) : SerialExecution.Inputs mc fc := fun i ctx =>

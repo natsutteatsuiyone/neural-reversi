@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.IteratorFields
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Worker
+module
+public import NeuralReversi.PvsParallel.IteratorFields
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Worker
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorReports
 
@@ -119,7 +122,7 @@ structure Interval (pv : Bool) (beta : Int) (initial : SplitWindow.State) (earli
   prior : current <+: final
   stores : AlphaStores pv beta initial (earlier.map Report.score) current
 
-private theorem replay_prefix (xs : List SplitWorkerMir.FieldStores.Raw)
+theorem replay_prefix (xs : List SplitWorkerMir.FieldStores.Raw)
     (ok : SplitWorkerMir.FieldStores.replay pv beta encode cells a xs = some b) : a.alpha <+: b.alpha := by
   induction xs generalizing a with
   | nil => cases ok; exact ⟨[],by simp⟩
@@ -183,7 +186,7 @@ structure Load (history : History) (writes : List Write) (seed event : Event) (w
 
 def Load.read (got : Load history writes seed event word) : Read writes := ⟨event,got.source,false⟩
 
-private def Load.probe {acquired : Event} (p : Interval pv beta initial earlier seed final) (pre post : List Write)
+def Load.probe {acquired : Event} (p : Interval pv beta initial earlier seed final) (pre post : List Write)
     (got : Load history (pre ++ final ++ post) seed.event event word)
     (before : SequencedBefore event acquired)
     (next : ∀ i : Fin (pre ++ final ++ post).length, i.val = (p.last pre post).val + 1 →
@@ -203,7 +206,7 @@ structure Receipt (history : History) (pv : Bool) (beta : Int) (initial : SplitW
   probeLock : reads.probe.acquire = acquired
   wideLock : ∀ needed, (reads.reread needed).acquire = acquired
 
-private def both (i : Input) (b : Searched) (hit : SplitWorkerMir.search i = some b) (safe : Safe i)
+def both (i : Input) (b : Searched) (hit : SplitWorkerMir.search i = some b) (safe : Safe i)
     (first last : Fin writes.length) (scout wide : Read writes)
     (wa : i.alpha.toInt = signed32At writes scout.source) (wf : i.fresh.toInt = signed32At writes wide.source)
     (probe : AlphaRead history scout first last)
@@ -218,9 +221,9 @@ private def both (i : Input) (b : Searched) (hit : SplitWorkerMir.search i = som
     {reads with reread := fun h => again (needed h)}
   exact ⟨result,rfl,wa.symm,rfl,fun _ => rfl,fun _ => wf.symm,rfl,lock,fun h => same (needed h)⟩
 
-private def shortInput (i : Input) : Input := {i with fresh := i.alpha}
+def shortInput (i : Input) : Input := {i with fresh := i.alpha}
 
-private theorem short_hit (i : Input) (b : Searched) (hit : SplitWorkerMir.search i = some b) (stop : retry i = false) :
+theorem short_hit (i : Input) (b : Searched) (hit : SplitWorkerMir.search i = some b) (stop : retry i = false) :
     SplitWorkerMir.search (shortInput i) = some b := by
   rw [SplitWorkerMir.search_eq] at hit ⊢
   have choice : retry (shortInput i) = false := stop
@@ -233,7 +236,7 @@ private theorem short_hit (i : Input) (b : Searched) (hit : SplitWorkerMir.searc
   simp only [SplitWorkerMir.issued,stop,Bool.false_eq_true,ite_false] at hit
   exact hit
 
-private theorem short_safe (i : Input) (safe : Safe i) (no : retry i = false) : Safe (shortInput i) :=
+theorem short_safe (i : Input) (safe : Safe i) (no : retry i = false) : Safe (shortInput i) :=
   ⟨safe.alphaLow,safe.alphaHigh,safe.scout,fun h => by change retry i = true at h; simp [no] at h,
     fun h => by change retry i = true at h; simp [no] at h,fun h => by change retry i = true at h; simp [no] at h⟩
 

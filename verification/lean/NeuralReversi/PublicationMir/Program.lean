@@ -1,4 +1,7 @@
-import NeuralReversi.PublicationMir.Syntax
+module
+public import NeuralReversi.PublicationMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PublicationMir
 

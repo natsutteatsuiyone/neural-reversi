@@ -1,7 +1,10 @@
-import NeuralReversi.Board.MovesProperties
-import NeuralReversi.ScoreRefresh.BoardBridge
-import NeuralReversi.ScoreRefresh.Properties
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.Board.MovesProperties
+public import NeuralReversi.ScoreRefresh.BoardBridge
+public import NeuralReversi.ScoreRefresh.Properties
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.EndgamePass
 open Board (Board)

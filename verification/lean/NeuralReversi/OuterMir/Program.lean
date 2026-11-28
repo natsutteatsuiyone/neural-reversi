@@ -1,4 +1,7 @@
-import NeuralReversi.PublicationMir.Correct
+module
+public import NeuralReversi.PublicationMir.Correct
+
+@[expose] public section
 
 namespace NeuralReversi.OuterMir
 

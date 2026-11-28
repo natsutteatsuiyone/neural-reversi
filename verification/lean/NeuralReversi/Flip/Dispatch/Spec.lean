@@ -1,6 +1,9 @@
-import NeuralReversi.Flip.Dispatch.Types
-import NeuralReversi.Flip.Spec
-import NeuralReversi.Flip.Avx2.Spec
+module
+public import NeuralReversi.Flip.Dispatch.Types
+public import NeuralReversi.Flip.Spec
+public import NeuralReversi.Flip.Avx2.Spec
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Dispatch
 

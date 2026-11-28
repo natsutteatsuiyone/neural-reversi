@@ -1,4 +1,7 @@
-import NeuralReversi.Board.TransformModel
+module
+public import NeuralReversi.Board.TransformModel
+
+@[expose] public section
 
 namespace NeuralReversi.Board.Transform
 open NeuralReversi

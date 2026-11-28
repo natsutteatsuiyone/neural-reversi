@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.SeqLock
+module
+public import NeuralReversi.TranspositionTable.SeqLock
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterTrace
 
@@ -622,7 +625,7 @@ theorem Slot.publishedPayload {memory : Memory Event} (slot : Slot memory) (k : 
   have metadata := (slot.finishedField k call positive existsAt .metadata).2.1
   exact ⟨call, existsAt, by simp [Slot.payloadAt, player, opponent, metadata, fieldWord]⟩
 
-private def Slot.fenceAt {memory : Memory Event} (slot : Slot memory) (epoch : Nat) : Event :=
+def Slot.fenceAt {memory : Memory Event} (slot : Slot memory) (epoch : Nat) : Event :=
   match slot.history[2 * epoch - 2]? with
   | some (.claim call) => call.fence
   | _ => memory.write .sequence 0

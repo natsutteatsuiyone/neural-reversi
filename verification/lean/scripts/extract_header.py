@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import threading
 
 from extract_single import SIGNATURE, check_score_operators
 from mir_common import ASSERT, CALL, GOTO, blocks, checked, const_value
@@ -15,9 +16,20 @@ CONDITIONS = ("idx < count", "idx = 0", "minSplit ≤ depth", "2 ≤ count - idx
               "canSplit", "busy", "idx + 1 < fresh", "alpha < -scout")
 PVS = "search::<PV, SS>"
 SCOUT = "search::<NonPV, SS>"
+_SPECIALIZATION_LOCK = threading.Lock()
+_SPECIALIZATION_CHECKED = set()
+
+
+def seed_specialization(repo):
+    with _SPECIALIZATION_LOCK:
+        _SPECIALIZATION_CHECKED.add(Path(repo).resolve())
 
 def specialization(repo):
-    src = repo / "crates/reversi-core/src/search"
+    key = Path(repo).resolve()
+    with _SPECIALIZATION_LOCK:
+        if key in _SPECIALIZATION_CHECKED:
+            return
+    src = key / "crates/reversi-core/src/search"
     strategy = (src / "strategy.rs").read_text(encoding="utf-8")
     checked(re.findall(r"^impl SearchStrategy for EndGameStrategy \{\s*const IS_ENDGAME: bool = (true|false);",
                        strategy, re.M) == ["true"], "unsupported endgame flag")
@@ -43,8 +55,10 @@ fn main() {{
         path, exe = Path(scratch) / "specialization.rs", Path(scratch) / "specialization.exe"
         path.write_text(rust, encoding="utf-8")
         subprocess.run(["rustc", "--edition=2024", "-Adead_code", "-Ainternal_features", str(path), "-o", str(exe)],
-                       cwd=repo, check=True)
+                       cwd=key, check=True)
         subprocess.run([str(exe)], check=True)
+    with _SPECIALIZATION_LOCK:
+        _SPECIALIZATION_CHECKED.add(key)
 
 
 def binding(source, name, last=False):
@@ -104,6 +118,129 @@ def initial(source, cfg):
     return names, int(head[1])
 
 
+_RE_STORAGE = re.compile(r"Storage(?:Live|Dead)\((_\d+)\);")
+_RE_NOP = re.compile(
+    r"PlaceMention\(_\d+\);|FakeRead\(ForLet\(None\), _\d+\);|"
+    r"AscribeUserType\(_\d+, o, UserTypeProjection \{ base: UserType\(\d+\), projs: \[\] \}\);"
+)
+_RE_ASSIGN = re.compile(r"(_\d+) = (.+);")
+_RE_CALL = re.compile(CALL)
+_RE_SWITCH = re.compile(r"switchInt\(move (_\d+)\) -> \[((?:\d+: bb\d+, )*otherwise: bb\d+)\];")
+_RE_SWITCH_BRANCH = re.compile(r"(\w+): bb(\d+)")
+_RE_GOTO = re.compile(GOTO)
+_RE_DROP = re.compile(r"drop\((_\d+)\) -> \[return: bb(\d+), unwind: bb\d+\];")
+_RE_ASSERT = re.compile(ASSERT)
+_RE_LOCAL = re.compile(r"_\d+")
+_RE_DEREF = re.compile(r"\(\*(_\d+)\)")
+_RE_SELECTIVITY = re.compile(r"\(\(\*(_\d+)\)\.7: probcut::Selectivity\)")
+_RE_CONST_INT = re.compile(r"const (\d+)_(?:usize|u32|i32)")
+_RE_PROJ = re.compile(r"(?:move|copy) \((_\d+)\.(\d): ([^)]+)\)")
+_RE_MOVE_COPY = re.compile(r"(?:move|copy) (.+)")
+_RE_REF = re.compile(r"&(?:mut )?(.+)")
+_RE_DISC = re.compile(r"discriminant\((_\d+)\)")
+_RE_NOT = re.compile(r"Not\((.+)\)")
+_RE_BINOP = re.compile(r"(Sub|Add|Lt|Le|Ge|Eq|Gt)(WithOverflow)?\((.+), (.+)\)")
+_RE_SPLIT_REQ = re.compile(r"SplitRequest::<'_> \{ (.*) \}")
+
+_STMT_CACHE = {}
+_TERM_CACHE = {}
+_EXPR_CACHE = {}
+_OPERAND_CACHE = {}
+_PLACE_CACHE = {}
+
+
+def _parse_place(text):
+    parsed = _PLACE_CACHE.get(text)
+    if parsed is not None:
+        return parsed
+    if _RE_LOCAL.fullmatch(text):
+        parsed = ("local", text)
+    elif m := _RE_DEREF.fullmatch(text):
+        parsed = ("deref", m[1])
+    elif m := _RE_SELECTIVITY.fullmatch(text):
+        parsed = ("selectivity", m[1])
+    else:
+        parsed = ("err", text)
+    _PLACE_CACHE[text] = parsed
+    return parsed
+
+
+def _parse_operand(text):
+    parsed = _OPERAND_CACHE.get(text)
+    if parsed is not None:
+        return parsed
+    if m := _RE_CONST_INT.fullmatch(text):
+        parsed = ("int", int(m[1]))
+    elif m := _RE_PROJ.fullmatch(text):
+        parsed = ("proj", m[1], m[2], m[3])
+    elif m := _RE_MOVE_COPY.fullmatch(text):
+        parsed = ("copy", _parse_place(m[1]))
+    elif m := _RE_REF.fullmatch(text):
+        parsed = ("ref", _parse_place(m[1]))
+    else:
+        parsed = ("err", text)
+    _OPERAND_CACHE[text] = parsed
+    return parsed
+
+
+def _parse_expr(rhs):
+    parsed = _EXPR_CACHE.get(rhs)
+    if parsed is not None:
+        return parsed
+    if rhs == "const ()":
+        parsed = ("unit",)
+    elif m := _RE_DISC.fullmatch(rhs):
+        parsed = ("disc", m[1])
+    elif m := _RE_NOT.fullmatch(rhs):
+        parsed = ("not", m[1])
+    elif m := _RE_BINOP.fullmatch(rhs):
+        parsed = ("binop", m[1], bool(m[2]), m[3], m[4])
+    elif m := _RE_SPLIT_REQ.fullmatch(rhs):
+        parsed = ("split_req", tuple(tuple(item.split(": ", 1)) for item in m[1].split(", ")))
+    else:
+        parsed = ("operand", rhs)
+    _EXPR_CACHE[rhs] = parsed
+    return parsed
+
+
+def _parse_stmt(ins):
+    parsed = _STMT_CACHE.get(ins)
+    if parsed is not None:
+        return parsed
+    if m := _RE_STORAGE.fullmatch(ins):
+        parsed = ("storage", m[1])
+    elif _RE_NOP.fullmatch(ins):
+        parsed = ("nop",)
+    elif m := _RE_ASSIGN.fullmatch(ins):
+        parsed = ("assign", m[1], _parse_expr(m[2]))
+    else:
+        parsed = ("err", ins)
+    _STMT_CACHE[ins] = parsed
+    return parsed
+
+
+def _parse_term(end):
+    parsed = _TERM_CACHE.get(end)
+    if parsed is not None:
+        return parsed
+    if m := _RE_CALL.fullmatch(end):
+        args = tuple(a for a in m[3].split(", ") if a)
+        parsed = ("call", m[1], m[2], args, int(m[4]))
+    elif m := _RE_SWITCH.fullmatch(end):
+        branches = {k: int(v) for k, v in _RE_SWITCH_BRANCH.findall(m[2])}
+        parsed = ("switch", m[1], branches)
+    elif m := _RE_GOTO.fullmatch(end):
+        parsed = ("goto", int(m[1] or m[2]))
+    elif m := _RE_DROP.fullmatch(end):
+        parsed = ("drop", m[1], int(m[2]))
+    elif m := _RE_ASSERT.fullmatch(end):
+        parsed = ("assert", m[1], int(m[2]))
+    else:
+        parsed = ("err", end)
+    _TERM_CACHE[end] = parsed
+    return parsed
+
+
 def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=0,
                tt_pv=1, speculative=False):
     inside, first, deep, enough, free, busy, has_fresh, scout_improves = flags
@@ -114,7 +251,7 @@ def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=
     env[names["tt_pv"]] = tt_pv
     env[names["all_node"]] = int(node == "nonPvID" and not cut)
     env[names["cut_node"]] = cut
-    persistent = {names[n]: env[names[n]] for n in names if n not in ("move", "score", "idx", "fresh_end")}
+    persistent = [(names[n], env[names[n]]) for n in names if n not in ("move", "score", "idx", "fresh_end")]
     traits = {**traits, ENDGAME: 1, "const search::endgame::MIN_SPLIT_DEPTH": "minSplit",
               "const search::endgame::SPECULATIVE_SPLIT_MAX_DEPTH": "maxSpeculative",
               "const <NT as search::node_type::NodeType>::ID": node}
@@ -137,37 +274,49 @@ def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=
         "threading::thread::Thread::split": (["thread", "ctx", "request"], "split"),
         "transposition_table::Bound::classify::<NT>": (["best_score", "org_alpha", "beta"], "done"),
     }
+    move_fields = {("0", "bitboard::Bitboard"): "flips", ("1", "i32"): "ordering",
+                   ("2", "square::Square"): "sq"}
+    neg_map = {32767: -32767, "alpha": "negAlpha", "beta": "negBeta",
+               "alphaPlusOne": "negAlphaPlusOne", "scout": "negScout", "pv": "negPv"}
+    expected_split_req = [
+        ("board", ("ref", "board")), ("alpha", "alpha"), ("beta", "beta"),
+        ("best_score", "best_score"), ("best_move", "best_move"), ("depth", "depth"),
+        ("move_list", "move_list"), ("move_count", "idx"), ("node_type", node),
+        ("cut_node", cut),
+    ]
 
     def pointee(val):
         checked(isinstance(val, tuple) and val[0] == "ref", f"not a reference {val}")
         return val[1]
 
-    def place(text):
-        if re.fullmatch(r"_\d+", text):
-            return text
-        if m := re.fullmatch(r"\(\*(_\d+)\)", text):
-            return pointee(env[m[1]])
-        if m := re.fullmatch(r"\(\(\*(_\d+)\)\.7: probcut::Selectivity\)", text):
-            checked(pointee(env[m[1]]) == "ctx", "selectivity of another context")
+    def eval_place(parsed):
+        kind = parsed[0]
+        if kind == "local":
+            return parsed[1]
+        if kind == "deref":
+            return pointee(env[parsed[1]])
+        if kind == "selectivity":
+            checked(pointee(env[parsed[1]]) == "ctx", "selectivity of another context")
             return "selectivity"
-        raise ValueError(f"unsupported header place {text}")
+        raise ValueError(f"unsupported header place {parsed[1]}")
 
     def operand(text):
         if text in traits:
             return traits[text]
-        if m := re.fullmatch(r"const (\d+)_(?:usize|u32|i32)", text):
-            return int(m[1])
-        if m := re.fullmatch(r"(?:move|copy) \((_\d+)\.(\d): ([^)]+)\)", text):
-            value = env[m[1]]
+        parsed = _parse_operand(text)
+        kind = parsed[0]
+        if kind == "int":
+            return parsed[1]
+        if kind == "proj":
+            value = env[parsed[1]]
             if value == "moveRecord":
-                return {("0", "bitboard::Bitboard"): "flips", ("1", "i32"): "ordering",
-                        ("2", "square::Square"): "sq"}[(m[2], m[3])]
+                return move_fields[(parsed[2], parsed[3])]
             checked(isinstance(value, tuple) and value[0] == "checked", f"projection {text}: {value}")
-            return value[int(m[2]) + 1]
-        if m := re.fullmatch(r"(?:move|copy) (.+)", text):
-            return env[place(m[1])]
-        if m := re.fullmatch(r"&(?:mut )?(.+)", text):
-            return ("ref", place(m[1]))
+            return value[int(parsed[2]) + 1]
+        if kind == "copy":
+            return env[eval_place(parsed[1])]
+        if kind == "ref":
+            return ("ref", eval_place(parsed[1]))
         raise ValueError(f"unsupported header operand {text}")
 
     arithmetic = {
@@ -181,62 +330,64 @@ def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=
         ("Gt", 0, 0): 0, ("Eq", "nextIndex", 1): first,
     }
 
-    def expr(rhs):
-        if rhs == "const ()":
+    def eval_expr(parsed):
+        kind = parsed[0]
+        if kind == "operand":
+            return operand(parsed[1])
+        if kind == "unit":
             return "unit"
-        if m := re.fullmatch(r"discriminant\((_\d+)\)", rhs):
-            checked(env[m[1]] == "claim", "unknown discriminant")
+        if kind == "disc":
+            checked(env[parsed[1]] == "claim", "unknown discriminant")
             return claim_tag
-        if m := re.fullmatch(r"Not\((.+)\)", rhs):
-            condition = operand(m[1])
+        if kind == "not":
+            condition = operand(parsed[1])
             checked(condition in (0, 1), "unknown negation")
             return int(not condition)
-        if m := re.fullmatch(r"(Sub|Add|Lt|Le|Ge|Eq|Gt)(WithOverflow)?\((.+), (.+)\)", rhs):
-            value = arithmetic[(m[1], operand(m[3]), operand(m[4]))]
-            return ("checked", value, 0) if m[2] else value
-        if m := re.fullmatch(r"SplitRequest::<'_> \{ (.*) \}", rhs):
-            fields = [item.split(": ", 1) for item in m[1].split(", ")]
-            actual = [(name, operand(value)) for name, value in fields]
-            expected = [("board", ("ref", "board")), ("alpha", "alpha"), ("beta", "beta"),
-                        ("best_score", "best_score"), ("best_move", "best_move"), ("depth", "depth"),
-                        ("move_list", "move_list"), ("move_count", "idx"), ("node_type", node),
-                        ("cut_node", cut)]
-            checked(actual == expected, f"invalid split request {actual}")
-            return "request"
-        return operand(rhs)
+        if kind == "binop":
+            value = arithmetic[(parsed[1], operand(parsed[3]), operand(parsed[4]))]
+            return ("checked", value, 0) if parsed[2] else value
+        actual = [(name, operand(value)) for name, value in parsed[1]]
+        checked(actual == expected_split_req, f"invalid split request {actual}")
+        return "request"
 
     def verify_carried():
-        checked(all(env.get(k) == v for k, v in persistent.items()), "loop-carried state changed before dispatch")
+        checked(all(env.get(k) == v for k, v in persistent), "loop-carried state changed before dispatch")
+
+    idx_reg = names["idx"]
+    fresh_reg = names["fresh_end"]
+    move_reg = names["move"]
+    score_reg = names["score"]
 
     for ticks in range(500):
         if pc == header and ticks:
             verify_carried()
-            checked(events == ["MoveList::postpone_move"] and env[names["idx"]] == "idx"
-                    and env[names["fresh_end"]] == "oneLessFresh", "invalid postpone back-edge")
+            checked(events == ["MoveList::postpone_move"] and env[idx_reg] == "idx"
+                    and env[fresh_reg] == "oneLessFresh", "invalid postpone back-edge")
             return ".postpone idx (fresh - 1)"
-        *statements, end = cfg[pc]
-        for ins in statements:
-            if m := re.fullmatch(r"Storage(?:Live|Dead)\((_\d+)\);", ins):
-                env.pop(m[1], None)
+        block = cfg[pc]
+        for ins in block[:-1]:
+            stmt = _parse_stmt(ins)
+            skind = stmt[0]
+            if skind == "assign":
+                try:
+                    env[stmt[1]] = eval_expr(stmt[2])
+                except (ValueError, KeyError) as err:
+                    raise ValueError(f"bb{pc}: {ins}: {err}") from err
+            elif skind == "storage":
+                env.pop(stmt[1], None)
+            elif skind == "nop":
                 continue
-            if re.fullmatch(r"PlaceMention\(_\d+\);|FakeRead\(ForLet\(None\), _\d+\);", ins):
-                continue
-            if re.fullmatch(r"AscribeUserType\(_\d+, o, UserTypeProjection \{ base: UserType\(\d+\), projs: \[\] \}\);", ins):
-                continue
-            m = re.fullmatch(r"(_\d+) = (.+);", ins)
-            checked(m, f"bb{pc} unhandled {ins}")
-            try:
-                env[m[1]] = expr(m[2])
-            except (ValueError, KeyError) as err:
-                raise ValueError(f"bb{pc}: {ins}: {err}") from err
-        if m := re.fullmatch(CALL, end):
-            args = [operand(a) for a in m[3].split(", ") if a]
+            else:
+                checked(False, f"bb{pc} unhandled {ins}")
+        term = _parse_term(block[-1])
+        tkind = term[0]
+        if tkind == "call":
+            _, dst, fn, raw_args, nxt = term
+            args = [operand(a) for a in raw_args]
             values = [env[pointee(a)] if isinstance(a, tuple) and a[0] == "ref" else a for a in args]
-            fn = m[2]
             if fn == "<Score as Neg>::neg":
                 value, = values
-                result = {32767: -32767, "alpha": "negAlpha", "beta": "negBeta",
-                          "alphaPlusOne": "negAlphaPlusOne", "scout": "negScout", "pv": "negPv"}[value]
+                result = neg_map[value]
             elif fn == "<Score as PartialOrd>::gt":
                 checked(values == ["negScout", "alpha"], f"unexpected research comparison {values}")
                 result = scout_improves
@@ -247,36 +398,36 @@ def transition(cfg, names, header, flags, traits, claim_tag, node="rootID", cut=
                     events.append(fn)
                 if result in ("done", "split"):
                     verify_carried()
-                    checked(not events and env[names["idx"]] == "idx", "nonempty prefix before handoff")
-                    checked(env[names["fresh_end"]] == "fresh_end", "unexpected fresh bound at exit")
+                    checked(not events and env[idx_reg] == "idx", "nonempty prefix before handoff")
+                    checked(env[fresh_reg] == "fresh_end", "unexpected fresh bound at exit")
                     return ".finish" if result == "done" else ".split"
                 if result == "undo":
                     verify_carried()
-                    checked(env[names["idx"]] == "nextIndex" and env[names["fresh_end"]] == "fresh_end",
+                    checked(env[idx_reg] == "nextIndex" and env[fresh_reg] == "fresh_end",
                             "unexpected child cursor")
-                    checked(env[names["move"]] == "moveRecord" and events[0] == "SearchContext::<'_>::update",
+                    checked(env[move_reg] == "moveRecord" and events[0] == "SearchContext::<'_>::update",
                             "unmatched context update before undo")
                     search = {(PVS,): ("false true", "negPv", "-pv"), (SCOUT,): ("true false", "negScout", "-scout"),
                               (SCOUT, PVS): ("true true", "negPv", "-pv")}[tuple(events[1:])]
-                    checked(env[names["score"]] == search[1], "wrong final child reply")
+                    checked(env[score_reg] == search[1], "wrong final child reply")
                     return f".child (idx + 1) {search[0]} ({search[2]})"
-            env[m[1]] = result
-            pc = int(m[4])
-        elif m := re.fullmatch(r"switchInt\(move (_\d+)\) -> \[((?:\d+: bb\d+, )*otherwise: bb\d+)\];", end):
-            branches = dict(re.findall(r"(\w+): bb(\d+)", m[2]))
-            val = env[m[1]]
+            env[dst] = result
+            pc = nxt
+        elif tkind == "switch":
+            val = env[term[1]]
             checked(isinstance(val, int), f"unresolved switch {val}")
-            pc = int(branches.get(str(int(val)), branches["otherwise"]))
-        elif m := re.fullmatch(GOTO, end):
-            pc = int(m[1] or m[2])
-        elif m := re.fullmatch(r"drop\((_\d+)\) -> \[return: bb(\d+), unwind: bb\d+\];", end):
-            checked(env[m[1]] == "claim", "unsupported destructor")
-            pc = int(m[2])
-        elif m := re.fullmatch(ASSERT, end):
-            checked(operand(m[1]) == 0, "arithmetic overflow")
-            pc = int(m[2])
+            branches = term[2]
+            pc = branches.get(str(int(val)), branches["otherwise"])
+        elif tkind == "goto":
+            pc = term[1]
+        elif tkind == "drop":
+            checked(env[term[1]] == "claim", "unsupported destructor")
+            pc = term[2]
+        elif tkind == "assert":
+            checked(operand(term[1]) == 0, "arithmetic overflow")
+            pc = term[2]
         else:
-            raise ValueError(f"bb{pc} unsupported {end}")
+            raise ValueError(f"bb{pc} unsupported {block[-1]}")
     raise ValueError("header slice did not reach a transition")
 
 
@@ -311,7 +462,11 @@ def render(pvs, reduction, repo):
 
     root = build()
     steps = "".join(f"  let {name} : HeaderAction := {rhs}\n" for rhs, name in branches.items())
-    return f"""namespace NeuralReversi.PvsParallel
+    return f"""module
+
+@[expose] public section
+
+namespace NeuralReversi.PvsParallel
 
 def rootMinimumSplitDepth : Nat := {threshold}
 

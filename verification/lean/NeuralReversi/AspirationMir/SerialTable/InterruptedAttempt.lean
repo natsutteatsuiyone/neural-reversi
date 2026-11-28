@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
-import NeuralReversi.PublicationMir.InterruptedExact
+module
+public import NeuralReversi.PvsParallel.SerialTable.EndgameInterrupted
+public import NeuralReversi.PublicationMir.InterruptedExact
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.InterruptedAttempt
 

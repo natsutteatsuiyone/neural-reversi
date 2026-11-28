@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.CausalTable
-import NeuralReversi.PvsParallel.FrameTableReads.LookupExecution
+module
+public import NeuralReversi.PvsParallel.Interleaving.CausalTable
+public import NeuralReversi.PvsParallel.FrameTableReads.LookupExecution
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.CausalReads
 

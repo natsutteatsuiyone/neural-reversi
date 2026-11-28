@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.WorkerPollMir.Syntax
+module
+public import NeuralReversi.PvsParallel.WorkerPollMir.Syntax
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 

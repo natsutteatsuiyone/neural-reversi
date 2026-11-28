@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeFrames.Invocations
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Program
+module
+public import NeuralReversi.PvsParallel.NativeFrames.Invocations
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Program
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.OwnerSites
 

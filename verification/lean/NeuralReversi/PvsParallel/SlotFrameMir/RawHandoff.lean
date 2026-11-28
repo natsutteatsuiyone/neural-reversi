@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.RawTeam
-import NeuralReversi.PvsParallel.NativeSplit.AlphaOrder
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
-import NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawTeam
+public import NeuralReversi.PvsParallel.NativeSplit.AlphaOrder
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Startup
+public import NeuralReversi.PvsParallel.NativeSplit.AlphaLoads
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SlotFrameMir.RawProjection
 
@@ -11,7 +14,7 @@ open SplitWorkerMir (Step)
 open NativeSplit (Tickets Handoff)
 open SplitSchedulerMir
 
-private theorem address {t : Tickets rc pv beta} (x : IteratorFrames.Posted rc t.state t.journal t.stream earlier r seq) :
+theorem address {t : Tickets rc pv beta} (x : IteratorFrames.Posted rc t.state t.journal t.stream earlier r seq) :
     ∃ addr, WorkerFields.locate t.dispatches x.lock = some addr ∧
       addr.aligned x.lock x.body.steps = true ∧ addr.row.needsReset = true := by
   obtain ⟨addr,found,matched⟩ := WorkerFields.for_posted x (List.all_eq_true.mp t.traced _ x.issued)
@@ -74,7 +77,7 @@ def Reports.loads {g : RawMask ws} {t : Tickets rc pv beta} {p : PhysicalOwner g
     exact ⟨rfl,p.exit.timeline.advances _ _ (by decide)⟩
   exact ⟨safe,data.memory.load scout (publish false (by simp)),fun yes => data.memory.load (wide yes) (publish true (fun _ => yes))⟩
 
-private theorem Reports.after_acquire {g : RawMask ws} {t : Tickets rc pv beta} {p : PhysicalOwner g hist time slot t}
+theorem Reports.after_acquire {g : RawMask ws} {t : Tickets rc pv beta} {p : PhysicalOwner g hist time slot t}
     (data : Reports p) (part : t.reports = earlier ++ r :: later)
     (i : Fin (data.pre ++ t.final.alpha ++ subsequent p.exit slot .alpha p.later).length)
     (pos : i.val = ((t.interval part).last data.pre (subsequent p.exit slot .alpha p.later)).val + 1) :

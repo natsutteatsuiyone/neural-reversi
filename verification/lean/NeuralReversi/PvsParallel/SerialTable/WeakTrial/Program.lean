@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.WeakStack.Program
-import NeuralReversi.PvsParallel.SerialTable.Trial
-import NeuralReversi.PvsParallel.SerialTable.WeakRoot
+module
+public import NeuralReversi.PvsParallel.SerialTable.WeakStack.Program
+public import NeuralReversi.PvsParallel.SerialTable.Trial
+public import NeuralReversi.PvsParallel.SerialTable.WeakRoot
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.WeakTrial
 

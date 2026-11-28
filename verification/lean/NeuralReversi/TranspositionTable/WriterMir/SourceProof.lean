@@ -1,6 +1,9 @@
-import NeuralReversi.TranspositionTable.WriterMir.Origins
-import NeuralReversi.TranspositionTable.WriterMir
-import NeuralReversi.TranspositionTable.Penalty
+module
+public import NeuralReversi.TranspositionTable.WriterMir.Origins
+public import NeuralReversi.TranspositionTable.WriterMir
+public import NeuralReversi.TranspositionTable.Penalty
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.WriterMir
 

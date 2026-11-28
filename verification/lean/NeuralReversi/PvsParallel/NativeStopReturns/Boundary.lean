@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.NativeStopReturns.Poll
-import NeuralReversi.PvsParallel.NativeLeafBranches
+module
+public import NeuralReversi.PvsParallel.NativeStopReturns.Poll
+public import NeuralReversi.PvsParallel.NativeLeafBranches
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeStopReturns
 
@@ -30,7 +33,7 @@ structure Leaf where
   last : Nat
   site : LeafSite
 
-private def stackAt (events : List Raw) (time : Nat) : Option (List (Nat × Node)) :=
+def stackAt (events : List Raw) (time : Nat) : Option (List (Nat × Node)) :=
   (events.filter fun e => decide (e.step < time)).foldlM (init := []) fun stack ev =>
     match ev with
     | .enter first _ node .. => some ((first,node) :: stack)

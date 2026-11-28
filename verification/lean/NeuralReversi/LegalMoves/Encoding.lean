@@ -1,8 +1,11 @@
-import NeuralReversi.LegalMoves.Stencils
-import NeuralReversi.LegalMoves.Preservation
-import NeuralReversi.Bitboard.NeonMoves
-import Std.Sat.CNF.Dimacs
-import Std.Tactic.BVDecide.LRAT.Checker
+module
+public import NeuralReversi.LegalMoves.Stencils
+public import NeuralReversi.LegalMoves.Preservation
+public import NeuralReversi.Bitboard.NeonMoves
+public import Std.Sat.CNF.Dimacs
+public import Std.Tactic.BVDecide.LRAT.Checker
+
+@[expose] public section
 
 namespace NeuralReversi.LegalMoves.MoveBound
 
@@ -234,9 +237,9 @@ private theorem var_mem (f : CNF Atom) (a : Atom) (hs : f.VarMem a) :
   obtain ⟨c, mem, vl⟩ := hs
   obtain ⟨sign, ml⟩ := CNF.Clause.VarMem_iff_exists_mem_literals.mp vl
   simp only [variables, List.mem_eraseDups, List.mem_flatMap, List.mem_map]
-  exact ⟨c, by simpa using CNF.Internal.mem_iff.mp mem, (a, sign), ml, rfl⟩
+  exact ⟨c, by simpa using mem, (a, sign), ml, rfl⟩
 
-@[noinline] private def relabelWith (labels : List Atom) (f : CNF Atom) : CNF Nat :=
+@[noinline] def relabelWith (labels : List Atom) (f : CNF Atom) : CNF Nat :=
   f.relabel labels.idxOf
 
 def dimacsFormula (index : Nat) : CNF Nat :=

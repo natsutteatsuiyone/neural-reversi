@@ -1,3 +1,4 @@
+import Lean.Data.Json
 import NeuralReversi.PvsParallel.Interleaving.AtomicReadback
 open Lean NeuralReversi NeuralReversi.PvsParallel
 open TranspositionTable NativeTableWrites.Journal Interleaving

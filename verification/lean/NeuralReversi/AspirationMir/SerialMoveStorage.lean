@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialStack
+module
+public import NeuralReversi.AspirationMir.SerialStack
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialMoveStorage
 

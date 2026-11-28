@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalScout
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalScout
+meta import NeuralReversi.PvsParallel.Interleaving.JournalScout
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalProbCut
 
@@ -19,7 +23,7 @@ inductive Progress (Op : Type) where
 def estimates (eval word : BitVec 32) (a z : Int) : Estimates :=
   ⟨eval,fun lo hi => if lo = a ∧ hi = z then word else 0⟩
 
-private def noMore (tail : Trace Op) := match tail.head? with | some (.probWord ..,_) => false | _ => true
+def noMore (tail : Trace Op) := match tail.head? with | some (.probWord ..,_) => false | _ => true
 
 /-- Parse the dedicated register sites on one worker. A rejected screen issues
     no depth-two call. A failed verification leaves the entire search suffix
@@ -60,13 +64,13 @@ def afterEtc (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Posi
   if hit.isSome then return none
   return some (match windows.getLast? with | none => tape | some last => tape.dropWhile (fun row => decide (row.2 ≤ last.finish)))
 
-private def eligible (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) :=
+def eligible (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (d : Depth) (a : Score) :=
   let generated := PvEntryMir.generated mc fc b false (fun _ => none)
   let stable := EndgameStability.tryCutoff b.val d.toNat ⟨(ScoreRefresh.toDiscDiff a).raw.toInt⟩
   decide (GeneralNonPvMir.dispatch d.toNat stable.isSome (generated.len.getD 0 != 0)
     (Board.hasLegalMoves mc (pass b).val) generated.wipeout.join.isSome false false = .rest)
 
-private def decideCut (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
+def decideCut (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
     (f : Frame) (owner : CallJournal.Choice) (level : Selectivity) (tail : Trace Op) :
     Check (Bodies mc fc level reads f) :=
   match consume f.board owner.depth level owner.cut owner.beta owner.worker tail with

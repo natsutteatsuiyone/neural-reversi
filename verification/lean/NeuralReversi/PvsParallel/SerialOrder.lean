@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialRecursion
+module
+public import NeuralReversi.PvsParallel.SerialRecursion
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialOrder
 

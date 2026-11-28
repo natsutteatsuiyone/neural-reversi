@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.CornerProperties
+module
+public import NeuralReversi.Bitboard.CornerProperties
+
+@[expose] public section
 
 namespace NeuralReversi.LegalMoves
 open Bitboard

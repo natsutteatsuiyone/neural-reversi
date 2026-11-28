@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
-import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
-import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadback
+module
+public import NeuralReversi.PvsParallel.Interleaving.AlphaOrigin
+public import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+public import NeuralReversi.PvsParallel.Interleaving.SplitOwnerReadback
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.AlphaReplay
 
@@ -18,7 +21,7 @@ def accesses (slot : Slot) (es : Joint.Tape Operand) : List (Event × Joint.Alph
         if owner = slot.1.val ∧ bank = slot.2 then some (⟨w,t⟩,op) else none
     | _ => none
 
-private def image (w : Write) := (w.event,w.value.setWidth 32)
+def image (w : Write) := (w.event,w.value.setWidth 32)
 
 def stores (rows : List (Event × Joint.AlphaWord)) : List Write :=
   rows.filterMap fun (e,op) => match op with
@@ -124,7 +127,7 @@ theorem readOrder_iff : ReadOrderContract := by
   intro h c rows
   simp only [readOrder,List.all_eq_true,decide_eq_true_eq,← MaskClock.published h c]
 
-private def mutex (c : MaskClock.Capture h) (init : Event) (ops : List SpinLock.Operation) :
+def mutex (c : MaskClock.Capture h) (init : Event) (ops : List SpinLock.Operation) :
     Option (Mutex.Capture h) := do
   if ok : (SlotSynchronization.lockEdges ops).all (fun p => c.sync.edges.contains p) then
     return ⟨init,ops,fun n a b first next => (c.sync.exact ..).mp (by
@@ -198,7 +201,7 @@ example :
     evalEqual true false ⟨0,1⟩ ⟨0,5⟩ = some (true,true,true) ∧
     evalEqual false false ⟨0,5⟩ ⟨0,1⟩ = some (true,true,true) ∧
     evalEqual false true ⟨0,5⟩ ⟨0,1⟩ = some (true,true,false) := by
-  cbv
+  decide +kernel
 
 end Regression
 

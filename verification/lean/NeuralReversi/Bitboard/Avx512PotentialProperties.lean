@@ -1,7 +1,10 @@
-import NeuralReversi.Bitboard.Avx512PotentialModel
-import NeuralReversi.Simd.ZmmProperties
-import NeuralReversi.Bitboard.RotatePropagation
-import NeuralReversi.Bitboard.Avx2PotentialProperties
+module
+public import NeuralReversi.Bitboard.Avx512PotentialModel
+public import NeuralReversi.Simd.ZmmProperties
+public import NeuralReversi.Bitboard.RotatePropagation
+public import NeuralReversi.Bitboard.Avx2PotentialProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Bitboard.Moves
 open NeuralReversi.Simd.X86
@@ -25,6 +28,7 @@ theorem combined512_lane_decomposition (p o : Bits) :
         (o &&& diagonalMask).rotateLeft 55 |||
         (o &&& diagonalMask).rotateLeft 57) &&& ~~~(p ||| o)) := by
   rw [getMovesAndPotentialAvx512,horizontalOr2Zmm_exact]
+  simp only [ternary512_eq]
   rfl
 
 

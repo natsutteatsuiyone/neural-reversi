@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.Alpha
-import NeuralReversi.PvsParallel.Interleaving.Retirement
-import NeuralReversi.PvsParallel.Interleaving.Worker
+module
+public import NeuralReversi.PvsParallel.Interleaving.Alpha
+public import NeuralReversi.PvsParallel.Interleaving.Retirement
+public import NeuralReversi.PvsParallel.Interleaving.Worker
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Schedule
 

@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialNativeRows
-import NeuralReversi.PvsParallel.SerialCalls.Driver
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.PvsParallel.SerialNativeRows
+public import NeuralReversi.PvsParallel.SerialCalls.Driver
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialStack
 
@@ -194,7 +197,7 @@ theorem Trials.openings (chain : Trials search s prior last)
     rw [← offset, show (k+1-s.opening)+(last.closing+1-(k+1)) = last.closing+1-s.opening by omega] at joined
     exact joined
 
-private def key (v : Visit) := (v.state.index, v.state.regs.alpha, v.state.regs.beta)
+def key (v : Visit) := (v.state.index, v.state.regs.alpha, v.state.regs.beta)
 
 /-- The MIR query reads a score from the actual activation at the requested
     trial index and window. Its default is unreachable on the proved driver run. -/

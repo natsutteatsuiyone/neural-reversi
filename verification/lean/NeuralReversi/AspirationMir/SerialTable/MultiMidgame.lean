@@ -1,4 +1,7 @@
-import NeuralReversi.AspirationMir.SerialTable.MidgameSession
+module
+public import NeuralReversi.AspirationMir.SerialTable.MidgameSession
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiMidgame
 
@@ -137,7 +140,7 @@ theorem line_returns {t : MidgameIterate.Trial M} (works : Works idx mc b safe t
   · intro prior
     exact choose ans.rows idx (size ▸ within) peak bounds (front ▸ prior)
 
-private def lines (trials : Nat → MidgameIterate.Trial M) (depth : Nat) :
+def lines (trials : Nat → MidgameIterate.Trial M) (depth : Nat) :
     Nat → Nat → State M → Option (State M)
   | 0, _, s => some s
   | n+1, idx, s => do

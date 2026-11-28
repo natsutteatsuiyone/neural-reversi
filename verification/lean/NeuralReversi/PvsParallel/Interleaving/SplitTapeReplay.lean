@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
-import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+module
+public import NeuralReversi.PvsParallel.Interleaving.CutoffPollReplay
+public import NeuralReversi.PvsParallel.Interleaving.SlotSynchronization
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SplitTapeReplay
 

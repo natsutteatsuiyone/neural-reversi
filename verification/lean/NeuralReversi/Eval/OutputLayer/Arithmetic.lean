@@ -1,5 +1,8 @@
-import NeuralReversi.Eval.LinearLayer.Forward
-import NeuralReversi.Eval.OutputLayer.Layout
+module
+public import NeuralReversi.Eval.LinearLayer.Forward
+public import NeuralReversi.Eval.OutputLayer.Layout
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.OutputLayer
 

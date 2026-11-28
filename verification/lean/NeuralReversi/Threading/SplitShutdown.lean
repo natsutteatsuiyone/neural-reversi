@@ -1,5 +1,8 @@
-import NeuralReversi.Threading.SplitPublication
-import NeuralReversi.Threading.ArcDrop
+module
+public import NeuralReversi.Threading.SplitPublication
+public import NeuralReversi.Threading.ArcDrop
+
+@[expose] public section
 
 namespace NeuralReversi.Threading.SplitShutdown
 

@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.SlotFrameMir.RawHandoff
-import NeuralReversi.PvsParallel.WorkerPollMir.Source
-import NeuralReversi.PvsParallel.IteratorFrames.EntryRegisters
-import NeuralReversi.PvsParallel.NativeFrames.SplitReturn
+module
+public import NeuralReversi.PvsParallel.SlotFrameMir.RawHandoff
+public import NeuralReversi.PvsParallel.WorkerPollMir.Source
+public import NeuralReversi.PvsParallel.IteratorFrames.EntryRegisters
+public import NeuralReversi.PvsParallel.NativeFrames.SplitReturn
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeSplit
 

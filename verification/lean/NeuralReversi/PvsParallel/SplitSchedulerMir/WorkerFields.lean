@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.IteratorFrames
-import NeuralReversi.PvsParallel.SplitWorkerMir.OwnerFields
+module
+public import NeuralReversi.PvsParallel.IteratorFrames
+public import NeuralReversi.PvsParallel.SplitWorkerMir.OwnerFields
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.WorkerFields
 
@@ -29,12 +32,12 @@ private theorem gaps_length (ss : List Section) :
 
 /-- Number of the full instruction at a projected index. A gap counts field
     accesses immediately before that instruction. Beyond the list, gaps are zero. -/
-private def offset : List Nat → Nat → Nat
+def offset : List Nat → Nat → Nat
   | [], i => i
   | g :: _, 0 => g
   | g :: gs, i+1 => g + 1 + offset gs i
 
-private theorem offset_strict (gaps : List Nat) (i j : Nat) (lt : i < j) :
+theorem offset_strict (gaps : List Nat) (i j : Nat) (lt : i < j) :
     offset gaps i < offset gaps j := by
   induction gaps generalizing i j with
   | nil => exact lt
@@ -55,16 +58,16 @@ private theorem offset_append (a b : List Nat) (i : Nat) :
     rw [show xs.length + 1 + i = (xs.length + i) + 1 by omega, offset, ih]
     omega
 
-private def withGaps (clock : Clock) (gaps : List Nat) : Clock where
+def withGaps (clock : Clock) (gaps : List Nat) : Clock where
   worker := clock.worker
   tick i := clock.tick (offset gaps i)
   advances i j h := clock.advances _ _ (offset_strict gaps i j h)
 
-private def gapsFrom : Nat → List Nat → List Nat
+def gapsFrom : Nat → List Nat → List Nat
   | _, [] => []
   | lo, t :: rest => (t - lo) :: gapsFrom (t+1) rest
 
-private def orderedFrom : Nat → List Nat → Bool
+def orderedFrom : Nat → List Nat → Bool
   | _, [] => true
   | lo, t :: rest => decide (lo ≤ t) && orderedFrom (t+1) rest
 
@@ -148,7 +151,7 @@ theorem steps_eq : a.dispatch.steps = a.prior ++ a.row.body ++ lockedSteps ++ a.
   conv => lhs; rw [a.split]
   simp [prior, later, Section.steps, List.append_assoc]
 
-private def start := (a.pre.flatMap Section.gaps).sum + a.prior.length
+def start := (a.pre.flatMap Section.gaps).sum + a.prior.length
 
 private theorem at_unlock :
     a.dispatch.projected.atStep (a.prior.length + (a.row.body.length+1)) =
@@ -167,7 +170,7 @@ private theorem at_unlock :
   rw [zeros]
   simp only [start, prior, gaps_length, List.singleton_append, offset]; omega
 
-private def physical (event : Event) : Value → Physical
+def physical (event : Event) : Value → Physical
   | .readAlpha val => .readAlpha val
   | .readBest val => .readBest val
   | .writeAlpha val => .writeAlpha ⟨event, val.zeroExtend 64, false, false⟩

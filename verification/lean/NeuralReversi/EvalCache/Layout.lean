@@ -1,4 +1,7 @@
-import NeuralReversi.ScaledScore.ArithmeticProperties
+module
+public import NeuralReversi.ScaledScore.ArithmeticProperties
+
+@[expose] public section
 
 namespace NeuralReversi.EvalCache
 

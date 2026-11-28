@@ -1,10 +1,13 @@
-import NeuralReversi.EvalCache.Layout
+module
+public import NeuralReversi.EvalCache.Layout
+
+@[expose] public section
 
 namespace NeuralReversi.EvalCache
 
 abbrev Bucket := Way → Word
 
-private def maskFour (a b c d : Bool) : BitVec 32 :=
+def maskFour (a b c d : Bool) : BitVec 32 :=
   (if a then 1 else 0) ||| (if b then 2 else 0) ||| (if c then 4 else 0) ||| (if d then 8 else 0)
 
 private def flags (a b c d : Bool) (i : Way) : Bool :=
@@ -40,7 +43,7 @@ theorem no_ways {f : Way → Bool} (none : wayMask f = 0) : ∀ i : Way, f i = f
   rw [none, dite_eq_left i.isLt] at zero
   simpa [BitVec.getLsbD] using zero.symm
 
-private theorem ctz_bound {f : Way → Bool} (positive : wayMask f ≠ 0) :
+theorem ctz_bound {f : Way → Bool} (positive : wayMask f ≠ 0) :
     (wayMask f).ctz.toNat < 4 := by
   have one := BitVec.getLsbD_true_ctz_of_ne_zero positive
   rw [wayMask_bit] at one

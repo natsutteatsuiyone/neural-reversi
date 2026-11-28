@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.NativeExecution
-import NeuralReversi.PvsParallel.FrameTableReads.Schedule
-import NeuralReversi.PvsParallel.FrameTableReads.WriterWindow
+module
+public import NeuralReversi.AspirationMir.NativeExecution
+public import NeuralReversi.PvsParallel.FrameTableReads.Schedule
+public import NeuralReversi.PvsParallel.FrameTableReads.WriterWindow
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeExecution
 

@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.WorkerFrameMir.Stack
+module
+public import NeuralReversi.PvsParallel.WorkerFrameMir.Stack
+public import NeuralReversi.PvsParallel.SplitRebookingMir.Participation
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerFrameMir
 

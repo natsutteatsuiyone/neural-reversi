@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.ConcurrentReplay
-import NeuralReversi.MoveList.Generation
-import NeuralReversi.PvsParallel.SingleExit
+module
+public import NeuralReversi.PvsParallel.ConcurrentReplay
+public import NeuralReversi.MoveList.Generation
+public import NeuralReversi.PvsParallel.SingleExit
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.ConcurrentReplay
 

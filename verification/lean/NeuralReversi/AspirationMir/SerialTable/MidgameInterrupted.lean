@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.MidgamePolledRoot
-import NeuralReversi.AspirationMir.SerialTable.TimedMidgame
+module
+public import NeuralReversi.AspirationMir.SerialTable.MidgamePolledRoot
+public import NeuralReversi.AspirationMir.SerialTable.TimedMidgame
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameInterrupted
 
@@ -18,7 +21,7 @@ structure Point where
   retries : Nat
   rootStop : SerialCalls.Request → Bool
 
-private def active (p : Pool) (b : Position) (paired : Bool) (level : Selectivity) (ops : TimedMidgame.Inputs l mc fc)
+def active (p : Pool) (b : Position) (paired : Bool) (level : Selectivity) (ops : TimedMidgame.Inputs l mc fc)
     (point : Point) (d : Nat) (s : State (Memory l)) (w : Attempt) : Option (Memory l) :=
   let f := ops d s w
   MidgamePolledRoot.run p b (BitVec.ofNat 32 d) paired f.scratch f.order level f.children point.rootStop
@@ -35,7 +38,7 @@ private theorem active_returns (p : Pool) (b : Position) (paired : Bool) (level 
 
 /-- Stop inside the chosen root attempt, or after the root's last store if the retry
     loop has already accepted. Failed attempts thread their unsorted rows and memory. -/
-private def retries (p : Pool) (b : Position) (paired : Bool) (level : Selectivity)
+def retries (p : Pool) (b : Position) (paired : Bool) (level : Selectivity)
     (ops observed : TimedMidgame.Inputs l mc fc) (point : Point) (d : Nat) :
     Nat → State (Memory l) → Attempt → Option (Memory l)
   | 0, s, w => active p b paired level observed point d s w
@@ -60,7 +63,7 @@ private theorem retries_return (p : Pool) (b : Position) (paired : Bool) (level 
       obtain ⟨post,run,ready⟩ := ih _ _ after window (by rw [width]; unfold MidgameAspiration.grow; omega)
       exact ⟨post,by simpa [retries,frame,wide] using run,ready⟩
 
-private def depths (q : Repeated.Call mc) (p : Pool) (paired : Bool) (level : Selectivity)
+def depths (q : Repeated.Call mc) (p : Pool) (paired : Bool) (level : Selectivity)
     (ops observed : TimedMidgame.Inputs l mc fc) (point : Point) (target : Nat) :
     Nat → Nat → State (Memory l) → Option (Memory l)
   | 0, d, s =>

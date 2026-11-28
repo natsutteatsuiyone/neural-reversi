@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.PublicScore
-import NeuralReversi.EndgameTreeCache
-import NeuralReversi.PublicationMir.ReturnedCapture
+module
+public import NeuralReversi.AspirationMir.PublicScore
+public import NeuralReversi.EndgameTreeCache
+public import NeuralReversi.PublicationMir.ReturnedCapture
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiRows
 

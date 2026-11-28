@@ -217,8 +217,8 @@ SIGS = {
 
 def render(dump,repo):
     size, bounds = sentinels(dump, repo)
-    lines = ["import NeuralReversi.EndgameCache","import NeuralReversi.MulHi","",
-             "namespace NeuralReversi.EndgameSearch.CacheMir","","open EndgameCache (Entry)","open Board (Board)","",
+    lines = ["module", "public import NeuralReversi.EndgameCache","public import NeuralReversi.MulHi","",
+             "@[expose] public section", "", "namespace NeuralReversi.EndgameSearch.CacheMir","","open EndgameCache (Entry)","open Board (Board)","",
              f"def lowerUnset : Int8 := {bounds['LOWER_UNSET']}",f"def upperUnset : Int8 := {bounds['UPPER_UNSET']}",
              "def initialCell : Entry := ⟨⟨0, 0⟩, lowerUnset, upperUnset⟩","",*allocation(dump,size)]
     for method,(source,signature) in SIGS.items():

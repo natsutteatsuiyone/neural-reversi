@@ -1,5 +1,8 @@
-import NeuralReversi.Simd.FlipModel
-import NeuralReversi.Simd.TernaryModel
+module
+public import NeuralReversi.Simd.FlipModel
+public import NeuralReversi.Simd.TernaryModel
+
+@[expose] public section
 
 namespace NeuralReversi.Simd.X86
 

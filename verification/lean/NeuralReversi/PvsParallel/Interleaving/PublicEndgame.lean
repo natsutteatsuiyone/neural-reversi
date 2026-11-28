@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.ParallelOperational
-import NeuralReversi.PublicationMir.ExactScore
+module
+public import NeuralReversi.PvsParallel.Interleaving.ParallelOperational
+public import NeuralReversi.PublicationMir.ExactScore
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.PublicEndgame
 

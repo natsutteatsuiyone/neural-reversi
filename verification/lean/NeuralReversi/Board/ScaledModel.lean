@@ -1,5 +1,8 @@
-import NeuralReversi.Board.ScoreModel
-import NeuralReversi.ScaledScore.Model
+module
+public import NeuralReversi.Board.ScoreModel
+public import NeuralReversi.ScaledScore.Model
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

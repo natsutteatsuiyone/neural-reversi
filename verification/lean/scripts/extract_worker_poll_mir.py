@@ -87,8 +87,8 @@ def render(dump, repo):
                 "cutoff": ["poll", "done"]}.get(op, [phase]*len(successors))
         todo.extend(zip(successors, outs, strict=True))
     checked(len(phases) == size, "unclassified normal block")
-    lines=["import NeuralReversi.PvsParallel.WorkerPollMir.Syntax", "",
-           "namespace NeuralReversi.PvsParallel.WorkerPollMir", "",
+    lines=["module", "public import NeuralReversi.PvsParallel.WorkerPollMir.Syntax", "",
+           "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.WorkerPollMir", "",
            f"abbrev Block := Fin {size}","",f"def graph : Vector (Op {size} × Phase) {size} := #v["]
     for pc in range(size):
         op, succ = nodes[pc]

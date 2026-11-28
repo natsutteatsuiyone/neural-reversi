@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.FourOrder
-import NeuralReversi.Empties
+module
+public import NeuralReversi.EndgameSearch.FourOrder
+public import NeuralReversi.Empties
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch
 

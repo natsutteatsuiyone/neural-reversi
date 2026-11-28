@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialTable.WeakRoot
+module
+public import NeuralReversi.PvsParallel.SerialTable.WeakRoot
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MidgameRows
 

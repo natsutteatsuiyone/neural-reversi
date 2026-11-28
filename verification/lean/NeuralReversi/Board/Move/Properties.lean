@@ -1,8 +1,11 @@
-import NeuralReversi.Board.Move.Model
-import NeuralReversi.Board.Move.Spec
-import NeuralReversi.Board.Properties
-import NeuralReversi.Bitboard.ApplyMoveProperties
-import NeuralReversi.Flip.Dispatch.Properties
+module
+public import NeuralReversi.Board.Move.Model
+public import NeuralReversi.Board.Move.Spec
+public import NeuralReversi.Board.Properties
+public import NeuralReversi.Bitboard.ApplyMoveProperties
+public import NeuralReversi.Flip.Dispatch.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Board
 

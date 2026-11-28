@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialTable.WeakTrial.Bounds
+module
+public import NeuralReversi.PvsParallel.SerialTable.WeakTrial.Bounds
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.WeakTrial
 

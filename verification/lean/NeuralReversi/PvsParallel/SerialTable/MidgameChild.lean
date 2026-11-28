@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.SerialTable.MidgameMemory
-import NeuralReversi.MidgameScoreRange.Search
-import NeuralReversi.PvsParallel.SerialTable.MidgamePoll
+module
+public import NeuralReversi.PvsParallel.SerialTable.MidgameMemory
+public import NeuralReversi.MidgameScoreRange.Search
+public import NeuralReversi.PvsParallel.SerialTable.MidgamePoll
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameChild
 
@@ -18,26 +21,26 @@ open MidgameMemory (penalize save)
 
 abbrev Child (l : Layout) := Request → Memory l → Option (Int × Memory l)
 
-private structure Result (l : Layout) (p : Pool) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+structure Result (l : Layout) (p : Pool) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (q : Request) where
   exec : Memory l → Int × Memory l
   sound : ∀ m, ReadyMemory p mc fc m → Aspiration.Window q.alpha q.beta →
     ReadyMemory p mc fc (exec m).2 ∧ Finite (exec m).1 ∧ WeakTrial.Range q (exec m).1
 
-private theorem bounded {q : Request} {v : Int} (range : -scoreMax ≤ v ∧ v ≤ scoreMax) :
+theorem bounded {q : Request} {v : Int} (range : -scoreMax ≤ v ∧ v ≤ scoreMax) :
     Finite v ∧ WeakTrial.Range q v := by
   refine ⟨?_,fun _ _ _ => range⟩
   unfold Finite
   unfold scoreMax at range
   omega
 
-private def scalar (q : Request) (v : Int) (range : -scoreMax ≤ v ∧ v ≤ scoreMax) : Result l p mc fc q :=
+def scalar (q : Request) (v : Int) (range : -scoreMax ≤ v ∧ v ≤ scoreMax) : Result l p mc fc q :=
   ⟨fun m => (v,m),fun _ ready _ => ⟨ready,bounded range⟩⟩
 
 def passRequest (q : Request) : Request :=
   {q with board := PvsBoardTree.pass q.board,alpha := -q.beta,beta := -q.alpha}
 
-private def passed (cut : Bool) (child : Result l p mc fc {(passRequest q) with cut := cut}) : Result l p mc fc q where
+def passed (cut : Bool) (child : Result l p mc fc {(passRequest q) with cut := cut}) : Result l p mc fc q where
   exec m := let (v,n) := child.exec m; (-v,n)
   sound m ready window := by
     obtain ⟨post,finite,range⟩ := child.sound m ready (MidgameScoreRange.reflected window)
@@ -49,12 +52,12 @@ private def passed (cut : Bool) (child : Result l p mc fc {(passRequest q) with 
       omega⟩
 
 /-- Evaluate calls in chronological order, including calls whose value only decides whether to retry. -/
-private def thenCall (sub : Result l p mc fc r) (window : Aspiration.Window r.alpha r.beta)
+def thenCall (sub : Result l p mc fc r) (window : Aspiration.Window r.alpha r.beta)
     (next : Int → Result l p mc fc q) : Result l p mc fc q where
   exec m := let (v,n) := sub.exec m; (next v).exec n
   sound m ready w := (next (sub.exec m).1).sound _ (sub.sound m ready window).1 w
 
-private def owner (q : Request) (stop : GeneratedSquare mc q.board.val → Bool)
+def owner (q : Request) (stop : GeneratedSquare mc q.board.val → Bool)
     (slot : Fin 2) (level : Selectivity) (moves : List (GeneratedSquare mc q.board.val))
     (unique : moves.Nodup) (nonempty : moves ≠ [])
     (children : (r : MoveRequest (GeneratedSquare mc q.board.val)) →
@@ -90,12 +93,12 @@ private def owner (q : Request) (stop : GeneratedSquare mc q.board.val → Bool)
       exact ⟨MidgameMemory.save_ready _ post _ _ _ _ _ _ _ _ (MidgameMemory.classified q _ window finite range),
           finite,range⟩
 
-private def noPv (q : Request) (isScout : q.pv = false) (read : Memory l → Int × Memory l)
+def noPv (q : Request) (isScout : q.pv = false) (read : Memory l → Int × Memory l)
     (sound : ∀ m, ReadyMemory p mc fc m → Aspiration.Window q.alpha q.beta →
       ReadyMemory p mc fc (read m).2 ∧ Finite (read m).1) : Result l p mc fc q :=
   ⟨read, fun m ok win => ⟨(sound m ok win).1,(sound m ok win).2,fun h => Bool.noConfusion (isScout.symm.trans h)⟩⟩
 
-private def promoted (q : Request) (isScout : q.pv = false) (call : Call)
+def promoted (q : Request) (isScout : q.pv = false) (call : Call)
     (lo : call.alpha.raw.toInt = q.alpha) (hi : call.beta.raw.toInt = q.beta) : Result l p mc fc q :=
   noPv q isScout (fun m => match call.execute p mc fc m.cache with
     | some ((v,_),next) => (v,{m with cache := next})
@@ -115,7 +118,7 @@ def Store.tag (where_ : Store) (q : Request) (v : Int) : Bound :=
   | .classified => TranspositionTable.classify q.pv (Writes.word v) (Writes.word q.alpha) (Writes.word q.beta)
   | .lower => .lower
 
-private def stores (q : Request) (offset : Fin 2) (how : Store) (level : Selectivity) (ttPv : Bool)
+def stores (q : Request) (offset : Fin 2) (how : Store) (level : Selectivity) (ttPv : Bool)
     (hint : Option (GeneratedSquare mc q.board.val)) (sub : Result l p mc fc q) : Result l p mc fc q where
   exec m := let (v,n) := sub.exec m; (v,save n (l.index q.board offset) q.board v (how.tag q v) q.depth hint level ttPv)
   sound m good win := by
@@ -150,7 +153,7 @@ inductive Plan (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) : Reque
       (lo : call.alpha.raw.toInt = q.alpha) (hi : call.beta.raw.toInt = q.beta) : Plan mc fc q
   | penalty {q : Request} (body : Plan mc fc q) : Plan mc fc q
 
-private def compile (l : Layout) (p : Pool) {q : Request} : Plan mc fc q → Result l p mc fc q
+def compile (l : Layout) (p : Pool) {q : Request} : Plan mc fc q → Result l p mc fc q
   | .static raw => scalar q _ (static (fun _ => raw) q.board).property
   | .terminal => scalar q _ (PvsBoardTree.terminalScore q.board).property
   | .wipeout => scalar q scoreMax ⟨by decide,Int.le_refl _⟩

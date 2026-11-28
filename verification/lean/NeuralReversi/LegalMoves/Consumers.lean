@@ -1,5 +1,8 @@
-import NeuralReversi.LegalMoves.Encoding
-import NeuralReversi.Eval.MainScratch
+module
+public import NeuralReversi.LegalMoves.Encoding
+public import NeuralReversi.Eval.MainScratch
+
+@[expose] public section
 
 namespace NeuralReversi.LegalMoves.MoveBound
 

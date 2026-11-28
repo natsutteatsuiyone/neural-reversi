@@ -29,9 +29,9 @@ def _cases():
     return [(f"reversi_core.{name}.SimplifyCfg-initial.after.mir", old, new, name) for name, old, new in CASES]
 
 
-def check(dump, repo):
+def check(dump, repo, *, baseline=None):
     return check_mir_regression(
-        dump, repo, verify, _cases(), expected_errors=(ValueError, KeyError, IndexError, TypeError)
+        dump, repo, verify, _cases(), expected_errors=(ValueError, KeyError, IndexError, TypeError), baseline=baseline
     )
 
 

@@ -256,11 +256,11 @@ def render(dump, repo, *, fields=False):
         check_split_fields.check(dump, repo)
         lines = function("def accesses (i : Input) (s : Locked) (chosen : Word) :=", "List Access", locked_programs.pop())
         limit = [f"private def maximum : Word := {maximum}", ""] if any("maximum" in line for line in lines) else []
-        return "\n".join(["import NeuralReversi.PvsParallel.SplitWorkerMir.FieldAccess","",
-            "namespace NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores","",
+        return "\n".join(["module", "public import NeuralReversi.PvsParallel.SplitWorkerMir.FieldAccess","",
+            "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores","",
             *limit, *lines, "end NeuralReversi.PvsParallel.SplitWorkerMir.FieldStores",""])
-    return "\n".join(["import NeuralReversi.PvsParallel.SplitWorkerMir.Syntax","",
-        "namespace NeuralReversi.PvsParallel.SplitWorkerMir","",f"def maximum : Word := {maximum}","",
+    return "\n".join(["module", "public import NeuralReversi.PvsParallel.SplitWorkerMir.Syntax","",
+        "@[expose] public section", "", "namespace NeuralReversi.PvsParallel.SplitWorkerMir","",f"def maximum : Word := {maximum}","",
         f"def emptyExit : Threading.SplitReturn.Departure := {exhausted}","",
         "def lockedSteps : List Step := ["+", ".join(locked_events.pop())+"]","",
         *function("def search (i : Input) : Option Searched :=","Option Searched",pre),
@@ -277,7 +277,7 @@ def main():
     )
 
 
-def check_child_mutants(dump, repo):
+def check_child_mutants(dump, repo, *, baseline=None):
     """Change each source of a split child's operands or its selected return."""
     cases = [
         ("scout board", "_57 = &_25;", "_57 = &_6;"),
@@ -291,10 +291,10 @@ def check_child_mutants(dump, repo):
         ("wide cut flag", "move _90, move _92, const false)", "move _90, move _92, const true)"),
         ("chosen return", "_53 = move _80;", "_53 = copy _54;"),
     ]
-    return check_mutations(dump, repo, cases)
+    return check_mutations(dump, repo, cases, baseline=baseline)
 
 
-def check_guard_mutants(dump, repo):
+def check_guard_mutants(dump, repo, *, baseline=None):
     cases = [
         ("stopped guard", "drop(_95) -> [return: bb102", "drop(_29) -> [return: bb102"),
         ("cutoff guard", "drop(_95) -> [return: bb99", "drop(_29) -> [return: bb99"),
@@ -302,11 +302,11 @@ def check_guard_mutants(dump, repo):
         ("early unlock", "_133 = SplitPointState::set_best_score(move _134, move _135) -> [return: bb64",
          "drop(_95) -> [return: bb64"),
     ]
-    return check_mutations(dump, repo, cases)
+    return check_mutations(dump, repo, cases, baseline=baseline)
 
 
-def check_mutations(dump, repo, cases):
-    expected = render(dump, repo)
+def check_mutations(dump, repo, cases, *, baseline=None):
+    expected = render(dump, repo) if baseline is None else baseline
     return assert_mutants_rejected(
         dump,
         [(MIR, old, new, label) for label, old, new in cases],

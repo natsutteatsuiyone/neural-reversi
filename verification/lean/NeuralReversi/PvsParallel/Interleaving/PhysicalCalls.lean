@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalCoverage
-import NeuralReversi.PvsParallel.Interleaving.JournalRootStore
-import NeuralReversi.PvsParallel.Interleaving.JournalExit
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalCoverage
+public import NeuralReversi.PvsParallel.Interleaving.JournalRootStore
+public import NeuralReversi.PvsParallel.Interleaving.JournalExit
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.PhysicalCalls
 
@@ -130,7 +133,7 @@ structure Raw (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) where
   root : CausalTable.Frame → JournalRootStore.Options
   rootSplits : (f : CausalTable.Frame) → JournalRootStore.Splits events mc fc f.board
 
-private def Raw.rootFrame (u : Raw mc fc) (f : CausalTable.Frame) :=
+def Raw.rootFrame (u : Raw mc fc) (f : CausalTable.Frame) :=
   JournalRootStore.check mc fc u.init (probes u.atomics u.nowrap u.state) u.state f (u.root f) (u.rootSplits f)
 
 def Raw.covered (u : Raw mc fc) : Bool :=

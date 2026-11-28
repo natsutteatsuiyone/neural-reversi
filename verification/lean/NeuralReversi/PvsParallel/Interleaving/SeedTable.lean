@@ -1,6 +1,9 @@
-import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
-import NeuralReversi.PvsParallel.Interleaving.CausalReads
-import NeuralReversi.PvsParallel.Interleaving.FiniteTable
+module
+public import NeuralReversi.AspirationMir.SerialTable.InitialEstimate
+public import NeuralReversi.PvsParallel.Interleaving.CausalReads
+public import NeuralReversi.PvsParallel.Interleaving.FiniteTable
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.SeedTable
 

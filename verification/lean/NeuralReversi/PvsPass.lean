@@ -1,6 +1,9 @@
-import NeuralReversi.Aspiration
-import NeuralReversi.Board.MovesProperties
-import NeuralReversi.Solve2.Control
+module
+public import NeuralReversi.Aspiration
+public import NeuralReversi.Board.MovesProperties
+public import NeuralReversi.Solve2.Control
+
+@[expose] public section
 
 namespace NeuralReversi.PvsPass
 

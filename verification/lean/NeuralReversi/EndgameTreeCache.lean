@@ -1,5 +1,8 @@
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.EndgameCache
+module
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.EndgameCache
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameTreeCache
 
@@ -7,7 +10,7 @@ open Board (Board)
 open PvsBoardTree (Position GeneratedSquare minimax legalSquares play pass)
 open Bitboard.Moves (X86Config)
 open EndgameCache (Entry Write CacheRange InRange StoreRange SearchRange)
-private abbrev FlipConfig := Flip.Dispatch.X86Config
+abbrev FlipConfig := Flip.Dispatch.X86Config
 
 private theorem bestValue_dvd {Move : Type} (value : Move → Int) (moves : List Move)
     (seed : Int) (seedDvd : 256 ∣ seed) (all : ∀ m ∈ moves, 256 ∣ value m) :

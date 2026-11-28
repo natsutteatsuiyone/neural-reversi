@@ -1,4 +1,7 @@
-import NeuralReversi.Solve34.Nodes
+module
+public import NeuralReversi.Solve34.Nodes
+
+@[expose] public section
 
 namespace NeuralReversi.Solve34
 open Dispatch

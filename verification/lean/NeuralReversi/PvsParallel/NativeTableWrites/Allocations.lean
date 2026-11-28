@@ -1,6 +1,9 @@
-import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
-import NeuralReversi.TranspositionTable.Duplicate.View
-import NeuralReversi.TranspositionTable.Duplicate.Image
+module
+public import NeuralReversi.PvsParallel.NativeTableWrites.Schedule
+public import NeuralReversi.TranspositionTable.Duplicate.View
+public import NeuralReversi.TranspositionTable.Duplicate.Image
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeTableWrites.Journal
 
@@ -10,7 +13,7 @@ open FrameTableReads (Address Birth)
 
 variable {x : Execution c endian rs}
 
-private theorem extent (x : Execution c endian rs) (a : Address) (init : Even (x.memory a)) (loc : Location) :
+theorem extent (x : Execution c endian rs) (a : Address) (init : Even (x.memory a)) (loc : Location) :
     Duplicate.modifications (x.slot a init) loc = (mods c rs a loc).length := by
   cases loc <;> simp [Duplicate.modifications,Execution.slot,Execution.toSequence,Execution.toFields,sequence,fields]
 
@@ -69,10 +72,10 @@ structure Clone (x : Execution c endian rs) (before : Nat → Nat → Prop) (rea
       buffers.dest a.index) loc
   point : CopyPoint x ⟨parent,a.index⟩ sample
 
-private noncomputable def Clone.visible (op : Clone x before ready a) :=
+noncomputable def Clone.visible (op : Clone x before ready a) :=
   Duplicate.Visible.atCopy (x.memory ⟨op.parent,a.index⟩) (fun l => (mods c rs ⟨op.parent,a.index⟩ l).length) op.sample
 
-private noncomputable def Clone.view (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩)) :
+noncomputable def Clone.view (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩)) :
     Duplicate.View (x.slot ⟨op.parent,a.index⟩ init) op.sample where
   index := op.visible.index
   bounded loc := (extent x _ init loc).symm ▸ op.visible.bounded loc
@@ -84,7 +87,7 @@ private theorem Clone.copied (op : Clone x before ready a) (loc : Location) :
   rw [op.destImage,op.buffers.image_eq _ op.inBounds,Duplicate.readMaterialized]
   rfl
 
-private theorem Clone.stable (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩)) :
+theorem Clone.stable (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩)) :
     (op.view init).word .sequence &&& 1 = 0 := by
   apply Duplicate.View.evenOfQuiescent
   intro call member hb
@@ -110,7 +113,7 @@ theorem Start.even (starts : ∀ a, Start x before ready a) (a : Address) : Even
       rw [op.copied]
       exact op.stable (ih op.parent op.older)
 
-private theorem Clone.payload (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩))
+theorem Clone.payload (op : Clone x before ready a) (init : Even (x.memory ⟨op.parent,a.index⟩))
     (dest : Even (x.memory a)) :
     (x.slot a dest).payloadAt 0 =
       (x.slot ⟨op.parent,a.index⟩ init).payloadAt (op.visible.index .sequence / 2) := by

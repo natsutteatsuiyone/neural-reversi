@@ -1,4 +1,6 @@
-import Lean
+module
+
+@[expose] public section
 
 namespace NeuralReversi.LazySmp
 
@@ -36,7 +38,7 @@ private theorem preferred_trans {votes : Fin 64 → Int} {a b c : Candidate}
   unfold preferred better at *
   omega
 
-private def choose (votes : Fin 64 → Int) (best next : Candidate) : Candidate :=
+def choose (votes : Fin 64 → Int) (best next : Candidate) : Candidate :=
   if better votes next.2 best.2 then next else best
 
 private theorem choose_preferred (votes : Fin 64 → Int) (best next : Candidate)

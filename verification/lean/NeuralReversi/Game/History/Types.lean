@@ -1,6 +1,9 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.Disc.Model
-import NeuralReversi.Bitboard.SquareModel
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.Disc.Model
+public import NeuralReversi.Bitboard.SquareModel
+
+@[expose] public section
 
 namespace NeuralReversi.Game.History
 

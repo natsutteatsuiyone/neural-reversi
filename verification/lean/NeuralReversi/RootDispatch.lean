@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameProgress
+module
+public import NeuralReversi.EndgameProgress
+
+@[expose] public section
 
 namespace NeuralReversi.RootDispatch
 

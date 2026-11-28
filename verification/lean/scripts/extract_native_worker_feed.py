@@ -76,8 +76,11 @@ def verify(d,repo):
     return PROGRAM.replace("{scoutpc}",str(scout[0])).replace("{scout}",str(scout[1])).replace(
         "{widepc}",str(wide[0])).replace("{wide}",str(wide[1]))
 
-PROGRAM='''import NeuralReversi.MoveList.Concurrent
-import NeuralReversi.Move.Model
+PROGRAM='''module
+public import NeuralReversi.MoveList.Concurrent
+public import NeuralReversi.Move.Model
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeWorkerFeed
 

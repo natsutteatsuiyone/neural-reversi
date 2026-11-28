@@ -1,16 +1,19 @@
-import NeuralReversi.AspirationMir.NativeRows
+module
+public import NeuralReversi.AspirationMir.NativeRows
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.NativeRowLines
 
 open PvsParallel NativeFrames
 open NativeRows (Sample Mutation CallSite Locks)
 open RootStorageMir (Packet Stored)
-private structure Prepared (idx : Nat) (initial : List RootMoveStorage.Row) where
+structure Prepared (idx : Nat) (initial : List RootMoveStorage.Row) where
   rows : List RootMoveStorage.Row
   prior : Prepare idx initial rows
   steps : List (Nat × Nat)
 
-private def applyPackets (idx : Nat) (a z : Int) (initial : List RootMoveStorage.Row) :
+def applyPackets (idx : Nat) (a z : Int) (initial : List RootMoveStorage.Row) :
     (rows : List RootMoveStorage.Row) → (snap : RootReplay.Snapshot) →
     RootSuffix.Writes initial idx a z rows snap → List Packet →
     Option { after : List RootMoveStorage.Row // ∃ s, RootSuffix.Writes initial idx a z after s }
@@ -28,12 +31,12 @@ inductive Prior where
   | trial (call : CallSite)
   | sort (step : Nat)
 
-private def sorted (samples : List Sample) (w tick object idx : Nat) : Bool :=
+def sorted (samples : List Sample) (w tick object idx : Nat) : Bool :=
   samples.any fun
     | .locked worker t receiver (.sort index) => worker == w && t == tick && receiver == object && index == idx
     | _ => false
 
-private def prepare (samples : List Sample) (inputs : Nat → Nat → Option Args) (b : PvsBoardTree.Position)
+def prepare (samples : List Sample) (inputs : Nat → Nat → Option Args) (b : PvsBoardTree.Position)
     (w object idx : Nat) (initial : List RootMoveStorage.Row) :
     Prepared idx initial → List Prior → Option (Prepared idx initial)
   | s,[] => some s
@@ -55,13 +58,13 @@ private def prepare (samples : List Sample) (inputs : Nat → Nat → Option Arg
         ⟨after.val,.trial s.prior after.property.choose_spec,s.steps ++ locks.steps w⟩ rest
     else none
 
-private def stamp : Sample → Option (Nat × Nat)
+def stamp : Sample → Option (Nat × Nat)
   | .locked w t _ _ => some (w,t)
   | .engine (.table _) => none
   | .engine (.localCall w ev) => some (w,match ev with
       | .entry t .. | .leave t .. | .scored t .. | .discarded t .. => t)
 
-private def writesBetween (samples : List Sample) (w start stop object : Nat) : Option (List (Nat × Nat)) := do
+def writesBetween (samples : List Sample) (w start stop object : Nat) : Option (List (Nat × Nat)) := do
   let _ :: after := samples.dropWhile (fun s => stamp s != some (w,start)) | none
   let pre := after.takeWhile (fun s => stamp s != some (w,stop))
   let release ← after[pre.length]?

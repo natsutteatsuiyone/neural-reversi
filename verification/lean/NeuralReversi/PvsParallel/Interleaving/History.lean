@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.BoardFrame
+module
+public import NeuralReversi.PvsParallel.Interleaving.BoardFrame
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.History
 

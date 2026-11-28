@@ -73,8 +73,8 @@ def render(dump, repo):
             pc=int(m[2])
         else:
             checked(end=="return;" and env["_0"]=="returned","unexpected allocation exit")
-            return "\n".join(["import NeuralReversi.EndgameSearch.CacheMir","",
-                "namespace NeuralReversi.EndgameSearch.CacheMir","",
+            return "\n".join(["module", "public import NeuralReversi.EndgameSearch.CacheMir","",
+                "@[expose] public section", "", "namespace NeuralReversi.EndgameSearch.CacheMir","",
                 "def budget (n : Nat) : EndgameTreeCache.Table → Nat",
                 "  | .deep => "+fields["Deep"],"  | .shallow => "+fields["Shallow"],"",
                 "end NeuralReversi.EndgameSearch.CacheMir",""])

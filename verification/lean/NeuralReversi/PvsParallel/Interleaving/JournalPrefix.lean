@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+meta import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalPrefix
 
@@ -8,31 +12,31 @@ open CausalTable (Frame Lookups)
 open JournalBodies (Check Bodies)
 open ScoreRefresh (Score)
 
-private def noCalls : NativeNodes.Returns := ⟨[],fun _ => 0,fun _ => false,fun _ _ => false,0,fun _ _ _ _ _ _ => none⟩
+def noCalls : NativeNodes.Returns := ⟨[],fun _ => 0,fun _ => false,fun _ _ => false,0,fun _ _ _ _ _ _ => none⟩
 
-private theorem noCalls_inside (prior : CausalTable.Values) : noCalls.InPrefix prior := by
+theorem noCalls_inside (prior : CausalTable.Values) : noCalls.InPrefix prior := by
   intro b pv a z v h
   obtain ⟨_,never,_⟩ := h
   contradiction
 
-private def priority (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) :=
+def priority (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) :=
   EndgameOrderMir.framePriority mc fc b (fun _ => .skip) (fun m => m.val)
 
-private def frozen : GeneralOwnerMir.Schedule M := ⟨fun _ _ => false,fun _ _ => false⟩
+def frozen : GeneralOwnerMir.Schedule M := ⟨fun _ _ => false,fun _ _ => false⟩
 
-private def noSplit (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (cut : Bool)
+def noSplit (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (cut : Bool)
     (d : Depth) (beta : Score) : Nested.Splits (BoardFrame.Children mc fc b noCalls.prior) false cut d.toNat 7 beta.raw.toInt :=
   fun _ _ _ => none
 
 variable {x : NativeTableWrites.Journal.Execution c endian rs} {es : Joint.Tape Op} {m : Joint.Atomics x es}
 
-private def exactRun mc fc (b : Position) (d : Depth) (a z : Score) (cut checked : Bool)
+def exactRun mc fc (b : Position) (d : Depth) (a z : Score) (cut checked : Bool)
     (attempts : List ProbeRetry.RawAttempt) :=
   GeneralOwnerMir.scheduled mc fc b d a z false checked cut (fun _ => none) attempts
     ([] : List (TableReads.ChildLookupFrom mc fc b (fun _ => False))) (priority mc fc b)
     noCalls.scout frozen (Nested.scoutSplit (noSplit mc fc b cut d z))
 
-private def frame (f : Frame) (a z : Score) (pv : Bool := false) := {f with pv := pv,alpha := a.raw.toInt,beta := z.raw.toInt}
+def frame (f : Frame) (a z : Score) (pv : Bool := false) := {f with pv := pv,alpha := a.raw.toInt,beta := z.raw.toInt}
 
 structure Parent (reads : Lookups) (b : Position) where
   opening : Nat
@@ -40,10 +44,10 @@ structure Parent (reads : Lookups) (b : Position) where
   attempts : List ProbeRetry.RawAttempt
   seen : ∀ slot e, ProbeRetry.probe (attempts.map (ProbeRetry.observe (Cutoffs.key b))) = .hit slot e → reads b e
 
-private def absent (b : Position) (reads : Lookups) : Parent reads b :=
+def absent (b : Position) (reads : Lookups) : Parent reads b :=
   ⟨0,0,[],fun _ _ hit => by contradiction⟩
 
-private def certify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
+def certify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
     (f : Frame) (d : Depth) (a z : Score) (cut checked : Bool) (level : Selectivity) (p : Parent reads f.board)
     (full : ExactDepth.Full f.board d)
     (weak : ∀ prior, WeakFrame.Frame mc fc prior reads f.board false a.raw.toInt z.raw.toInt f.score) :
@@ -57,13 +61,13 @@ private def certify (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (r
     else .rejected
   else .proved ⟨fun same => (exactLevel same).elim,weak⟩
 
-private def nonNeutral (e : Joint.Event Op) : Bool := match e with | .engine (.other _) => false | _ => true
+def nonNeutral (e : Joint.Event Op) : Bool := match e with | .engine (.other _) => false | _ => true
 
-private def segment (es : Joint.Tape Op) (worker start finish : Nat) :=
+def segment (es : Joint.Tape Op) (worker start finish : Nat) :=
   (es.zipIdx.drop (start+1)).takeWhile (fun x => x.2 < finish) |>.filter fun row =>
     row.1.worker == worker && nonNeutral row.1
 
-private def entry (es : Joint.Tape Op) (w opening : Nat) :=
+def entry (es : Joint.Tape Op) (w opening : Nat) :=
   es.zipIdx.findSome? fun (ev,i) => match ev.engineEvent with
     | .localCall atWorker (.entry tick _ .pvs ..) (some args) =>
       if atWorker = w ∧ tick = opening then some (i,args) else none
@@ -90,7 +94,7 @@ theorem Local.finite (result : Local mc fc level reads f) : FiniteTable.Finite f
   change -32767 < f.score ∧ f.score < 32767
   omega
 
-private def onlyBody : Check (Local mc fc level reads f) → Check (Bodies mc fc level reads f)
+def onlyBody : Check (Local mc fc level reads f) → Check (Bodies mc fc level reads f)
   | .outside => .outside | .rejected => .rejected | .proved local_ => .proved local_.toBodies
 
 /-- Replay the move-generation exits at their native location. PV reaches this
@@ -150,7 +154,7 @@ def localResult (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : 
         exact .wipe move member all))
     | _ => exact none
 
-private def scoreNode (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+def scoreNode (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (es : Joint.Tape Op) (reads : Lookups) (probes : (b : Position) → Option (Parent reads b))
     (f : Frame) (worker start : Nat) (d : Depth) (a z : Score) (cut checked : Bool) (level : Selectivity)
     (full : ExactDepth.Full f.board d) (win : Aspiration.Window a.raw.toInt z.raw.toInt)
@@ -196,7 +200,7 @@ private def scoreNode (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
 
 /-- Bind the score to the entry registers. The scout checks stability before move generation.
     The PV frame reaches terminal and wipeout directly. Both precede a parent TT cutoff. -/
-private def replay (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+def replay (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (es : Joint.Tape Op) (reads : Lookups) (probes : (b : Position) → Option (Parent reads b))
     (checked : Bool) (s : CallJournal.State Op) (f : Frame) :
     Check (Bodies mc fc (s.level f) reads f) :=

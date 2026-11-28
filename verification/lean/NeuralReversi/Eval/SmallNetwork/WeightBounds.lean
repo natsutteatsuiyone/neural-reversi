@@ -1,4 +1,7 @@
-import NeuralReversi.Eval.SmallNetwork.Forward
+module
+public import NeuralReversi.Eval.SmallNetwork.Forward
+
+@[expose] public section
 
 namespace NeuralReversi.Eval.SmallNetwork
 

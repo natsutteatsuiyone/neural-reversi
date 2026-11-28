@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+module
+public import NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SplitSchedulerMir.Mutex
 
@@ -7,11 +10,11 @@ open AtomicWord (Event SequencedBefore)
 open SpinLock (Operation)
 open CutoffVisibility (HappensBefore)
 
-private def releasedAfter (start : Event) : Operation → Bool
+def releasedAfter (start : Event) : Operation → Bool
   | .release u => start.worker == u.worker && start.step < u.step
   | _ => false
 
-private def acquiredBefore (stop : Event) : Operation → Bool
+def acquiredBefore (stop : Event) : Operation → Bool
   | .acquire a => a.worker == stop.worker && a.step < stop.step
   | _ => false
 

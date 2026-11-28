@@ -1,31 +1,36 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+meta import NeuralReversi.EndgameTreeCache
+meta import NeuralReversi.PvsParallel.Interleaving.JournalBodies
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalLocalCacheFixture
 
 open EndgameSearch.CacheHistory (Pool Input)
 open EndgameTreeCache (Store entryFor)
 
-private def pool : Pool := ⟨1,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
-private abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
-private abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
+def pool : Pool := ⟨1,64,by decide,Board.Hash.hash false,0,⟨100,101,102⟩,⟨110,111,112⟩⟩
+abbrev mc : Bitboard.Moves.X86Config := ⟨false,false⟩
+abbrev fc : Cutoffs.FlipConfig := ⟨false,false,false⟩
 
 private def parent : PvsBoardTree.Position := ⟨⟨0x0e76681c28108181,0x210107e397ef7e7c⟩,rfl⟩
-private def node : PvsBoardTree.Position := ⟨⟨0x004602466a1283ff,0x3f317db995ed7c00⟩,rfl⟩
+def node : PvsBoardTree.Position := ⟨⟨0x004602466a1283ff,0x3f317db995ed7c00⟩,rfl⟩
 
-private def query (b : PvsBoardTree.Position) (alpha : Int) (level : TranspositionTable.Selectivity := 1) : Input :=
+def query (b : PvsBoardTree.Position) (alpha : Int) (level : TranspositionTable.Selectivity := 1) : Input :=
   let mask := Board.emptySquares b.val
   let empty : EndgameSearch.Cancellation.EmptyState :=
     ⟨Empties.encode mask,Board.emptyCount b.val⟩
   ⟨b,empty,EndgameSearch.emptyState_initial b,⟨BitVec.ofInt 32 alpha⟩,⟨BitVec.ofInt 32 (alpha+1)⟩,
     empty.count,level,[],⟨⟨0,false⟩,fun _ => ⟨0,[]⟩,0⟩,false,false,false,true,.other,false,false⟩
 
-private def run (b : PvsBoardTree.Position) (alpha : Int) (history : List Store) := (query b alpha).run mc fc pool.address history
+def run (b : PvsBoardTree.Position) (alpha : Int) (history : List Store) := (query b alpha).run mc fc pool.address history
 
 /-- These were the two depth-nine boundary calls that wrote to the five-empty
     board's slot in the first public search. Their windows differ by one disc. -/
 private def stored : List Store := (run parent 255 (run parent (-228) []).history).history
 
-private def slotWrites : List Store := [⟨.shallow,⟨node.val,-1,0⟩⟩,⟨.shallow,⟨node.val,0,2⟩⟩]
+def slotWrites : List Store := [⟨.shallow,⟨node.val,-1,0⟩⟩,⟨.shallow,⟨node.val,0,2⟩⟩]
 
 -- The two depth-nine replay calls also reconstruct the slot from their full subtrees.
 #guard EndgameCache.probe (entryFor pool.address stored .shallow node.val) node.val (-1) = some 2
@@ -50,7 +55,7 @@ structure Replay where
 
 /-- Replay every cache-using boundary in both native searches. The one-worker
     routine for zero through four empties cannot issue a local cache store. -/
-private def step (state : Replay) (line : String) : Option Replay := do
+def step (state : Replay) (line : String) : Option Replay := do
   let [session,p,o,d,lo,z,level,score] := line.splitOn " " | none
   let side ← session.toNat?
   let board : Board.Board := ⟨BitVec.ofNat 64 (← p.toNat?),BitVec.ofNat 64 (← o.toNat?)⟩

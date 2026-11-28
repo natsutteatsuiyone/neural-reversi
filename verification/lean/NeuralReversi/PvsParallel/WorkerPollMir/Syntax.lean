@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.WorkerPollMir.Atomic
-import NeuralReversi.PvsParallel.SplitWorkerMir.Iterator
+module
+public import NeuralReversi.PvsParallel.WorkerPollMir.Atomic
+public import NeuralReversi.PvsParallel.SplitWorkerMir.Iterator
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.WorkerPollMir
 

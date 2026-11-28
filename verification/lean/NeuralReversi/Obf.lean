@@ -1,5 +1,8 @@
-import NeuralReversi.Board.ParseModel
-import NeuralReversi.Square.TextModel
+module
+public import NeuralReversi.Board.ParseModel
+public import NeuralReversi.Square.TextModel
+
+@[expose] public section
 
 namespace NeuralReversi.Obf
 
@@ -57,9 +60,9 @@ def parseHeader (header : String) : Except Error (Board × PlayerColor) :=
       let parsed := Except.mapError Error.invalidBoard (Board.fromString true (String.ofList (chars.take 64)) color)
       parsed.map fun board => (board, color)
 
-private def appendDigit (value : Nat) (digit : Char) : Nat := 10 * value + (digit.toNat - 48)
+def appendDigit (value : Nat) (digit : Char) : Nat := 10 * value + (digit.toNat - 48)
 
-private def readDigits (limit : Nat) (overflow : ScoreFailure) (value : Nat) :
+def readDigits (limit : Nat) (overflow : ScoreFailure) (value : Nat) :
     List Char → Except ScoreFailure Nat
   | [] => .ok value
   | c :: rest =>
@@ -68,7 +71,7 @@ private def readDigits (limit : Nat) (overflow : ScoreFailure) (value : Nat) :
       if next ≤ limit then readDigits limit overflow next rest else .error overflow
     else .error .invalidDigit
 
-private def parseInteger : List Char → Except ScoreFailure Int
+def parseInteger : List Char → Except ScoreFailure Int
   | [] => .error .empty
   | first :: digits =>
     if first = '-' then
@@ -85,7 +88,7 @@ def ScoreFailure.message : ScoreFailure → String
   | .positiveOverflow => "number too large to fit in target type"
   | .negativeOverflow => "number too small to fit in target type"
 
-private def boardErrorMessage : Board.TextFailure → String
+def boardErrorMessage : Board.TextFailure → String
   | .error (.tooShort expected actual) =>
     s!"Board string too short: expected {expected.toNat} characters, got {actual.toNat}"
   | .error (.tooLong expected actual) =>
@@ -94,7 +97,7 @@ private def boardErrorMessage : Board.TextFailure → String
     s!"Invalid character '{c}' at position {position.toNat}: must be 'X', 'O', or '-'"
   | .panic message => message
 
-private def squareErrorMessage : Square.ParseFailure → String
+def squareErrorMessage : Square.ParseFailure → String
   | .error .invalidFormat => "Invalid square format: must be 2 ASCII characters (e.g., 'a1')"
   | .error (.invalidFile b) => s!"Invalid file '{Char.ofNat b.toNat}': must be a-h or A-H"
   | .error (.invalidRank b) => s!"Invalid rank '{Char.ofNat b.toNat}': must be 1-8"

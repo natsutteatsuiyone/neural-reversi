@@ -1,5 +1,8 @@
-import NeuralReversi.Board.ScaledProperties
-import NeuralReversi.MidgameAspiration.Model
+module
+public import NeuralReversi.Board.ScaledProperties
+public import NeuralReversi.MidgameAspiration.Model
+
+@[expose] public section
 
 namespace NeuralReversi.MidgameScoreRange
 

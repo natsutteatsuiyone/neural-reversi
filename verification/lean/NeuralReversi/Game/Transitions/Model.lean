@@ -1,7 +1,10 @@
-import NeuralReversi.Game.History.Types
-import NeuralReversi.Board.InitializationModel
-import NeuralReversi.Board.MovesModel
-import NeuralReversi.Flip.Dispatch.Properties
+module
+public import NeuralReversi.Game.History.Types
+public import NeuralReversi.Board.InitializationModel
+public import NeuralReversi.Board.MovesModel
+public import NeuralReversi.Flip.Dispatch.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Game.Transitions
 open NeuralReversi.Game.History

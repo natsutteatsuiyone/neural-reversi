@@ -1,5 +1,8 @@
-import NeuralReversi.EndgameSearch.Direct.EmptySquares
-import NeuralReversi.EndgameSearch.Direct.Mir.Program
+module
+public import NeuralReversi.EndgameSearch.Direct.EmptySquares
+public import NeuralReversi.EndgameSearch.Direct.Mir.Program
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.Direct.Mir
 
@@ -8,7 +11,7 @@ open ScoreRefresh (Score DiscScore toDiscDiff fromDiscDiff)
 open Bitboard (Square)
 open Flip.Dispatch (TargetConfig)
 
-private def args? (board : Board.Board) (n : Nat) (squares : List Square) : Option (Solve34.EmptyBoard n) :=
+def args? (board : Board.Board) (n : Nat) (squares : List Square) : Option (Solve34.EmptyBoard n) :=
   if valid : squares.length = n ∧ squares.Nodup ∧ board.player &&& board.opponent = 0 ∧
       Board.emptySquares board = Solve34.emptyMask squares then
     some ⟨board.player, board.opponent, squares, valid.1, valid.2.1, valid.2.2.1, valid.2.2.2⟩
@@ -21,7 +24,7 @@ private theorem args_recover (arg : Solve34.EmptyBoard n) :
     have same : Board.emptySquares ⟨p, o⟩ = _ := covered
     simp [args?, Solve34.EmptyBoard.asBoard, length, distinct, disjoint, same]
 
-private def one? (target : TargetConfig) (bmi2 : Bool) (player : BitVec 64)
+def one? (target : TargetConfig) (bmi2 : Bool) (player : BitVec 64)
     (square : Square) (alpha : BitVec 32) : Option (BitVec 32) :=
   if empty : player.getLsbD square.val = false then
     some (Solve2.solve1On target bmi2 ⟨player, square, empty⟩ alpha)

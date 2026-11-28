@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Body
+module
+public import NeuralReversi.PvsParallel.NativeFrames.OwnerSites.Body
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.NativeFrames.CacheCalls
 

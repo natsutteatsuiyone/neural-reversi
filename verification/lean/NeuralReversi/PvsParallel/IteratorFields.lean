@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.IteratorFrames
-import NeuralReversi.PvsParallel.SplitWorkerMir.FieldTrace
+module
+public import NeuralReversi.PvsParallel.IteratorFrames
+public import NeuralReversi.PvsParallel.SplitWorkerMir.FieldTrace
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.IteratorFields
 
@@ -41,7 +44,7 @@ private theorem retired (calls : List LockedCall) (ok : Iterator.retire calls = 
       cases equal
       simp [emit,body,recordLocked,exit,ih ran]
 
-private def claims (ops : List (Write w)) (journal : List Observation) (stream : List Record) (i : Worker) :=
+def claims (ops : List (Write w)) (journal : List Observation) (stream : List Record) (i : Worker) :=
   ((forWorker ops i.val).mapM (Iterator.acquired (source journal stream))).getD []
 
 /-- Each worker contributes its retired tickets, including a ticket cancelled under the lock. -/
@@ -120,7 +123,7 @@ def atIndex (rc : List Move.Move) (i : Nat) : Option (Fin 64) := (rc[i]?).map Mo
 def raw (traffic : Nat → List FieldStores.Physical) (c : LockedCall) : FieldStores.Raw :=
   ⟨c.ticket.input,c.ticket.locked.stopped,traffic c.order⟩
 
-private def operands (traffic : Nat → List FieldStores.Physical) (encode : Option (Fin 64) → BitVec 8)
+def operands (traffic : Nat → List FieldStores.Physical) (encode : Option (Fin 64) → BitVec 8)
     (rc : List Move.Move) (c : LockedCall) : Bool :=
   match search c.ticket.input with
   | none => false

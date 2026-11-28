@@ -1,5 +1,9 @@
-import NeuralReversi.Stability.Geometry
-import NeuralReversi.Solve1.Projection
+module
+public import NeuralReversi.Stability.Geometry
+public import NeuralReversi.Solve1.Projection
+
+@[expose] public section
+
 namespace NeuralReversi.Stability
 
 def spread : Word → List Nat → Word

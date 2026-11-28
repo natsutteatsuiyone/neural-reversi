@@ -1,4 +1,7 @@
-import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+module
+public import NeuralReversi.EndgameSearch.CacheHistory.Payloads
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.CacheHistory.Payloads
 
@@ -13,7 +16,7 @@ inductive Instruction where
   | probe (table : Table) (board : Board) (alpha : BitVec 32)
   | store (table : Table) (board : Board) (alpha score : BitVec 32)
 
-private def probeWord (e : Entry) (b : Board) (a : BitVec 32) : Option (BitVec 32) :=
+def probeWord (e : Entry) (b : Board) (a : BitVec 32) : Option (BitVec 32) :=
   if e.board.player ≠ b.player ∨ e.board.opponent ≠ b.opponent then none
   else if e.lower.toInt > a.toInt then some (e.lower.toBitVec.signExtend 32)
   else if e.upper.toInt ≤ a.toInt then some (e.upper.toBitVec.signExtend 32)
@@ -25,7 +28,7 @@ private theorem probeWord_eq (e : Entry) (b : Board) (a : BitVec 32) :
     simp [probeWord,CacheMir.probeCell,hp,ho,CacheMir.scoreForAlpha]
   split <;> simp [BitVec.toInt_signExtend_of_le (by decide : 8 ≤ 32)]
 
-private theorem inside (p : Pool) (s : Local) (shape : ∀ t, (s.cells t).size = p.sizes t) (t : Table) (b : Board) :
+theorem inside (p : Pool) (s : Local) (shape : ∀ t, (s.cells t).size = p.sizes t) (t : Table) (b : Board) :
     p.address t b < (s.cells t).size := by
   rw [shape]
   have fit := CacheMir.budget_fits p.size p.width p.word t

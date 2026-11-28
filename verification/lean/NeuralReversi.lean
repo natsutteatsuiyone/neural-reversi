@@ -1,1 +1,2 @@
-import NeuralReversi.Registry
+module
+public import NeuralReversi.Registry

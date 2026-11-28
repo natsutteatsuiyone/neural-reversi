@@ -1,6 +1,8 @@
-import NeuralReversi.PvsParallel.SerialTable.Finite
-import NeuralReversi.PvsParallel.SerialTable.WeakPv
-import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
+module
+public import NeuralReversi.PvsParallel.SerialTable.Finite
+public import NeuralReversi.PvsParallel.SerialTable.SelectiveFrame
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.WeakStack
 

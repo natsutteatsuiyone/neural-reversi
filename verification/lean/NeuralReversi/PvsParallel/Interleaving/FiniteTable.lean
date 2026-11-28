@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.CausalTable
-import NeuralReversi.PvsParallel.SerialTable.Finite
+module
+public import NeuralReversi.PvsParallel.Interleaving.CausalTable
+public import NeuralReversi.PvsParallel.SerialTable.Finite
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.FiniteTable
 

@@ -1,4 +1,7 @@
-import NeuralReversi.Stability.StructuralBridge
+module
+public import NeuralReversi.Stability.StructuralBridge
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Semantics
 

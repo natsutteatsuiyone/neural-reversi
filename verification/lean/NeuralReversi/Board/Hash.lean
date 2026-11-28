@@ -1,5 +1,8 @@
-import NeuralReversi.Board.Model
-import NeuralReversi.MulHi
+module
+public import NeuralReversi.Board.Model
+public import NeuralReversi.MulHi
+
+@[expose] public section
 
 namespace NeuralReversi.Board.Hash
 
@@ -22,15 +25,19 @@ def swapped (word : Word) : Word := readLittle (littleBytes word).reverse 0
 def serialize (bigEndian : Bool) (board : Board) : List Byte :=
   nativeBytes bigEndian board.player ++ nativeBytes bigEndian board.opponent
 
-set_option maxRecDepth 4096 in
-set_option maxHeartbeats 2000000 in
 theorem readLittle_exact (word : Word) : readLittle (littleBytes word) 0 = word := by
   simp only [readLittle, littleBytes, Nat.zero_add, List.getElem?_cons_zero,
     List.getElem?_cons_succ, Option.getD_some]
   apply BitVec.eq_of_getLsbD_eq
-  simp only [Nat.forall_lt_succ_right]
+  intro i hi
   simp only [BitVec.getLsbD_append, BitVec.getLsbD_extractLsb']
-  simp
+  have hq : i / 8 = 0 ∨ i / 8 = 1 ∨ i / 8 = 2 ∨ i / 8 = 3 ∨
+      i / 8 = 4 ∨ i / 8 = 5 ∨ i / 8 = 6 ∨ i / 8 = 7 := by omega
+  rcases hq with hq | hq | hq | hq | hq | hq | hq | hq
+  all_goals
+    repeat (first | rw [ite_eq_left (by omega)] | rw [ite_eq_right (by omega)])
+    rw [decide_eq_true (by omega), Bool.true_and]
+    congr 1; omega
 
 def InputContract : Prop :=
   ∀ bigEndian board,

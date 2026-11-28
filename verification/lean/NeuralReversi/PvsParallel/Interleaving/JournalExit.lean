@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalRoot
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalRoot
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalExit
 

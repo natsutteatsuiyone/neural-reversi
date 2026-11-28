@@ -1,5 +1,8 @@
-import NeuralReversi.Bitboard.SquareProperties
-import NeuralReversi.LegalMoves.Preservation
+module
+public import NeuralReversi.Bitboard.SquareProperties
+public import NeuralReversi.LegalMoves.Preservation
+
+@[expose] public section
 
 namespace NeuralReversi.ShallowMoveOrder
 open Bitboard
@@ -83,7 +86,7 @@ def groups (moves : LegalMoves.Raw) (empties : Bits) (parity : Fin 16) : List Le
   [isolated, LegalMoves.corners odd, LegalMoves.nonCorners odd,
     LegalMoves.corners even, LegalMoves.nonCorners even]
 
-private def stagesFor (masks : List LegalMoves.Raw) (sq : Fin 64) : List Nat :=
+def stagesFor (masks : List LegalMoves.Raw) (sq : Fin 64) : List Nat :=
   masks.zipIdx.filterMap fun (mask, stage) => if mask.bits.getLsbD sq.val then some stage else none
 
 def PartitionContract : Prop := by

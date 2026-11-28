@@ -1,4 +1,7 @@
-import NeuralReversi.Bitboard.Model
+module
+public import NeuralReversi.Bitboard.Model
+
+@[expose] public section
 
 /-! Depth-one visit tiers extracted from the rustc MIR of `search::midgame::DEPTH1_MOVE_ORDER_MASKS` by
 `verification/lean/scripts/check_midgame_children_mir.py`. Regenerate with `check_endgame_mir.py --write`

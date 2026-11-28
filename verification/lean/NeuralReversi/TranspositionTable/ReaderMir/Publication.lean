@@ -1,5 +1,8 @@
-import NeuralReversi.TranspositionTable.ReaderMir.Program
-import NeuralReversi.PvsParallel.Cutoffs
+module
+public import NeuralReversi.TranspositionTable.ReaderMir.Program
+public import NeuralReversi.PvsParallel.Cutoffs
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.ReaderMir
 

@@ -1,6 +1,12 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalPv
-import NeuralReversi.PvsParallel.Interleaving.SolveEntry
-import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalPv
+public import NeuralReversi.PvsParallel.Interleaving.SolveEntry
+public import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.JournalNestedHelpers
+meta import NeuralReversi.PvsParallel.Interleaving.JournalPv
+meta import NeuralReversi.PvsParallel.Interleaving.SolveEntry
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalRootStore
 
@@ -19,7 +25,7 @@ structure Options where
 
 /-- Identify the chosen first-line root by its physical worker and activation, even while
     its TT store is in progress. Abandoned retries still occupy their solve-local ordinal. -/
-private def origin (es : Joint.Tape Op) (acts : CallReturns.State) (owner : CallJournal.Choice) (f : Frame) :
+def origin (es : Joint.Tape Op) (acts : CallReturns.State) (owner : CallJournal.Choice) (f : Frame) :
     Option (Nat × AspirationMir.SerialStack.State) := do
   let (a,id) ← acts.calls.toList.zipIdx.find? fun (a,_) => a.worker == owner.worker && a.first == owner.opening
   let row ← a.row id
@@ -46,15 +52,15 @@ private def origin (es : Joint.Tape Op) (acts : CallReturns.State) (owner : Call
     guard ((rows.map Row.square).Perm (seed.rows.map Row.square))
   return (id,⟨ordinal,a.entered,⟨args.alpha.raw,args.beta.raw,0⟩,rows⟩)
 
-private def generated (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def generated (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (st : AspirationMir.SerialStack.State) (op : Options) :=
   MoveList.Generation.fill false op.paired fc b.val (Root.remainingMask mc b.val (st.rows.map Row.square) 0) op.memory
 
-private def moves (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def moves (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (st : AspirationMir.SerialStack.State) (op : Options) :=
   AspirationMir.SmallRoot.candidates mc fc b (st.rows.map Row.square) 0 op.order.key op.order.sort
 
-private def compiled (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (x : NativeNodes.Returns)
+def compiled (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position) (x : NativeNodes.Returns)
     (st : AspirationMir.SerialStack.State) (op : Options) (inside : x.InPrefix prior) :
     RootProgram.Operands mc b (BoardFrame.Children mc fc b prior) st.regs.beta.toInt :=
   ⟨op.memory,op.paired,op.order.key,op.order.sort,op.order.pvLine,x.pvReplies mc fc b (Board.emptyCount b.val) false,
@@ -132,7 +138,7 @@ abbrev Splits (es : Joint.Tape Op) (mc : Bitboard.Moves.X86Config) (fc : Cutoffs
 private theorem resize {cursor : BitVec width} (j : Join t children n cursor) (same : n = m) (h : j.answer = some score) :
     ∃ k : Join t children m cursor, k.answer = some score := by subst m; exact ⟨j,h⟩
 
-private def joined (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
+def joined (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b : Position)
     (sc : CallReturns.Scope) (st : AspirationMir.SerialStack.State) (op : Options)
     (out : CallReturns.Owner (GeneratedSquare mc b.val)) (prior : CausalTable.Values) (reads : Lookups)
     (inside : (sc.nativePlan (CallReturns.boardPlan mc fc b out.plan)).InPrefix prior)
@@ -188,7 +194,7 @@ private def joined (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (b 
           exact .joined _ first true false (Board.emptyCount b.val).toNat packet.width trace fits j done_⟩
     else none
 
-private def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op)
+def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joint.Tape Op)
     (s : CallJournal.State Op) (f : Frame) (reads : Lookups) (op : Options)
     (probe : Option (Nat × Nat × ProbeRetry.Result)) (splits : Splits es mc fc f.board) : Check (JournalPv.Bodies mc fc s f reads) :=
   match s.choices.find? (fun owner => owner.stamp == f.chosen) with

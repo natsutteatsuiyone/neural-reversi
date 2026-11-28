@@ -1,7 +1,10 @@
-import NeuralReversi.PvsParallel.Interleaving.JournalEntry
-import NeuralReversi.PvsParallel.Interleaving.JointReads
-import NeuralReversi.PvsParallel.NativeFrames.EntryStream
-import NeuralReversi.PvsParallel.NativeFrames.CacheCalls
+module
+public import NeuralReversi.PvsParallel.Interleaving.JournalEntry
+public import NeuralReversi.PvsParallel.Interleaving.JointReads
+public import NeuralReversi.PvsParallel.NativeFrames.EntryStream
+public import NeuralReversi.PvsParallel.NativeFrames.CacheCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.JournalBodies
 
@@ -132,7 +135,7 @@ variable {m : Joint.Atomics x es}
 abbrev Probes (m : Joint.Atomics x es) := (event : Nat) → (b : Position) →
   Option (JointReads.Call m event (.probe (Cutoffs.key b)))
 
-private def evaluated (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
+def evaluated (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     (init : ∀ a, NativeTableWrites.Journal.Even (x.memory a)) (probes : Probes m)
     (p : Pool) (trace : Timeline p) (visit : Visit p) (level : Selectivity) (f : Frame) :
     Check (Bodies mc fc level (CausalTable.lookup x init f.chosen) f) :=
@@ -171,13 +174,13 @@ private def evaluated (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig)
     else .rejected
   else .rejected
 
-private def enteredAt (events : Joint.Tape Op) (worker opening : Nat) : Option (Nat × Nat × Input) :=
+def enteredAt (events : Joint.Tape Op) (worker opening : Nat) : Option (Nat × Nat × Input) :=
   events.zipIdx.findSome? fun (e,j) => match e with
     | .engine (.localCall w (.entry t site .boundary _ (some op)) _) =>
       if w = worker ∧ t = opening then some (j,site,op.input) else none
     | _ => none
 
-private def leftAt (events : Joint.Tape Op) (worker opening : Nat) : Option Nat :=
+def leftAt (events : Joint.Tape Op) (worker opening : Nat) : Option Nat :=
   events.zipIdx.findSome? fun (e,j) => match e with
     | .engine (.localCall w (.leave _ t .boundary ..) _) =>
       if w = worker ∧ t = opening then some j else none
@@ -185,7 +188,7 @@ private def leftAt (events : Joint.Tape Op) (worker opening : Nat) : Option Nat 
 
 /-- The depth-twelve probe must open in this particular boundary activation.
     This also checks misses and rejected table entries before local search. -/
-private def probeMatches (probes : Probes m) (worker start stop consumer : Nat) (i : Input) : Bool :=
+def probeMatches (probes : Probes m) (worker start stop consumer : Nat) (i : Input) : Bool :=
   let starts := es.zipIdx.filterMap fun (ev,j) => match ev with
     | .enter w _ => if w = worker ∧ start < j ∧ j < stop then some j else none
     | _ => none
@@ -201,7 +204,7 @@ private def probeMatches (probes : Probes m) (worker start stop consumer : Nat) 
     | _,_ => false
   else starts.isEmpty
 
-private def samePool (a b : Pool) : Bool :=
+def samePool (a b : Pool) : Bool :=
   a.base == b.base && a.size == b.size && a.width == b.width
 
 def noPoolHeader (es : Joint.Tape Op) : Bool :=
@@ -237,7 +240,7 @@ private theorem deep_falls_through (i : Input) (deep : i.arm = .deep i.active) :
     | none => rfl
     | some _ => simp [Input.arm,result] at deep
 
-private def saved (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
+def saved (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (reads : Lookups)
     (p : Pool) (trace : Timeline p) (worker opening : Nat) (i : Input) (before after : BitVec 64)
     (level : Selectivity) (f : Frame) : Check (Bodies mc fc level reads f) :=
   if valid : CallJournal.BoundaryChecks i before after = true ∧ i.board = f.board ∧ f.pv = false ∧

@@ -1,6 +1,10 @@
-import NeuralReversi.Bitboard.MovesModel
-import NeuralReversi.Bitboard.MovesSpec
-import Init.Data.BitVec.Bitblast
+module
+public import NeuralReversi.Bitboard.MovesModel
+public import NeuralReversi.Bitboard.MovesSpec
+public import Init.Data.BitVec.Bitblast
+
+@[expose] public section
+
 namespace NeuralReversi.Bitboard.Moves
 set_option maxRecDepth 4096
 set_option maxHeartbeats 2000000

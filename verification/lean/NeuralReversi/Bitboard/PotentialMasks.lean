@@ -1,7 +1,11 @@
-import NeuralReversi.Bitboard.PotentialModel
-import NeuralReversi.Bitboard.PotentialSpec
-import NeuralReversi.Bitboard.AdjacencyProperties
-import NeuralReversi.Bitboard.MovesDirectional
+module
+public import NeuralReversi.Bitboard.PotentialModel
+public import NeuralReversi.Bitboard.PotentialSpec
+public import NeuralReversi.Bitboard.AdjacencyProperties
+public import NeuralReversi.Bitboard.MovesDirectional
+
+@[expose] public section
+
 namespace NeuralReversi.Bitboard.Moves
 set_option maxRecDepth 4096
 set_option maxHeartbeats 2000000
@@ -17,7 +21,7 @@ def reaches (target cell : Nat) : Bool :=
   (diagonalMask.getLsbD cell && decide (cell = target+9))
 
 theorem reaches_table : ∀ target cell : Fin 64,
-    reaches target.val cell.val = (neighbourMaskAt target.val).getLsbD cell.val := by decide
+    reaches target.val cell.val = (neighbourMaskAt target.val).getLsbD cell.val := by decide +kernel
 
 theorem masked_left_bit_exists (word mask : Bits) (d target : Nat) (bound : target < 64) :
     ((word &&& mask) <<< d).getLsbD target = true ↔

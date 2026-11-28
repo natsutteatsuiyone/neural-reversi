@@ -1,7 +1,10 @@
-import NeuralReversi.AspirationMir.PublicScore
-import NeuralReversi.PvsParallel.FrameWrites
-import NeuralReversi.PvsParallel.FrameRows
-import NeuralReversi.OuterMir.Correct
+module
+public import NeuralReversi.AspirationMir.PublicScore
+public import NeuralReversi.PvsParallel.FrameWrites
+public import NeuralReversi.PvsParallel.FrameRows
+public import NeuralReversi.OuterMir.Correct
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir
 

@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.Repeated
-import NeuralReversi.TranspositionTable.Duplicate.Image
+module
+public import NeuralReversi.AspirationMir.SerialTable.Repeated
+public import NeuralReversi.TranspositionTable.Duplicate.Image
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable.MidgameHistory
 
@@ -7,7 +10,7 @@ open AspirationMir.SerialTable.Repeated (ReadyMemory)
 open TranspositionTable
 open EndgameSearch.CacheHistory (Pool)
 
-private def sharedSlot (s : Clear.SlotState) :=
+def sharedSlot (s : Clear.SlotState) :=
   Clear.afterAttempt s (Clear.clearSharedAttempt s.seq s.seq s.seq s.data)
 
 private theorem shared_even (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : (sharedSlot s).seq &&& 1 = 0 := by
@@ -22,10 +25,10 @@ private theorem shared_even (s : Clear.SlotState) (even : s.seq &&& 1 = 0) : (sh
     rw [← base,SeqLock.publish_seqWord,SeqLock.seqWord_even_iff]
     omega
 
-private def clearedImage (im : Image l) (shared : Bool) : Image l :=
+def clearedImage (im : Image l) (shared : Bool) : Image l :=
   ⟨im.slots.map (fun s => if shared then sharedSlot s else Clear.emptySlot),by simp [im.size],im.generation⟩
 
-private theorem supported (im : Image l) (old : im.Supported hist) (shared : Bool) :
+theorem supported (im : Image l) (old : im.Supported hist) (shared : Bool) :
     (clearedImage im shared).Supported [] := by
   have eq (i : l.Index) : (clearedImage im shared).get i = (if shared then sharedSlot (im.get i) else Clear.emptySlot) := by
     simp [clearedImage,Image.get]
@@ -67,15 +70,15 @@ theorem attach_ready (src : Memory layout) (dst : Memory old) (source : ReadyMem
     (localState : ReadyMemory p mc fc dst) : ReadyMemory p mc fc (attach src dst) :=
   ⟨⟨⟨source.1.1.1,localState.1.1.2⟩,source.1.2⟩,source.2⟩
 
-private def word (slot : Clear.SlotState) : SeqLock.Location → SeqLock.Word
+def word (slot : Clear.SlotState) : SeqLock.Location → SeqLock.Word
   | .sequence => slot.seq
   | .payload .player => slot.player
   | .payload .opponent => slot.opponent
   | .payload .metadata => slot.data
 
-private def words (im : Image l) (i : Nat) := word (im.slots[i]?.getD Clear.emptySlot)
+def words (im : Image l) (i : Nat) := word (im.slots[i]?.getD Clear.emptySlot)
 
-private def copiedSlot (im : Image l) (buffers : Duplicate.Buffers) (i : l.Index) : Clear.SlotState :=
+def copiedSlot (im : Image l) (buffers : Duplicate.Buffers) (i : l.Index) : Clear.SlotState :=
   let bytes := Duplicate.materialize l.bigEndian buffers.source (words im)
   let read := Duplicate.readWord l.bigEndian (Duplicate.image (buffers.after bytes) buffers.dest i.val)
   ⟨read .sequence,read (.payload .player),read (.payload .opponent),read (.payload .metadata)⟩
@@ -86,10 +89,10 @@ private theorem copied_eq (im : Image l) (buffers : Duplicate.Buffers) (size : b
   have inside : i.val < im.slots.size := by rw [im.size]; exact i.isLt
   simp [copiedSlot,buffers.image_eq _ valid,Duplicate.readMaterialized,words,inside,Image.get,word]
 
-private def copiedImage (im : Image l) (buffers : Duplicate.Buffers) : Image l :=
+def copiedImage (im : Image l) (buffers : Duplicate.Buffers) : Image l :=
   ⟨Array.ofFn (copiedSlot im buffers),by simp,im.generation⟩
 
-private theorem copied_image_eq (im : Image l) (buffers : Duplicate.Buffers) (size : buffers.clusters = l.clusters.toNat) :
+theorem copied_image_eq (im : Image l) (buffers : Duplicate.Buffers) (size : buffers.clusters = l.clusters.toNat) :
     copiedImage im buffers = im := by
   have same : Array.ofFn (copiedSlot im buffers) = im.slots := by
     apply Array.ext

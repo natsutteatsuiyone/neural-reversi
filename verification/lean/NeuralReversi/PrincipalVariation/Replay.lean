@@ -1,5 +1,8 @@
-import NeuralReversi.PvsBoardTree
-import NeuralReversi.PrincipalVariation.Buffer
+module
+public import NeuralReversi.PvsBoardTree
+public import NeuralReversi.PrincipalVariation.Buffer
+
+@[expose] public section
 
 namespace NeuralReversi.PrincipalVariation
 

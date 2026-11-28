@@ -1,5 +1,8 @@
-import NeuralReversi.AspirationMir.SerialTable.MultiLevel
-import NeuralReversi.AspirationMir.SerialTable.MultiRows
+module
+public import NeuralReversi.AspirationMir.SerialTable.MultiLevel
+public import NeuralReversi.AspirationMir.SerialTable.MultiRows
+
+@[expose] public section
 
 namespace NeuralReversi.AspirationMir.SerialTable.MultiLine
 

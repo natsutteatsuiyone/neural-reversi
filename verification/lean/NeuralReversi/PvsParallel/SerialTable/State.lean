@@ -1,7 +1,11 @@
-import NeuralReversi.PvsParallel.SerialTable.Reads
-import NeuralReversi.PvsParallel.SerialTable.Store
-import NeuralReversi.PvsParallel.SerialTable.Writes
-import NeuralReversi.PvsParallel.SerialCacheStack.Cells
+module
+public import NeuralReversi.PvsParallel.SerialTable.Reads
+public import NeuralReversi.PvsParallel.SerialTable.Store
+public import NeuralReversi.PvsParallel.SerialTable.Writes
+public import NeuralReversi.PvsParallel.SerialCacheStack
+public import NeuralReversi.EndgameSearch.SerialLeafCache
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialTable
 

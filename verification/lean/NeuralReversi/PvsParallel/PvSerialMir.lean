@@ -1,7 +1,11 @@
-import NeuralReversi.PvsParallel.PvSerialMir.Program
-import NeuralReversi.PvsParallel.RootOwnerMir.Slice
-import NeuralReversi.PvsParallel.PvEntryMir
-import NeuralReversi.Threading.InFlight
+module
+public import NeuralReversi.PvsParallel.PvSerialMir.Program
+public import NeuralReversi.PvsParallel.RootOwnerMir.Slice
+public import NeuralReversi.PvsParallel.RootSerialMir
+public import NeuralReversi.PvsParallel.PvEntryMir
+public import NeuralReversi.Threading.InFlight
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.PvSerialMir
 

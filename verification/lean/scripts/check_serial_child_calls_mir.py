@@ -4,7 +4,6 @@ import argparse
 from itertools import product
 from pathlib import Path
 import re
-import tempfile
 
 from cache_owner_mir import PASS
 from extract_header import initial, lmr_returns_zero, transition
@@ -14,6 +13,7 @@ from extract_pvs_context_mir import Graph, bracket
 from extract_root_wipeout import FILENAME, constants
 from extract_single import SIGNATURE, check_score_operators
 from mir_common import CALL, checked
+from mir_mutants import patched_mir
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -158,7 +158,10 @@ def inspect(dump, traits):
 
 
 def render(dump, traits):
-    return """import NeuralReversi.PvsParallel.SerialCalls
+    return """module
+public import NeuralReversi.PvsParallel.SerialCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialCalls.Sites
 
@@ -249,13 +252,11 @@ def check(dump, repo=REPO):
         "endgame reduced retry": replace_in(retry_cmp, "0: bb" + guard[2], "0: bb" + guard[3]),
         "PV pass marked cut": replace_in(pass_arm, "const false", "const true"),
     }
-    with tempfile.TemporaryDirectory() as tmp:
-        test = Path(tmp)
-        (test / REDUCTION).symlink_to((dump / REDUCTION).resolve())
-        for label, source in changes.items():
-            (test / FILENAME).write_text(source, encoding="utf-8")
+    pvs_path = dump / FILENAME
+    for label, source in changes.items():
+        with patched_mir(pvs_path, source):
             try:
-                different = render(test, traits) != expected
+                different = render(dump, traits) != expected
             except (ValueError, KeyError):
                 different = True
             checked(different, f"accepted mutant: {label}")

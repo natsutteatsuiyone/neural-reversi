@@ -1,5 +1,8 @@
-import NeuralReversi.Solve2.BoardBridge
-import NeuralReversi.Board.ScoreProperties
+module
+public import NeuralReversi.Solve2.BoardBridge
+public import NeuralReversi.Board.ScoreProperties
+
+@[expose] public section
 
 namespace NeuralReversi.Solve2
 

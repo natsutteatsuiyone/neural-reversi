@@ -1,7 +1,10 @@
-import NeuralReversi.Stability.EdgeModel
-import NeuralReversi.Stability.EdgeEncoding
-import NeuralReversi.Stability.LineBracket
-import NeuralReversi.Stability.EdgeTrace
+module
+public import NeuralReversi.Stability.EdgeModel
+public import NeuralReversi.Stability.EdgeEncoding
+public import NeuralReversi.Stability.LineBracket
+public import NeuralReversi.Stability.EdgeTrace
+
+@[expose] public section
 
 namespace NeuralReversi.Stability.Edge
 open Semantics

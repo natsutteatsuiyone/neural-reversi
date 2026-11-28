@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.Interleaving.Joint
-import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+module
+public import NeuralReversi.PvsParallel.Interleaving.Joint
+public import NeuralReversi.PvsParallel.Interleaving.StopSchedule
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.TaskAncestry
 
@@ -12,7 +15,7 @@ structure Generation where
 
 abbrev Path := List Generation
 
-private def head (p : Path) := p.head?.map Generation.slot
+def head (p : Path) := p.head?.map Generation.slot
 
 structure Task where
   gen : Generation
@@ -21,13 +24,13 @@ structure Task where
 
 abbrev Slots := Nat → Option Task
 
-private def linked (slots : Slots) : Path → Bool
+def linked (slots : Slots) : Path → Bool
   | [] => true
   | g :: tail => slots g.slot == some ⟨g,tail⟩ && linked slots tail
 
-private def parent (slots : Slots) (slot : Nat) := (slots slot).bind fun task => head task.parents
+def parent (slots : Slots) (slot : Nat) := (slots slot).bind fun task => head task.parents
 
-private theorem walk (slots : Slots) (p : Path) (ok : linked slots p = true) :
+theorem walk (slots : Slots) (p : Path) (ok : linked slots p = true) :
     StopSchedule.Chain (parent slots) (head p) (p.map Generation.slot) := by
   induction p with
   | nil => exact .root
@@ -70,15 +73,15 @@ structure Journal where
   clones : Event → Option View
   assignments : Event → Option Path
 
-private def put [DecidableEq α] (f : α → β) (where_ : α) (value : β) (key : α) :=
+def put [DecidableEq α] (f : α → β) (where_ : α) (value : β) (key : α) :=
   if key = where_ then value else f key
 
-private structure Building where
+structure Building where
   slot : Nat
   parents : Path
   mark : Option Event
 
-private structure State where
+structure State where
   position : Nat
   slots : Slots
   active : Nat → Path
@@ -89,25 +92,25 @@ private structure State where
   scanning : Nat → Option Walk
   journal : Journal
 
-private def empty : State :=
+def empty : State :=
   ⟨0, fun _ => none, fun _ => [], fun _ => none, fun _ => none, fun _ => none, fun _ => none, fun _ => none,
    ⟨fun _ => none,fun _ => none,fun _ => none,fun _ => none,fun _ => none,fun _ => none,fun _ => none⟩⟩
 
-private def State.view (s : State) (w : Nat) : Option View := do
+def State.view (s : State) (w : Nat) : Option View := do
   guard (linked s.slots (s.active w))
   return ⟨s.position,s.slots,s.active w,s.resets w⟩
 
-private def State.advance (s : State) (e : Event) : Option State := do
+def State.advance (s : State) (e : Event) : Option State := do
   guard ((s.previous e.worker).all (· < e.step))
   return {s with position := s.position+1, previous := put s.previous e.worker (some e.step)}
 
-private def mark (s : State) (e : Event) (addr : Nat) : Option State := do
+def mark (s : State) (e : Event) (addr : Nat) : Option State := do
   let b ← s.building e.worker
   guard (s.slots addr |>.isNone)
   guard (b.slot = addr ∧ b.mark = none)
   return {s with building := put s.building e.worker (some {b with mark := some e})}
 
-private def taskWord (s : State) (e : Event) : Joint.TaskWord → Option State
+def taskWord (s : State) (e : Event) : Joint.TaskWord → Option State
   | .cloneActive loaded => do
     let view ← s.view e.worker
     guard (loaded = head view.path)
@@ -193,7 +196,7 @@ private def taskWord (s : State) (e : Event) : Joint.TaskWord → Option State
     return {s with journal.loads := put s.journal.loads e (some ⟨g,word,src,view⟩),
                    scanning := put s.scanning e.worker (some next)}
 
-private def step (slot : Nat → Nat → Option Nat) (s : State) : Joint.Event Op → Option State
+def step (slot : Nat → Nat → Option Nat) (s : State) : Joint.Event Op → Option State
   | .splitWord w t (.mark bank) => do
     let addr ← slot w bank
     let e := ⟨w,t⟩

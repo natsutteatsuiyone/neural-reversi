@@ -1,12 +1,15 @@
-import NeuralReversi.EndgameCache
-import NeuralReversi.Board.MovesProperties
-import NeuralReversi.Bitboard.IteratorProperties
-import NeuralReversi.ShallowMoveOrder
-import NeuralReversi.Solve34.Control
+module
+public import NeuralReversi.EndgameCache
+public import NeuralReversi.Board.MovesProperties
+public import NeuralReversi.Bitboard.IteratorProperties
+public import NeuralReversi.ShallowMoveOrder
+public import NeuralReversi.Solve34.Control
+
+@[expose] public section
 
 namespace NeuralReversi.ShallowCutoff
 
-private def scan (alpha : Int) (report : Fin 64 → Int) (next : Int → Int) :
+def scan (alpha : Int) (report : Fin 64 → Int) (next : Int → Int) :
     List (Fin 64) → Int → Int
   | [], best => next best
   | sq :: rest, best =>
@@ -81,7 +84,7 @@ theorem runGroups_sound {alpha : Int} {report value : Fin 64 → Int}
     have := (all sq mem).1
     exact ⟨eq ▸ (sound sq mem).1, fun _ => by omega, fun _ => by omega⟩
 
-private def squares (m : LegalMoves.Raw) : List (Fin 64) :=
+def squares (m : LegalMoves.Raw) : List (Fin 64) :=
   (Bitboard.setIndices m.bits).attach.map fun ⟨i, member⟩ =>
     ⟨i, List.mem_range.mp (List.mem_filter.mp member).1⟩
 
@@ -97,7 +100,7 @@ private theorem mem_squares (m : LegalMoves.Raw) (sq : Fin 64) :
 
 open Bitboard.Moves (X86Config LegalMove)
 
-private def moveGroups (config : X86Config) (b : Board.Board) (parity : Fin 16) :=
+def moveGroups (config : X86Config) (b : Board.Board) (parity : Fin 16) :=
   (ShallowMoveOrder.groups ⟨Board.getMoves config b⟩ (Board.emptySquares b) parity).map squares
 
 private theorem legal_in_groups (config : X86Config) (b : Board.Board) (parity : Fin 16) (sq : Fin 64) :

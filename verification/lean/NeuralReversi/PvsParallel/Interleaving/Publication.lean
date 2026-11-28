@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.Interleaving.RootLadder
+module
+public import NeuralReversi.PvsParallel.Interleaving.RootLadder
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.Interleaving.Publication
 

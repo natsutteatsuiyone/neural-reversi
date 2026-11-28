@@ -270,7 +270,10 @@ def verify(dump,repo):
     ):
         sites = {pc: ordinal for ordinal, (pc, _, _) in enumerate(routing(dump, END + name))}
         verify_path(body(dump, name, sig), sites)
-    return f"""import NeuralReversi.EndgameSearch.FourOrder
+    return f"""module
+public import NeuralReversi.EndgameSearch.FourOrder
+
+@[expose] public section
 
 namespace NeuralReversi.EndgameSearch.ShallowMir
 

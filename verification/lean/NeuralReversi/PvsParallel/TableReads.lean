@@ -1,5 +1,8 @@
-import NeuralReversi.PvsParallel.ExactTableHistory
-import NeuralReversi.TranspositionTable.LookupCut
+module
+public import NeuralReversi.PvsParallel.ExactTableHistory
+public import NeuralReversi.TranspositionTable.LookupCut
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.TableReads
 

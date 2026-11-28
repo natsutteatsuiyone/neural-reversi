@@ -1,5 +1,8 @@
-import NeuralReversi.Flip.Avx512.WidePair
-import NeuralReversi.Flip.Dispatch.Properties
+module
+public import NeuralReversi.Flip.Avx512.WidePair
+public import NeuralReversi.Flip.Dispatch.Properties
+
+@[expose] public section
 
 namespace NeuralReversi.Flip.Dispatch
 
@@ -25,7 +28,7 @@ def Backend.single (backend : Backend) (sq : Square) (p o : Word) : Word :=
   | .wasm => WasmSimd.flip sq p o
   | .scalar => value sq p o
 
-private def tableIndex (sq : Square) : Fin 66 := ⟨sq.val, lookup_safe sq⟩
+def tableIndex (sq : Square) : Fin 66 := ⟨sq.val, lookup_safe sq⟩
 
 def Backend.pair (backend : Backend) (a b : Square) (p o : Word) : Word × Word :=
   match backend with

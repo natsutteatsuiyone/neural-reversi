@@ -1,3 +1,7 @@
+module
+
+@[expose] public section
+
 /-! Move-ordering table and weights extracted from the rustc MIR of `move_list::ordering` by
 `verification/lean/scripts/extract_endgame_order_mir.py`. Regenerate with
 `check_endgame_mir.py --write` instead of editing. -/

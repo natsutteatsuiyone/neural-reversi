@@ -1,4 +1,8 @@
-import NeuralReversi.PvsParallel.RootAspiration
+module
+public import NeuralReversi.PvsParallel.RootAspiration
+public import NeuralReversi.PvsParallel.RootReplay
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.RootMultiPV
 

@@ -1,4 +1,7 @@
-import NeuralReversi.TranspositionTable.Proofs
+module
+public import NeuralReversi.TranspositionTable.Proofs
+
+@[expose] public section
 
 namespace NeuralReversi.TranspositionTable.Replacement
 

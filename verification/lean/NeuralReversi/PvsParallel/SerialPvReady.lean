@@ -1,4 +1,7 @@
-import NeuralReversi.PvsParallel.SerialPvCalls
+module
+public import NeuralReversi.PvsParallel.SerialPvCalls
+
+@[expose] public section
 
 namespace NeuralReversi.PvsParallel.SerialPvReady
 
