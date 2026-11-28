@@ -30,7 +30,6 @@ use crate::sprt::SprtConfig;
 /// - Japanese byo-yomi: `--main-time M --byoyomi-time N --byoyomi-stones S` (`S >= 1`)
 #[derive(Parser, Debug)]
 #[command(
-    author,
     version,
     about = "Tool for running matches between GTP-compatible Reversi engines"
 )]

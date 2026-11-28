@@ -3,7 +3,6 @@ name = "cli"
 description = "Command-line interface, GTP/GGS client, and endgame solver for Neural Reversi"
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

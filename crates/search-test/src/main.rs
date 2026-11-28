@@ -1236,7 +1236,7 @@ fn execute_section(
 
 /// Command line arguments for the search test runner
 #[derive(Debug, Parser)]
-#[command(author, version, about = "Search Test Suite Runner for Reversi AI")]
+#[command(version, about = "Search Test Suite Runner for Reversi AI")]
 struct Args {
     /// Maximum search depth in plies
     #[arg(short, long, default_value = "60")]

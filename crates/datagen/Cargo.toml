@@ -3,7 +3,6 @@ name = "datagen"
 description = "Training data generation and ProbCut model fitting tools for Neural Reversi"
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

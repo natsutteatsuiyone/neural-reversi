@@ -3,7 +3,6 @@ name = "match-runner"
 description = "Automated GTP engine-vs-engine match runner with SPRT for Neural Reversi"
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

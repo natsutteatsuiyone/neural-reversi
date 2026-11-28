@@ -3,7 +3,6 @@ name = "gui"
 description = "Neural Reversi native NSH desktop application"
 version.workspace = true
 edition.workspace = true
-authors.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true

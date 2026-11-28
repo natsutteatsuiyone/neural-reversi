@@ -14,7 +14,6 @@ resolver = "3"
 [workspace.package]
 version = "6.3.0"
 edition = "2024"
-authors = ["natsutteatsuiyone"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/natsutteatsuiyone/neural-reversi"
 homepage = "https://neural-reversi.net/"
