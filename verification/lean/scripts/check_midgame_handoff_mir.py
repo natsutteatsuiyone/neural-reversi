@@ -313,6 +313,7 @@ BOUNDARY = "search-strategy-{impl#1}-shallow_search"
 EFFECTS = {
     PVS: (2, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME"),
     "search-pvs-enhanced_transposition_cutoff": (1, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME"),
+    "search-pvs-endgame_cache_cutoff": (1, "const true"),
     "search-midgame-evaluate_shallow_with_tt": (1, "const false"),
     BOUNDARY: (1, "const true"),
 }
@@ -326,7 +327,7 @@ BOUNDARY_PREFIX = """
 4: _16 = copy _3; _15 = Eq(move _16, const 0_u32); switchInt(move _15) -> [0: bb8, otherwise: bb5];
 5: _19 = &mut (*_1); _18 = SearchContext::<'_>::clear_pv(move _19) => 6;
 6: _20 = &(*_1); _21 = &(*_2); _0 = <SS as SearchStrategy>::evaluate(move _20, move _21) => 7;
-7: goto 443;
+7: goto 457;
 8: _14 = const (); _23 = &mut (*_1); _22 = SearchContext::<'_>::prepare_pv(move _23) => 9;
 9: _12 = const (); goto 36;
 10: _24 = copy ((*_1).10: u32); _26 = const <SS as search::strategy::SearchStrategy>::IS_ENDGAME; switchInt(move _26) -> [0: bb11, otherwise: bb25];
@@ -335,13 +336,13 @@ BOUNDARY_PREFIX = """
 13: _34 = const true; switchInt(move _34) -> [0: bb20, otherwise: bb14];
 14: _39 = copy _5; _38 = Score::value(move _39) => 15;
 15: _37 = &_38; _43 = copy _4; _42 = Score::value(move _43) => 16;
-16: _44 = AddWithOverflow(copy _42, const 1_i32); assert(!move (_44.1: bool), "attempt to compute `{} + {}`, which would overflow", move _42, const 1_i32) -> [success: bb17, unwind: bb448];
+16: _44 = AddWithOverflow(copy _42, const 1_i32); assert(!move (_44.1: bool), "attempt to compute `{} + {}`, which would overflow", move _42, const 1_i32) -> [success: bb17, unwind: bb462];
 17: _41 = move (_44.0: i32); _40 = &_41; _36 = (move _37, move _40); _45 = copy (_36.0: &i32); _46 = copy (_36.1: &i32); _48 = copy (*_45); _49 = copy (*_46); _47 = Eq(move _48, move _49); switchInt(move _47) -> [0: bb19, otherwise: bb18];
 18: _35 = const (); _33 = const (); goto 21;
-19: _51 = core::panicking::AssertKind::Eq; _53 = move _51; _55 = &(*_45); _54 = &(*_55); _57 = &(*_46); _56 = &(*_57); _58 = Option::<Arguments<'_>>::None; _52 = core::panicking::assert_failed::<i32, i32>(move _53, move _54, move _56, move _58) -> bb448;
+19: _51 = core::panicking::AssertKind::Eq; _53 = move _51; _55 = &(*_45); _54 = &(*_55); _57 = &(*_46); _56 = &(*_57); _58 = Option::<Arguments<'_>>::None; _52 = core::panicking::assert_failed::<i32, i32>(move _53, move _54, move _56, move _58) -> bb462;
 20: _33 = const (); goto 21;
 21: _59 = &mut (*_1); _60 = &(*_2); _61 = copy _24; _62 = copy _4; _63 = copy _5; _64 = &(*_6); _0 = <EndGameStrategy as SearchStrategy>::shallow_search(move _59, move _60, move _61, move _62, move _63, move _64) => 22;
-22: goto 442;
+22: goto 456;
 23: goto 25;
 24: goto 25;
 25: _25 = const (); _67 = copy _3; _66 = Le(move _67, const <SS as search::strategy::SearchStrategy>::DEPTH_TO_SHALLOW); switchInt(move _66) -> [0: bb27, otherwise: bb26];
@@ -438,7 +439,8 @@ def reject_mutants(dump, closures):
         (retry, "div(move _28, const 2_i32)", "div(move _28, const 3_i32)"),
         (PVS, "Ge(move _28, move _29)", "Gt(move _28, move _29)"),
         (PVS, "Le(move _31, const <search::strategy::EndGameStrategy", "Lt(move _31, const <search::strategy::EndGameStrategy"),
-        (PVS, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _441)", "const true, move _441)"),
+        (PVS, "const <SS as search::strategy::SearchStrategy>::IS_ENDGAME, move _464)", "const true, move _464)"),
+        ("search-pvs-endgame_cache_cutoff", "const true, move _53)", "const false, move _53)"),
         ("search-midgame-evaluate_shallow_with_tt", "const false, move _155)", "const true, move _155)"),
         (BOUNDARY, "const true, const false)", "const false, const false)"),
     ]

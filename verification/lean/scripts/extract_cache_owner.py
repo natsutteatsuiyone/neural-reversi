@@ -21,8 +21,10 @@ NODES = {
     MID+"iterate": "iterate", MID+"aspiration_search": "midWindow",
     MID+"aspiration_search-{closure#0}": "midClosure", MID+"try_probcut": "midProb",
     LAZY+"{impl#3}-run": "helper", LAZY+"{impl#1}-start-{closure#0}-{closure#0}": "helperClosure",
-    "search-pvs-search": "pvs", "search-pvs-search_split_point": "splitSearch",
+    "search-pvs-search": "pvs", "search-pvs-endgame_cache_cutoff": "ecCutoff",
+    "search-pvs-search_split_point": "splitSearch",
     STRATEGY+"{impl#0}-try_probcut": "midStrategyProb", STRATEGY+"{impl#1}-shallow_search": "boundary",
+    END+"{impl#0}-fail_low_score": "failLow",
     END+"null_window_search": "deep", END+"search_move_nws_ec": "deepChild",
     END+"shallow_search": "shallow", END+"shallow_search_moves": "shallowMoves",
     END+"shallow_search_move": "shallowChild",
@@ -42,6 +44,7 @@ def targets(fn):
         "<EndGameStrategy as SearchStrategy>::shallow_search":("boundary",5),
         "<SS as SearchStrategy>::shallow_search":("boundary",5),
         "<SS as SearchStrategy>::try_probcut":("midStrategyProb",6),
+        "endgame_cache_cutoff":("ecCutoff",7), "EndGameCaches::fail_low_score":("failLow",0),
         GET:("access",0), "shallow_search":("shallow",3), "shallow_search_move":("shallowChild",4),
         "shallow_search_moves":("shallowMoves",6),
     }
@@ -108,11 +111,13 @@ def check_borrow_uses(body):
 def routing(dump,stem):
     body=Body(dump,stem)
     node=NODES[stem]
-    if node in ("boundary","deep","deepChild","shallow","shallowMoves","shallowChild"):
+    if node in ("boundary","ecCutoff","failLow","deep","deepChild","shallow","shallowMoves","shallowChild"):
         check_borrow_uses(body)
     if node=="midClosure":
         capture="((*_1).3: &std::sync::Arc<search::threading::thread::Thread>)"
         seeds={capture:"thread"}
+    elif node=="failLow":
+        seeds={body.arg("self"):"pair"}
     elif node in ("deep","deepChild"):
         seeds={body.arg("caches"):"pair",body.arg("cutoff"):"poll"}
     elif node in ("shallow","shallowMoves","shallowChild"):
@@ -121,7 +126,7 @@ def routing(dump,stem):
         inputs=re.findall(r"(_\d+): (?:&)?Arc<threading::thread::Thread>",body.signature)
         checked(len(inputs)==1,f"{node} thread argument")
         seeds={inputs[0]:"thread"}
-    if node=="boundary":
+    if node in ("boundary","ecCutoff"):
         seeds=body.produced(GET,"pair",seeds)
         start=body.named(GET)[0]
         checked(all(start not in body.reachable(int(m[1])) for x in [body.cfg[start][-1]]
@@ -141,9 +146,10 @@ def routing(dump,stem):
                 pollarg=4 if to=="deep" else 6
                 checked(body.resolve(args[pollarg],seeds)=="poll","changed cutoff poller")
             transform = {("boundary","pair"):"borrowPair",("boundary","shallow"):"borrowShallow",
+                         ("ecCutoff","pair"):"borrowPair",("failLow","deep"):"deepField",
                          ("deep","deep"):"deepField",("deepChild","shallow"):"shallowField"}.get((node,origin))
             if transform is None:
-                expected={"deep":"pair","deepChild":"pair","shallow":"shallow","shallowChild":"shallow",
+                expected={"failLow":"pair","deep":"pair","deepChild":"pair","shallow":"shallow","shallowChild":"shallow",
                           "shallowMoves":"shallow"}.get(node,"thread")
                 checked(origin==expected,f"foreign receiver in {node}: {fn} {origin}")
                 transform="forward"

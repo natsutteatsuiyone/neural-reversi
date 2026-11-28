@@ -28,7 +28,7 @@ private def nested (exit : Invocations.Exit) : Calls :=
   .call ⟨Role.scout.site,mainW.root,none⟩ exit .nil .nil .nil
 private def sites (k : Nat) : Site :=
   if k = 0 then ⟨nested (.discarded ⟨0⟩),nested (.normal ⟨9⟩),[]⟩
-  else ⟨.nil,.nil,[⟨⟨5,mainW.root,none⟩,.leave .split none none,by intro; simp,.nil,.nil⟩]⟩
+  else ⟨.nil,.nil,[⟨⟨6,mainW.root,none⟩,.leave .split none none,by intro; simp,.nil,.nil⟩]⟩
 private def calls := issue (moveSite false) mainW.root sites [] 0 children
 
 private def before (n : Nat) (node : Node) (receiver : Resource) : Event :=

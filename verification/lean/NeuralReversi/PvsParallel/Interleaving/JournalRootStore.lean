@@ -222,7 +222,7 @@ def evaluate (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipConfig) (es : Joi
               let priorCalls := if handoff then direct.dropLast else direct
               if priorCalls.any (fun a => a.callee != .pvs) then .outside else
               if direct.any (fun a => decide (a.entered ≤ close)) then .rejected else
-              if handoff && !(direct.getLast?.any fun a => a.callee == .split && a.site == 5 &&
+              if handoff && !(direct.getLast?.any fun a => a.callee == .split && a.site == 6 &&
                   priorCalls.all (fun g => g.returned.any (fun ret => decide (ret < a.entered)))) then .rejected else
               let sc := JournalPv.scope s f acts id
               match got : sc.rootRun mc fc f.board op.schedule rootMinimumSplitDepth st.regs.alpha.toInt st.regs.beta.toInt
@@ -307,7 +307,7 @@ structure Mutation where
   otherLevel : Option Selectivity := none
   base : Int := 0
   root : Int := 5
-  retrySite : Nat := 8
+  retrySite : Nat := 9
   retry : Bool := true
   endRoot : Bool := false
   rows : Bool := true
@@ -328,11 +328,11 @@ private def trial (p : Mutation) : Option Bool := do
     .solveEnter 0 2 0 .none ⟨b,(word p.base).raw,rows,none,false,1,5⟩,enter 3 0 .endWindow,
     if p.rows then .rootEnter 0 4 0 .none root rows' else enter 4 0 .pvs (some root),
     .enter 0 ⟨.probe (Cutoffs.key b),0,16,0⟩,.leave 0 (.probe (.miss 0)),
-    enter 5 8 .pvs (args b1 true false (-256) 256 p.level none),scored 6 (-2),closed 7 5 (-2),
-    enter 8 6 .pvs (args b2 false true (-3) (-2) p.level none),scored 9 (-4),closed 10 8 (-4)] ++
+    enter 5 9 .pvs (args b1 true false (-256) 256 p.level none),scored 6 (-2),closed 7 5 (-2),
+    enter 8 7 .pvs (args b2 false true (-3) (-2) p.level none),scored 9 (-4),closed 10 8 (-4)] ++
     (if p.retry then [enter 11 p.retrySite .pvs (args b2 true false p.retryWindow (-2) (p.otherLevel.getD p.level) none),
       scored 12 (-5),closed 13 11 (-5)] else []) ++
-    (if p.extra then [enter 14 8 .pvs (args b2 true false (-256) (-2) p.level none),scored 15 (-5),closed 16 14 (-5)] else []) ++
+    (if p.extra then [enter 14 9 .pvs (args b2 true false (-256) (-2) p.level none),scored 15 (-5),closed 16 14 (-5)] else []) ++
     [scored 17 p.root] ++ (if p.endRoot then [closed 18 4 p.root] else [])
   let state ← CallJournal.run mc fc calls false (es.map Joint.Event.engineEvent)
   let choice ← state.choices.find? (fun c => c.opening == 4)
@@ -346,7 +346,7 @@ private def trial (p : Mutation) : Option Bool := do
 #guard trial {root := 4} = some false
 #guard trial {otherLevel := some 2} = some false
 #guard trial {retry := false} = some false
-#guard trial {retrySite := 6} = some false
+#guard trial {retrySite := 7} = some false
 #guard trial {retryWindow := -255} = some false
 #guard trial {extra := true} = some false
 #guard trial {base := 1} = some false
@@ -369,7 +369,7 @@ private def splitTrial (site bank : Nat) (load score : Int) (schedule : Bool) : 
   let es : Joint.Tape Unit := [enter 0 0 .root,enter 1 0 .endRoot,
     .solveEnter 0 2 0 .none ⟨board,0,rows,none,false,1,5⟩,enter 3 0 .endWindow,
     .rootEnter 0 4 0 .none root rows,.enter 0 ⟨.probe (Cutoffs.key board),0,16,0⟩,.leave 0 (.probe (.miss 0)),
-    enter 5 8 .pvs (args next true false (-256) 256 2 none),scored 6 (-2),closed 7 5 (-2),
+    enter 5 9 .pvs (args next true false (-256) 256 2 none),scored 6 (-2),closed 7 5 (-2),
     enter 8 site .split,.splitWord 0 9 (.mark 0),.splitWord 0 10 (.result bank (word load).raw),
     .engine (.localCall 0 (.leave 11 8 .split none none) none),scored 12 score]
   let s ← CallJournal.run mc fc calls false (es.map Joint.Event.engineEvent)
@@ -385,11 +385,11 @@ private def splitTrial (site bank : Nat) (load score : Int) (schedule : Bool) : 
     | .rejected => true | _ => false
   return (hands,observed,rejects)
 
-#guard splitTrial 5 0 7 7 true = some (true,true,true)
-#guard splitTrial 6 0 7 7 true = some (true,false,true)
-#guard splitTrial 5 1 7 7 true = some (true,false,true)
-#guard splitTrial 5 0 6 7 true = some (true,false,true)
-#guard splitTrial 5 0 7 7 false = some (false,true,true)
+#guard splitTrial 6 0 7 7 true = some (true,true,true)
+#guard splitTrial 5 0 7 7 true = some (true,false,true)
+#guard splitTrial 6 1 7 7 true = some (true,false,true)
+#guard splitTrial 6 0 6 7 true = some (true,false,true)
+#guard splitTrial 6 0 7 7 false = some (false,true,true)
 
 end Regression
 end NeuralReversi.PvsParallel.Interleaving.JournalRootStore

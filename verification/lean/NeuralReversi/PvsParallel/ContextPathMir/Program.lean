@@ -22,10 +22,10 @@ inductive Callee where
 
 def recursiveSite : Bool → Nat → Option Callee
   | false, 59 => some .pass
-  | false, 244 => some (.move false)
-  | false, 343 => some (.move false)
-  | false, 352 => some (.move false)
-  | false, 369 => some (.move true)
+  | false, 257 => some (.move false)
+  | false, 356 => some (.move false)
+  | false, 365 => some (.move false)
+  | false, 382 => some (.move true)
   | true, 26 => some (.move false)
   | true, 37 => some (.move true)
   | _, _ => none

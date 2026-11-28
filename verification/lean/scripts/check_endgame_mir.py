@@ -24,6 +24,7 @@ import check_serial_leaf_restore_mir
 import check_serial_child_calls_mir
 import check_serial_score_words_mir
 import check_serial_table_slot_mir
+import check_endgame_cache_cutoff_mir
 import check_endgame_probcut_mir
 import check_serial_worker_mir
 import check_serial_level_mir
@@ -191,6 +192,8 @@ def _run_pre_task(task_id, dump, repo, probe_state):
         return f"checked signed recursive scores and rejected {check_serial_score_words_mir.check(dump)} MIR mutants"
     if task_id == "serial_table_slot":
         return f"checked retained PVS and ETC table slots and rejected {check_serial_table_slot_mir.check(dump)} MIR mutants"
+    if task_id == "endgame_cache_cutoff":
+        return f"checked endgame_cache_cutoff and fail_low_score MIR and rejected {check_endgame_cache_cutoff_mir.check(dump)} MIR mutants"
     if task_id == "endgame_probcut":
         return f"checked selective ProbCut and rejected {check_endgame_probcut_mir.check(dump, repo)} MIR mutants"
     if task_id == "serial_level":
@@ -390,7 +393,7 @@ def check_inputs(dump, repo, write=False, *, probe_futures=None, proc_pool=None,
             "iterator", "spinlock", "cutoff_poll", "midgame_children", "midgame_handoff",
             "result_guards", "outer_abort", "outer_state", "move_generation",
             "serial_leaf_restore", "serial_child_calls", "serial_score_words",
-            "serial_table_slot", "endgame_probcut", "serial_level", "serial_move_list",
+            "serial_table_slot", "endgame_cache_cutoff", "endgame_probcut", "serial_level", "serial_move_list",
         )
         depths_fut = proc_pool.submit(_run_pre_task, "proof_depths", dump, repo, probe_state)
         # Submit heaviest tasks first (longest-job-first scheduling) so critical path finishes earliest.

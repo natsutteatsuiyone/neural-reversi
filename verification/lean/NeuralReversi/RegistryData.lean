@@ -2844,6 +2844,12 @@ def entries : List Entry := [
   property := "NeuralReversi.PvsEnhancedCutoff.Contract"
   theoremName := "NeuralReversi.PvsEnhancedCutoff.contract_proven"
   notes := "PVS selects the first eligible child with an exact or upper bound whose negation beats alpha. If the cached bounds hold for the queried child values, the selected score is a valid lower bound at the parent." },
+{ id := "pvs.endgame-cache-cutoff"
+  functions := ["endgame_cache_cutoff", "EndGameCaches::fail_low_score"]
+  status := "proven"
+  property := "NeuralReversi.EndgameCacheCutoff.Contract"
+  theoremName := "NeuralReversi.EndgameCacheCutoff.contract_proven"
+  notes := "At depth DEPTH_TO_NWS + 1, fail_low_score isolates proven upper bounds from the exact endgame cache. For any search beta, floor-dividing -beta by 256 guarantees beta <= Score::from_disc_diff(-child_score) <= parent minimax value without overflow, and storing Bound::Lower at EndGameCaches::SELECTIVITY (Selectivity::None) preserves SoundHistory." },
 { id := "pvs.late-move-reduction"
   functions := ["compute_lmr_reduction", "lmr_max_reduction", "search"]
   status := "proven"

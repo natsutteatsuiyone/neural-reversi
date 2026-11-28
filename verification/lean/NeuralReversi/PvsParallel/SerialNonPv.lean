@@ -95,6 +95,7 @@ private def EntryFacts (depth : Nat) (stable mobile other parentCut childCut : B
   | .pass => mobile = false ∧ other = true
   | .probe => parentCut = true
   | .enhanced => childCut = true
+  | .cache => False
   | .rest => mobile = true
   | _ => True
 
@@ -164,6 +165,7 @@ theorem prefix_returns (mc : X86Config) (fc : FlipConfig) (b : Position) (depth 
   next => exact ⟨_, rfl⟩
   next _ selected => exact Option.isSome_iff_exists.mp (dispatch_observed selected)
   next _ selected => exact Option.isSome_iff_exists.mp (dispatch_observed selected)
+  next _ selected => exact (dispatch_observed selected).elim
   next _ selected => exact (continued selected).elim
   next _ selected =>
     have small := dispatch_observed selected

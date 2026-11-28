@@ -21,9 +21,9 @@ def inCache : Node → Bool
   | _ => false
 
 theorem cache_edge {e : EndgameSearch.CacheOwner.Edge} (member : e ∈ EndgameSearch.CacheOwner.transfers)
-    (ordinary : e.callee ≠ .boundary) : inCache e.caller = inCache e.callee := by
-  have all : EndgameSearch.CacheOwner.transfers.all (fun e => e.callee == .boundary || inCache e.caller == inCache e.callee) = true := by decide
-  simpa [ordinary] using List.all_eq_true.mp all e member
+    (outside : inCache e.callee = false) : inCache e.caller = false := by
+  have all : EndgameSearch.CacheOwner.transfers.all (fun e => inCache e.callee || !inCache e.caller) = true := by decide
+  simpa [outside] using List.all_eq_true.mp all e member
 
 structure Caller (s : Cursor w) (node : Node) (receiver : Resource) (opening : Nat) : Prop where
   kind : s.parent.node = node
@@ -43,7 +43,7 @@ private theorem Caller.pushed {s t : Cursor w} (prior : Caller s caller receiver
   have head : t.parent = top := by simp [Cursor.parent,stack]
   refine ⟨head ▸ kind,head ▸ rec,head ▸ opened,?_⟩
   intro outside
-  have free := prior.free ((parent ▸ cache_edge member plain).trans outside)
+  have free := prior.free (parent ▸ cache_edge member outside)
   simpa [Cursor.busy,stack,kind,plain] using free
 
 /-- A worker's sequence of complete calls can be run on any earlier history.

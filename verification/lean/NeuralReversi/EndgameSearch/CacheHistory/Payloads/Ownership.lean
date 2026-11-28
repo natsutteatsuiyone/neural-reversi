@@ -10,14 +10,17 @@ open NativeTrace (Worker Cursor Activation Event Raw Ordered)
 
 variable {p : Pool} {w : Worker p}
 
-/-- Deep and shallow recursion can only acquire the private arrays in the
-    boundary frame. Check the incoming edges against the extracted MIR graph. -/
-private def borrowed (n : Node) : Bool :=
-  match n.kind with | .pair | .deep | .shallow => true | _ => false
+/-- All cache stores and shallow-cache operations can only acquire the private arrays
+    in the boundary frame. Deep read-only probes may also run under `ecCutoff`. -/
+private def boundaryOwned (n : Node) : Bool :=
+  match n with
+  | .deep | .deepChild | .shallow | .shallowMoves | .shallowChild
+  | .deepStore | .shallowSlot | .shallowProbe | .shallowStore => true
+  | _ => false
 
-private theorem caller_loan (e : Edge) (member : e ∈ CacheOwner.transfers) (callee : borrowed e.callee) :
-    e.caller = .boundary ∨ borrowed e.caller = true := by
-  have all : CacheOwner.transfers.all (fun edge => !borrowed edge.callee || edge.caller == .boundary || borrowed edge.caller) := by decide
+private theorem caller_loan (e : Edge) (member : e ∈ CacheOwner.transfers) (callee : boundaryOwned e.callee) :
+    e.caller = .boundary ∨ boundaryOwned e.caller = true := by
+  have all : CacheOwner.transfers.all (fun edge => !boundaryOwned edge.callee || edge.caller == .boundary || boundaryOwned edge.caller) := by decide
   simpa [callee] using List.all_eq_true.mp all e member
 
 private theorem entered_from (s out : Cursor w) (ok : s.enter tick site node receiver args = some out) :
@@ -33,7 +36,7 @@ private theorem entered_from (s out : Cursor w) (ok : s.enter tick site node rec
 private def Loans : List (Activation w) → Prop
   | [] => True
   | a::rest =>
-    (borrowed a.node → ∃ f ∈ rest, f.node = .boundary ∧ f.first ≤ a.first) ∧ Loans rest
+    (boundaryOwned a.node → ∃ f ∈ rest, f.node = .boundary ∧ f.first ≤ a.first) ∧ Loans rest
 
 private theorem push_loan (s : Cursor w) (prior : Loans s.stack)
     (old : ∀ f ∈ s.stack, f.first < s.clock) (time : s.clock ≤ tick)
@@ -45,7 +48,7 @@ private theorem push_loan (s : Cursor w) (prior : Loans s.stack)
   rw [caller] at fromParent
   cases stack : s.stack with
   | nil =>
-    have impossible (k : CacheOwner.EntryPoint) : CacheOwner.entry k ≠ .boundary ∧ borrowed (CacheOwner.entry k) = false := by
+    have impossible (k : CacheOwner.EntryPoint) : CacheOwner.entry k ≠ .boundary ∧ boundaryOwned (CacheOwner.entry k) = false := by
       cases k <;> decide
     simp [Cursor.parent,stack,(impossible w.kind).1,(impossible w.kind).2] at fromParent
   | cons parent rest =>
@@ -65,7 +68,8 @@ private structure History (s : Cursor w) (events : List Raw) : Prop where
   ordered : Ordered s
   clocks : ∀ f ∈ s.stack, f.first < s.clock
   loans : Loans s.stack
-  seen : ∀ {t o node score}, Raw.leave t o node score ∈ events → (target node).isSome → o ≤ t ∧ Enclosed s o t
+  seen : ∀ {t o node score}, Raw.leave t o node score ∈ events → (target node).isSome →
+    o ≤ t ∧ (boundaryOwned node = true → Enclosed s o t)
 
 private theorem initial : History (.initial w) [] := by
   exact ⟨Ordered.initial,by simp [Cursor.initial],True.intro,by simp⟩
@@ -87,8 +91,8 @@ private theorem append_enter (s out : Cursor w) (h : History s events)
   · intro end_ start callee_ score mem primitive
     have prev : Raw.leave end_ start callee_ score ∈ events := by simpa using mem
     obtain ⟨ordered,seen⟩ := h.seen prev primitive
-    refine ⟨ordered,?_⟩
-    rcases seen with past | ⟨b,hb,tag,lo,hi⟩
+    refine ⟨ordered,fun owned => ?_⟩
+    rcases seen owned with past | ⟨b,hb,tag,lo,hi⟩
     · exact .inl (finish ▸ past)
     · exact .inr ⟨b,stack ▸ List.mem_cons_of_mem _ hb,tag,lo,by omega⟩
 
@@ -127,18 +131,18 @@ private theorem append_leave (s out : Cursor w) (h : History s events)
     · intro end_ start callee tag mem primitive
       rcases List.mem_append.mp mem with earlier | current
       · obtain ⟨before,cert⟩ := h.seen earlier primitive
-        refine ⟨before,?_⟩
-        rcases cert with ⟨v,done_,lo,hi⟩ | ⟨f,live,boundary,lo,hi⟩
+        refine ⟨before,fun owned => ?_⟩
+        rcases cert owned with ⟨v,done_,lo,hi⟩ | ⟨f,live,boundary,lo,hi⟩
         · exact .inl ⟨v,past v done_,lo,hi⟩
         · rcases List.mem_cons.mp (stack ▸ live) with rfl | tail
           · obtain ⟨v,hv,atOpen,atClose⟩ := closed boundary
             exact .inl ⟨v,hv,by omega,by omega⟩
           · exact .inr ⟨f,pop ▸ tail,boundary,lo,by omega⟩
       · cases List.mem_singleton.mp current
-        have accessed : borrowed node := by cases node <;> first | rfl | contradiction
-        obtain ⟨f,hf,boundary,lo⟩ := loan.1 (kind ▸ accessed)
         have was := h.clocks top (stack ▸ List.mem_cons_self)
-        exact ⟨by omega,.inr ⟨f,pop ▸ hf,boundary,by omega,by omega⟩⟩
+        refine ⟨by omega,fun owned => ?_⟩
+        obtain ⟨f,hf,boundary,lo⟩ := loan.1 (kind ▸ owned)
+        exact .inr ⟨f,pop ▸ hf,boundary,by omega,by omega⟩
 
 private theorem history_run (w : Worker p) (stream : List (Event S)) (s : Cursor w) (ok : NativeTrace.run w stream = some s) :
     History s (NativeTrace.workerEvents w.ordinal stream) := by
@@ -171,16 +175,20 @@ private theorem find_boundary (stack : List (Activation w))
     · have ne : top.node ≠ .boundary := fun h => head f below h tag
       simpa [ne] using ih tail below
 
-/-- Every returned primitive, including one in an unfinished outer call, has
-    a concrete enclosing boundary on its own Rust worker. -/
+/-- Every returned cache store or shallow-cache primitive, including one in an
+    unfinished outer call, has a concrete enclosing boundary on its own Rust worker.
+    All returned primitives obey opening <= return time. -/
 theorem worker_site (w : Worker p) (stream : List (Event S)) (s : Cursor w) (parsed : NativeTrace.run w stream = some s)
     (returned : Raw.leave t o node score ∈ NativeTrace.workerEvents w.ordinal stream) (primitive : (target node).isSome) :
-    o ≤ t ∧ ((∃ v ∈ s.completed, v.worker = w.ordinal ∧ v.first ≤ o ∧ t ≤ v.last) ∨
-      ∃ f, s.stack.find? (fun a => a.node == .boundary) = some f ∧ f.first ≤ o ∧ t ≤ s.clock) := by
+    o ≤ t ∧ ((node ≠ .deepSlot ∧ node ≠ .deepProbe) →
+      ((∃ v ∈ s.completed, v.worker = w.ordinal ∧ v.first ≤ o ∧ t ≤ v.last) ∨
+        ∃ f, s.stack.find? (fun a => a.node == .boundary) = some f ∧ f.first ≤ o ∧ t ≤ s.clock)) := by
   have h := history_run w stream s parsed
   obtain ⟨order,covered_⟩ := h.seen returned primitive
-  refine ⟨order,?_⟩
-  rcases covered_ with ⟨v,mem,lo,hi⟩ | ⟨f,mem,tag,lo,hi⟩
+  refine ⟨order,fun notDeepRead => ?_⟩
+  have owned : boundaryOwned node = true := by
+    cases node <;> simp [target, boundaryOwned] at primitive notDeepRead ⊢
+  rcases covered_ owned with ⟨v,mem,lo,hi⟩ | ⟨f,mem,tag,lo,hi⟩
   · exact .inl ⟨v,List.mem_reverse.mpr mem,(h.ordered.past v mem).1,lo,hi⟩
   · exact .inr ⟨f,find_boundary _ h.ordered.unique f mem tag,lo,Nat.le_of_lt hi⟩
 

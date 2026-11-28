@@ -23,6 +23,7 @@ class Flags:
     hit: bool
     cut_tt: bool
     enhanced: bool
+    cache_cut: bool
 
 
 def plus_threshold(dump, repo, name):
@@ -51,18 +52,18 @@ def prefetch_loop(cfg):
     # The iterator may contain any number of moves. Its back edge changes only the
     # iterator and temporaries, and each normal iteration prefetches one child hash.
     code = {
-        81: ["_159 = &_91;","_158 = MoveList::iter(move _159) -> [return: bb82, unwind: bb448];"],
-        82: ["_157 = <std::slice::Iter<'_, move_list::Move> as IntoIterator>::into_iter(move _158) -> [return: bb83, unwind: bb448];"],
+        81: ["_159 = &_91;","_158 = MoveList::iter(move _159) -> [return: bb82, unwind: bb462];"],
+        82: ["_157 = <std::slice::Iter<'_, move_list::Move> as IntoIterator>::into_iter(move _158) -> [return: bb83, unwind: bb462];"],
         83: ["PlaceMention(_157);","_160 = move _157;","goto -> bb84;"],
-        84: ["falseUnwind -> [real: bb85, unwind: bb448];"],
-        85: ["_165 = &mut _160;","_164 = &mut (*_165);","_163 = <std::slice::Iter<'_, move_list::Move> as Iterator>::next(move _164) -> [return: bb86, unwind: bb448];"],
+        84: ["falseUnwind -> [real: bb85, unwind: bb462];"],
+        85: ["_165 = &mut _160;","_164 = &mut (*_165);","_163 = <std::slice::Iter<'_, move_list::Move> as Iterator>::next(move _164) -> [return: bb86, unwind: bb462];"],
         86: ["PlaceMention(_163);","_166 = discriminant(_163);","switchInt(move _166) -> [0: bb88, 1: bb89, otherwise: bb87];"],
         87: ["FakeRead(ForMatchedPlace(None), _163);","unreachable;"],
         88: ["falseEdge -> [real: bb90, imaginary: bb89];"],
-        89: ["_168 = copy ((_163 as Some).0: &move_list::Move);","_170 = &(*_2);","_171 = copy ((*_168).0: bitboard::Bitboard);","_172 = copy ((*_168).2: square::Square);","_169 = Board::make_move_with_flipped(move _170, move _171, move _172) -> [return: bb91, unwind: bb448];"],
+        89: ["_168 = copy ((_163 as Some).0: &move_list::Move);","_170 = &(*_2);","_171 = copy ((*_168).0: bitboard::Bitboard);","_172 = copy ((*_168).2: square::Square);","_169 = Board::make_move_with_flipped(move _170, move _171, move _172) -> [return: bb91, unwind: bb462];"],
         90: ["goto -> bb95;"],
-        91: ["_174 = &(*((*_1).5: &transposition_table::TranspositionTable));","_176 = &_169;","_175 = Board::hash(move _176) -> [return: bb92, unwind: bb448];"],
-        92: ["_173 = TranspositionTable::prefetch(move _174, move _175) -> [return: bb93, unwind: bb448];"],
+        91: ["_174 = &(*((*_1).5: &transposition_table::TranspositionTable));","_176 = &_169;","_175 = Board::hash(move _176) -> [return: bb92, unwind: bb462];"],
+        92: ["_173 = TranspositionTable::prefetch(move _174, move _175) -> [return: bb93, unwind: bb462];"],
         93: ["goto -> bb84;"],
     }
     for pc, expected in code.items():
@@ -108,6 +109,7 @@ def walk(cfg, traits, flags, resume=None):
     data, hint = ("data",probe), ("hint",probe)
     entry = ("some",data)
     child_reads = ("enhanced","ctx","board",gen,"depth","alpha",("slot",probe),"ttPv")
+    child_cache = ("ecCutoff","ctx","board",gen,"depth","beta",("slot",probe),"ttPv","thread")
     events = []
 
     def arg(s):
@@ -119,18 +121,31 @@ def walk(cfg, traits, flags, resume=None):
         fields = {"&mut ((*_1).12: search::counters::SearchStats)":"stats",
                   "&(*((*_1).5: &transposition_table::TranspositionTable))":"tt", "copy ((*_1).7: probcut::Selectivity)":"exact"}
         if s in fields: return fields[s]
+        if s == "AddWithOverflow(const search::endgame::DEPTH_TO_NWS, const 1_u32)":
+            return ("nwsPlus1", False)
+        if m := re.fullmatch(r"move \((_\d+)\.(\d+): (u32|bool)\)", s):
+            v = env[m[1]]
+            checked(isinstance(v, tuple) and len(v) == 2, f"unexpected tuple projection {s}")
+            return v[int(m[2])]
         if m := re.fullmatch(r"Not\((.+)\)",s):
             v=arg(m[1]);checked(isinstance(v,bool),"unexpected negation");return not v
         if m := re.fullmatch(r"(Le|Ge)\(move (_\d+), const <SS as search::strategy::SearchStrategy>::(DEPTH_TO_SHALLOW|MIN_ETC_DEPTH)\)",s):
             checked(env[m[2]]=="depth","threshold uses wrong depth")
             return {("Le","DEPTH_TO_SHALLOW"):False,("Ge","MIN_ETC_DEPTH"):flags.deep}[(m[1],m[3])]
+        if m := re.fullmatch(r"Eq\(move (_\d+), move (_\d+)\)", s):
+            checked((env[m[1]], env[m[2]]) == ("depth", "nwsPlus1"), f"unexpected equality {s}")
+            return not flags.deep
         if m := re.fullmatch(r"Eq\(move (_\d+), const 0_usize\)",s):
             checked(env[m[1]]==("count",gen),"wrong move count");return not flags.move
         if m := re.fullmatch(r"discriminant\((_\d+)\)",s):
-            return int({args_stable:flags.stability,("wipe",gen):flags.wipe,data:flags.hit,child_reads:flags.enhanced}[env[m[1]]])
+            return int({args_stable:flags.stability,("wipe",gen):flags.wipe,data:flags.hit,
+                        child_reads:flags.enhanced,child_cache:flags.cache_cut}[env[m[1]]])
         if m := re.fullmatch(r"copy \(\((_\d+) as Some\)\.0: (score::DiscScore|square::Square|transposition_table::TTEntryData|score::Score)\)", s):
             val=env[m[1]]
-            checked(val=={"score::DiscScore":args_stable,"square::Square":("wipe",gen),"transposition_table::TTEntryData":data,"score::Score":child_reads}[m[2]],"wrong optional payload")
+            if m[2] == "score::Score":
+                checked(val in (child_reads, child_cache), "wrong optional score payload")
+            else:
+                checked(val=={"score::DiscScore":args_stable,"square::Square":("wipe",gen),"transposition_table::TTEntryData":data}[m[2]],"wrong optional payload")
             return ("some",val)
         if m := re.fullmatch(r"\{closure@crates[\\/]reversi-core[\\/]src[\\/]search[\\/]pvs.rs:[^}]+\}",s):
             return m[0]
@@ -143,7 +158,7 @@ def walk(cfg, traits, flags, resume=None):
             checked((env["_91"],env["_2"],env["_1"])==(gen,"board","ctx"),"prefetch uses changed state")
             events.append(("prefetchChildren",gen))
             pc=95
-        if pc==144:
+        if pc==157:
             outcome="owner"
             break
         b=cfg[pc]
@@ -166,7 +181,8 @@ def walk(cfg, traits, flags, resume=None):
                    "SearchStats::increment_tt_probe":"probeStat","TTProbeResult::<'_>::best_move":"hint","TTProbeResult::<'_>::data":"data",
                    "TTEntryData::can_cut":"canCut","SearchStats::increment_tt_hit":"hitStat","TTEntryData::score":"score",
                    "SearchStats::increment_etc_attempt":"etcStat","TTProbeResult::<'_>::slot":"slot",
-                   "enhanced_transposition_cutoff::<SS>":"enhanced","SearchStats::increment_etc_cut":"etcCut"}
+                   "enhanced_transposition_cutoff::<SS>":"enhanced","endgame_cache_cutoff":"ecCutoff",
+                   "SearchStats::increment_etc_cut":"etcCut"}
             if m:=re.fullmatch(r"Option::<TTEntryData>::is_some_and::<(\{closure@[^}]+\})>",c[2]):
                 checked(args==(data,m[1]) and m[1] == traits["checkedClosure"],"wrong tt_pv predicate"); call=("isPv",data);v="ttPv"
             else:
@@ -177,6 +193,9 @@ def walk(cfg, traits, flags, resume=None):
                 else: v=call
             events.append(call);env[c[1]]=v
             pc=normal_target(cfg,c[4],c[5])
+        elif m:=re.fullmatch(r'assert\(!move \((_\d+)\.1: bool\), "attempt to compute `\{\} \+ \{\}`, which would overflow", const search::endgame::DEPTH_TO_NWS, const 1_u32\) -> \[success: bb(\d+), unwind: bb(\d+)\];', term):
+            checked(env[m[1]] == ("nwsPlus1", False), "wrong DEPTH_TO_NWS + 1 overflow check")
+            pc=normal_target(cfg,m[2],m[3])
         elif m:=re.fullmatch(r"goto -> bb(\d+);|falseEdge -> \[real: bb(\d+), imaginary: bb\d+\];",term):
             pc=normal_target(cfg,m[1] or m[2])
         elif m:=re.fullmatch(r"switchInt\((.+)\) -> \[(\d+): bb(\d+), otherwise: bb(\d+)\];",term):
@@ -210,6 +229,9 @@ def walk(cfg, traits, flags, resume=None):
                     if flags.deep:
                         expected += [("etcStat","stats"),("slot",probe),child_reads]
                         if flags.enhanced: v=("some",child_reads); expected += [("etcCut","stats")];arm="enhanced"
+                    else:
+                        expected += [("etcStat","stats"),("slot",probe),child_cache]
+                        if flags.cache_cut: v=("some",child_cache); expected += [("etcCut","stats")];arm="cache"
     checked(outcome==v and events==expected,f"incorrect {arm} result or effects: {outcome}, {events}")
     if arm=="owner" and resume is not None:
         return resume(pc,env)
@@ -228,10 +250,10 @@ def verify(dump, repo):
     checked(etc==cutoff+2 and prob==cutoff+1,"unexpected general NonPV levels")
     traits["checkedClosure"]=auxiliary(dump,repo)
     prefetch_loop(cfg)
-    for flags in product((False,True),repeat=9):
+    for flags in product((False,True),repeat=10):
         walk(cfg,traits,Flags(*flags))
     def reach(cut, deep, hit, cb):
-        return walk(cfg,traits,Flags(cut,deep,False,True,False,False,hit,False,False),cb)
+        return walk(cfg,traits,Flags(cut,deep,False,True,False,False,hit,False,False,False),cb)
     extract_general_presearch.verify(cfg,dump,traits,reach)
     return f"""module
 
@@ -240,14 +262,17 @@ def verify(dump, repo):
 namespace NeuralReversi.PvsParallel.GeneralNonPvMir
 
 inductive Action where
-  | shallow | stability | terminal | pass | wipeout | probe | enhanced | rest
+  | shallow | stability | terminal | pass | wipeout | probe | enhanced | cache | rest
   deriving DecidableEq
 
-def dispatch (depth : Nat) (stable mobile other wipes parentCut childCut : Bool) : Action :=
+def dispatch (depth : Nat) (stable mobile other wipes parentCut childCut : Bool)
+    (cacheCut : Bool := false) : Action :=
   if depth ≤ {cutoff} then .shallow else if stable then .stability else if !mobile then
     if other then .pass else .terminal
   else if wipes then .wipeout else if parentCut then .probe
-  else if {etc} ≤ depth && childCut then .enhanced else .rest
+  else if {etc} ≤ depth then
+    if childCut then .enhanced else .rest
+  else if depth = {cutoff + 1} && cacheCut then .cache else .rest
 
 inductive Presearch (Move : Type) where
   | owner (idx : Nat) (best : Int)

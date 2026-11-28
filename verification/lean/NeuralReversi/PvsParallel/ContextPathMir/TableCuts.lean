@@ -64,6 +64,10 @@ private theorem enhanced_depth {n : Nat} {a b c d e f : Bool}
     (selected : GeneralNonPvMir.dispatch n a b c d e f = .enhanced) : 14 ≤ n := by
   grind [GeneralNonPvMir.dispatch]
 
+private theorem cache_depth {n : Nat} {a b c d e f g : Bool}
+    (selected : GeneralNonPvMir.dispatch n a b c d e f g = .cache) : n = 13 := by
+  grind [GeneralNonPvMir.dispatch]
+
 private theorem boundary_args
     (selected : DeepLeafMir.dispatch n (DeepLeafMir.parallelPool size) present active = some .probe) :
     n = 12 ∧ 1 < size := by
@@ -162,5 +166,12 @@ theorem FramePath.child_cut (p : FramePath mc fc root b d s false)
   have deep : (d-1).toNat ≤ entry.depth.toNat := eligible.2.1
   rw [BitVec.toNat_sub_of_le (by change 1 ≤ d.toNat; omega)] at deep
   exact ⟨by omega,before,sq,entry,after,order,by change d.toNat-1 ≤ entry.depth.toNat at deep; omega,rfl⟩
+
+theorem FramePath.cache_cut (p : FramePath mc fc root b d s false)
+    (selected : GeneralNonPvMir.dispatch d.toNat stable mobile other wipes parentCut childCut cacheCut = .cache) :
+    d.toNat = 13 ∧ 14 ≤ (Board.emptyCount root.val).toNat := by
+  have dep := cache_depth selected
+  have above := p.depth_bound.2 rfl
+  exact ⟨dep, by omega⟩
 
 end NeuralReversi.PvsParallel.ContextPathMir

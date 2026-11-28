@@ -59,16 +59,16 @@ def verify(dump, repo):
                 "unexpected NonPV score, best move, or back-edge")
     end,=[pc for pc,b in cfg.items() if "::Bound::classify::<NT>(" in b.end]
     split,=[split_call(b.end) for b in cfg.values() if "Thread::split(" in b.end]
-    checked(split and (split[1],split[4],split[5])==("_510","303","448"),"split result lost")
+    checked(split and (split[1],split[4],split[5])==("_533","316","462"),"split result lost")
     returns={
-        303:["PlaceMention(_510);","_507 = copy (_510.0: score::Score);","_508 = copy (_510.1: std::option::Option<square::Square>);","_509 = move (_510.2: search::counters::SearchCounters);","_523 = copy _507;","_331 = move _523;","_524 = copy _508;","_330 = move _524;","_526 = &mut (*_1);","_528 = &_509;","_527 = &(*_528);","_525 = SearchContext::<'_>::merge_counters(move _526, move _527) -> [return: bb304, unwind: bb448];"],
-        304:["_533 = &(*_6);","_532 = <Arc<threading::thread::Thread> as Deref>::deref(move _533) -> [return: bb305, unwind: bb448];"],
-        305:["_531 = &(*_532);","_530 = threading::thread::Thread::should_stop_after_split(move _531) -> [return: bb306, unwind: bb448];"],
-        306:["switchInt(move _530) -> [0: bb308, otherwise: bb307];"],
-        307:["_0 = const score::Score::ZERO;","goto -> bb433;"],
-        308:[f"goto -> bb{end};"],
-        433:["goto -> bb436;"],436:["goto -> bb437;"],437:["goto -> bb439;"],
-        439:["goto -> bb441;"],441:["goto -> bb444;"],444:["goto -> bb445;"],445:["return;"]}
+        316:["PlaceMention(_533);","_530 = copy (_533.0: score::Score);","_531 = copy (_533.1: std::option::Option<square::Square>);","_532 = move (_533.2: search::counters::SearchCounters);","_546 = copy _530;","_354 = move _546;","_547 = copy _531;","_353 = move _547;","_549 = &mut (*_1);","_551 = &_532;","_550 = &(*_551);","_548 = SearchContext::<'_>::merge_counters(move _549, move _550) -> [return: bb317, unwind: bb462];"],
+        317:["_556 = &(*_6);","_555 = <Arc<threading::thread::Thread> as Deref>::deref(move _556) -> [return: bb318, unwind: bb462];"],
+        318:["_554 = &(*_555);","_553 = threading::thread::Thread::should_stop_after_split(move _554) -> [return: bb319, unwind: bb462];"],
+        319:["switchInt(move _553) -> [0: bb321, otherwise: bb320];"],
+        320:["_0 = const score::Score::ZERO;","goto -> bb446;"],
+        321:[f"goto -> bb{end};"],
+        446:["goto -> bb449;"],449:["goto -> bb450;"],450:["goto -> bb453;"],
+        453:["goto -> bb455;"],455:["goto -> bb458;"],458:["goto -> bb459;"],459:["return;"]}
     for pc, expected in returns.items():
         checked([*cfg[pc].statements,cfg[pc].end]==expected and not cfg[pc].cleanup,
                 f"unsupported split result or stop after split bb{pc}")

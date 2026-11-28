@@ -18,7 +18,8 @@ from extract_pvs_context_mir import Graph
 FIELD = "copy ((*_1).7: probcut::Selectivity)"
 SINKS = {"compute_lmr_reduction::<NT, SS>": 0, "TranspositionTable::store": 7}
 FORBIDDEN = {"TTEntryData::can_cut", "TTEntryData::score", "TranspositionTable::penalize",
-             "enhanced_transposition_cutoff::<SS>", "<SS as SearchStrategy>::try_probcut",
+             "enhanced_transposition_cutoff::<SS>", "endgame_cache_cutoff",
+             "<SS as SearchStrategy>::try_probcut",
              "<SS as SearchStrategy>::shallow_search", "<EndGameStrategy as SearchStrategy>::shallow_search"}
 REG = re.compile(r"\b_\d+\b")
 SWITCH = re.compile(r"switchInt\(move (_\d+)\) -> \[0: bb(\d+), otherwise: bb(\d+)\];")
@@ -130,7 +131,7 @@ def check(dump, repo=REPO):
             return
         raise ValueError("accepted " + description)
 
-    for pc, guard in ((103, "PV_NODE"), (144, "IS_ENDGAME"), (167, "PV_NODE")):
+    for pc, guard in ((103, "PV_NODE"), (157, "IS_ENDGAME"), (180, "PV_NODE")):
         old = graph.cfg[pc]
         checked(guard in old[0], f"missing {guard} mutation anchor at bb{pc}")
         graph.cfg[pc] = [old[0].split(" = ")[0] + " = const false;", *old[1:]]

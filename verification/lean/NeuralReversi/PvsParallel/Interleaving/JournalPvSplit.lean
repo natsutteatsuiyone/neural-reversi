@@ -79,7 +79,7 @@ private theorem replay (sc : Scope) (mc : Bitboard.Moves.X86Config) (fc : Cutoff
 def span (es : Joint.Tape Op) (sc : Scope) (worker after : Nat) : Option Nat := do
   let direct := sc.calls.toList.zipIdx.filter fun (a,_) => a.parent == some sc.parent && decide (a.entered < sc.consumer)
   let (split,id) :: prev := direct.reverse | none
-  guard (split.worker = worker ∧ split.callee = .split ∧ split.site = 5 ∧ after < split.entered)
+  guard (split.worker = worker ∧ split.callee = .split ∧ split.site = 6 ∧ after < split.entered)
   guard (prev.all fun (a,_) => a.worker == worker && a.callee == .pvs && decide (after < a.entered) &&
     a.returned.any (fun t => decide (t < split.entered)))
   let [closed] := (es.zipIdx.filterMap fun (ev,k) => match ev with
@@ -214,7 +214,7 @@ private def op (board : Position) (available : Bool) : JournalPv.Operands mc boa
 
 structure Change where
   available : Bool := true
-  site : Nat := 5
+  site : Nat := 6
   childBeta : Int := 0
   childLevel : Option TranspositionTable.Selectivity := none
   scoreWord : Int := 5
@@ -229,9 +229,9 @@ private def trial (level : TranspositionTable.Selectivity) (cut : Bool) (c : Cha
   let child := (PvsBoardTree.play mc fc b first).val
   let parentArgs : NativeFrames.Args := ⟨b.val,60,score 0,score 100,true,level,true,cut,none⟩
   let childArgs : NativeFrames.Args := ⟨child.val,59,score (-100),score c.childBeta,true,c.childLevel.getD level,true,false,none⟩
-  let es : Joint.Tape Unit := [.engine (.localCall 0 (.entry 0 8 .pvs .none none) (some parentArgs)),
+  let es : Joint.Tape Unit := [.engine (.localCall 0 (.entry 0 9 .pvs .none none) (some parentArgs)),
     .enter 0 ⟨.probe (Cutoffs.key b),0,16,0⟩,.leave 0 (.probe (.miss 0)),
-    .engine (.localCall 0 (.entry 1 8 .pvs .none none) (some childArgs)),.engine (.localCall 0 (.scored 2 (score (-2))) none),
+    .engine (.localCall 0 (.entry 1 9 .pvs .none none) (some childArgs)),.engine (.localCall 0 (.scored 2 (score (-2))) none),
     .engine (.localCall 0 (.leave 3 1 .pvs none (some (score (-2)))) none),
     .engine (.localCall 0 (.entry 4 c.site .split .none none) none),.splitWord 0 5 (.mark 2),
     .splitWord 0 6 (.result c.resultBank 5)] ++ (if c.left then [.engine (.localCall 0 (.leave 7 4 .split none none) none)] else []) ++
@@ -257,7 +257,7 @@ private def trial (level : TranspositionTable.Selectivity) (cut : Bool) (c : Cha
 #guard !(trial 5 false {available := false})
 #guard !(trial 5 false {childBeta := 1})
 #guard !(trial 5 false {childLevel := some 2})
-#guard !(trial 5 false {site := 6})
+#guard !(trial 5 false {site := 5})
 #guard !(trial 5 false {scoreWord := 2})
 #guard !(trial 2 true {resultBank := 3})
 #guard !(trial 2 true {reportedCut := some false})

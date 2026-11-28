@@ -33,8 +33,8 @@ private def loads (t : Event) : Loads memory t := ⟨t.step-2,none,none,Nat.sub_
 
 private def enter (step site : Nat) : Record := .localCall 1 (.entry step site .pvs .none none)
 private def leave (step opening : Nat) (raw : ScoreRefresh.Score) : Record := .localCall 1 (.discarded step opening raw)
-private def inner : FrameEnd := ⟨1,6,12,[305,306,307,433,436,437,439,441,444,445],⟨0⟩⟩
-private def outer : FrameEnd := ⟨1,4,15,[59,60,61,62,440,441,444,445],⟨0⟩⟩
+private def inner : FrameEnd := ⟨1,6,12,[318,319,320,446,449,450,453,455,458,459],⟨0⟩⟩
+private def outer : FrameEnd := ⟨1,4,15,[59,60,61,62,454,455,458,459],⟨0⟩⟩
 private def halt : Trace memory := .stop inner ⟨1,10⟩ post (loads _)
 private def passTrace : Trace memory := .pass outer halt
 private def sources : Evidence memory := fun w first tail =>
@@ -49,7 +49,7 @@ example (e : ConcurrentReplay.Event) : normalize (nested passSite [.table e]) so
     some (nested passSite [.table e]).stream := by rfl
 
 private def drawn : Board.Board := ⟨0x5555555555555555,0xaaaaaaaaaaaaaaaa⟩
-private def solved : FrameEnd := ⟨1,1,4,[63,64,440,441,444,445],⟨0⟩⟩
+private def solved : FrameEnd := ⟨1,1,4,[63,64,454,455,458,459],⟨0⟩⟩
 private def ordinary : Inputs :=
   ⟨fun _ _ => some ⟨drawn,0,⟨-1⟩,⟨0⟩,true,Cutoffs.exactSelectivity,false,false,none⟩,
    fun _ _ => some 0,[enter 1 0,.localCall 1 (.leave 4 1 .pvs none (some ⟨0⟩))],true⟩

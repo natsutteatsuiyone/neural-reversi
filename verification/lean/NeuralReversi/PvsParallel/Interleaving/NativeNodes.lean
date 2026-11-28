@@ -368,7 +368,7 @@ private theorem prefixFrame (mc : Bitboard.Moves.X86Config) (fc : Cutoffs.FlipCo
     | .wipeout => some PvsMoveLoop.scoreMax
     | .probe => tableCut b d beta checked attempts
     | .enhanced => enhanced
-    | .rest | .shallow => none) = some score at answer
+    | .cache | .rest | .shallow => none) = some score at answer
   have count : g.len = some (legalSquares mc b.val).length := PvEntryMir.generated_count ..
   simp only [count,Option.getD_some,GeneralNonPvMir.dispatch] at answer
   by_cases small : d.toNat ≤ 12

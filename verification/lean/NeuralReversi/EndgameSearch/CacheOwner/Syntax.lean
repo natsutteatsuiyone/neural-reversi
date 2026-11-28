@@ -26,8 +26,8 @@ structure Boot where
 
 inductive Node where
   | main | idle | job | active | dispatch | split | root | endRoot | solve | endWindow | midRoot
-  | iterate | midWindow | midClosure | midProb | helper | helperClosure | pvs | splitSearch
-  | midStrategyProb | boundary | access | progress | deep | deepChild | shallow | shallowMoves
+  | iterate | midWindow | midClosure | midProb | helper | helperClosure | pvs | ecCutoff | splitSearch
+  | midStrategyProb | boundary | access | progress | failLow | deep | deepChild | shallow | shallowMoves
   | shallowChild | deepSlot | deepProbe | deepStore | shallowSlot | shallowProbe | shallowStore
   deriving DecidableEq
 

@@ -15,11 +15,11 @@ DEEP = "search-endgame-null_window_search"
 MOVE = "search-endgame-search_move_nws_ec"
 CASES = [
     (PVS, "_0 = const score::Score::ZERO;", "_0 = const score::Score::MAX;"),
-    (PVS, "switchInt(move _530) -> [0: bb308, otherwise: bb307]", "switchInt(move _530) -> [0: bb307, otherwise: bb308]"),
+    (PVS, "switchInt(move _553) -> [0: bb321, otherwise: bb320]", "switchInt(move _553) -> [0: bb320, otherwise: bb321]"),
     (PVS, "_0 = copy _120;", "_0 = copy _4;"),
     (PVS, "_120 = <Score as Neg>::neg(move _121)", "_120 = <Score as Neg>::neg(move _4)"),
-    (PVS, "drop(_386) -> [return: bb435", "_0 = TranspositionTable::store() -> [return: bb435"),
-    (PVS, "drop(_543) -> [return: bb432", "_0 = SearchContext::<'_>::update_root_move() -> [return: bb432"),
+    (PVS, "drop(_409) -> [return: bb448", "_0 = TranspositionTable::store() -> [return: bb448"),
+    (PVS, "drop(_566) -> [return: bb445", "_0 = SearchContext::<'_>::update_root_move() -> [return: bb445"),
     (PVS, "_0 = Board::solve(move _135, move _136)", "_0 = Board::solve(move _135, move _3)"),
     (DROP, "_5 = &(*(*_3));", "_5 = &(*_1);"),
     (WORKER + "is_search_aborted", "0: bb4, otherwise: bb3", "0: bb3, otherwise: bb4"),

@@ -237,24 +237,24 @@ private def trial (level : TranspositionTable.Selectivity) (score : Int) (retry 
   let c := (PvsBoardTree.play mc fc board n).val
   let es : Joint.Tape Unit := [entered 0 44 board level true false 0 100,
     .enter 0 ⟨.probe (Cutoffs.key board),0,16,0⟩,.leave 0 (.probe (.miss 0)),
-    .engine (.localCall 1 (.entry 0 9 .helper .none none) none),entered 1 8 b level true false (-100) 0] ++
-    returned 1 (-2) ++ [entered 4 6 c level false true (-3) (-2)] ++ returned 4 (-4) ++
+    .engine (.localCall 1 (.entry 0 9 .helper .none none) none),entered 1 9 b level true false (-100) 0] ++
+    returned 1 (-2) ++ [entered 4 7 c level false true (-3) (-2)] ++ returned 4 (-4) ++
     (if retry then [entered 7 site c retryLevel true false retryAlpha (-2)] ++ returned 7 (-5) else []) ++
-    (if tail then [entered 10 8 c level true false (-100) (-2)] ++ returned 10 (-5) else []) ++
+    (if tail then [entered 10 9 c level true false (-100) (-2)] ++ returned 10 (-5) else []) ++
     [.engine (.localCall 0 (.scored 20 (word score)) none)]
   let s ← CallJournal.run mc fc calls false (es.map Joint.Event.engineEvent)
   let f ← s.frames.head?
   match evaluate mc fc es s f (fun _ _ => False) (order f.board) (some (1,2,.miss 0)) with
   | .outside => none | .rejected => some false | .proved _ => some true
 
-#guard trial 5 5 true 8 5 (-100) false = some true
-#guard trial 2 5 true 8 2 (-100) false = some true
-#guard trial 5 4 true 8 5 (-100) false = some false
-#guard trial 5 5 false 8 5 (-100) false = some false
-#guard trial 5 5 true 6 5 (-100) false = some false
-#guard trial 5 5 true 8 2 (-100) false = some false
-#guard trial 2 5 true 8 2 (-99) false = some false
-#guard trial 2 5 true 8 2 (-100) true = some false
+#guard trial 5 5 true 9 5 (-100) false = some true
+#guard trial 2 5 true 9 2 (-100) false = some true
+#guard trial 5 4 true 9 5 (-100) false = some false
+#guard trial 5 5 false 9 5 (-100) false = some false
+#guard trial 5 5 true 7 5 (-100) false = some false
+#guard trial 5 5 true 9 2 (-100) false = some false
+#guard trial 2 5 true 9 2 (-99) false = some false
+#guard trial 2 5 true 9 2 (-100) true = some false
 
 end Regression
 

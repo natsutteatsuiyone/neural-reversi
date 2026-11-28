@@ -5,14 +5,17 @@ module
 namespace NeuralReversi.PvsParallel.GeneralNonPvMir
 
 inductive Action where
-  | shallow | stability | terminal | pass | wipeout | probe | enhanced | rest
+  | shallow | stability | terminal | pass | wipeout | probe | enhanced | cache | rest
   deriving DecidableEq
 
-def dispatch (depth : Nat) (stable mobile other wipes parentCut childCut : Bool) : Action :=
+def dispatch (depth : Nat) (stable mobile other wipes parentCut childCut : Bool)
+    (cacheCut : Bool := false) : Action :=
   if depth ≤ 12 then .shallow else if stable then .stability else if !mobile then
     if other then .pass else .terminal
   else if wipes then .wipeout else if parentCut then .probe
-  else if 14 ≤ depth && childCut then .enhanced else .rest
+  else if 14 ≤ depth then
+    if childCut then .enhanced else .rest
+  else if depth = 13 && cacheCut then .cache else .rest
 
 inductive Presearch (Move : Type) where
   | owner (idx : Nat) (best : Int)

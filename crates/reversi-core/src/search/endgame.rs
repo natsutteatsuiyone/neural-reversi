@@ -86,6 +86,8 @@ pub(in crate::search) struct EndGameCaches {
 }
 
 impl EndGameCaches {
+    pub(super) const SELECTIVITY: Selectivity = Selectivity::None;
+
     pub(in crate::search) fn for_thread_count(n_threads: usize) -> Self {
         let n_threads = n_threads.max(1);
         Self {
@@ -95,6 +97,13 @@ impl EndGameCaches {
                     .clamp(MIN_SHALLOW_CACHE_BYTES, MAX_SHALLOW_CACHE_BYTES),
             ),
         }
+    }
+
+    #[inline(always)]
+    pub(super) fn fail_low_score(&self, board: &Board, alpha: DiscScore) -> Option<DiscScore> {
+        self.ec
+            .probe(self.ec.slot(board.hash()), board, alpha)
+            .filter(|&score| score <= alpha)
     }
 }
 
@@ -820,6 +829,32 @@ mod tests {
                 .probe(cache_idx, &board, DiscScore::new(49))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn fail_low_score_reports_only_an_upper_bound_at_or_below_alpha() {
+        let board = Board::from_string(
+            "XXXXXXXXXXXXXXXXOOOXXXOXXOXXXXOX-OOXXOOX--OOOXXX--OOXXXX----XXXX",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        let mut caches = EndGameCaches::for_thread_count(1);
+        let slot = caches.ec.slot(board.hash());
+        let disc = DiscScore::new;
+        assert_eq!(caches.fail_low_score(&board, disc(64)), None);
+
+        caches.ec.store(slot, &board, disc(2), disc(3));
+        for alpha in [2, 3, 64] {
+            assert_eq!(caches.fail_low_score(&board, disc(alpha)), None);
+        }
+
+        caches.ec.store(slot, &board, disc(7), disc(6));
+        for (alpha, expected) in [(2, None), (5, None), (6, Some(6)), (64, Some(6))] {
+            assert_eq!(
+                caches.fail_low_score(&board, disc(alpha)),
+                expected.map(disc)
+            );
+        }
     }
 
     #[test]

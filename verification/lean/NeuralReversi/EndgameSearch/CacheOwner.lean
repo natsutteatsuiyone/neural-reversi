@@ -60,7 +60,7 @@ inductive Kind where
   deriving DecidableEq
 
 def Node.kind : Node → Kind
-  | .deep | .deepChild => .pair
+  | .failLow | .deep | .deepChild => .pair
   | .deepSlot | .deepProbe | .deepStore => .deep
   | .shallow | .shallowMoves | .shallowChild | .shallowSlot | .shallowProbe | .shallowStore => .shallow
   | .progress => .none
@@ -142,6 +142,13 @@ theorem boundary_call {e : Edge} (inside : e ∈ transfers) (fromBoundary : e.ca
       edge.caller != .boundary || edge.callee == .access || hasBorrow edge.callee.kind) = true := by decide
   have h := List.all_eq_true.mp valid e inside
   simpa [fromBoundary] using h
+
+theorem ecCutoff_call {e : Edge} (inside : e ∈ transfers) (fromCutoff : e.caller = .ecCutoff) :
+    e.callee = .access ∨ hasBorrow e.callee.kind = true := by
+  have valid : transfers.all (fun edge =>
+      edge.caller != .ecCutoff || edge.callee == .access || hasBorrow edge.callee.kind) = true := by decide
+  have h := List.all_eq_true.mp valid e inside
+  simpa [fromCutoff] using h
 
 def chosen (shallow : Bool) : Kind := if shallow then .shallow else .deep
 

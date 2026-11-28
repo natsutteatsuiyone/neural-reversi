@@ -62,7 +62,7 @@ def runPrefix (mc : X86Config) (fc : FlipConfig) (b : Position) (depth : Depth) 
   | .wipeout => some PvsMoveLoop.scoreMax
   | .probe => tt
   | .enhanced => enhanced
-  | .rest | .shallow => none
+  | .cache | .rest | .shallow => none
 
 theorem prefixExecution (mc : X86Config) (fc : FlipConfig) (b : Position) (depth : Depth) (alpha beta : Score)
     (paired checked cut : Bool) (mem : MoveList.Initialization.Memory Move.Move)

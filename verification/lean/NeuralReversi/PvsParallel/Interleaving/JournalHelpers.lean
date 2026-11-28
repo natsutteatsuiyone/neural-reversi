@@ -55,7 +55,7 @@ def location (es : Joint.Tape Op) (state : State) (root bank : Nat) (mark : Even
   guard (markStep = mark.step ∧ obs.opening ≤ stamp ∧ stamp < obs.scoutOpening)
   let split :: caller :: _ ← stackAt es mark.worker created | none
   let parent ← state.calls[split]?
-  guard (caller = root ∧ parent.callee = .split ∧ parent.parent = some root ∧ parent.site = 5)
+  guard (caller = root ∧ parent.callee = .split ∧ parent.parent = some root ∧ parent.site = 6)
   let helper :: method :: _ ← stackAt es obs.worker claim | none
   let op ← state.calls[helper]?
   let from_ ← state.calls[method]?
@@ -92,7 +92,7 @@ def ownerWindow (es : Joint.Tape Op) (sc : Scope) (b : Position) (rootNode pv cu
     entry.request.pv = pv ∧ entry.request.cut = cut ∧ entry.request.depth.toNat = depth ∧ entry.request.beta = beta ∧
     decision = sc.consumer ∧ word.raw.toInt = (if stopped then 0 else value))
   let [(a,id)] := state.calls.toList.zipIdx.filter (fun (r : Activation × Nat) => r.1.parent == some sc.parent && r.1.callee == .split) | none
-  guard (a.site = 5 ∧ a.worker = owner.worker)
+  guard (a.site = 6 ∧ a.worker = owner.worker)
   let read ← lockTime es load (.result bank (BitVec.ofInt 32 value))
   let (created,markStep) ← lastMark es mark.worker bank read
   guard (markStep = mark.step ∧ (ticks es mark.worker).Pairwise (· < ·))
@@ -376,7 +376,7 @@ private def tape (m : Edit) : Joint.Tape Unit :=
   let close : Joint.Event Unit := .engine (.localCall 1 (.leave (if m.unlockAfterExit then 19 else 21) 2 .splitSearch none none) none)
   let unlock : Joint.Event Unit := .splitWord 1 20 (.unlock 0 (if m.wrongUnlockBank then 4 else 3))
   let site := if !m.interior then 0 else if m.nonPv then 2 else 1
-  [enter 0 0 0 .pvs (some root),enter 0 1 5 .split none,.splitWord 0 2 (.mark 3),
+  [enter 0 0 0 .pvs (some root),enter 0 1 6 .split none,.splitWord 0 2 (.mark 3),
     enter 1 0 0 .active none,enter 1 1 0 .dispatch none,enter 1 2 (if m.wrongDispatch then site+1 else site) .splitSearch none] ++
     (if m.priorHole then [enter 1 3 0 .pvs (some scout),leave 1 4 3 none] else []) ++
     (if m.oldGeneration then [.splitWord 0 3 (.mark 3)] else []) ++
@@ -391,7 +391,7 @@ private def tape (m : Edit) : Joint.Tape Unit :=
     (if m.reuseWhileLocked then [.splitWord 0 3 (.mark 3)] else []) ++
     (if m.pending then [] else if m.unlockAfterExit then [close,unlock] else [unlock,close]) ++
     [.splitWord 0 19 (.result 3 (word 6)),.engine (.localCall 0 (.leave 20 1 .split none none) none)] ++
-    (if m.staleCaller then [enter 0 21 5 .split none,.engine (.localCall 0 (.leave 22 21 .split none none) none)] else []) ++
+    (if m.staleCaller then [enter 0 21 6 .split none,.engine (.localCall 0 (.leave 22 21 .split none none) none)] else []) ++
     [score 0 23 (word 6)]
 
 private def observed (m : Edit) : Option (Nat × Int × Int) := do

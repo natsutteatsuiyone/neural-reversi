@@ -6,9 +6,9 @@ from mir_mutants import check_mir_projection, run_mir_test_cli
 
 
 CASES = [
-    (PVS, "Thread::can_split(move _503)", "Thread::can_split(move _512)"),
-    (PVS, "[0: bb309, otherwise: bb302]", "[0: bb302, otherwise: bb309]"),
-    (PVS, "Thread::split(move _511", "Thread::split(move _512"),
+    (PVS, "Thread::can_split(move _526)", "Thread::can_split(move _535)"),
+    (PVS, "[0: bb322, otherwise: bb315]", "[0: bb315, otherwise: bb322]"),
+    (PVS, "Thread::split(move _534", "Thread::split(move _535"),
     (SCOUT, "move _64, move _66, move _67", "move _64, move _64, move _67"),
     (TH + "search_active_split_point", "move _37, move _38, move _39", "move _37, move _38, move _34"),
     (TH + "search_active_split_point", "bb40 (cleanup): {\n        drop(_79) -> [return: bb43",

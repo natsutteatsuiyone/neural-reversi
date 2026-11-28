@@ -18,6 +18,8 @@ def check(dump, repo):
         (POOL + "create_worker_threads", "{ thread: move _15 }", "{ thread: move _99 }"),
         (WORKER + "dispatch_search", "::<Root>(move _20, move _21, move _22, move _23", "::<Root>(move _20, move _21, move _22, move _99"),
         ("search-endgame-null_window_search", "((*_4).0: search::endgame::cache::EndGameCache", "((*_4).1: search::endgame::cache::EndGameCache"),
+        ("search-endgame-{impl#0}-fail_low_score", "((*_1).0: search::endgame::cache::EndGameCache", "((*_1).1: search::endgame::cache::EndGameCache"),
+        ("search-pvs-endgame_cache_cutoff", "_12 = &(*_8);", "_12 = &(*_99);"),
         ("search-endgame-search_move_nws_ec", "((*_6).1: search::endgame::cache::EndGameCache", "((*_6).0: search::endgame::cache::EndGameCache"),
         ("search-endgame-search_move_nws_ec", "_46 = &mut ((*_6).1:", "_333 = copy _6 as *mut () (PtrToPtr);\n        _46 = &mut ((*_6).1:"),
         (EXECUTE, "ThreadPool::start_thinking(move _10, move _13", "ThreadPool::start_thinking(move _10, move _99"),

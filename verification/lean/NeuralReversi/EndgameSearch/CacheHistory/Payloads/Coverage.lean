@@ -19,7 +19,7 @@ private theorem in_pool (p : Pool) (stream : List (Event S)) {c : Capture p S} (
 private theorem enclosing (p : Pool) (stream : List (Event S)) (c : Capture p S) (parsed : NativeTrace.decode p stream = some c)
     (event : Event.worker n (.leave t o node score) ∈ stream) (prim : target node = some (table,kind)) :
     let site := Site.mk n ⟨o,t,table,kind⟩
-    o ≤ t ∧ ∃ i ∈ intervals c, i.contains site := by
+    o ≤ t ∧ ((kind == .store || table == .shallow) = true → ∃ i ∈ intervals c, i.contains site) := by
   obtain ⟨_,completed,allWorkers⟩ := NativeTrace.decode_keeps p stream parsed
   obtain ⟨⟨w,s⟩,member,read⟩ := mapped allWorkers (List.mem_range.mpr (in_pool p stream parsed event))
   unfold readWorker at read
@@ -34,8 +34,11 @@ private theorem enclosing (p : Pool) (stream : List (Event S)) (c : Capture p S)
     apply List.mem_filterMap.mpr
     exact ⟨_,event,by simp [id]⟩
   obtain ⟨time,h⟩ := worker_site w stream s ran raw (by simp [prim])
-  refine ⟨time,?_⟩
-  rcases h with ⟨v,closed,worker,lo,hi⟩ | ⟨f,found,lo,hi⟩
+  refine ⟨time,fun mustCover => ?_⟩
+  have notDeepRead : node ≠ .deepSlot ∧ node ≠ .deepProbe := by
+    cases node <;> simp [target] at prim
+    all_goals rcases prim with ⟨rfl,rfl⟩; simp at mustCover ⊢
+  rcases h notDeepRead with ⟨v,closed,worker,lo,hi⟩ | ⟨f,found,lo,hi⟩
   · have present : v ∈ c.timeline.visits := completed ▸ List.mem_flatMap.mpr ⟨_,member,closed⟩
     exact ⟨⟨v.worker,v.first,v.last⟩,List.mem_append_left _ (List.mem_map.mpr ⟨_,present,rfl⟩),by simp [Interval.contains,worker,id,lo,hi]⟩
   · refine ⟨⟨w.ordinal,f.first,s.clock⟩,List.mem_append_right _ (List.mem_filterMap.mpr ⟨_,member,?_⟩),?_⟩
@@ -43,7 +46,8 @@ private theorem enclosing (p : Pool) (stream : List (Event S)) (c : Capture p S)
     · simp [Interval.contains,id,lo,hi]
 
 /-- Parsing the compiler-checked call edges and their returns implies complete,
-    unique attribution of the cache sites over all completed and outstanding workers. -/
+    unique attribution of all store and shallow cache sites over all completed
+    and outstanding workers, and at-most-once attribution of deep read-only sites. -/
 theorem covered_of_parse (p : Pool) (stream : List (Event S)) (c : Capture p S)
     (parsed : NativeTrace.decode p stream = some c) : covered c stream = true := by
   apply List.all_eq_true.mpr
@@ -61,11 +65,16 @@ theorem covered_of_parse (p : Pool) (stream : List (Event S)) (c : Capture p S)
         obtain ⟨table,kind⟩ := pair
         simp [site?,found] at site
         subst s
-        obtain ⟨time,i,member,hit⟩ := enclosing p stream c parsed present found
+        obtain ⟨time,must⟩ := enclosing p stream c parsed present found
         have upper := intervals_unique p stream c parsed ⟨n,o,t,table,kind⟩ time
-        have included : i ∈ (intervals c).filter (·.contains ⟨n,o,t,table,kind⟩) := List.mem_filter.mpr ⟨member,hit⟩
-        have lower := List.length_pos_of_mem included
-        exact beq_iff_eq.mpr (by omega)
+        dsimp only
+        split
+        next boundaryOnly =>
+          obtain ⟨i,member,hit⟩ := must boundaryOnly
+          have included : i ∈ (intervals c).filter (·.contains ⟨n,o,t,table,kind⟩) := List.mem_filter.mpr ⟨member,hit⟩
+          have lower := List.length_pos_of_mem included
+          exact beq_iff_eq.mpr (by omega)
+        next => exact decide_eq_true upper
 
 private theorem parsed_workers (p : Pool) (stream : List (Event S)) (ids : List Nat)
     (ws : List ((w : Worker p) × Cursor w)) (ran : ids.mapM (readWorker p stream) = some ws) :

@@ -148,6 +148,7 @@ public import NeuralReversi.Threading.SplitReturn
 public import NeuralReversi.Solve34.TreeBridge
 public import NeuralReversi.Solve34.Target
 public import NeuralReversi.PvsEnhancedCutoff
+public import NeuralReversi.EndgameCacheCutoff
 public import NeuralReversi.PvsPass
 public import NeuralReversi.PvsMoveLoop
 public import NeuralReversi.PvsBoardTree

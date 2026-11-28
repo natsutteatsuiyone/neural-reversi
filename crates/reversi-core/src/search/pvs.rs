@@ -154,6 +154,21 @@ pub fn search<NT: NodeType, SS: SearchStrategy>(
                 ctx.stats.increment_etc_cut();
                 return score;
             }
+        } else if SS::IS_ENDGAME && depth == endgame::DEPTH_TO_NWS + 1 {
+            ctx.stats.increment_etc_attempt();
+            if let Some(score) = endgame_cache_cutoff(
+                ctx,
+                board,
+                &move_list,
+                depth,
+                beta,
+                tt_probe_result.slot(),
+                tt_pv,
+                thread,
+            ) {
+                ctx.stats.increment_etc_cut();
+                return score;
+            }
         }
     }
 
@@ -565,6 +580,41 @@ fn enhanced_transposition_cutoff<SS: SearchStrategy>(
                 );
                 return Some(score);
             }
+        }
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
+fn endgame_cache_cutoff(
+    ctx: &mut SearchContext,
+    board: &Board,
+    move_list: &MoveList,
+    depth: Depth,
+    beta: Score,
+    tt_slot: TTSlot<'_>,
+    tt_pv: bool,
+    thread: &Arc<Thread>,
+) -> Option<Score> {
+    let caches = thread.endgame_caches();
+    let child_alpha = (-beta).to_disc_diff();
+
+    for mv in move_list.iter() {
+        let next = board.make_move_with_flipped(mv.flipped, mv.sq);
+        if let Some(child_score) = caches.fail_low_score(&next, child_alpha) {
+            let score = Score::from_disc_diff(-child_score);
+            ctx.tt.store(
+                tt_slot,
+                board,
+                score,
+                Bound::Lower,
+                depth,
+                Some(mv.sq),
+                endgame::EndGameCaches::SELECTIVITY,
+                true,
+                tt_pv,
+            );
+            return Some(score);
         }
     }
     None
@@ -1125,6 +1175,69 @@ mod tests {
                 assert_eq!(stored.depth(), depth);
             }
         }
+    }
+
+    #[test]
+    fn endgame_cache_cutoff_returns_only_proven_lower_bounds() {
+        use crate::search::root_move::RootMoves;
+        use crate::search::threading::ThreadPool;
+        use crate::transposition_table::TranspositionTable;
+
+        let depth = endgame::DEPTH_TO_NWS + 1;
+        let eval = Eval::shared_for_tests();
+        let mut saw_cutoff = false;
+        for seed in 0..4 {
+            let board = sample_endgame_board(seed, depth);
+            let move_list = MoveList::new(&board);
+            if move_list.count() == 0 || move_list.wipeout_move().is_some() {
+                continue;
+            }
+            let exact = exact_endgame_score(board);
+            let root_moves = RootMoves::new(&board);
+            let key = board.hash();
+            for alpha in [exact - 1, exact] {
+                let beta = alpha + 1;
+                let pool = ThreadPool::new(1);
+                let search_tt = TranspositionTable::new(0);
+                let mut ctx =
+                    SearchContext::new(&board, Selectivity::None, &root_moves, &search_tt, &eval);
+                search::<NonPV, EndGameStrategy>(
+                    &mut ctx,
+                    &board,
+                    depth,
+                    alpha,
+                    beta,
+                    pool.main(),
+                    false,
+                );
+
+                let tt = TranspositionTable::new(0);
+                let mut ctx =
+                    SearchContext::new(&board, Selectivity::None, &root_moves, &tt, &eval);
+                let cutoff = endgame_cache_cutoff(
+                    &mut ctx,
+                    &board,
+                    &move_list,
+                    depth,
+                    beta,
+                    tt.probe(&board, key).slot(),
+                    false,
+                    pool.main(),
+                );
+                let Some(score) = cutoff else {
+                    assert!(tt.lookup(&board, key).is_none());
+                    continue;
+                };
+                assert!(beta <= score && score <= exact);
+                let stored = tt.lookup(&board, key).unwrap();
+                assert_eq!(stored.bound(), Bound::Lower);
+                assert_eq!(stored.score(), score);
+                assert_eq!(stored.depth(), depth);
+                assert!(stored.is_endgame());
+                saw_cutoff = true;
+            }
+        }
+        assert!(saw_cutoff);
     }
 
     #[test]

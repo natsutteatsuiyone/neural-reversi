@@ -172,7 +172,7 @@ abbrev SplitFor (es : Joint.Tape Op) (mc : Bitboard.Moves.X86Config) (fc : Cutof
     handoff under that same owner cannot belong to the reported result. -/
 def splitSuffix (direct : List CallReturns.Activation) : Bool :=
   match direct.dropWhile (fun t => t.callee == .pvs) with
-  | [last] => last.callee == .split && last.site == 5
+  | [last] => last.callee == .split && last.site == 6
   | _ => false
 
 /-- The first direct recursive search distinguishes a general selective owner from the earlier
@@ -283,13 +283,13 @@ private def enter (t site : Nat) (b : Position) (level : Selectivity) (d : Depth
   .engine (.localCall 0 (.entry t site .pvs .none none) (some ⟨b.val,d,word a,word z,true,level,false,cut,none⟩))
 private def calls : NativeTableWrites.Journal.Calls := fun _ => ⟨⟨0,0⟩,⟨0,rfl⟩,.clear,false,id⟩
 
-private def prefixChild : CallReturns.Activation := ⟨0,1,6,.pvs,some 0,none,none,none,1⟩
-private def handoff : CallReturns.Activation := {prefixChild with site := 5, callee := .split}
+private def prefixChild : CallReturns.Activation := ⟨0,1,7,.pvs,some 0,none,none,none,1⟩
+private def handoff : CallReturns.Activation := {prefixChild with site := 6, callee := .split}
 
 #guard splitSuffix [prefixChild,handoff]
 #guard !splitSuffix []
 #guard !splitSuffix [prefixChild]
-#guard !splitSuffix [prefixChild,{handoff with site := 6}]
+#guard !splitSuffix [prefixChild,{handoff with site := 5}]
 #guard !splitSuffix [handoff,prefixChild]
 #guard !splitSuffix [handoff,handoff]
 
@@ -335,7 +335,7 @@ private def trial (b : Position) (level : Selectivity) (scores : List Int) (scor
 #guard trial two 2 [3,1] 1 {} = some false
 #guard trial two 5 [3] (-3) {} = some false
 #guard trial two 5 [-4] 4 {extra := true} = some false
-#guard trial one 2 [-4] 4 {moveSite := some 6} = some false
+#guard trial one 2 [-4] 4 {moveSite := some 7} = some false
 #guard trial two 5 [3,1] (-1) {shifted := true} = some false
 #guard trial two 5 [3,1] (-1) {childLevel := some 2} = some false
 #guard trial one 5 [-4] 4 {returned := false} = some false

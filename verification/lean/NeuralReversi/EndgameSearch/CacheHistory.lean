@@ -9,23 +9,25 @@ open CacheOwner (EntryPoint Thread Resource Descends)
 open EndgameTreeCache (Table Store Address)
 open RecursionCacheMir (Reads Steps)
 
-private def onLoan : CacheOwner.Kind → Bool
-  | .pair | .deep | .shallow => true | _ => false
+private def canStore : CacheOwner.Node → Bool
+  | .deep | .deepChild | .shallow | .shallowMoves | .shallowChild
+  | .deepStore | .shallowStore => true
+  | _ => false
 
-private theorem loanEntry {e : CacheOwner.Edge} (inside : e ∈ CacheOwner.transfers)
-    (loan : onLoan e.callee.kind = true) : onLoan e.caller.kind = true ∨ e.caller = .boundary := by
+private theorem storeEntry {e : CacheOwner.Edge} (inside : e ∈ CacheOwner.transfers)
+    (stores : canStore e.callee = true) : canStore e.caller = true ∨ e.caller = .boundary := by
   have checks : CacheOwner.transfers.all (fun edge =>
-      !onLoan edge.callee.kind || onLoan edge.caller.kind || edge.caller == .boundary) = true := by decide
-  simpa [loan] using List.all_eq_true.mp checks e inside
+      !canStore edge.callee || canStore edge.caller || edge.caller == .boundary) = true := by decide
+  simpa [stores] using List.all_eq_true.mp checks e inside
 
 private theorem crossed_boundary {outside initial arg dest value}
-    (source : onLoan initial.kind = false) (path : Descends outside initial arg dest value)
-    (inLoan : onLoan dest.kind = true) :
+    (source : canStore initial = false) (path : Descends outside initial arg dest value)
+    (stores : canStore dest = true) :
     ∃ receiver, Descends outside initial arg .boundary receiver ∧ Descends outside .boundary receiver dest value := by
   induction path with
   | same => simp_all
   | call parent member actual ih =>
-    rcases loanEntry member inLoan with borrowed | started
+    rcases storeEntry member stores with borrowed | started
     · obtain ⟨receiver,first,tail⟩ := ih borrowed
       exact ⟨receiver,first,.call tail member actual⟩
     · exact ⟨_,started ▸ parent,.call (started ▸ Descends.same) member actual⟩

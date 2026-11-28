@@ -67,17 +67,17 @@ def trace(g, guards, start=0, resume=None):
 
 
 def decisions(dump):
-    g = Graph(dump, PVS, 7, {268:"static"})
+    g = Graph(dump, PVS, 7, {291:"static"})
     callers = [pc for pc,fn,_ in g.calls() if fn == "<SS as SearchStrategy>::try_probcut"]
     reachable = Body(dump, PVS).reachable(0)
-    entrances = {target for pc in reachable if pc not in range(167,178)
-                 for target in g.normal(pc) if target in range(167,178)}
-    checked(callers == [170] and entrances == {167}, "ProbCut bypasses its node/depth gate")
+    entrances = {target for pc in reachable if pc not in range(180,191)
+                 for target in g.normal(pc) if target in range(180,191)}
+    checked(callers == [183] and entrances == {180}, "ProbCut bypasses its node/depth gate")
     gate = ("Ge", depth, DEPTH)
     delegated = ("<SS as SearchStrategy>::try_probcut", ctx, board, depth, "arg5", "arg7", "static", "arg6")
     for pv, deep, positive in product((False, True), repeat=3):
         guards = {PV:pv, gate:deep, ("discriminant", delegated):positive}
-        calls, out = trace(g, guards, 167, 178)
+        calls, out = trace(g, guards, 180, 191)
         expected = [("SearchStats::increment_probcut_attempt", field(12)), delegated] if deep and not pv else []
         won = bool(expected) and positive
         if won:
@@ -229,6 +229,7 @@ NEURAL = (EVAL+"evaluate_main", EVAL+"evaluate_main-{closure#0}", EVAL+"prefetch
 TT_SOURCES = {
     PVS:(7, [(field(7), ENDGAME)]*2),
     "search-pvs-enhanced_transposition_cutoff":(7, [(field(7), ENDGAME)]),
+    "search-pvs-endgame_cache_cutoff":(8, [("const search::endgame::EndGameCaches::SELECTIVITY", "const true")]),
     MG+"evaluate_shallow_with_tt":(5, [("Selectivity::None", "const false")]),
     "search-strategy-{impl#1}-shallow_search":(6, [("Selectivity::None", "const true")]),
 }
@@ -277,7 +278,7 @@ def check(dump, repo=REPO):
         (DEC, "<Score as PartialOrd>::lt", "<Score as PartialOrd>::le", decisions),
         (WRAP, "_19 = EvalMode::Small;", "_19 = EvalMode::Main;", decisions),
         (WRAP, "_10 = EvalMode::Small;", "_10 = EvalMode::Main;", decisions),
-        (PVS, "Ge(move _276,", "Gt(move _276,", decisions),
+        (PVS, "Ge(move _299,", "Gt(move _299,", decisions),
         (ORDER, "_11 = evaluate_depth2(", "_11 = evaluate_shallow_with_tt(", decisions),
         (MG+"evaluate_depth1", "    bb0: {", "    bb0: {\n        ((*_1).7: probcut::Selectivity) = Selectivity::None;", frontier),
         (MG+"evaluate_depth2", " = evaluate_depth1(", " = evaluate_shallow_with_tt(", frontier),

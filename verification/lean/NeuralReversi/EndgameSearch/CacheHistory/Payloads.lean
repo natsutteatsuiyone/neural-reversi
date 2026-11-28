@@ -171,7 +171,9 @@ def intervals (c : NativeTrace.Capture p S) : List Interval :=
     return ⟨w.1.ordinal,f.first,w.2.clock⟩
 
 def covered (c : NativeTrace.Capture p S) (stream : List (Event S)) : Bool :=
-  (stream.filterMap site?).all fun s => ((intervals c).filter (fun window => window.contains s)).length == 1
+  (stream.filterMap site?).all fun s =>
+    let count := ((intervals c).filter (fun window => window.contains s)).length
+    if s.request.kind == .store || s.request.table == .shallow then count == 1 else count ≤ 1
 
 def packet (values : Values) (worker : Nat) (r : Request) : Option Op := do
   let v ← values worker r.opening
@@ -350,7 +352,9 @@ theorem observed {out : Checked p S} (ok : decode p mc fc values stream = some o
     NativeTrace.decode p stream = some out.native ∧ out.native.shared = NativeTrace.sharedEvents stream ∧
       out.native.timeline.visits.mapM (completeVisit p out.native.timeline mc fc values stream) = some out.finished ∧
       out.native.workers.mapM (pendingWorker p out.native.timeline mc fc values stream) = some out.pending ∧
-      ∀ site ∈ stream.filterMap site?, ((intervals out.native).filter (fun window => window.contains site)).length = 1 := by
+      ∀ site ∈ stream.filterMap site?,
+        let count := ((intervals out.native).filter (fun window => window.contains site)).length
+        if site.request.kind == .store || site.request.table == .shallow then count = 1 else count ≤ 1 := by
   unfold decode at ok
   obtain ⟨c,caps,body⟩ := Option.bind_eq_some_iff.mp ok
   split at body
@@ -362,7 +366,13 @@ theorem observed {out : Checked p S} (ok : decode p mc fc values stream = some o
     refine ⟨caps,(NativeTrace.decode_keeps _ _ caps).1,ends,more,?_⟩
     intro site inside
     have all : covered c stream = true := by simpa using coverage
-    exact beq_iff_eq.mp (List.all_eq_true.mp all site inside)
+    have item := List.all_eq_true.mp all site inside
+    dsimp only at item ⊢
+    by_cases h : (site.request.kind == .store || site.request.table == .shallow) = true
+    · simp only [h, ite_true] at item ⊢
+      exact beq_iff_eq.mp item
+    · simp only [h, Bool.false_eq_true, ite_false] at item ⊢
+      exact of_decide_eq_true item
 
 theorem mapped {f : α → Option β} {xs : List α} {ys : List β} (success : xs.mapM f = some ys) {value : α} (inside : value ∈ xs) :
     ∃ result ∈ ys, f value = some result := by

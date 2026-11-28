@@ -115,12 +115,13 @@ def bracket(d,name,worker=False):
     # These locals hold the generated/claimed move. The pre-search square and flips
     # are decoded from Board::flip; owner / worker loop records come from the iterator.
     if worker:g.roots[23]="workerMove"
-    else:g.roots.update({365:"preSquare",366:"preFlip",535:"loopMove"})
+    else:g.roots.update({388:"preSquare",389:"preFlip",558:"loopMove"})
     tracked={C+k for k in ("clear_pv","merge_counters","prepare_pv","undo","undo_pass","update",
                             "update_pass","update_pv","update_root_move")}
     mutable_frontier(g,1,tracked | {"<EndGameStrategy as SearchStrategy>::shallow_search",
         "<SS as SearchStrategy>::shallow_search","<SS as SearchStrategy>::try_probcut",
-        "enhanced_transposition_cutoff::<SS>","ordering::<impl MoveList>::evaluate_moves::<NT, SS>",
+        "enhanced_transposition_cutoff::<SS>","endgame_cache_cutoff",
+        "ordering::<impl MoveList>::evaluate_moves::<NT, SS>",
         "search::<NT, SS>","search::<NonPV, SS>","search::<PV, SS>","threading::thread::Thread::split",
         "search::<NonPV, EndGameStrategy>","search::<PV, EndGameStrategy>"})
     ctx="arg1";board=F("arg2",0) if worker else "arg2";depth=F("arg2",7) if worker else "arg3"
