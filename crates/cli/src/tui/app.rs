@@ -226,8 +226,12 @@ pub struct App {
 
 impl App {
     /// Creates a new App instance.
-    pub fn new(config: &EngineConfig) -> Self {
-        Self::from_engine(Engine::new(&config.search_options()), config.level)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a configured weight file cannot be loaded.
+    pub fn new(config: &EngineConfig) -> Result<Self, String> {
+        Ok(Self::from_engine(config.engine()?, config.level))
     }
 
     fn from_engine(engine: Engine, level: usize) -> Self {

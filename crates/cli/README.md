@@ -16,7 +16,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI difficulty level (default: 21)
-- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values are clamped to `1..=CPU count`)
+- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values must be 1 to 64 and are lowered to the CPU count)
 - `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
 - `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
@@ -53,7 +53,7 @@ Options:
 
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI search level (default: 21)
-- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values are clamped to `1..=CPU count`)
+- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values must be 1 to 64 and are lowered to the CPU count)
 - `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
 - `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
@@ -114,10 +114,10 @@ cli ggs --user <name> --password <password> [--max-games <n>] [options]
 
 Options:
 
-- `--user <name>` - GGS login name.
-- `--password <password>` - GGS password, sent verbatim at the password prompt.
-- `--host <host>` - GGS server hostname. Default: `localhost`.
-- `--port <port>` - GGS server port. Default: `5000`.
+- `--user <name>` - GGS login name: 2 to 8 printable ASCII characters without spaces, `,` or `\`, not starting with `.` or `_`. Other names are refused before connecting, as the server would refuse them.
+- `--password <password>` - GGS password, sent verbatim at the password prompt. It must be one line.
+- `--host <host>` - GGS server hostname; must not be empty. Default: `localhost`.
+- `--port <port>` - GGS server port, 1 to 65535. Default: `5000`.
 - `--max-games <n>` - Maximum simultaneous matches, matching GGS `/os open`. Default: `1`; a synchro match counts as one match with two game boards. Each match can allocate up to two transposition tables of `--hash-size` (the two boards of a synchro match share one table until their move sequences diverge, then each has its own), and all boards share one pool of `--threads` search threads and search one at a time.
 - `--ponder` - While every game waits for the opponent, search the opponent-to-move board to warm each game's transposition table. Off by default.
 - `--plain` - Use the original line input and output. This mode is also selected automatically when stdin or stdout is redirected.
@@ -126,7 +126,7 @@ Options:
 - `--log-file <PATH>` - Append every line sent to and received from the server after the password, with Unix timestamps.
 - `--hash-size <size>` - Transposition table size in MB. Default: `512`.
 - `-l, --level <level>` - Fallback search level when server time is unparseable. Default: `21`.
-- `--threads <n>` - Number of search threads. Default: CPU count (capped at 64; explicit values are clamped to `1..=CPU count`).
+- `--threads <n>` - Number of search threads. Default: CPU count (capped at 64; explicit values must be 1 to 64 and are lowered to the CPU count).
 - `--eval-file <FILE>` - Path to the main network weight file. Optional; defaults to the engine's standard weights.
 - `--eval-sm-file <FILE>` - Path to the small network weight file. Optional; defaults to the engine's standard weights.
 
@@ -206,7 +206,7 @@ Options:
 - `--all-moves` - Report the score and principal variation for every legal move in each position
 - `--hash-size <size>` - Set the transposition table size in MB (default: 512)
 - `-l, --level <level>` - Set the AI search level (default: 21)
-- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values are clamped to `1..=CPU count`)
+- `--threads <number>` - Set the number of threads to use for search (default: number of CPU cores, capped at 64; explicit values must be 1 to 64 and are lowered to the CPU count)
 - `--eval-file <FILE>` - Path to the main network weight file (optional; defaults to the engine's standard weights)
 - `--eval-sm-file <FILE>` - Path to the small network weight file (optional; defaults to the engine's standard weights)
 
@@ -222,6 +222,7 @@ Where:
 - Side-to-move is either `X` (black) or `O` (white)
 - Lines starting with `%` are treated as comments
 - Analysis data after `;` must be `move:score` pairs; a line with a malformed pair is skipped
+- A line that cannot be parsed is reported on stderr and skipped. The remaining lines are still solved, and `solve` then exits with status 1; it does the same when the file holds no position
 
 Example position line:
 

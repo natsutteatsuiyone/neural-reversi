@@ -86,11 +86,11 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
         })
         .transpose()?;
     let mandatory_line_count = startup_lines.len() - startup_commands.len();
-    let search_options = config.search_options();
+    let engine = config.engine()?;
     let max_game_slots = max_games * 2;
     let (mut conn, event_tx) = connection::Connection::connect(host, port)
         .map_err(|e| format!("failed to connect to {host}:{port}: {e}"))?;
-    let mut games = Games::new(Engine::new(&search_options), max_game_slots);
+    let mut games = Games::new(engine, max_game_slots);
     let mut frontend =
         frontend::Frontend::start(plain, &event_tx, format!("{user}@{host}:{port}"))?;
 

@@ -1,8 +1,10 @@
 //! Resolved engine configuration shared by every CLI mode.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use reversi_core::search::options::SearchOptions;
+use reversi_core::engine::Engine;
+use reversi_core::eval::Eval;
 
 /// Engine parameters resolved from CLI arguments.
 pub struct EngineConfig {
@@ -14,35 +16,26 @@ pub struct EngineConfig {
 }
 
 impl EngineConfig {
-    /// Builds the [`SearchOptions`] for this configuration after verifying that
-    /// any explicitly supplied weight file exists.
+    /// Loads the evaluation networks and builds the engine.
     ///
-    /// If a configured weight file is missing, this prints a diagnostic and
-    /// exits the process, giving every CLI mode the same early failure before a
-    /// search starts.
-    pub fn search_options(&self) -> SearchOptions {
-        for path in [self.eval_file.as_deref(), self.eval_sm_file.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            if !path.exists() {
-                eprintln!("Weight file does not exist: {}", path.display());
-                std::process::exit(1);
-            }
-        }
-
-        SearchOptions::new(self.hash_size)
-            .with_threads(self.threads)
-            .with_eval_paths(self.eval_file.as_deref(), self.eval_sm_file.as_deref())
+    /// # Errors
+    ///
+    /// Returns an error naming the weight file if a configured one cannot be
+    /// read or is not a network of the expected format.
+    pub fn engine(&self) -> Result<Engine, String> {
+        let eval = Eval::with_weight_files(self.eval_file.as_deref(), self.eval_sm_file.as_deref())
+            .map_err(|e| e.to_string())?;
+        Ok(Engine::from_eval(
+            Arc::new(eval),
+            self.hash_size,
+            self.threads,
+        ))
     }
 }
 
 #[cfg(test)]
-pub(crate) fn test_engine(tt_mb_size: usize, n_threads: usize) -> reversi_core::engine::Engine {
-    use std::sync::{Arc, OnceLock};
-
-    use reversi_core::engine::Engine;
-    use reversi_core::eval::Eval;
+pub(crate) fn test_engine(tt_mb_size: usize, n_threads: usize) -> Engine {
+    use std::sync::OnceLock;
 
     static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
     let eval = EVAL

@@ -8,8 +8,10 @@ mod tui;
 
 use std::path::PathBuf;
 
+use clap::builder::TypedValueParser as _;
 use clap::{Parser, Subcommand};
 use config::EngineConfig;
+use reversi_core::constants::MAX_THREADS;
 use reversi_core::level::MAX_LEVEL;
 
 fn parse_usize_range<const LO: usize, const HI: usize>(s: &str) -> Result<usize, String> {
@@ -18,6 +20,55 @@ fn parse_usize_range<const LO: usize, const HI: usize>(s: &str) -> Result<usize,
         Ok(v)
     } else {
         Err(format!("value must be between {LO} and {HI}"))
+    }
+}
+
+/// Accepts a path that names something other than a directory, so a mistyped
+/// file argument fails before the engine starts.
+fn existing_file(path: PathBuf) -> Result<PathBuf, String> {
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_dir() => Err("is a directory".to_string()),
+        Ok(_) => Ok(path),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Applies the login-name rule of the GGS server, which answers any other
+/// name with a new login prompt. A `\` is refused as well: the server reads it
+/// as a line break.
+fn parse_ggs_login(s: &str) -> Result<String, String> {
+    if let Some(c) = s
+        .chars()
+        .find(|c| !c.is_ascii_graphic() || matches!(c, ',' | '\\'))
+    {
+        return Err(format!("must not contain {c:?}"));
+    }
+    if !(2..=8).contains(&s.len()) {
+        return Err("must be 2 to 8 characters".to_string());
+    }
+    if s.starts_with(['.', '_']) {
+        return Err("must not start with '.' or '_'".to_string());
+    }
+    Ok(s.to_string())
+}
+
+/// Accepts text the GGS server reads as one line; a line break would send the
+/// rest as a separate command.
+fn parse_single_line(s: &str) -> Result<String, String> {
+    if s.contains(['\r', '\n']) {
+        Err("must be a single line".to_string())
+    } else {
+        Ok(s.to_string())
+    }
+}
+
+fn parse_host(s: &str) -> Result<String, String> {
+    if s.is_empty() {
+        Err("must not be empty".to_string())
+    } else if s.contains(|c: char| c.is_whitespace() || c.is_control()) {
+        Err("must not contain spaces or control characters".to_string())
+    } else {
+        Ok(s.to_string())
     }
 }
 
@@ -40,13 +91,18 @@ struct EngineParams {
     )]
     level: usize,
 
-    #[arg(long, help = "Number of search threads [default: CPU count]")]
+    #[arg(
+        long,
+        value_parser = parse_usize_range::<1, MAX_THREADS>,
+        help = "Number of search threads, lowered to the CPU count [default: CPU count]"
+    )]
     threads: Option<usize>,
 
     #[arg(
         long = "eval-file",
         value_name = "FILE",
         value_hint = clap::ValueHint::FilePath,
+        value_parser = clap::builder::PathBufValueParser::new().try_map(existing_file),
         help = "Path to the main network weight file"
     )]
     eval_file: Option<PathBuf>,
@@ -55,6 +111,7 @@ struct EngineParams {
         long = "eval-sm-file",
         value_name = "FILE",
         value_hint = clap::ValueHint::FilePath,
+        value_parser = clap::builder::PathBufValueParser::new().try_map(existing_file),
         help = "Path to the small network weight file"
     )]
     eval_sm_file: Option<PathBuf>,
@@ -94,7 +151,11 @@ enum SubCommands {
     },
     #[command(about = "Solve endgame positions from a file")]
     Solve {
-        #[arg(help = "Path to the file containing positions to solve")]
+        #[arg(
+            value_hint = clap::ValueHint::FilePath,
+            value_parser = clap::builder::PathBufValueParser::new().try_map(existing_file),
+            help = "Path to the file containing positions to solve"
+        )]
         file: PathBuf,
 
         #[arg(
@@ -114,13 +175,18 @@ enum SubCommands {
     },
     #[command(about = "Connect to a GGS server (default localhost:5000) and play via /os")]
     Ggs {
-        #[arg(long, default_value = "localhost", help = "GGS server hostname")]
+        #[arg(
+            long,
+            default_value = "localhost",
+            value_parser = parse_host,
+            help = "GGS server hostname"
+        )]
         host: String,
 
         #[arg(
             long,
             default_value = "5000",
-            value_parser = clap::value_parser!(u16),
+            value_parser = clap::value_parser!(u16).range(1..),
             help = "GGS server port"
         )]
         port: u16,
@@ -128,11 +194,16 @@ enum SubCommands {
         #[arg(
             long,
             value_name = "NAME",
+            value_parser = parse_ggs_login,
             help = "GGS login name; also identifies our side in match events"
         )]
         user: String,
 
-        #[arg(long, help = "GGS password, sent verbatim at the password prompt")]
+        #[arg(
+            long,
+            value_parser = parse_single_line,
+            help = "GGS password, sent verbatim at the password prompt"
+        )]
         password: String,
 
         #[arg(
@@ -164,6 +235,7 @@ enum SubCommands {
         #[arg(
             long = "command",
             value_name = "TEXT",
+            value_parser = parse_single_line,
             help = "Send a GGS command after login setup; repeat to send multiple commands"
         )]
         startup_commands: Vec<String>,
@@ -215,8 +287,13 @@ fn main() {
         }
         Some(SubCommands::Gtp { engine_params }) => {
             let config = EngineConfig::from(engine_params);
-            let mut gtp_engine = gtp::GtpEngine::new(&config);
-            gtp_engine.run();
+            match gtp::GtpEngine::new(&config) {
+                Ok(mut gtp_engine) => gtp_engine.run(),
+                Err(e) => {
+                    eprintln!("GTP engine error: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         Some(SubCommands::Solve {
             file,
@@ -295,5 +372,84 @@ fn main() {
                 std::process::exit(1);
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::error::ErrorKind;
+
+    use super::*;
+
+    fn value_rejected(args: &[&str]) -> bool {
+        let args = std::iter::once("cli").chain(args.iter().copied());
+        matches!(Cli::try_parse_from(args), Err(e) if e.kind() == ErrorKind::ValueValidation)
+    }
+
+    fn accepted(args: &[&str]) -> bool {
+        Cli::try_parse_from(std::iter::once("cli").chain(args.iter().copied())).is_ok()
+    }
+
+    #[test]
+    fn threads_must_be_within_the_engine_limit() {
+        let max = MAX_THREADS.to_string();
+        let over = (MAX_THREADS + 1).to_string();
+        assert!(accepted(&["--threads", "1"]));
+        assert!(accepted(&["gtp", "--threads", &max]));
+        assert!(value_rejected(&["--threads", "0"]));
+        assert!(value_rejected(&["gtp", "--threads", &over]));
+    }
+
+    #[test]
+    fn file_arguments_must_name_an_existing_non_directory() {
+        let dir = std::env::temp_dir();
+        let dir = dir.to_str().unwrap();
+        let missing = format!("{dir}/neural-reversi-cli-no-such-file");
+        for path in [dir, missing.as_str()] {
+            assert!(value_rejected(&["--eval-file", path]), "{path}");
+            assert!(value_rejected(&["gtp", "--eval-sm-file", path]), "{path}");
+            assert!(value_rejected(&["solve", path]), "{path}");
+        }
+    }
+
+    #[test]
+    fn ggs_login_follows_the_server_rule() {
+        let ggs = |user: &'static str| ["ggs", "--password", "p", "--user", user];
+        for user in ["ab", "Rhapsody", "n.r_a", "a-b+c"] {
+            assert!(accepted(&ggs(user)), "{user:?}");
+        }
+        for user in [
+            "",
+            "a",
+            "Rhapsody9",
+            ".ab",
+            "_ab",
+            "a,b",
+            "a b",
+            "a\\b",
+            "a\nb",
+            "a\tb",
+            "あい",
+        ] {
+            assert!(value_rejected(&ggs(user)), "{user:?}");
+        }
+    }
+
+    #[test]
+    fn ggs_lines_and_address_cannot_inject_or_misroute() {
+        let ggs = |option: &'static str, value: &'static str| {
+            ["ggs", "--user", "nra", "--password", "p", option, value]
+        };
+        // An unregistered login takes any password, the empty one included.
+        assert!(accepted(&["ggs", "--user", "nra", "--password", ""]));
+        assert!(accepted(&ggs("--command", "")));
+        assert!(accepted(&ggs("--host", "::1")));
+        assert!(accepted(&ggs("--port", "65535")));
+        let injected = ["ggs", "--user", "nra", "--password", "p\nquit"];
+        assert!(value_rejected(&injected));
+        assert!(value_rejected(&ggs("--command", "info a\rinfo b")));
+        assert!(value_rejected(&ggs("--host", "")));
+        assert!(value_rejected(&ggs("--host", "local host")));
+        assert!(value_rejected(&ggs("--port", "0")));
     }
 }

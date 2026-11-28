@@ -33,14 +33,13 @@ pub fn solve(
     exact: bool,
     all_moves: bool,
 ) -> Result<(), String> {
-    let file = File::open(file_path).map_err(|e| e.to_string())?;
+    let file =
+        File::open(file_path).map_err(|e| format!("cannot open {}: {e}", file_path.display()))?;
     let reader = BufReader::new(file);
 
-    let search_options = config.search_options();
+    let engine = config.engine()?;
 
-    let engine = Engine::new(&search_options);
-
-    print_header(file_path, search_options.tt_mb_size(), engine.n_threads());
+    print_header(file_path, config.hash_size, engine.n_threads());
 
     let game = engine.open();
     let level_config = if exact {
@@ -55,9 +54,11 @@ pub fn solve(
 
     let mut total_time = Duration::ZERO;
     let mut total_nodes: u64 = 0;
+    let mut n_positions = 0usize;
+    let mut n_invalid_lines = 0usize;
 
     for (line_num, line) in reader.lines().enumerate() {
-        let raw = line.map_err(|e| e.to_string())?;
+        let raw = line.map_err(|e| format!("cannot read line {}: {e}", line_num + 1))?;
         let pos = match ObfPosition::parse(&raw) {
             Ok(Some(pos)) => pos,
             Ok(None) => continue,
@@ -67,6 +68,7 @@ pub fn solve(
                     line_num + 1,
                     visible(&e.to_string())
                 );
+                n_invalid_lines += 1;
                 continue;
             }
         };
@@ -76,8 +78,10 @@ pub fn solve(
                 "Error parsing line {}: At least 4 discs required",
                 line_num + 1
             );
+            n_invalid_lines += 1;
             continue;
         }
+        n_positions += 1;
         let (elapsed, nodes) = solve_position(
             &engine,
             game,
@@ -121,6 +125,12 @@ pub fn solve(
     }
     println!();
 
+    if n_invalid_lines > 0 {
+        return Err(format!("skipped {n_invalid_lines} invalid line(s)"));
+    }
+    if n_positions == 0 {
+        return Err(format!("no positions in {}", file_path.display()));
+    }
     Ok(())
 }
 

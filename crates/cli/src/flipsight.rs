@@ -95,10 +95,13 @@ pub fn run(mut config: EngineConfig, ponder: bool, process_start: Instant) -> Re
         let request: Request =
             serde_json::from_str(&line).map_err(|e| format!("invalid request: {e}"))?;
         let board = position(&request)?;
-        let engine = engine.get_or_insert_with(|| {
-            config.threads = Some(game_threads(config.threads, request.engine_threads));
-            Engine::new(&config, ponder)
-        });
+        let engine = match engine {
+            Some(ref mut engine) => engine,
+            None => {
+                config.threads = Some(game_threads(config.threads, request.engine_threads));
+                engine.insert(Engine::new(&config, ponder)?)
+            }
+        };
         let reply = engine.play(&request, &board, started);
         writeln!(stdout, "{reply}")
             .and_then(|()| stdout.flush())
@@ -182,9 +185,12 @@ struct Engine {
 }
 
 impl Engine {
-    fn new(config: &EngineConfig, ponder: bool) -> Self {
-        let shared = engine::Engine::new(&config.search_options());
-        Self::from_shared(shared, config.hash_size, ponder)
+    fn new(config: &EngineConfig, ponder: bool) -> Result<Self, String> {
+        Ok(Self::from_shared(
+            config.engine()?,
+            config.hash_size,
+            ponder,
+        ))
     }
 
     fn from_shared(shared: engine::Engine, hash_mb: usize, ponder: bool) -> Self {
