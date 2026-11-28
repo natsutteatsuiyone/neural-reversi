@@ -157,7 +157,7 @@ enum SubCommands {
 
         #[arg(
             long,
-            help = "Send `tell /td join <id>` or `tell /os join <id>` when any user tells us to, for unattended tournament entry"
+            help = "Join a /td tournament when its director tells us `tell /td join <id>`, for unattended tournament entry; the director, an /os service, and a game type and clock the engine plays are verified with `tell /td finger <id>` first"
         )]
         join_tournaments: bool,
 

@@ -121,7 +121,7 @@ Options:
 - `--max-games <n>` - Maximum simultaneous matches, matching GGS `/os open`. Default: `1`; a synchro match counts as one match with two game boards. Each match can allocate up to two transposition tables of `--hash-size` (the two boards of a synchro match share one table until their move sequences diverge, then each has its own), and all boards share one pool of `--threads` search threads and search one at a time.
 - `--ponder` - While every game waits for the opponent, search the opponent-to-move board to warm each game's transposition table. Off by default.
 - `--plain` - Use the original line input and output. This mode is also selected automatically when stdin or stdout is redirected.
-- `--join-tournaments` - Send `tell /td join <id>` or `tell /os join <id>` when any user tells us to, for unattended tournament entry.
+- `--join-tournaments` - Join a `/td` tournament when its director tells us `tell /td join <id>`, for unattended tournament entry. The client first asks `tell /td finger <id>` and joins only if the sender is the tournament's director, its service is `/os`, and the engine plays its game type and clock; requests from anyone else are logged and ignored.
 - `--command <TEXT>` - Send one startup command after login and client normalization. Repeat this option to send multiple commands in order.
 - `--log-file <PATH>` - Append every line sent to and received from the server after the password, with Unix timestamps.
 - `--hash-size <size>` - Transposition table size in MB. Default: `512`.

@@ -1337,7 +1337,7 @@ impl PendingAccept {
 ///   opening protocol we don't implement,
 /// * anti variants (contain `a`) — our eval network is trained on normal
 ///   Othello and would play badly.
-fn is_supported_ask_game(game_type: &str) -> bool {
+pub(super) fn is_supported_ask_game(game_type: &str) -> bool {
     // Strip optional synchro prefix.
     let rest = game_type.trim_prefix('s');
     // Board size must be 8.

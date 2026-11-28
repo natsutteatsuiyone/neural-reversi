@@ -119,6 +119,9 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
         session.enable_ponder();
     }
     let mut accumulator = connection::LineAccumulator::new();
+    // `(sender, tournament id)` of each join request whose `/td finger` reply
+    // is still to come.
+    let mut pending_joins: Vec<(String, String)> = Vec::new();
     let mut finished_searches = Vec::new();
     // The server sends its first READY (ALERT when low on memory) only after
     // accepting the login; later password errors come from `passw` and must
@@ -150,13 +153,20 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
                     }
                     logged_in = connection::is_message_boundary(&line);
                 }
-                if join_tournaments {
-                    for join in tournament_join(&line) {
-                        submit_command(&mut conn, &mut frontend, &join)?;
-                    }
+                if join_tournaments && let Some((from, id)) = tournament_join_request(&line) {
+                    pending_joins.push((from.to_string(), id.to_string()));
+                    submit_command(&mut conn, &mut frontend, &format!("tell /td finger {id}"))?;
                 }
                 if let Some(chunk) = accumulator.push(line) {
                     let chunk_refs: Vec<&str> = chunk.iter().map(String::as_str).collect();
+                    for verdict in tournament_join_verdicts(&chunk_refs, &mut pending_joins) {
+                        match verdict {
+                            Ok(join) => {
+                                submit_command(&mut conn, &mut frontend, &join)?;
+                            }
+                            Err(refusal) => frontend.log(&refusal),
+                        }
+                    }
                     for parsed in protocol::parse_server_messages(&chunk_refs, user) {
                         for action in session.on_event(parsed) {
                             apply_action(action, &mut conn, &mut games, user, &event_tx)?;
@@ -301,37 +311,109 @@ fn is_os_offline(line: &str) -> bool {
     )
 }
 
-/// The tournament joins to send when a user tells us `tell /td join <id>`,
-/// e.g. `HCyrano: tell /td join .3`. The tournament announcement asks to relay
-/// `tell /os join <id>`, but the GGS source has no `/os join` and handles joins
-/// in `/td`, so that form is sent to both. Only joins are relayed, so any
-/// sender is accepted.
-fn tournament_join(line: &str) -> Vec<String> {
+/// The `(sender, tournament id)` of a user's tell asking us to join a `/td`
+/// tournament, e.g. `HCyrano: tell /td join 3`. Only the tournament's director
+/// can enter another player this way, since `/td` lets nobody but a superuser
+/// join on someone else's behalf. `/os` in place of `/td` (as some tournament
+/// announcements write it) and a `.` before the id are accepted; `/td` ids are
+/// plain numbers.
+fn tournament_join_request(line: &str) -> Option<(&str, &str)> {
     let mut fields = line.trim_start_matches('\x07').split_whitespace();
-    match (
+    let (Some(from), Some("tell" | "t"), Some("/td" | "/os"), Some("join"), Some(id), None) = (
         fields.next(),
         fields.next(),
         fields.next(),
         fields.next(),
         fields.next(),
         fields.next(),
-    ) {
-        (
-            Some(from),
-            Some("tell" | "t"),
-            Some(service @ ("/td" | "/os")),
-            Some("join"),
-            Some(id),
-            None,
-        ) if from.len() > 1 && from.ends_with(':') && !from.starts_with('/') => {
-            let mut joins = vec![format!("tell /td join {id}")];
-            if service == "/os" {
-                joins.push(format!("tell /os join {id}"));
-            }
-            joins
+    ) else {
+        return None;
+    };
+    let from = from.strip_suffix(':')?;
+    let id = id.trim_prefix('.');
+    (!from.is_empty()
+        && !from.starts_with('/')
+        && !id.is_empty()
+        && id.bytes().all(|b| b.is_ascii_digit()))
+    .then_some((from, id))
+}
+
+/// Settles the pending join requests that the `/td` replies in `chunk` answer:
+/// `Ok` is the join command to send, `Err` the reason for not joining.
+///
+/// A `finger` reply settles every request for its tournament, and we join only
+/// an `/os` tournament directed by one of the requesters whose game type and
+/// clock the engine plays: `/td` starts tournament matches itself, past the
+/// `dform` that declines unsupported asks. A `finger` error names no
+/// tournament, so it settles the oldest request.
+fn tournament_join_verdicts(
+    chunk: &[&str],
+    pending: &mut Vec<(String, String)>,
+) -> Vec<Result<String, String>> {
+    let mut verdicts = Vec::new();
+    // A `|` line continues the message above it, so text a user puts in a
+    // tell can never start a message of its own.
+    for message in chunk.chunk_by(|_, next| next.starts_with('|')) {
+        if pending.is_empty() {
+            break;
         }
-        _ => Vec::new(),
+        let Some(reply) = message[0].trim_start_matches('\x07').strip_prefix("/td: ") else {
+            continue;
+        };
+        if let Some(id) = reply.strip_prefix("finger: ") {
+            let id = id.trim();
+            let requesters: Vec<String> = pending
+                .extract_if(.., |(_, wanted)| wanted == id)
+                .map(|(from, _)| from)
+                .collect();
+            if requesters.is_empty() {
+                continue;
+            }
+            let field = |name: &str| {
+                message[1..]
+                    .iter()
+                    .find_map(|line| {
+                        let (key, value) = line.strip_prefix('|')?.split_once(':')?;
+                        (key.trim() == name).then_some(value.trim())
+                    })
+                    .unwrap_or("")
+            };
+            let (director, service, game_type, clock) = (
+                field("director"),
+                field("service"),
+                field("type"),
+                field("clock"),
+            );
+            let refusal = if !requesters.iter().any(|from| from == director) {
+                Some(format!(
+                    "asked by {}, but its director is {director}",
+                    requesters.join(", ")
+                ))
+            } else if service != "/os" {
+                Some(format!("its service is {service}, not /os"))
+            } else if !session::is_supported_ask_game(game_type) {
+                Some(format!("unsupported game type {game_type}"))
+            } else if !session::is_supported_ask_clock(clock) {
+                Some(format!("unsupported clock {clock}"))
+            } else {
+                None
+            };
+            verdicts.push(match refusal {
+                None => Ok(format!("tell /td join {id}")),
+                Some(reason) => Err(format!("not joining tournament {id}: {reason}")),
+            });
+        } else if reply
+            .strip_prefix("ERR ")
+            .and_then(|error| error.split_once(": "))
+            .is_some_and(|(_, error)| error.starts_with("finger:"))
+        {
+            let (from, id) = pending.remove(0);
+            verdicts.push(Err(format!(
+                "not joining tournament {id} for {from}: /td answered {reply}"
+            )));
+        }
     }
+    verdicts
 }
 
 fn unsupported_ask_clock(line: &str) -> Option<&str> {
@@ -676,27 +758,132 @@ mod tests {
     }
 
     #[test]
-    fn only_tournament_join_tells_are_relayed() {
-        for (line, id) in [
-            ("HCyrano: tell /td join .3", ".3"),
-            ("\x07bob: t /td join .12", ".12"),
-            ("bob: tell /td join 3", "3"),
+    fn only_tournament_join_tells_are_requests() {
+        for (line, request) in [
+            ("HCyrano: tell /td join 3", ("HCyrano", "3")),
+            ("\x07bob: t /td join .12", ("bob", "12")),
+            ("HCyrano: tell /os join .3", ("HCyrano", "3")),
         ] {
-            assert_eq!(tournament_join(line), [format!("tell /td join {id}")]);
+            assert_eq!(tournament_join_request(line), Some(request), "{line}");
         }
-        assert_eq!(
-            tournament_join("HCyrano: tell /os join .3"),
-            ["tell /td join .3", "tell /os join .3"]
-        );
         for line in [
-            "HCyrano: tell /td withdraw .3",
+            "HCyrano: tell /td withdraw 3",
             "HCyrano: tell /os ask s8r14 3:00//0:30 bob",
-            "HCyrano: tell /td join .3 now",
-            "/os: tell /td join .3",
-            "tell /td join .3",
+            "HCyrano: tell /td join 3 now",
+            "HCyrano: tell /td join 3x",
+            "HCyrano: tell /td join .",
+            "/os: tell /td join 3",
+            ": tell /td join 3",
+            "tell /td join 3",
         ] {
-            assert!(tournament_join(line).is_empty(), "{line}");
+            assert_eq!(tournament_join_request(line), None, "{line}");
         }
+    }
+
+    fn finger_reply(id: &str, director: &str, service: &str, game_type: &str) -> Vec<String> {
+        [
+            format!("/td: finger: {id}"),
+            "|t nra finger: ".to_string(),
+            format!("|id        : {id}"),
+            "|joining   : open".to_string(),
+            format!("|director  : {director}"),
+            format!("|service   : {service}"),
+            "|rounds    : 0/1".to_string(),
+            "|style     : rrobin".to_string(),
+            "|clock     : 1:00//0:30".to_string(),
+            format!("|type      : {game_type}"),
+            "|breaks    :  1:00".to_string(),
+            "|players   : 1 mallory ".to_string(),
+            "|round 1 begins in  4:58".to_string(),
+        ]
+        .into()
+    }
+
+    fn verdicts(
+        chunk: &[String],
+        pending: &mut Vec<(String, String)>,
+    ) -> Vec<Result<String, String>> {
+        let chunk: Vec<&str> = chunk.iter().map(String::as_str).collect();
+        tournament_join_verdicts(&chunk, pending)
+    }
+
+    fn pending(requests: &[(&str, &str)]) -> Vec<(String, String)> {
+        requests
+            .iter()
+            .map(|(from, id)| (from.to_string(), id.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_tournament_is_joined_only_for_its_director() {
+        let mut requests = pending(&[("mallory", "3"), ("HCyrano", "4"), ("HCyrano", "3")]);
+        assert_eq!(
+            verdicts(&finger_reply("3", "HCyrano", "/os", "s8r20"), &mut requests),
+            [Ok("tell /td join 3".to_string())]
+        );
+        assert_eq!(requests, pending(&[("HCyrano", "4")]));
+
+        // The reply to mallory's own finger request finds nothing left to settle.
+        assert!(verdicts(&finger_reply("3", "HCyrano", "/os", "s8r20"), &mut requests).is_empty());
+
+        let mut requests = pending(&[("mallory", "3")]);
+        assert_eq!(
+            verdicts(&finger_reply("3", "HCyrano", "/os", "s8r20"), &mut requests),
+            [Err(
+                "not joining tournament 3: asked by mallory, but its director is HCyrano"
+                    .to_string()
+            )]
+        );
+        assert!(requests.is_empty());
+    }
+
+    #[test]
+    fn a_tournament_the_engine_cannot_play_is_not_joined() {
+        for (service, game_type, reason) in [
+            ("/os", "8a", "unsupported game type 8a"),
+            ("/os", "s10r20", "unsupported game type s10r20"),
+            ("/ams", "s8r20", "its service is /ams, not /os"),
+        ] {
+            let mut requests = pending(&[("HCyrano", "3")]);
+            assert_eq!(
+                verdicts(
+                    &finger_reply("3", "HCyrano", service, game_type),
+                    &mut requests
+                ),
+                [Err(format!("not joining tournament 3: {reason}"))]
+            );
+        }
+    }
+
+    #[test]
+    fn a_finger_reply_inside_a_tell_settles_nothing() {
+        let mut requests = pending(&[("mallory", "3")]);
+        let mut chunk = vec!["mallory: hello".to_string()];
+        chunk.extend(
+            finger_reply("3", "mallory", "/os", "s8r20")
+                .into_iter()
+                .map(|line| format!("|{}", line.trim_start_matches('|'))),
+        );
+        assert!(verdicts(&chunk, &mut requests).is_empty());
+        assert_eq!(requests, pending(&[("mallory", "3")]));
+    }
+
+    #[test]
+    fn a_finger_error_settles_the_oldest_request() {
+        let mut requests = pending(&[("HCyrano", "9"), ("HCyrano", "3")]);
+        let chunk = [
+            "/os: + match .1 1720 alice 1720 bob 8 R".to_string(),
+            "/td: ERR 16: finger: tournament id does not exist".to_string(),
+            "/td: ERR 12: join: tournament is closed".to_string(),
+        ];
+        assert_eq!(
+            verdicts(&chunk, &mut requests),
+            [Err(
+                "not joining tournament 9 for HCyrano: /td answered ERR 16: finger: tournament id does not exist"
+                    .to_string()
+            )]
+        );
+        assert_eq!(requests, pending(&[("HCyrano", "3")]));
     }
 
     #[test]
