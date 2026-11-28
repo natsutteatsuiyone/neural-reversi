@@ -49,7 +49,7 @@ impl<const SEG0_DIMS: usize, const SEG1_DIMS: usize, const PADDED_INPUT_DIMS: us
         reader.read_i16_into::<LittleEndian>(weights.as_mut_slice())?;
 
         #[cfg(target_arch = "aarch64")]
-        let i8mm_weights = Self::pack_i8mm_weights(weights.as_slice());
+        let i8mm_weights = Self::pack_i8mm_weights(&weights);
 
         let forward_fn = Self::select_forward_fn();
 
@@ -63,10 +63,8 @@ impl<const SEG0_DIMS: usize, const SEG1_DIMS: usize, const PADDED_INPUT_DIMS: us
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn pack_i8mm_weights(weights: &[i16]) -> AlignedBuffer<u8> {
+    fn pack_i8mm_weights(weights: &[i16; PADDED_INPUT_DIMS]) -> AlignedBuffer<u8> {
         const CHUNK: usize = NEON_CHUNK;
-
-        debug_assert!(weights.len() >= PADDED_INPUT_DIMS);
 
         let packed_len = PADDED_INPUT_DIMS.div_ceil(CHUNK) * CHUNK * 2;
         let mut packed = AlignedBuffer::<u8>::from_elem(0, packed_len);
@@ -101,7 +99,7 @@ impl<const SEG0_DIMS: usize, const SEG1_DIMS: usize, const PADDED_INPUT_DIMS: us
 
         #[cfg(target_arch = "aarch64")]
         {
-            self.i8mm_weights = Self::pack_i8mm_weights(self.weights.as_slice());
+            self.i8mm_weights = Self::pack_i8mm_weights(&self.weights);
         }
     }
 
@@ -601,7 +599,7 @@ mod tests {
         }
 
         #[cfg(target_arch = "aarch64")]
-        let i8mm_weights = OutputLayer::<SEG0, SEG1, PADDED>::pack_i8mm_weights(weights.as_slice());
+        let i8mm_weights = OutputLayer::<SEG0, SEG1, PADDED>::pack_i8mm_weights(&weights);
 
         OutputLayer {
             bias,

@@ -9,7 +9,7 @@ fn write_edge_cases(out: &mut impl Write) -> io::Result<()> {
         for o in 0..=u8::MAX {
             let index = edge_stability_index(p, o);
             let stable = if p & !o == 0 {
-                edge_stability(p as usize, o as usize)
+                edge_stability(p, o)
             } else {
                 EDGE_STABILITY.0[((o as usize) << 8) | p as usize]
             };

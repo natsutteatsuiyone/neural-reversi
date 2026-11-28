@@ -192,53 +192,45 @@ fn unpack_h2h7(x: u8) -> u64 {
 
 /// Packs the A-file (A1-A8) of a bitboard into a single byte.
 #[inline]
-fn pack_a1a8(x: u64) -> usize {
+fn pack_a1a8(x: u64) -> u8 {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "bmi2") => {
             use std::arch::x86_64::_pext_u64;
 
             // SAFETY: this branch is compiled only when BMI2 is enabled for
             // the current target.
-            unsafe { _pext_u64(x, FILE_A) as usize }
+            unsafe { _pext_u64(x, FILE_A) as u8 }
         }
         _ => {
             let a = x & FILE_A; // Mask A-file
-            ((a.wrapping_mul(0x0102_0408_1020_4080u64)) >> 56) as usize
+            ((a.wrapping_mul(0x0102_0408_1020_4080u64)) >> 56) as u8
         }
     }
 }
 
 /// Packs the H-file (H1-H8) of a bitboard into a single byte.
 #[inline]
-fn pack_h1h8(x: u64) -> usize {
+fn pack_h1h8(x: u64) -> u8 {
     cfg_select! {
         all(target_arch = "x86_64", target_feature = "bmi2") => {
             use std::arch::x86_64::_pext_u64;
 
             // SAFETY: this branch is compiled only when BMI2 is enabled for
             // the current target.
-            unsafe { _pext_u64(x, FILE_H) as usize }
+            unsafe { _pext_u64(x, FILE_H) as u8 }
         }
         _ => {
             let a = x & FILE_H; // Mask H-file
-            ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as usize
+            ((a.wrapping_mul(0x0002_0408_1020_4081u64)) >> 56) as u8
         }
     }
 }
 
 #[inline(always)]
-fn edge_stability(player_edge: usize, occupied_edge: usize) -> u8 {
-    debug_assert!(player_edge < 256);
-    debug_assert!(occupied_edge < 256);
+fn edge_stability(player_edge: u8, occupied_edge: u8) -> u8 {
     debug_assert_eq!(player_edge & !occupied_edge, 0);
 
-    // SAFETY: callers pass packed edges, so each index component is 0..256 and
-    // the combined table index is within EDGE_STABILITY_SIZE.
-    unsafe {
-        *EDGE_STABILITY
-            .0
-            .get_unchecked((occupied_edge << 8) | player_edge)
-    }
+    EDGE_STABILITY.0[(usize::from(occupied_edge) << 8) | usize::from(player_edge)]
 }
 
 /// Returns stable discs along all four edges (rank 1, rank 8, A-file, H-file).
@@ -247,8 +239,8 @@ fn edge_stability(player_edge: usize, occupied_edge: usize) -> u8 {
 /// Uses the pre-computed edge stability table for fast lookup.
 #[inline]
 fn get_stable_edge(p: u64, occ: u64) -> u64 {
-    u64::from(edge_stability((p & 0xff) as usize, (occ & 0xff) as usize))
-        | u64::from(edge_stability((p >> 56) as usize, (occ >> 56) as usize)) << 56
+    u64::from(edge_stability(p as u8, occ as u8))
+        | u64::from(edge_stability((p >> 56) as u8, (occ >> 56) as u8)) << 56
         | unpack_a2a7(edge_stability(pack_a1a8(p), pack_a1a8(occ)))
         | unpack_h2h7(edge_stability(pack_h1h8(p), pack_h1h8(occ)))
 }
@@ -883,7 +875,7 @@ mod tests {
 
         for (p, o) in cases {
             assert_eq!(
-                edge_stability(p as usize, (p | o) as usize),
+                edge_stability(p, p | o),
                 reference_find_edge_stable(p, o, p),
                 "edge stability mismatch for p={p:#04x} o={o:#04x}",
             );
@@ -894,7 +886,7 @@ mod tests {
             let p: u8 = rng.random();
             let o: u8 = rng.random::<u8>() & !p;
             assert_eq!(
-                edge_stability(p as usize, (p | o) as usize),
+                edge_stability(p, p | o),
                 reference_find_edge_stable(p, o, p),
                 "edge stability mismatch for p={p:#04x} o={o:#04x}",
             );
@@ -916,11 +908,11 @@ mod tests {
 
             assert_eq!(
                 pack_a1a8(file_a | (0xa5a5_a5a5_a5a5_a5a5 & !FILE_A)),
-                byte as usize
+                byte as u8
             );
             assert_eq!(
                 pack_h1h8(file_h | (0xa5a5_a5a5_a5a5_a5a5 & !FILE_H)),
-                byte as usize
+                byte as u8
             );
             assert_eq!(unpack_a2a7(byte as u8), file_a & FILE_A_INNER);
             assert_eq!(unpack_h2h7(byte as u8), file_h & FILE_H_INNER);
