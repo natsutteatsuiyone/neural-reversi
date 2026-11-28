@@ -140,34 +140,6 @@ fn write_cases(out: &mut impl Write) -> io::Result<()> {
     }
     Ok(())
 }
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> io::Result<()> {
     flip_scalar_difftest::run_buffered(write_cases)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn main() {}
-
-#[cfg(target_arch = "wasm32")]
-mod wasm {
-    use std::sync::OnceLock;
-
-    fn cases() -> &'static [u8] {
-        static CASES: OnceLock<Vec<u8>> = OnceLock::new();
-        CASES.get_or_init(|| {
-            let mut out = Vec::new();
-            super::write_cases(&mut out).expect("writing to Vec cannot fail");
-            out
-        })
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn fixture_ptr() -> *const u8 {
-        cases().as_ptr()
-    }
-
-    #[unsafe(no_mangle)]
-    pub extern "C" fn fixture_len() -> usize {
-        cases().len()
-    }
 }

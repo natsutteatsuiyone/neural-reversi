@@ -686,7 +686,7 @@ private def checkMoveStorageCase (line : String) : Except String Unit := do
 private def moveGenerationHeader (header : String) : Except String (Bool × (Nat → String)) := do
   let ["backend", backend] := header.splitOn " "
     | throw "missing move generation backend"
-  unless ["avx512", "avx2", "neon", "wasm", "portable"].contains backend do
+  unless ["avx512", "avx2", "neon", "portable"].contains backend do
     throw "invalid move generation backend"
   pure (backend == "avx512", fun n => s!"{n} move generation cases ({backend}), 0 mismatches")
 

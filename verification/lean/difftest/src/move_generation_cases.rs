@@ -36,7 +36,6 @@ pub fn write_cases(out: &mut impl Write) -> io::Result<()> {
         ) => "avx512",
         all(target_arch = "x86_64", target_feature = "avx2") => "avx2",
         all(target_arch = "aarch64", target_feature = "neon") => "neon",
-        all(target_arch = "wasm32", target_feature = "simd128") => "wasm",
         _ => "portable",
     };
     writeln!(out, "backend {backend}")?;

@@ -30,7 +30,6 @@ public import NeuralReversi.Flip.Avx2.Properties
 public import NeuralReversi.Flip.Avx512.Properties
 public import NeuralReversi.Flip.Avx512.WidePair
 public import NeuralReversi.Flip.Neon.Properties
-public import NeuralReversi.Flip.WasmSimd.Properties
 public import NeuralReversi.Flip.Dispatch.Properties
 public import NeuralReversi.Flip.Dispatch.Batch
 public import NeuralReversi.Bitboard.Properties

@@ -5,13 +5,13 @@
 
 This is an experimental project to develop a highly accurate neural network evaluation function for Reversi (Othello).
 
-**[Play online (Lite version)](https://neural-reversi.net/)**
+**[Play online (Lite version)](https://neural-reversi.net/)** ([source](https://github.com/natsutteatsuiyone/neural-reversi-wasm))
 
 ## Features
 
 - Neural network-based position evaluation
 - High-performance multi-threaded search
-- Supports CLI, a native desktop GUI (NSH), and WebAssembly
+- Supports CLI and a native desktop GUI (NSH)
 
 ## Benchmarks (v6.3.0)
 
@@ -50,7 +50,6 @@ version: [docs/6.3.0/benchmarks.md](docs/6.3.0/benchmarks.md).
 
 - [Rust](https://www.rust-lang.org/tools/install)
 - [cargo-make](https://github.com/sagiegurari/cargo-make) (recommended)
-- [Bun](https://bun.sh/) (Web development only)
 - Desktop GUI: native platform build tools and graphics drivers; see the [GUI prerequisites](crates/gui/README.md#prerequisites). Linux requires an X11 or Wayland session, GTK 4.14 or later, and GStreamer development/runtime libraries.
 
 ### Setup
@@ -65,7 +64,6 @@ version: [docs/6.3.0/benchmarks.md](docs/6.3.0/benchmarks.md).
    and place them in the project root directory. The build embeds the exact
    file names written in the source, which are not always in the latest release:
    - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/eval-weights/src/lib.rs`
-   - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 3. Run the interface you want to use:
    ```bash
@@ -74,12 +72,6 @@ version: [docs/6.3.0/benchmarks.md](docs/6.3.0/benchmarks.md).
 
    ```bash
    cargo run -p gui --release    # Launch the native NSH desktop application
-   ```
-
-   ```bash
-   cd crates/web
-   bun install
-   bun run dev                   # Start the web version in development mode
    ```
 
 ### Large pages
@@ -99,7 +91,6 @@ allows `madvise` requests.
 - **[reversi-core](crates/reversi-core/)**: Core library implementing the AI search algorithms.
 - **[cli](crates/cli/)**: Command-line interface for terminal play (TUI), GTP, GGS, FlipSight, and position solving.
 - **[gui](crates/gui/)**: Native Rust graphical user interface built with NSH, calling `reversi-core` directly.
-- **[web](crates/web/)**: WebAssembly build of the Rust engine, packaged with wasm-pack and Vite, and used as the frontend bundle for [neural-reversi.net](https://neural-reversi.net).
 - **[match-runner](crates/match-runner/)**: Tool for automatically running matches between Reversi engines supporting the Go Text Protocol.
 - **[datagen](crates/datagen/)**: Tool for generating neural network training data, including self-play games, shuffling/filtering, and ProbCut model fitting.
 - **[search-test](crates/search-test/)**: Search test suite runner for benchmarking engine performance using OBF problem files (FFO Forum, Edax hard sets).
@@ -142,7 +133,6 @@ Distribution builds are driven by [cargo-make](https://github.com/sagiegurari/ca
    and place them in the project root directory. The build embeds the exact
    file names written in the source, which are not always in the latest release:
    - `eval-*.zst` and `eval_sm-*.zst`, named in `crates/eval-weights/src/lib.rs`
-   - `eval_wasm-*.zst`, named in `crates/web/src/eval.rs`
 
 ### Distribution builds
 
@@ -176,7 +166,7 @@ cargo test -p gui --all-targets
 cargo run -p gui --release
 ```
 
-Tests cover the Rust application model and engine rather than a browser/WebDriver layer. Running the window requires a graphical desktop and a compatible GPU driver. See the [GUI README](crates/gui/README.md) for features, saved settings, and platform requirements. The separate `crates/web` application retains its Bun/Vite toolchain.
+Tests cover the Rust application model and engine rather than a browser/WebDriver layer. Running the window requires a graphical desktop and a compatible GPU driver. See the [GUI README](crates/gui/README.md) for features, saved settings, and platform requirements.
 
 ## Verification
 

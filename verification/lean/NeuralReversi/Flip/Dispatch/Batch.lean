@@ -10,14 +10,12 @@ inductive Backend where
   | avx512
   | avx2
   | neon (sha3 : Bool)
-  | wasm
   | scalar
   deriving DecidableEq
 
 def backendFor : TargetConfig → Backend
   | .x86_64 c => if c.avx512cd && c.avx512vl then .avx512 else if c.avx2 then .avx2 else .scalar
   | .aarch64 neon sha3 => if neon then .neon sha3 else .scalar
-  | .wasm32 simd128 => if simd128 then .wasm else .scalar
   | .other => .scalar
 
 def Backend.single (backend : Backend) (sq : Square) (p o : Word) : Word :=
@@ -25,7 +23,6 @@ def Backend.single (backend : Backend) (sq : Square) (p o : Word) : Word :=
   | .avx512 => Avx512.flip sq p o
   | .avx2 => Avx2.flip sq p o
   | .neon sha3 => Neon.flip sha3 sq p o
-  | .wasm => WasmSimd.flip sq p o
   | .scalar => value sq p o
 
 def tableIndex (sq : Square) : Fin 66 := ⟨sq.val, lookup_safe sq⟩
@@ -34,14 +31,12 @@ def Backend.pair (backend : Backend) (a b : Square) (p o : Word) : Word × Word 
   match backend with
   | .avx512 => Avx512.WidePair.narrowPair a b p o
   | .neon sha3 => (Neon.BoardCtx.new p o).flip2 sha3 (tableIndex a) (tableIndex b)
-  | .wasm => (WasmSimd.BoardCtx.new p o).flip2 (tableIndex a) (tableIndex b)
   | .avx2 | .scalar => (backend.single a p o, backend.single b p o)
 
 def Backend.triple (backend : Backend) (a b c : Square) (p o : Word) : Word × Word × Word :=
   match backend with
   | .avx512 => Avx512.WidePair.triple a b c p o
   | .neon sha3 => (Neon.BoardCtx.new p o).flip3 sha3 (tableIndex a) (tableIndex b) (tableIndex c)
-  | .wasm => (WasmSimd.BoardCtx.new p o).flip3 (tableIndex a) (tableIndex b) (tableIndex c)
   | .avx2 | .scalar => (backend.single a p o, backend.single b p o, backend.single c p o)
 
 def Backend.quad (backend : Backend) (a b c d : Square) (p o : Word) : Word × Word × Word × Word :=
@@ -49,7 +44,6 @@ def Backend.quad (backend : Backend) (a b c d : Square) (p o : Word) : Word × W
   | .avx512 => Avx512.WidePair.quad a b c d p o
   | .neon sha3 =>
     (Neon.BoardCtx.new p o).flip4 sha3 (tableIndex a) (tableIndex b) (tableIndex c) (tableIndex d)
-  | .wasm => (WasmSimd.BoardCtx.new p o).flip4 (tableIndex a) (tableIndex b) (tableIndex c) (tableIndex d)
   | .avx2 | .scalar => (backend.single a p o, backend.single b p o, backend.single c p o, backend.single d p o)
 
 theorem single_eq (backend : Backend) (sq : Square) (p o : Word) (wf : p &&& o = 0) :
@@ -58,7 +52,6 @@ theorem single_eq (backend : Backend) (sq : Square) (p o : Word) (wf : p &&& o =
   | avx512 => exact Avx512.flip_eq_scalarValue sq p o
   | avx2 => exact Avx2.publicContract_proven.2 sq p o wf
   | neon sha3 => exact Neon.flip_eq_scalarValue sha3 sq p o wf
-  | wasm => exact WasmSimd.flip_eq_scalarValue sq p o
   | scalar => rfl
 
 theorem single_matches_flipTarget (target : TargetConfig) (checks : Bool) (sq : Square)
@@ -77,7 +70,6 @@ theorem pair_eq (backend : Backend) (a b : Square) (p o : Word) (wf : p &&& o = 
   | avx512 => exact Avx512.WidePair.narrowPair_eq a b p o
   | avx2 => simp only [Backend.pair, single_eq _ _ _ _ wf]
   | neon sha3 => simp only [Backend.pair, Neon.flip2_eq _ _ _ _ _ wf, typedValue]
-  | wasm => simp only [Backend.pair, WasmSimd.flip2_eq, typedValue]
   | scalar => rfl
 
 theorem triple_eq (backend : Backend) (a b c : Square) (p o : Word) (wf : p &&& o = 0) :
@@ -86,7 +78,6 @@ theorem triple_eq (backend : Backend) (a b c : Square) (p o : Word) (wf : p &&& 
   | avx512 => exact Avx512.WidePair.triple_eq a b c p o
   | avx2 => simp only [Backend.triple, single_eq _ _ _ _ wf]
   | neon sha3 => simp only [Backend.triple, Neon.flip3_eq _ _ _ _ _ _ wf, typedValue]
-  | wasm => simp only [Backend.triple, WasmSimd.flip3_eq, typedValue]
   | scalar => rfl
 
 theorem quad_eq (backend : Backend) (a b c d : Square) (p o : Word) (wf : p &&& o = 0) :
@@ -95,7 +86,6 @@ theorem quad_eq (backend : Backend) (a b c d : Square) (p o : Word) (wf : p &&& 
   | avx512 => exact Avx512.WidePair.quad_eq a b c d p o
   | avx2 => simp only [Backend.quad, single_eq _ _ _ _ wf]
   | neon sha3 => simp only [Backend.quad, Neon.flip4_eq _ _ _ _ _ _ _ wf, typedValue]
-  | wasm => simp only [Backend.quad, WasmSimd.flip4_eq, typedValue]
   | scalar => rfl
 
 def BatchContract : Prop :=

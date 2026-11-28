@@ -4,7 +4,6 @@ public import NeuralReversi.Flip.Dispatch.Spec
 public import NeuralReversi.Flip.Avx2.Properties
 public import NeuralReversi.Flip.Avx512.Properties
 public import NeuralReversi.Flip.Neon.Properties
-public import NeuralReversi.Flip.WasmSimd.Properties
 
 @[expose] public section
 
@@ -65,10 +64,6 @@ theorem flipTarget_eq_value_disjoint (config : TargetConfig) (checks : Bool)
     cases neon <;> simp only [flipTarget, Bool.false_eq_true, ↓reduceIte]
     · exact operational_eq_value checks sq player opponent
     · rw [Neon.flip_eq_scalarValue sha3 sq player opponent disjoint]
-  | wasm32 simd128 =>
-    cases simd128 <;> simp only [flipTarget, Bool.false_eq_true, ↓reduceIte]
-    · exact operational_eq_value checks sq player opponent
-    · rw [WasmSimd.flip_eq_scalarValue sq player opponent]
   | other =>
     dsimp only [flipTarget]
     exact operational_eq_value checks sq player opponent

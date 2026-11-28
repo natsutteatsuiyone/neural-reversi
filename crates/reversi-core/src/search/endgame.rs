@@ -32,8 +32,8 @@ use crate::transposition_table::Bound;
 use crate::types::Depth;
 
 use self::cache::{CacheSlot, Deep, EndGameCache, Shallow};
-#[doc(hidden)]
-pub use self::empties::{Empties, odd_quadrants, quadrant};
+use self::empties::quadrant;
+pub(super) use self::empties::{Empties, odd_quadrants};
 use self::small_move_list::SmallMoveList;
 pub(super) use self::solve::{solve1, solve2, solve3, solve4, sort_last4};
 
@@ -712,13 +712,6 @@ fn shallow_search_move<const EMPTIES: u32>(
     } else {
         -shallow_search::<5>(ctx, &next, next_alpha, sc, next.legal_moves(), next_empties)
     }
-}
-
-/// Scores a position with exactly one empty square.
-#[doc(hidden)]
-#[inline(always)]
-pub fn solve_last1(player: Bitboard, alpha: DiscScore, sq: Square) -> DiscScore {
-    solve::solve_last1(player, alpha, sq)
 }
 
 #[cfg(test)]

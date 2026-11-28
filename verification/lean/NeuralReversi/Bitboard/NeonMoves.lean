@@ -233,14 +233,14 @@ def legalMovesTarget (config : TargetConfig) (p o : Bits) : Bits :=
   match config with
   | .x86_64 x86 => getMovesX86 ⟨x86.avx512vl, x86.avx2⟩ p o
   | .aarch64 neon sha3 => if neon then legalMovesNeon sha3 p o else getMovesPortable p o
-  | .wasm32 _ | .other => getMovesPortable p o
+  | .other => getMovesPortable p o
 
 def legalMovesAndPotentialTarget (config : TargetConfig) (p o : Bits) : Bits × Bits :=
   match config with
   | .x86_64 x86 => getMovesAndPotentialX86 ⟨x86.avx512vl, x86.avx2⟩ p o
   | .aarch64 neon sha3 =>
     if neon then legalMovesAndPotentialNeon sha3 p o else getMovesAndPotentialPortable p o
-  | .wasm32 _ | .other => getMovesAndPotentialPortable p o
+  | .other => getMovesAndPotentialPortable p o
 
 def TargetMoveGenerationContract : Prop :=
   ∀ (config : TargetConfig) (p o : Bits) (target : Nat), p &&& o = 0#64 →
@@ -254,7 +254,7 @@ theorem targetMoveGenerationContract_proven : TargetMoveGenerationContract := by
     ⟨getMovesPortable_exact p o target,
     portableMovesAndPotentialContract_proven p o target⟩
   cases config with
-  | other | wasm32 => exact portable
+  | other => exact portable
   | x86_64 cfg =>
     exact ⟨getMovesX86_exact ⟨cfg.avx512vl, cfg.avx2⟩ p o target,
       getMovesAndPotentialX86_exact ⟨cfg.avx512vl, cfg.avx2⟩ p o target⟩

@@ -2,7 +2,7 @@
 
 Usage (from anywhere inside the repo):
     python verification/lean/check.py [--lean-only] [--move-bound-certificate FILE]
-        [--wasm-pattern-features] [--pvs-trace FILE]
+        [--pvs-trace FILE]
 
 Steps:
 1. audit_modules.py --write (generates the audit inventory) and
@@ -74,14 +74,10 @@ def main() -> int:
         type=Path,
         help="Check a move-bound LRAT proof for the query of 36 or more legal moves.",
     )
-    parser.add_argument("--wasm-pattern-features", action="store_true",
-                        help="Also run the pattern fixture with wasm32 SIMD in Node.js")
     parser.add_argument("--pvs-trace", type=Path, help="Replay an instrumented exact-solve transcript.")
     parser.add_argument("--pvs-threshold-depth", type=int, metavar="EMPTIES",
                         help="Maximum empties for direct threshold checks with --pvs-trace (default: 8).")
     args = parser.parse_args()
-    if args.wasm_pattern_features and args.lean_only:
-        parser.error("--wasm-pattern-features requires differential checks")
     if args.pvs_threshold_depth is not None and (args.pvs_trace is None or not 0 <= args.pvs_threshold_depth <= 64):
         parser.error("--pvs-threshold-depth requires --pvs-trace and an integer from 0 to 64")
 
@@ -167,8 +163,6 @@ def main() -> int:
             assert case_files is not None
             if run_revmodel_checks(case_files) != 0:
                 stage2_failed = True
-        if not stage2_failed and args.wasm_pattern_features and run_wasm_pattern_features() != 0:
-            stage2_failed = True
         if policy.wait() != 0:
             print("FAIL: check_policy_lean_regression.py")
             stage2_failed = True
@@ -379,7 +373,7 @@ def check_generated_pattern_table() -> int:
     negatives = (
         ("x86_64", "sse2,avx20"),
         ("aarch64", ""),
-        ("wasm32", "simd128"),
+        ("riscv64", ""),
     )
 
     def _run_positive(index: int, arch: str, features: str, order: str, base: Path):
@@ -449,24 +443,6 @@ def check_generated_pattern_table() -> int:
                     return 1
     print("Generated pattern table: 8,388,608 lanes agree in both target byte orders", flush=True)
     return 0
-
-
-def run_wasm_pattern_features() -> int:
-    target = "wasm32-unknown-unknown"
-    target_dir = WORK / "target-wasm"
-    manifest = LEAN_DIR / "difftest" / "Cargo.toml"
-    cmd = ["cargo", "build", "--locked", "--release", "--manifest-path", str(manifest),
-           "--target", target, "--target-dir", str(target_dir), "--bin", "pattern_feature_cases"]
-    env = dict(os.environ, CARGO_ENCODED_RUSTFLAGS="-C\x1ftarget-feature=+simd128")
-    if run(cmd, REPO, env=env).returncode:
-        return 1
-    wasm = target_dir / target / "release" / "pattern_feature_cases.wasm"
-    cases = WORK / "wasm-pattern-feature-cases.txt"
-    with cases.open("wb") as stream:
-        if run(["node", str(SCRIPTS_DIR / "read_wasm_fixture.cjs"), str(wasm)], REPO,
-               stdout=stream).returncode:
-            return 1
-    return run([str(REVMODEL), "pattern-feature-cases", str(cases)], LEAN_DIR).returncode
 
 
 if __name__ == "__main__":

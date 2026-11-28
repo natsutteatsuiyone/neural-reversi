@@ -21,14 +21,12 @@ mod flip_avx512;
 mod flip_neon;
 #[allow(dead_code)]
 mod flip_scalar;
-#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-mod flip_wasm_simd;
 mod lrmask;
 
 /// Calculates which opponent discs would be flipped by placing a disc at `sq`.
 ///
 /// Dispatches to a target-specific backend (AVX-512CD/VL, AVX2, NEON,
-/// WebAssembly SIMD, or scalar).
+/// or scalar).
 #[inline(always)]
 pub fn flip(sq: Square, player: Bitboard, opponent: Bitboard) -> Bitboard {
     cfg_select! {
@@ -42,9 +40,6 @@ pub fn flip(sq: Square, player: Bitboard, opponent: Bitboard) -> Bitboard {
         }
         all(target_arch = "aarch64", target_feature = "neon") => {
             Bitboard::new(unsafe { flip_neon::flip(sq, player.bits(), opponent.bits()) })
-        }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            Bitboard::new(flip_wasm_simd::flip(sq, player.bits(), opponent.bits()))
         }
         _ => Bitboard::new(flip_scalar::flip(sq, player.bits(), opponent.bits())),
     }
@@ -79,11 +74,6 @@ pub fn flip2(
         all(target_arch = "aarch64", target_feature = "neon") => {
             let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1) = unsafe { ctx.flip2(sq1.index(), sq2.index()) };
-            (Bitboard::new(f0), Bitboard::new(f1))
-        }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
-            let (f0, f1) = ctx.flip2(sq1.index(), sq2.index());
             (Bitboard::new(f0), Bitboard::new(f1))
         }
         _ => (flip(sq1, player, opponent), flip(sq2, player, opponent)),
@@ -121,11 +111,6 @@ pub fn flip3(
         all(target_arch = "aarch64", target_feature = "neon") => {
             let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1, f2) = unsafe { ctx.flip3(sq1.index(), sq2.index(), sq3.index()) };
-            (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
-        }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
-            let (f0, f1, f2) = ctx.flip3(sq1.index(), sq2.index(), sq3.index());
             (Bitboard::new(f0), Bitboard::new(f1), Bitboard::new(f2))
         }
         _ => (
@@ -178,16 +163,6 @@ pub fn flip4(
             let ctx = unsafe { flip_neon::BoardCtx::new(player.bits(), opponent.bits()) };
             let (f0, f1, f2, f3) =
                 unsafe { ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index()) };
-            (
-                Bitboard::new(f0),
-                Bitboard::new(f1),
-                Bitboard::new(f2),
-                Bitboard::new(f3),
-            )
-        }
-        all(target_arch = "wasm32", target_feature = "simd128") => {
-            let ctx = flip_wasm_simd::BoardCtx::new(player.bits(), opponent.bits());
-            let (f0, f1, f2, f3) = ctx.flip4(sq1.index(), sq2.index(), sq3.index(), sq4.index());
             (
                 Bitboard::new(f0),
                 Bitboard::new(f1),

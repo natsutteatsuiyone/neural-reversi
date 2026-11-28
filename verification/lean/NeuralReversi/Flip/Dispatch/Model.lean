@@ -4,7 +4,6 @@ public import NeuralReversi.Flip.Model
 public import NeuralReversi.Flip.Avx2.Model
 public import NeuralReversi.Flip.Avx512.Model
 public import NeuralReversi.Flip.Neon.Model
-public import NeuralReversi.Flip.WasmSimd.Model
 
 @[expose] public section
 
@@ -27,9 +26,6 @@ def flipTarget (config : TargetConfig) (checks : Bool) (sq : Square) (player opp
   | .x86_64 x86 => flip x86 checks sq player opponent
   | .aarch64 neon sha3 =>
       if neon then .ok (Neon.flip sha3 sq player opponent)
-      else NeuralReversi.Flip.flip checks sq player opponent
-  | .wasm32 simd128 =>
-      if simd128 then .ok (WasmSimd.flip sq player opponent)
       else NeuralReversi.Flip.flip checks sq player opponent
   | .other => NeuralReversi.Flip.flip checks sq player opponent
 

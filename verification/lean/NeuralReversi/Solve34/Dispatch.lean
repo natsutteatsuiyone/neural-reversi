@@ -137,8 +137,8 @@ def eager4 (oracle : Oracle) (batch : BatchFlip) (p o : Word) (alpha : Score)
 def fallback4 (oracle : Oracle) (flip : Flip) (adjacent : Adjacent) (p o : Word) (alpha : Score)
     (a b c d : Square) (terminal : Score) : Outcome := fallback false oracle flip adjacent p o alpha (slots4 a b c d) terminal
 
-def eagerEnabled (x86 avx512cd avx512vl avx2 aarch64 neon wasm simd128 : Bool) : Bool :=
-  (x86 && avx512cd && avx512vl) || (x86 && avx2) || (aarch64 && neon) || (wasm && simd128)
+def eagerEnabled (x86 avx512cd avx512vl avx2 aarch64 neon : Bool) : Bool :=
+  (x86 && avx512cd && avx512vl) || (x86 && avx2) || (aarch64 && neon)
 
 def dispatch (enabled charge : Bool) (oracle : Oracle) (flip : Flip) (batch : BatchFlip)
     (adjacent : Adjacent) (p o : Word) (alpha : Score) (slots : List Slot) (terminal : Score) : Outcome :=

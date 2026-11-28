@@ -465,7 +465,7 @@ def check_flip_forwarding(dump, paired):
     # Generation.entry uses the value of this target-specific flip. Validate
     # the Rust dispatch and wide context setup before applying kernel contracts.
     cfg = instructions(mir(dump, "flip-flip").read_text(encoding="utf-8"))
-    targets = ("avx512",) if paired else ("scalar", "neon", "avx2", "wasm_simd")
+    targets = ("avx512",) if paired else ("scalar", "neon", "avx2")
     target, = [target for target in targets if cfg.get(2) == [
         call(f"_4 = flip_{target}::flip(move _5, move _6, move _8)", 3, 5)]]
     compare("flip::flip", cfg, [

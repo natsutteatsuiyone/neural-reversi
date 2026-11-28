@@ -27,7 +27,6 @@ cargo make verify-lean                             # wrapper around check.py
 ### CI and platform-specific checks
 
 - [`.github/workflows/verify-lean.yml`](../../.github/workflows/verify-lean.yml) runs `verification/lean/check.py` on Linux x86-64 whenever verification files or `reversi-core` sources change.
-- **Wasm SIMD128**: with `wasm32-unknown-unknown` and Node.js installed, run `python3 verification/lean/check.py --wasm-pattern-features` to verify the `simd128` pattern fixture against Lean.
 - **AArch64 NEON / SHA3**: on an AArch64 host with SHA3, run `check.py` with `RUSTFLAGS="-Ctarget-feature=+sha3"` (`neon-sha3`) and `RUSTFLAGS="-Ctarget-feature=-sha3"` (`neon`).
 - **Weight-backed engine tests**: run `cargo test --locked -p reversi-core` with the local `.zst` weight files in the repository root.
 
@@ -149,7 +148,7 @@ Build the corresponding Lean modules with `lake build` first if not already buil
 
 ## Scope and assumptions
 
-- **Outside Lean**: target ISA code generation (AVX2, AVX-512, BMI2, NEON, Wasm SIMD128), `unsafe` memory layout and pointer provenance, `const` table generation outside `difftest/`, OS allocator and large-page APIs, and crates other than `reversi-core`.
+- **Outside Lean**: target ISA code generation (AVX2, AVX-512, BMI2, NEON), `unsafe` memory layout and pointer provenance, `const` table generation outside `difftest/`, OS allocator and large-page APIs, and crates other than `reversi-core`.
 - **Trace and concurrency premises**: concurrency, split-point, PVS, TT, evaluation-cache, PV, and deadline proofs assume matched atomic read-from, publication, and call histories. Relating every compiled Rust execution to these primitive trace events remains open.
 - **Key side conditions**:
   - AArch64 NEON-SHA3 move generation and batch `flip2`–`flip4` proofs require disjoint bitboards (enforced in Rust by `Board::from_bitboards`).

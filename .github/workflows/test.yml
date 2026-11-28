@@ -66,52 +66,6 @@ jobs:
         RUSTFLAGS: -C target-cpu=x86-64-v4
       run: cargo check -p reversi-core --all-targets --target x86_64-unknown-linux-gnu
 
-  web:
-    runs-on: ubuntu-latest
-
-    defaults:
-      run:
-        working-directory: crates/web
-
-    steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Setup Rust environment
-      uses: $/.github/actions/setup-rust
-      with:
-        cache-key: web
-
-    - name: Install the wasm32 target and wasm-pack
-      run: |
-        rustup target add wasm32-unknown-unknown
-        command -v wasm-pack || cargo install wasm-pack --locked
-
-    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-    - name: Install JS dependencies
-      run: bun install --frozen-lockfile
-
-    - name: Lint
-      run: bun run lint
-
-    - name: Check formatting
-      run: bun run fmt:check
-
-    # Runs the simd128 kernels, which the native tests never reach.
-    - name: Test wasm kernels
-      run: bun run test:wasm
-
-    - name: Build wasm packages
-      run: bun run build:wasm:dev
-
-    - name: Install Chromium
-      run: bunx playwright install --with-deps chromium
-
-    - name: Run browser tests
-      run: bun run test:e2e
-
   lint:
     runs-on: ubuntu-latest
 

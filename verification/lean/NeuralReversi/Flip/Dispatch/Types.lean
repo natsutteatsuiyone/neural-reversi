@@ -13,7 +13,6 @@ structure X86Config where
 inductive TargetConfig where
   | x86_64 (config : X86Config)
   | aarch64 (neon : Bool) (sha3 : Bool)
-  | wasm32 (simd128 : Bool)
   | other
 
 end NeuralReversi.Flip.Dispatch
