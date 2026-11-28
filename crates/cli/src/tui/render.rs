@@ -216,7 +216,7 @@ fn render_info_panel(frame: &mut Frame, area: Rect, app: &App) {
                 if result.probability() == 100 {
                     format!("{}", result.depth())
                 } else {
-                    format!("{}@{}%", result.depth(), result.probability())
+                    format!("{}@{}", result.depth(), result.selectivity())
                 },
                 Style::default().fg(Color::White),
             ),

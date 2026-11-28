@@ -1441,6 +1441,7 @@ impl ActiveMatch {
 
 #[cfg(test)]
 mod tests {
+    use reversi_core::probcut::Selectivity;
     use reversi_core::square::Square;
 
     use super::*;
@@ -1473,7 +1474,7 @@ mod tests {
                 sq,
                 score: Score::ZERO,
                 depth: 20,
-                probability: 100,
+                selectivity: Selectivity::None,
                 nodes: 0,
                 elapsed: Duration::ZERO,
                 waited: Duration::ZERO,

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use reversi_core::board::Board;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::probcut::Selectivity;
 use reversi_core::score::Score;
 use reversi_core::search::result::SearchResult;
 use reversi_core::square::Square;
@@ -18,8 +19,7 @@ pub struct SearchReport {
     /// Disc difference from our side.
     pub score: Score,
     pub depth: Depth,
-    /// Selectivity probability in percent.
-    pub probability: i32,
+    pub selectivity: Selectivity,
     pub nodes: u64,
     /// Search time, without the wait for the shared thread pool.
     pub elapsed: Duration,
@@ -48,7 +48,7 @@ impl SearchReport {
             String::new()
         };
         [
-            format!("depth {}@{}%", self.depth, self.probability),
+            format!("depth {}@{}", self.depth, self.selectivity),
             format!("{} nodes", si_count(nodes)),
             format!("{secs:.2}s{wait}"),
             format!("{:.1} Mnps", nodes / secs.max(1e-9) / 1e6),
@@ -115,7 +115,7 @@ pub(super) fn channel_report(
         .to_disc_diff_f32()
         .round() as i32;
     let depth = result.depth();
-    let probability = result.probability();
+    let selectivity = result.selectivity();
     let nodes = result.n_nodes() as f64;
     let search = elapsed.as_secs_f64();
     let status = if timed_out {
@@ -126,7 +126,7 @@ pub(super) fn channel_report(
     format!(
         "-----------------------------------------\\\
          {login} plays {mv} in game {game_id} using {n_threads} threads ;\\\
-         score == {score:+} at {depth}@{probability}% ; PV: {pv} ;\\\
+         score == {score:+} at {depth}@{selectivity} ; PV: {pv} ;\\\
          nodes: {}N ; time: search = {search:.1}s, move = {:.1}s; speed: {}N/s.\\\
          {status}",
         report_count(nodes),

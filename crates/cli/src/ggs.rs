@@ -441,7 +441,7 @@ fn apply_action(
                                 sq,
                                 score,
                                 depth: result.depth(),
-                                probability: result.probability(),
+                                selectivity: result.selectivity(),
                                 nodes: result.n_nodes(),
                                 elapsed,
                                 waited,

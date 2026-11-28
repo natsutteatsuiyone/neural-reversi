@@ -62,10 +62,9 @@ pub(crate) enum RootPhase {
 pub(crate) struct SearchTask {
     /// Board position to search.
     pub board: Board,
-    /// Midgame selectivity: [`Selectivity::Level1`] (73%) for fixed-level searches,
-    /// [`Selectivity::Mid`] (86%) for time-controlled searches, and
-    /// [`Selectivity::None`] when ProbCut is disabled. The endgame driver uses
-    /// its own selectivity ladder and ignores this value.
+    /// Midgame selectivity: [`Selectivity::Mid`], or [`Selectivity::None`]
+    /// when ProbCut is disabled. The endgame driver uses its own selectivity
+    /// ladder and ignores this value.
     pub mid_selectivity: Selectivity,
     /// Shared transposition table.
     pub tt: Arc<TranspositionTable>,
@@ -96,12 +95,9 @@ impl SearchTask {
 
 pub(crate) fn midgame_selectivity(options: &SearchRunOptions) -> Selectivity {
     if options.probcut_disabled {
-        return Selectivity::None;
-    }
-
-    match &options.constraint {
-        SearchConstraint::Level(_) => Selectivity::Level1,
-        SearchConstraint::Time(_) => Selectivity::Mid,
+        Selectivity::None
+    } else {
+        Selectivity::Mid
     }
 }
 
@@ -414,17 +410,12 @@ mod tests {
     use crate::transposition_table::Bound;
 
     #[test]
-    fn fixed_level_uses_level1_midgame_selectivity() {
-        let options = SearchRunOptions::with_level(Level::uniform(8, 8));
+    fn fixed_level_and_time_constraints_share_the_midgame_selectivity() {
+        let fixed = SearchRunOptions::with_level(Level::uniform(8, 8));
+        let timed = SearchRunOptions::with_time(TimeControlMode::Infinite);
 
-        assert_eq!(midgame_selectivity(&options), Selectivity::Level1);
-    }
-
-    #[test]
-    fn time_constraint_uses_mid_midgame_selectivity() {
-        let options = SearchRunOptions::with_time(TimeControlMode::Infinite);
-
-        assert_eq!(midgame_selectivity(&options), Selectivity::Mid);
+        assert_eq!(midgame_selectivity(&fixed), Selectivity::Mid);
+        assert_eq!(midgame_selectivity(&timed), Selectivity::Mid);
     }
 
     #[test]
@@ -483,7 +474,7 @@ mod tests {
         let after_handoff = search.run(
             &board,
             &timed().callback(move |p| {
-                if p.is_endgame && p.probability == Selectivity::Level1.probability() {
+                if p.is_endgame && p.selectivity == Selectivity::Level1 {
                     seen.store(true, Ordering::Relaxed);
                     pool.abort_search();
                 }

@@ -1,5 +1,6 @@
 //! Search progress reporting.
 
+use crate::probcut::Selectivity;
 use crate::score::Score;
 use crate::search::context::SearchContext;
 use crate::search::counters::SearchCounters;
@@ -18,10 +19,8 @@ pub struct SearchProgress {
     pub score: Score,
     /// Best move found so far, or [`None`] when there is no legal move.
     pub best_move: Option<Square>,
-    /// Probability percentage from the current [`Selectivity`] level.
-    ///
-    /// [`Selectivity`]: crate::probcut::Selectivity
-    pub probability: i32,
+    /// Selectivity the reported iteration ran at.
+    pub selectivity: Selectivity,
     /// Total nodes searched.
     pub nodes: u64,
     /// Principal variation (sequence of best moves).
@@ -56,7 +55,7 @@ impl SearchProgress {
             target_depth,
             score,
             best_move: Some(rm.sq),
-            probability: ctx.selectivity.probability(),
+            selectivity: ctx.selectivity,
             nodes,
             pv_line: rm.pv.clone(),
             is_endgame,
@@ -72,7 +71,7 @@ impl SearchProgress {
             depth: result.depth(),
             target_depth: result.depth(),
             score: result.score().unwrap_or(Score::ZERO),
-            probability: result.probability(),
+            selectivity: result.selectivity(),
             best_move: result.best_move(),
             nodes: result.n_nodes(),
             pv_line: result.pv_line().to_vec(),

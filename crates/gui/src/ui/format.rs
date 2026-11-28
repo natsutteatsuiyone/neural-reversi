@@ -1,3 +1,4 @@
+use reversi_core::probcut::Selectivity;
 use reversi_core::score::Score;
 
 #[derive(Clone, Copy)]
@@ -30,11 +31,11 @@ pub(super) fn display_score(score: Score, precision: ScorePrecision) -> String {
     reduced
 }
 
-pub(super) fn display_depth(depth: u32, probability: i32) -> String {
-    if probability == 100 {
+pub(super) fn display_depth(depth: u32, selectivity: Selectivity) -> String {
+    if selectivity == Selectivity::None {
         depth.to_string()
     } else {
-        format!("{depth}@{probability}%")
+        format!("{depth}@{selectivity}")
     }
 }
 

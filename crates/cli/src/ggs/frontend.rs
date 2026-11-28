@@ -1260,6 +1260,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use reversi_core::board::Board;
+    use reversi_core::probcut::Selectivity;
     use reversi_core::score::DiscScore;
 
     use crate::ggs::protocol::{DisplayClock, PlayerClock};
@@ -1584,7 +1585,7 @@ mod tests {
             sq: Square::D3,
             score: Score::from_disc_diff(DiscScore::new(2)),
             depth: 18,
-            probability: 87,
+            selectivity: Selectivity::Mid,
             nodes: 123_400_000,
             elapsed: Duration::from_millis(2_340),
             waited: Duration::from_millis(120),
@@ -1609,7 +1610,7 @@ mod tests {
             "○ bob    04:10",
             "Elapsed  00:01",
             "Eval     d3 +2",
-            "Search   depth 18@87% · 123.4M nodes",
+            "Search   depth 18@Mid · 123.4M nodes",
             "Time     2.34s (wait 0.12s) · 52.7 Mnps",
             "tell bob good game",
             "Enter send  Ctrl+C exit  F1 help",

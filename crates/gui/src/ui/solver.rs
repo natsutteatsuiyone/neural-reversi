@@ -160,7 +160,7 @@ fn candidate_row(ui: Ui, square: usize) -> impl IntoElement {
                         .candidates()
                         .iter()
                         .find(|p| p.square.is_some_and(|s| s.index() == square))
-                        .map_or_else(String::new, |p| format!("{}%", p.probability))
+                        .map_or_else(String::new, |p| p.selectivity.to_string())
                 })
             })
             .w_10()

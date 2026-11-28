@@ -586,7 +586,7 @@ impl Session {
     fn record_log_iteration(&mut self, progress: Progress) {
         if let Some(last) = self.log.last_mut().filter(|last| {
             last.depth == progress.depth
-                && last.probability == progress.probability
+                && last.selectivity == progress.selectivity
                 && last.score == progress.score
                 && last.pv == progress.pv
         }) {
@@ -823,13 +823,16 @@ mod tests {
         run_until(&mut session, &settings, Session::is_ready);
 
         session.activity = Some(Activity::Solver);
-        for (square, discs, probability) in [(Square::D3, 2, 73), (Square::C4, 4, 100)] {
+        for (square, discs, selectivity) in [
+            (Square::D3, 2, Selectivity::Level1),
+            (Square::C4, 4, Selectivity::None),
+        ] {
             let progress = Progress {
                 square: Some(square),
                 score: Score::from_disc_diff(DiscScore::new(discs)),
                 depth: 18,
                 target_depth: 18,
-                probability,
+                selectivity,
                 nodes: 123,
                 nps: 456.0,
                 pv: square.to_string(),
@@ -873,7 +876,12 @@ mod tests {
             .collect();
         assert_eq!(candidates, legal);
         assert_eq!(session.candidates().len(), legal.len());
-        assert!(session.candidates().iter().all(|c| c.probability == 73));
+        assert!(
+            session
+                .candidates()
+                .iter()
+                .all(|c| c.selectivity == Selectivity::Level1)
+        );
         assert!(session.candidates_complete());
     }
 
@@ -1198,7 +1206,7 @@ mod tests {
             score: Score::from_disc_diff(DiscScore::new(2)),
             depth: 6,
             target_depth: 10,
-            probability: 100,
+            selectivity: Selectivity::None,
             nodes: 100,
             nps: 1000.0,
             pv: "d3".into(),

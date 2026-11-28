@@ -1,5 +1,7 @@
 //! ProbCut forward pruning implementation.
 
+use std::fmt;
+
 use crate::score::Score;
 use crate::types::Depth;
 
@@ -20,7 +22,7 @@ pub const ENDGAME_STEPS: usize = 5;
 
 /// Selectivity level for search pruning (ProbCut confidence levels).
 ///
-/// `Mid` is used for time-controlled midgame search; on the endgame ladder
+/// `Mid` is used for midgame search; on the endgame ladder
 /// (`Level1`..`Level4`), lower levels are more aggressive (prune more) and
 /// higher levels are more conservative. `None` disables ProbCut entirely.
 ///
@@ -33,8 +35,9 @@ pub const ENDGAME_STEPS: usize = 5;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 #[repr(u8)]
 pub enum Selectivity {
-    /// Midgame-only level: 86% confidence (t=1.5). Never part of the
-    /// endgame selectivity ladder.
+    /// Midgame-only level (t=1.5), displayed as `Mid`: its 86% is nominal,
+    /// not calibrated like the ladder levels. Never part of the endgame
+    /// selectivity ladder.
     Mid = 0,
     /// Most aggressive endgame-ladder level: 73% confidence (t=1.1)
     #[default]
@@ -111,6 +114,17 @@ impl Selectivity {
     #[inline]
     pub fn is_enabled(self) -> bool {
         self != Selectivity::None
+    }
+}
+
+/// Formats the level as shown next to a search depth: `Mid` for the midgame
+/// level, otherwise the probability percentage, e.g. `73%`.
+impl fmt::Display for Selectivity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Selectivity::Mid => f.write_str("Mid"),
+            level => write!(f, "{}%", level.probability()),
+        }
     }
 }
 

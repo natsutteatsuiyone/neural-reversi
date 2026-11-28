@@ -93,7 +93,7 @@ cargo run -p search-test --release -- --problem fforum-1-19.obf --depth 12 --mul
 Results are displayed per file, each with a tabular section:
 
 - **#**: Line number within the OBF file
-- **Depth**: Search depth achieved (may show percentage for selective searches)
+- **Depth**: Search depth achieved (`@Mid` for a midgame search, `@NN%` for a selective endgame level)
 - **Time(s)**: Time taken to solve the position
 - **Nodes**: Number of positions searched
 - **NPS**: Nodes per second (search speed)
@@ -138,7 +138,7 @@ With `-v`/`--verbose`, each test case displays:
 
 - The board position
 - A per-iteration table showing delta values for each iterative deepening step:
-  - **depth**: Search depth (with selectivity percentage if < 100%)
+  - **depth**: Search depth (with `@Mid` for a midgame search or `@NN%` for a selective endgame level)
   - **score**: Best score at this iteration
   - **best**: Best move found
   - **nodes**: Nodes searched in this iteration (not cumulative)

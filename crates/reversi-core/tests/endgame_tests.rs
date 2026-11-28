@@ -122,7 +122,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
                 *callback_completed.lock().unwrap() = Some((
                     progress.best_move,
                     progress.score,
-                    progress.probability,
+                    progress.selectivity,
                     progress.pv_line,
                 ));
                 callback_stop.stop();
@@ -130,7 +130,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
         });
 
     let result = engine.search(game, &board, &options);
-    let (best_move, score, probability, pv_line) = completed
+    let (best_move, score, selectivity, pv_line) = completed
         .lock()
         .unwrap()
         .clone()
@@ -138,7 +138,7 @@ fn aborted_endgame_reports_last_completed_selectivity() {
 
     assert_eq!(result.best_move(), best_move);
     assert_eq!(result.score(), Some(score));
-    assert_eq!(result.probability(), probability);
+    assert_eq!(result.selectivity(), selectivity);
     assert_eq!(result.pv_line(), pv_line);
     replay_pv(board, best_move.unwrap(), result.pv_line());
 }
@@ -211,7 +211,7 @@ fn timed_multi_pv_handoff_reports_every_score_after_prior_searches() {
         .stop_token(stop.clone())
         .callback(move |p| {
             if seen.fetch_add(1, Ordering::Relaxed) == steps {
-                assert_eq!(p.probability, Selectivity::Level1.probability());
+                assert_eq!(p.selectivity, Selectivity::Level1);
                 stop.stop();
             }
         });

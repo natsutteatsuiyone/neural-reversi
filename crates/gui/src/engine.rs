@@ -85,7 +85,7 @@ pub struct Progress {
     pub score: Score,
     pub depth: u32,
     pub target_depth: u32,
-    pub probability: i32,
+    pub selectivity: Selectivity,
     pub nodes: u64,
     pub nps: f64,
     pub pv: String,
@@ -421,7 +421,7 @@ fn progress_payload(progress: SearchProgress, elapsed: Duration) -> Progress {
         score: progress.score,
         depth: progress.depth,
         target_depth: progress.target_depth,
-        probability: progress.probability,
+        selectivity: progress.selectivity,
         nodes: progress.nodes,
         nps: if elapsed_ms > 0 {
             progress.nodes as f64 * 1000. / elapsed_ms as f64

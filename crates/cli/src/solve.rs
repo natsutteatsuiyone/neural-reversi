@@ -229,7 +229,7 @@ fn solve_position(
     let depth = if result.probability() == 100 {
         format!("{}", result.depth())
     } else {
-        format!("{}@{}%", result.depth(), result.probability())
+        format!("{}@{}", result.depth(), result.selectivity())
     };
 
     let nodes_per_sec = if elapsed.as_secs_f64() > 0.0 {

@@ -658,7 +658,7 @@ fn thinking(cell_side: Memo<f32>) -> View {
 
 fn candidate_progress(candidate: &Progress) -> f32 {
     if candidate.is_endgame {
-        (candidate.probability as f32 / 100.).clamp(0., 1.)
+        (candidate.selectivity.probability() as f32 / 100.).clamp(0., 1.)
     } else if candidate.target_depth == 0 {
         1.
     } else {

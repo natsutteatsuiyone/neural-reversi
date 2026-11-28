@@ -219,7 +219,7 @@ pub(super) fn render_analysis_header(ui: Ui) -> impl IntoElement {
                         text(move || {
                             ui.read(|app| {
                                 app.session.log().last().map_or_else(String::new, |p| {
-                                    display_depth(p.depth, p.probability)
+                                    display_depth(p.depth, p.selectivity)
                                 })
                             })
                         })
@@ -611,7 +611,7 @@ fn render_thinking_log(ui: Ui) -> impl IntoElement {
                                                         .log()
                                                         .get(index)
                                                         .map_or_else(String::new, |p| {
-                                                            display_depth(p.depth, p.probability)
+                                                            display_depth(p.depth, p.selectivity)
                                                         })
                                                 })
                                             },

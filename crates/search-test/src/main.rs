@@ -50,7 +50,7 @@ struct IterationData {
     depth: Depth,
     score: Score,
     best_move: Square,
-    probability: i32,
+    selectivity: Selectivity,
     counters: SearchCounters,
     is_endgame: bool,
     elapsed: std::time::Duration,
@@ -74,7 +74,7 @@ impl IterationLog {
             depth: progress.depth,
             score: progress.score,
             best_move,
-            probability: progress.probability,
+            selectivity: progress.selectivity,
             counters: counters.delta_since(baseline),
             is_endgame: progress.is_endgame,
             elapsed: now.duration_since(*start),
@@ -334,7 +334,10 @@ impl SearchStats {
             let error = ((score.to_disc_diff_f32() * 10.0).round() / 10.0
                 - expected.to_disc_diff_f32())
             .abs();
-            let level = self.levels.entry(iter.probability).or_default();
+            let level = self
+                .levels
+                .entry(iter.selectivity.probability())
+                .or_default();
             level.cases += 1;
             level.exact += usize::from(error < 0.05);
             level.wdl_flips += usize::from(score.cmp(&Score::ZERO) != expected.cmp(&Score::ZERO));
@@ -552,13 +555,12 @@ fn print_header(num_width: usize) {
     );
 }
 
-/// Format depth information including probability if not 100%
+/// Format depth information including the selectivity unless exact
 fn format_depth(depth: Depth, selectivity: Selectivity) -> String {
-    let probability = selectivity.probability();
-    if probability == 100 {
+    if selectivity == Selectivity::None {
         format!("{depth}")
     } else {
-        format!("{depth}@{probability}%")
+        format!("{depth}@{selectivity}")
     }
 }
 
@@ -852,11 +854,7 @@ fn print_verbose_iterations(iterations: &[IterationData], result: &TestResult) {
         .iter()
         .map(|iter| {
             let counters = &iter.counters;
-            let depth = if iter.probability < 100 {
-                format!("{}@{}%", iter.depth, iter.probability)
-            } else {
-                iter.depth.to_string()
-            };
+            let depth = format_depth(iter.depth, iter.selectivity);
             IterationRow {
                 depth,
                 score: format!("{:>+.1}", iter.score.to_disc_diff_f32()),
@@ -1208,9 +1206,9 @@ fn execute_section(
         // iteration, which would mix lines in one level.
         let n_empties = test_case.board().empty_count();
         let reference = if solve_reference {
-            iterations
-                .iter()
-                .rfind(|it| it.is_endgame && it.depth == n_empties && it.probability == 100)
+            iterations.iter().rfind(|it| {
+                it.is_endgame && it.depth == n_empties && it.selectivity == Selectivity::None
+            })
         } else {
             None
         };
@@ -1532,7 +1530,7 @@ mod tests {
         let mut seen = HashSet::new();
         for iter in &mid_iters {
             assert!(
-                seen.insert((iter.depth, iter.probability, iter.is_endgame)),
+                seen.insert((iter.depth, iter.selectivity.as_u8(), iter.is_endgame)),
                 "duplicate iteration recorded: {iter:?}"
             );
         }
