@@ -1,13 +1,12 @@
 use std::hint::black_box;
+use std::path::PathBuf;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-
-mod common;
-
-use common::{board_from_rows, board_ply, weights_path};
 use reversi_core::board::Board;
+use reversi_core::constants::INITIAL_EMPTY_COUNT;
 use reversi_core::eval::pattern_feature::{PatternFeature, PatternFeatures};
 use reversi_core::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME, Network, NetworkSmall};
+use reversi_core::player_color::PlayerColor;
 
 struct BenchInput {
     board: Board,
@@ -29,6 +28,25 @@ impl BenchInput {
     fn pattern_feature(&self) -> &PatternFeature {
         self.pattern_features.p_feature(self.ply)
     }
+}
+
+fn board_from_rows(rows: [&str; 8]) -> Board {
+    let mut board_string = String::with_capacity(64);
+    for row in rows {
+        board_string.push_str(row);
+    }
+    Board::from_string(&board_string, PlayerColor::Black).expect("benchmark board must parse")
+}
+
+fn weights_path(file_name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join(file_name)
+}
+
+fn board_ply(board: &Board) -> usize {
+    INITIAL_EMPTY_COUNT - board.empty_count() as usize
 }
 
 fn load_main_network() -> Network {

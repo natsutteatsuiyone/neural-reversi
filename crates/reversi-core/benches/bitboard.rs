@@ -1,21 +1,38 @@
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{
+    BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main, measurement::WallTime,
+};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
-
-mod common;
-
-use common::{bench_case_set, random_disjoint_bitboards};
 use reversi_core::bitboard::Bitboard;
 
 // A single fixed input lets the branch predictor and caches memoize the result,
 // so it measures back-to-back throughput of one identical call rather than the
 // realistic varied-position workload these functions see in search. Every bench
 // below instead runs a fixed corpus of random positions and XOR-accumulates the
-// results, matching the other movegen/flip/stability benches.
+// results.
 const N_CASES: usize = 4096;
 const MOVE_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 const DISC_SEED: u64 = 0xD1B5_4A32_D192_ED03;
+
+fn random_disjoint_bitboards(rng: &mut StdRng) -> (u64, u64) {
+    let player: u64 = rng.random();
+    let opponent: u64 = rng.random::<u64>() & !player;
+    (player, opponent)
+}
+
+fn bench_case_set<T, R, F>(
+    group: &mut BenchmarkGroup<'_, WallTime>,
+    name: &str,
+    cases: &[T],
+    checksum: F,
+) where
+    F: Fn(&[T]) -> R,
+{
+    group.bench_with_input(BenchmarkId::from_parameter(name), cases, move |b, cases| {
+        b.iter(|| black_box(checksum(black_box(cases))))
+    });
+}
 
 /// Random disjoint `(player, opponent)` positions for the move-generation benches.
 fn move_cases() -> Vec<(Bitboard, Bitboard)> {
