@@ -38,14 +38,11 @@ impl EngineConfig {
 }
 
 #[cfg(test)]
-pub(crate) fn test_shared_resources(
-    tt_mb_size: usize,
-    n_threads: usize,
-) -> reversi_core::search::SearchSharedResources {
+pub(crate) fn test_engine(tt_mb_size: usize, n_threads: usize) -> reversi_core::engine::Engine {
     use std::sync::{Arc, OnceLock};
 
+    use reversi_core::engine::Engine;
     use reversi_core::eval::Eval;
-    use reversi_core::search::SearchSharedResources;
 
     static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
     let eval = EVAL
@@ -55,5 +52,5 @@ pub(crate) fn test_shared_resources(
             )
         })
         .clone();
-    SearchSharedResources::from_eval(eval, tt_mb_size, Some(n_threads))
+    Engine::from_eval(eval, tt_mb_size, Some(n_threads))
 }

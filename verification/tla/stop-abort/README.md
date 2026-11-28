@@ -10,7 +10,7 @@ See [`../README.md`](../README.md) for prerequisites, shared runner behavior, CI
 - [`crates/reversi-core/src/search/threading/abort.rs`](../../../crates/reversi-core/src/search/threading/abort.rs): `AbortState` (`new`, `begin_search`, `request_abort`, `request_abort_for`, `is_aborted`)
 - [`crates/reversi-core/src/search/threading/pool.rs`](../../../crates/reversi-core/src/search/threading/pool.rs): `start_thinking`, `start_timer`, `timer_loop`, `stop_timer`
 - [`crates/reversi-core/src/search/threading/thread.rs`](../../../crates/reversi-core/src/search/threading/thread.rs): `main_thread_loop` dropping `StopAttachment` before sending `SearchResult`
-- [`crates/reversi-core/src/search.rs`](../../../crates/reversi-core/src/search.rs): `execute_search` (`start_thinking` -> `recv` -> `stop_timer`)
+- [`crates/reversi-core/src/search.rs`](../../../crates/reversi-core/src/search.rs): `Search::execute_search` (`start_thinking` -> `recv` -> `stop_timer`)
 - [`crates/reversi-core/src/search/time_control.rs`](../../../crates/reversi-core/src/search/time_control.rs): `TimeManager::check_time_for`
 
 ## Run

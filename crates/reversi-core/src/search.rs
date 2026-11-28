@@ -1,8 +1,8 @@
-//! Game tree search engine.
+//! Game tree search.
 //!
-//! Provides the main [`Search`] engine and dispatches root searches to the
-//! midgame and endgame drivers; the shared alpha-beta core lives in the
-//! `pvs` module.
+//! Dispatches each root search to the midgame or endgame driver; the shared
+//! alpha-beta core lives in the `pvs` module. `Search` starts the runs and
+//! keeps the state of one game that outlives one.
 
 mod aspiration;
 pub mod context;
@@ -34,12 +34,12 @@ pub use stop::StopToken;
 use std::sync::Arc;
 
 use crate::board::Board;
-use crate::constants::{INITIAL_EMPTY_COUNT, MAX_THREADS};
+use crate::constants::INITIAL_EMPTY_COUNT;
+use crate::engine::{SearchTurn, SharedTable, TurnState};
 use crate::eval::{Eval, EvalMode};
 use crate::probcut::Selectivity;
 use crate::search::correction_history::CorrectionHistories;
-use crate::search::options::{SearchOptions, available_cpus};
-use crate::search::result::SearchResult;
+use crate::search::result::{SearchResult, quick_move};
 use crate::search::threading::{Thread, ThreadPool};
 use crate::search::time_control::TimeManager;
 use crate::transposition_table::TranspositionTable;
@@ -50,38 +50,7 @@ use crate::types::Depth;
 ///
 /// A Level1 solve can finish on one move and still abort on the next, which
 /// then has no midgame result to fall back on.
-const ENDGAME_TRACKING_MIN_SELECTIVITY: Selectivity = Selectivity::Level2;
-
-/// Main search engine that coordinates game tree exploration.
-///
-/// Manages the transposition table, thread pool, and evaluation function
-/// used during search. Create one instance per game session and call
-/// [`Search::init`] between games to reset state.
-pub struct Search {
-    tt: Arc<TranspositionTable>,
-    threads: Arc<ThreadPool>,
-    eval: Arc<Eval>,
-    corrections: Arc<CorrectionHistories>,
-    endgame_start_n_empties: Option<Depth>,
-    timed_out: bool,
-}
-
-/// Shared heavyweight search resources that can back multiple [`Search`]
-/// engines concurrently.
-///
-/// Engines created from the same resource bundle share the evaluation network;
-/// the transposition table is per-engine, and so is the thread pool unless
-/// [`SearchSharedResources::share_thread_pool`] was called. Useful for callers
-/// that need more than one independent search in flight, such as GGS synchro
-/// child games, without reloading neural-network weights for every worker.
-pub struct SearchSharedResources {
-    eval: Arc<Eval>,
-    tt_mb_size: usize,
-    n_threads: usize,
-    thread_pool: Option<Arc<ThreadPool>>,
-}
-
-const TIMED_ENDGAME_ROOT_MAX_EMPTIES: Depth = 14;
+pub(crate) const ENDGAME_TRACKING_MIN_SELECTIVITY: Selectivity = Selectivity::Level2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RootPhase {
@@ -125,7 +94,7 @@ impl SearchTask {
     }
 }
 
-fn midgame_selectivity(options: &SearchRunOptions) -> Selectivity {
+pub(crate) fn midgame_selectivity(options: &SearchRunOptions) -> Selectivity {
     if options.probcut_disabled {
         return Selectivity::None;
     }
@@ -136,96 +105,54 @@ fn midgame_selectivity(options: &SearchRunOptions) -> Selectivity {
     }
 }
 
-impl SearchSharedResources {
-    /// Creates a reusable search-resource bundle from search options.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the evaluation weight files cannot be loaded.
-    pub fn new(options: &SearchOptions) -> Self {
-        let eval = Eval::with_weight_files(
-            options.eval_path.as_deref(),
-            options.eval_sm_path.as_deref(),
-        )
-        .unwrap_or_else(|err| panic!("failed to load evaluation weights: {err}"));
-
-        Self::from_eval(Arc::new(eval), options.tt_mb_size, Some(options.n_threads))
-    }
-
-    pub fn from_eval(eval: Arc<Eval>, tt_mb_size: usize, n_threads: Option<usize>) -> Self {
-        let n_threads = n_threads
-            .unwrap_or_else(available_cpus)
-            .min(available_cpus())
-            .clamp(1, MAX_THREADS);
-
-        Self {
-            eval,
-            tt_mb_size,
-            n_threads,
-            thread_pool: None,
-        }
-    }
-
-    pub fn eval(&self) -> &Arc<Eval> {
-        &self.eval
-    }
-
-    /// Makes all engines created from this bundle after this call share one
-    /// thread pool of `n_threads` threads.
-    ///
-    /// A pool runs one search at a time: engines sharing it must never search
-    /// concurrently, and the caller is responsible for serializing them.
-    pub fn share_thread_pool(&mut self) {
-        self.thread_pool = Some(ThreadPool::new(self.n_threads));
-    }
-
-    /// Returns the search thread count after clamping to the CPU count and
-    /// the engine limit.
-    pub fn n_threads(&self) -> usize {
-        self.n_threads
+fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
+    match task.phase {
+        RootPhase::Midgame { max_depth } => midgame::search_root(task, max_depth, thread),
+        RootPhase::Endgame { last } => endgame::search_root(task, last, thread),
     }
 }
 
+/// Search state of one game on an [`Engine`]: its transposition table,
+/// correction histories, and endgame tracking.
+///
+/// The engine keeps one for each open game.
+///
+/// [`Engine`]: crate::engine::Engine
+pub(crate) struct Search {
+    tt: Arc<TranspositionTable>,
+    threads: Arc<ThreadPool>,
+    eval: Arc<Eval>,
+    corrections: Arc<CorrectionHistories>,
+    endgame_start_n_empties: Option<Depth>,
+    timed_out: bool,
+    turn: Arc<TurnState>,
+    /// The shared table this game joined, and its number there.
+    shared: Option<(SharedTable, u32)>,
+}
+
+const TIMED_ENDGAME_ROOT_MAX_EMPTIES: Depth = 14;
+
+// The MIR checks under `verification/` name this block `search-{impl#1}`: it
+// must stay the second `impl` written in this file.
 impl Search {
-    /// Creates a new search engine with the given options.
-    ///
-    /// Initializes the evaluation function, transposition table, and thread pool.
-    /// The number of threads is clamped to the available CPU count and [`MAX_THREADS`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the evaluation weight files cannot be loaded.
-    pub fn new(options: &SearchOptions) -> Self {
-        let shared = SearchSharedResources::new(options);
-        Self::from_shared_resources(&shared)
-    }
-
-    /// Creates a new search engine from a shared-resource bundle.
-    pub fn from_shared_resources(shared: &SearchSharedResources) -> Self {
-        Self::from_shared_resources_with_tt(
-            shared,
-            Arc::new(TranspositionTable::new(shared.tt_mb_size)),
-        )
-    }
-
-    /// Creates a new search engine from a shared-resource bundle that uses
-    /// `tt` instead of allocating its own table.
-    ///
-    /// Engines sharing a table must never search concurrently.
-    pub fn from_shared_resources_with_tt(
-        shared: &SearchSharedResources,
+    /// Creates the search state of a new game on `tt`, for the engine that
+    /// owns `turn`.
+    pub(crate) fn new(
         tt: Arc<TranspositionTable>,
+        threads: Arc<ThreadPool>,
+        eval: Arc<Eval>,
+        turn: Arc<TurnState>,
+        shared: Option<(SharedTable, u32)>,
     ) -> Self {
         Self {
             tt,
-            threads: shared
-                .thread_pool
-                .clone()
-                .unwrap_or_else(|| ThreadPool::new(shared.n_threads)),
-            eval: shared.eval.clone(),
+            threads,
+            eval,
             corrections: Arc::default(),
             endgame_start_n_empties: None,
             timed_out: false,
+            turn,
+            shared,
         }
     }
 
@@ -236,20 +163,25 @@ impl Search {
     }
 
     /// Returns a reference to the transposition table.
-    pub fn tt(&self) -> &Arc<TranspositionTable> {
+    #[cfg(test)]
+    pub(crate) fn tt(&self) -> &Arc<TranspositionTable> {
         &self.tt
     }
 
-    /// Returns a reference to the shared evaluation function.
-    pub fn eval(&self) -> &Arc<Eval> {
-        &self.eval
+    /// Estimates the fraction of occupied transposition table entries.
+    pub fn tt_usage_rate(&self) -> f64 {
+        self.tt.usage_rate()
     }
 
     /// Resets the search state for a new game.
     ///
     /// Clears the transposition table, resets the TT generation counter,
     /// flushes the evaluation cache and corrections, and resets endgame tracking.
+    ///
+    /// Waits for the engine's other searches first, as [`Search::run`]
+    /// does.
     pub fn init(&mut self) {
+        let _turn = self.turn.wait();
         match Arc::get_mut(&mut self.tt) {
             Some(tt) => tt.clear(),
             None => self.tt.clear_shared(),
@@ -260,24 +192,54 @@ impl Search {
         self.endgame_start_n_empties = None;
     }
 
-    /// Resizes the transposition table to `mb_size` MiB.
+    /// Resizes the transposition table to `mb_size` MiB. Returns whether the
+    /// table was replaced.
     ///
     /// Replaces the table only when the requested size differs from the
-    /// current one, avoiding unnecessary reallocation.
-    pub fn resize_tt(&mut self, mb_size: usize) {
-        if self.tt.mb_size() != mb_size {
+    /// current one, avoiding unnecessary reallocation. A game that shared its
+    /// table stops sharing it then.
+    pub fn resize_tt(&mut self, mb_size: usize) -> bool {
+        let replace = self.tt.mb_size() != mb_size;
+        if replace {
             self.tt = Arc::new(TranspositionTable::new(mb_size));
+            if let Some((shared, _)) = self.shared.take() {
+                shared.dissolve();
+            }
+        }
+        replace
+    }
+
+    /// Gives this game a private copy of its shared table once `board`, the
+    /// position it is to move from, is not the one another game on the table
+    /// left by its latest move. Returns whether the game got the copy, which
+    /// takes time in proportion to the table size.
+    ///
+    /// A game that shares no table keeps its table and returns `false`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `turn` is the turn of another engine.
+    pub(crate) fn split_table_if_diverged(&mut self, turn: &SearchTurn, board: &Board) -> bool {
+        let Some((shared, member)) = &self.shared else {
+            return false;
+        };
+        let Some(copy) = shared.split_off(turn, *member, board) else {
+            return false;
+        };
+        self.tt = Arc::new(copy);
+        true
+    }
+
+    /// Records `left`, the position after the move this game just played,
+    /// for the other games on its shared table to compare with.
+    pub(crate) fn record_move(&self, left: Board) {
+        if let Some((shared, member)) = &self.shared {
+            shared.record_move(*member, left);
         }
     }
 
-    /// Replaces the transposition table, e.g. with one shared by another engine.
-    ///
-    /// Engines sharing a table must never search concurrently.
-    pub fn set_tt(&mut self, tt: Arc<TranspositionTable>) {
-        self.tt = tt;
-    }
-
-    /// Runs a search on the given board position.
+    /// Runs a search on the given board position, once the engine's other
+    /// searches are done.
     ///
     /// Selects the appropriate search strategy based on the constraint (fixed level
     /// or time-controlled) and executes the search.
@@ -286,6 +248,29 @@ impl Search {
     ///
     /// Panics if `board` has fewer than 4 discs.
     pub fn run(&mut self, board: &Board, options: &SearchRunOptions) -> SearchResult {
+        let turn = self.turn.wait();
+        self.run_in_turn(&turn, board, options)
+    }
+
+    /// Runs a search on the given board position within `turn`.
+    ///
+    /// A thread that holds the turn calls this instead of [`Search::run`],
+    /// which would wait for that turn forever.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `board` has fewer than 4 discs, or if `turn` is the turn of
+    /// another engine.
+    pub(crate) fn run_in_turn(
+        &mut self,
+        turn: &SearchTurn,
+        board: &Board,
+        options: &SearchRunOptions,
+    ) -> SearchResult {
+        assert!(
+            turn.belongs_to(&self.turn),
+            "the search turn belongs to another engine"
+        );
         assert!(
             board.empty_count() as usize <= INITIAL_EMPTY_COUNT,
             "a search needs at most {INITIAL_EMPTY_COUNT} empty squares, got {}",
@@ -398,7 +383,7 @@ impl Search {
 
         let result = result_receiver.recv().unwrap_or_else(|_| {
             // Channel closed - search thread may have panicked. Return fallback.
-            result::quick_move(&board, &self.eval)
+            quick_move(&board, &self.eval)
         });
 
         self.threads.stop_timer();
@@ -406,19 +391,10 @@ impl Search {
         result
     }
 
-    /// Returns the [`ThreadPool`] used by this search engine.
-    ///
-    /// [`ThreadPool`]: threading::ThreadPool
+    /// Returns the [`ThreadPool`] this game searches on.
     #[cfg(test)]
-    pub(crate) fn thread_pool(&self) -> Arc<threading::ThreadPool> {
+    pub(crate) fn thread_pool(&self) -> Arc<ThreadPool> {
         self.threads.clone()
-    }
-}
-
-fn search_root(task: SearchTask, thread: &Arc<Thread>) -> SearchResult {
-    match task.phase {
-        RootPhase::Midgame { max_depth } => midgame::search_root(task, max_depth, thread),
-        RootPhase::Endgame { last } => endgame::search_root(task, last, thread),
     }
 }
 
@@ -428,12 +404,14 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
+    use crate::engine::Engine;
     use crate::level::Level;
     use crate::player_color::PlayerColor;
-    use crate::score::Score;
+    use crate::score::{DiscScore, Score};
     use crate::search::counters::SearchCounters;
     use crate::search::time_control::TimeControlMode;
     use crate::square::Square;
+    use crate::transposition_table::Bound;
 
     #[test]
     fn fixed_level_uses_level1_midgame_selectivity() {
@@ -459,28 +437,20 @@ mod tests {
     }
 
     #[test]
-    fn shared_resources_reuse_eval_and_share_the_thread_pool_only_on_request() {
-        let mut shared = SearchSharedResources::from_eval(Eval::shared_for_tests(), 1, Some(1));
+    fn games_of_one_engine_share_the_networks_and_the_pool_but_not_the_table() {
+        let engine = Engine::from_eval(Eval::shared_for_tests(), 1, Some(1));
 
-        let first = Search::from_shared_resources(&shared);
-        let second = Search::from_shared_resources(&shared);
+        let first = engine.new_game();
+        let second = engine.new_game();
 
         assert!(Arc::ptr_eq(&first.eval, &second.eval));
-        assert!(!Arc::ptr_eq(first.tt(), second.tt()));
-        assert_eq!(first.tt().mb_size(), 1);
-        assert!(!Arc::ptr_eq(&first.thread_pool(), &second.thread_pool()));
-
-        shared.share_thread_pool();
-        let first = Search::from_shared_resources(&shared);
-        let second = Search::from_shared_resources(&shared);
-
         assert!(Arc::ptr_eq(&first.thread_pool(), &second.thread_pool()));
         assert!(!Arc::ptr_eq(first.tt(), second.tt()));
+        assert_eq!(first.tt().mb_size(), 1);
     }
 
     fn search_for_tests() -> Search {
-        let shared = SearchSharedResources::from_eval(Eval::shared_for_tests(), 0, Some(1));
-        Search::from_shared_resources(&shared)
+        Engine::from_eval(Eval::shared_for_tests(), 0, Some(1)).new_game()
     }
 
     #[test]
@@ -619,5 +589,87 @@ mod tests {
         search.endgame_start_n_empties = Some(27);
         assert_eq!(search.timed_root_phase(27), endgame);
         assert_eq!(search.timed_root_phase(28), midgame(28));
+    }
+
+    fn table_game() -> Search {
+        Engine::from_eval(Eval::shared_for_tests(), 8, Some(1)).new_game()
+    }
+
+    fn assert_exact_score(result: &SearchResult, discs: i32) {
+        let SearchResult::BestMove {
+            score,
+            is_endgame: true,
+            selectivity: Selectivity::None,
+            ..
+        } = result
+        else {
+            panic!("expected a completed exact endgame result");
+        };
+        assert_eq!(score.value(), 256 * discs);
+    }
+
+    #[test]
+    fn exact_solve_reuses_a_selective_root_entry_across_generation_wrap() {
+        let mut engine = table_game();
+        let full = SearchRunOptions::with_level(Level::perfect());
+        let weak = SearchRunOptions::with_level(Level::perfect().stopping_at(Selectivity::Level1));
+        let warmup = Board::from_string(
+            "-OXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-",
+            PlayerColor::Black,
+        )
+        .unwrap();
+        for _ in 0..126 {
+            engine.run(&warmup, &full);
+        }
+
+        let board = Board::from_bitboards(0x0012060f3c000080_u64, 0x04e9b0f0c27efc7f_u64);
+        let previous = engine.run(&board, &weak);
+        assert!(previous.is_endgame());
+        assert_eq!(previous.selectivity(), Selectivity::Level1);
+        let stored = engine.tt().lookup(&board, board.hash()).unwrap();
+        assert_eq!(stored.bound(), Bound::Exact);
+        assert_eq!(stored.selectivity(), Selectivity::Level1);
+        assert_eq!(stored.score(), previous.score().unwrap());
+        assert_eq!(stored.generation(), 127);
+
+        // Ensure the selective root entry carries a score distinct from the exact +20
+        // even when Level1 ProbCut happens to match on this position.
+        let probe = engine.tt().probe(&board, board.hash());
+        let stale_score = Score::from_disc_diff(DiscScore::new(0));
+        engine.tt().store(
+            probe.slot(),
+            &board,
+            stale_score,
+            Bound::Exact,
+            stored.depth(),
+            stored.best_move(),
+            Selectivity::Level1,
+            true,
+            true,
+        );
+        let seeded = engine.tt().lookup(&board, board.hash()).unwrap();
+        assert_eq!(seeded.score(), stale_score);
+        assert_eq!(seeded.generation(), 127);
+
+        // Independent directional minimax gives +20 on this board.
+        let exact = engine.run(&board, &full);
+        assert_exact_score(&exact, 20);
+        assert_eq!(engine.tt().generation(), 0);
+    }
+
+    #[test]
+    fn midgame_root_score_can_seed_an_exact_solve() {
+        let mut engine = table_game();
+        let board = Board::from_bitboards(0x0012060f3c000080_u64, 0x04e9b0f0c27efc7f_u64);
+        let shallow = engine.run(&board, &SearchRunOptions::with_level(Level::uniform(1, 0)));
+        assert!(!shallow.is_endgame());
+        let prior = engine.tt().lookup(&board, board.hash()).unwrap();
+        assert!(!prior.is_endgame());
+        assert_eq!(prior.bound(), Bound::Exact);
+        assert_eq!(prior.score(), shallow.score().unwrap());
+        assert_ne!(prior.score().value(), 20 * 256);
+
+        let exact = engine.run(&board, &SearchRunOptions::with_level(Level::perfect()));
+        assert_exact_score(&exact, 20);
     }
 }

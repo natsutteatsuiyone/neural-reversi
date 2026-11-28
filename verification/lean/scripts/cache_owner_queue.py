@@ -12,7 +12,7 @@ FULL_JOB = "std::sync::Arc<dyn for<'a> std::ops::Fn(&'a std::sync::Arc<search::t
 TASK = "search::SearchTask"
 MESSAGE = "search::threading::pool::Message"
 RESULT = "search::result::SearchResult"
-EXECUTE = "search-{impl#2}-execute_search"
+EXECUTE = "search-{impl#1}-execute_search"
 LAUNCH = "search-midgame-lazy_smp-{impl#1}-start-{closure#0}"
 
 

@@ -37,15 +37,15 @@ pub fn run(weights: &Path) {
             );
             assert_eq!(value.value(), expected);
         }
-        let shared = SearchSharedResources::from_eval(eval.clone(), 2, Some(1));
-        let mut search = Search::from_shared_resources(&shared);
+        let shared = crate::engine::Engine::from_eval(eval.clone(), 2, Some(1));
+        let search = shared.open();
         let options = SearchRunOptions::with_level(Level::perfect());
         let SearchResult::BestMove {
             score,
             is_endgame: true,
             selectivity: Selectivity::None,
             ..
-        } = search.run(&board, &options)
+        } = shared.search(search, &board, &options)
         else {
             panic!("expected completed exact result")
         };

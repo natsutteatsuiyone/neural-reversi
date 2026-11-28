@@ -3,10 +3,10 @@
 use std::time::Duration;
 
 use ratatui::DefaultTerminal;
+use reversi_core::engine::Engine;
 use reversi_core::game_state::GameState;
 use reversi_core::level;
 use reversi_core::player_color::PlayerColor;
-use reversi_core::search::Search;
 use reversi_core::search::result::{PvMove, SearchResult};
 use reversi_core::square::Square;
 
@@ -227,13 +227,13 @@ pub struct App {
 impl App {
     /// Creates a new App instance.
     pub fn new(config: &EngineConfig) -> Self {
-        Self::from_search(Search::new(&config.search_options()), config.level)
+        Self::from_engine(Engine::new(&config.search_options()), config.level)
     }
 
-    fn from_search(search: Search, level: usize) -> Self {
+    fn from_engine(engine: Engine, level: usize) -> Self {
         Self {
             game: GameState::new(),
-            search: SearchWorker::new(search),
+            search: SearchWorker::new(engine),
             level,
             mode: GameMode::HumanVsAi,
             ui_mode: UiMode::Normal,
@@ -255,10 +255,7 @@ impl App {
 
     #[cfg(test)]
     pub(super) fn for_tests(level: usize) -> Self {
-        Self::from_search(
-            Search::from_shared_resources(&crate::config::test_shared_resources(0, 1)),
-            level,
-        )
+        Self::from_engine(crate::config::test_engine(0, 1), level)
     }
 
     /// Returns whether an AI move is waiting for completion.

@@ -11,15 +11,15 @@ pub fn run(weights: &Path) {
         )
         .unwrap(),
     );
-    let shared = SearchSharedResources::from_eval(eval, 0, Some(1));
-    let mut search = Search::from_shared_resources(&shared);
+    let shared = crate::engine::Engine::from_eval(eval, 0, Some(1));
+    let search = shared.open();
     let board = Board::from_bitboards(0x3778d008b0488010, 0x00062ef64f367d4c);
     let SearchResult::BestMove {
         score,
         is_endgame: true,
         selectivity: Selectivity::None,
         ..
-    } = search.run(&board, &SearchRunOptions::with_level(Level::perfect()))
+    } = shared.search(search, &board, &SearchRunOptions::with_level(Level::perfect()))
     else {
         panic!("expected a completed public exact solve")
     };

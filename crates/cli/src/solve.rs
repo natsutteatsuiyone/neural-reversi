@@ -7,11 +7,12 @@ use std::time::{Duration, Instant};
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
+    engine::{Engine, GameId},
     level::Level,
     obf::ObfPosition,
     player_color::PlayerColor,
     score::Score,
-    search::{Search, SearchRunOptions, SearchSharedResources},
+    search::SearchRunOptions,
     square::Square,
 };
 
@@ -37,11 +38,11 @@ pub fn solve(
 
     let search_options = config.search_options();
 
-    let shared = SearchSharedResources::new(&search_options);
+    let engine = Engine::new(&search_options);
 
-    print_header(file_path, search_options.tt_mb_size, shared.n_threads());
+    print_header(file_path, search_options.tt_mb_size, engine.n_threads());
 
-    let mut search = Search::from_shared_resources(&shared);
+    let game = engine.open();
     let level_config = if exact {
         Level::perfect()
     } else {
@@ -78,7 +79,8 @@ pub fn solve(
             continue;
         }
         let (elapsed, nodes) = solve_position(
-            &mut search,
+            &engine,
+            game,
             pos.board,
             pos.side_to_move,
             level_config,
@@ -183,7 +185,8 @@ fn print_header(file_path: &Path, tt_mb_size: usize, n_threads: usize) {
 }
 
 fn solve_position(
-    search: &mut Search,
+    engine: &Engine,
+    game: GameId,
     board: Board,
     side_to_move: PlayerColor,
     level: Level,
@@ -217,10 +220,10 @@ fn solve_position(
         board
     };
 
-    search.init();
+    engine.reset(game);
     let start_time = Instant::now();
     let options = SearchRunOptions::with_level(level).multi_pv(all_moves);
-    let result = search.run(&search_board, &options);
+    let result = engine.search(game, &search_board, &options);
     let elapsed = start_time.elapsed();
 
     let depth = if result.probability() == 100 {

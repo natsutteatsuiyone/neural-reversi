@@ -49,6 +49,22 @@ impl TranspositionTable {
     }
 }
 """)
+    search = src / "search.rs"
+    search.write_text(search.read_text() + """
+impl Search {
+    pub(crate) fn warm_table(&self) -> Arc<TranspositionTable> {
+        Arc::clone(&self.tt)
+    }
+}
+""")
+    games = src / "engine" / "games.rs"
+    games.write_text(games.read_text() + """
+impl Engine {
+    pub(crate) fn warm_table(&self, game: GameId) -> Arc<crate::transposition_table::TranspositionTable> {
+        self.record(game).0.lock().unwrap().warm_table()
+    }
+}
+""")
 
 
 def parse(output):

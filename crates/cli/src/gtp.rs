@@ -13,11 +13,12 @@ use std::io::{self, BufRead, Write};
 
 use reversi_core::board::Board;
 use reversi_core::disc::Disc;
+use reversi_core::engine::{Engine, GameId};
 use reversi_core::game_state::GameState;
 use reversi_core::level::{Level, MAX_LEVEL};
 use reversi_core::player_color::PlayerColor;
+use reversi_core::search::SearchRunOptions;
 use reversi_core::search::time_control::{TimeControlMode, TimeSettings};
-use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 
 use crate::config::EngineConfig;
@@ -180,7 +181,8 @@ struct PlayerClock {
 /// GTP engine that processes commands and owns game and search state.
 pub struct GtpEngine {
     game: GameState,
-    search: search::Search,
+    engine: Engine,
+    search: GameId,
     level: usize,
     name: String,
     version: String,
@@ -191,13 +193,14 @@ pub struct GtpEngine {
 impl GtpEngine {
     /// Creates a new GTP engine with the specified configuration.
     pub fn new(config: &EngineConfig) -> Self {
-        Self::from_search(search::Search::new(&config.search_options()), config.level)
+        Self::from_engine(Engine::new(&config.search_options()), config.level)
     }
 
-    fn from_search(search: search::Search, level: usize) -> Self {
+    fn from_engine(engine: Engine, level: usize) -> Self {
         Self {
             game: GameState::new(),
-            search,
+            search: engine.open(),
+            engine,
             level,
             name: "Neural Reversi".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -437,7 +440,7 @@ impl GtpEngine {
     fn handle_clear_board(&mut self) -> GtpResponse {
         self.game = GameState::new();
         self.clocks = [None; 2];
-        self.search.init();
+        self.engine.reset(self.search);
         GtpResponse::Success("".to_string())
     }
 
@@ -449,7 +452,7 @@ impl GtpEngine {
             }
             Ok(board) => {
                 self.game = GameState::from_board(board, side);
-                self.search.init();
+                self.engine.reset(self.search);
                 GtpResponse::Success(String::new())
             }
             Err(error) => GtpResponse::Error(error.to_string()),
@@ -505,7 +508,7 @@ impl GtpEngine {
             }
             mode => SearchRunOptions::with_time(mode),
         };
-        let result = self.search.run(self.game.board(), &options);
+        let result = self.engine.search(self.search, self.game.board(), &options);
 
         if let Some(computer_move) = result.best_move() {
             self.game
@@ -887,10 +890,7 @@ mod tests {
     }
 
     fn test_engine() -> GtpEngine {
-        GtpEngine::from_search(
-            search::Search::from_shared_resources(&crate::config::test_shared_resources(1, 1)),
-            1,
-        )
+        GtpEngine::from_engine(crate::config::test_engine(1, 1), 1)
     }
 
     fn exec_line(engine: &mut GtpEngine, line: &str) -> String {

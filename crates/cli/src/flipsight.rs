@@ -10,9 +10,10 @@ use std::time::{Duration, Instant};
 
 use reversi_core::bitboard::Bitboard;
 use reversi_core::board::Board;
+use reversi_core::engine;
 use reversi_core::score::Score;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources, StopToken};
+use reversi_core::search::{SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 use serde::Deserialize;
 use serde_json::json;
@@ -75,7 +76,7 @@ pub fn run(mut config: EngineConfig, ponder: bool, process_start: Instant) -> Re
     let mut engine: Option<Engine> = None;
     let mut first_move = true;
     loop {
-        let (line, received) = match engine.as_mut() {
+        let (line, received) = match engine.as_ref() {
             Some(engine) => engine.ponder_while(&mut next_line),
             None => next_line(),
         };
@@ -172,8 +173,8 @@ fn ponder_board(board: &Board, mv: i32) -> Option<Board> {
 }
 
 struct Engine {
-    search: Search,
-    n_threads: usize,
+    engine: engine::Engine,
+    game: engine::GameId,
     hash_mb: usize,
     ponder: bool,
     /// The position to search while waiting for the next request.
@@ -182,36 +183,41 @@ struct Engine {
 
 impl Engine {
     fn new(config: &EngineConfig, ponder: bool) -> Self {
-        let shared = SearchSharedResources::new(&config.search_options());
-        Self::from_shared(&shared, config.hash_size, ponder)
+        let shared = engine::Engine::new(&config.search_options());
+        Self::from_shared(shared, config.hash_size, ponder)
     }
 
-    fn from_shared(shared: &SearchSharedResources, hash_mb: usize, ponder: bool) -> Self {
+    fn from_shared(shared: engine::Engine, hash_mb: usize, ponder: bool) -> Self {
         Engine {
-            search: Search::from_shared_resources(shared),
-            n_threads: shared.n_threads(),
+            game: shared.open(),
+            engine: shared,
             hash_mb,
             ponder,
             ponder_on: None,
         }
     }
 
-    /// Runs `wait` while searching the position after the last reply, and
-    /// stops that search once `wait` returns.
-    fn ponder_while<T>(&mut self, wait: impl FnOnce() -> T) -> T {
+    /// Runs `wait` while searching the position after the last reply, then
+    /// stops that search and returns once it has ended.
+    fn ponder_while<T>(&self, wait: impl FnOnce() -> T) -> T {
         let Some(board) = self.ponder_on else {
             return wait();
         };
-        let stop = StopToken::new();
-        let options =
-            SearchRunOptions::with_time(TimeControlMode::Infinite).stop_token(stop.clone());
-        let search = &mut self.search;
-        thread::scope(|scope| {
-            scope.spawn(move || search.run(&board, &options));
-            let result = wait();
-            stop.stop();
-            result
-        })
+        let (ended_tx, ended) = mpsc::channel();
+        let _ = self.engine.start(
+            self.game,
+            engine::SearchKind::Analysis,
+            board,
+            Instant::now(),
+            |_| SearchRunOptions::with_time(TimeControlMode::Infinite),
+            move |_| {
+                let _ = ended_tx.send(());
+            },
+        );
+        let result = wait();
+        self.engine.stop(self.game, engine::SearchKind::Analysis);
+        let _ = ended.recv();
+        result
     }
 
     /// Chooses a move for `board`, the position of `request`, whose turn
@@ -232,7 +238,7 @@ impl Engine {
                 let options =
                     SearchRunOptions::with_time(clock_mode(bank_ms)).stop_token(stop.clone());
                 let result = stop_after(Duration::from_millis(cap_ms), &stop, || {
-                    self.search.run(board, &options)
+                    self.engine.search(self.game, board, &options)
                 });
                 let best = result
                     .best_move()
@@ -255,7 +261,7 @@ impl Engine {
             "used_ms": elapsed_ms(started),
             "hard_ms": cap_ms,
             "environment": {
-                "engine_threads": self.n_threads,
+                "engine_threads": self.engine.n_threads(),
                 "hash_mb": self.hash_mb,
                 "ponder": self.ponder,
             },
@@ -326,7 +332,7 @@ mod tests {
     }
 
     fn engine_with(ponder: bool) -> Engine {
-        Engine::from_shared(&crate::config::test_shared_resources(1, 1), 1, ponder)
+        Engine::from_shared(crate::config::test_engine(1, 1), 1, ponder)
     }
 
     fn engine() -> Engine {

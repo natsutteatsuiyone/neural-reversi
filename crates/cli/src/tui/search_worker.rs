@@ -1,16 +1,17 @@
 //! Background AI moves and hints over one search engine.
 //!
-//! A cancelled hint keeps the engine busy until its worker returns it. Its
+//! A cancelled hint keeps the worker busy until its search has ended. Its
 //! result is discarded, but the engine remains available for the next search.
 
 use std::fmt;
 use std::sync::mpsc::{self, Receiver};
-use std::thread;
+use std::time::Instant;
 
 use reversi_core::board::Board;
+use reversi_core::engine::{self, Engine, Finished, GameId};
 use reversi_core::level::Level;
+use reversi_core::search::SearchRunOptions;
 use reversi_core::search::result::SearchResult;
-use reversi_core::search::{Search, SearchRunOptions, StopToken};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SearchKind {
@@ -20,13 +21,13 @@ pub(super) enum SearchKind {
 
 #[derive(Debug)]
 struct PendingSearch {
-    receiver: Receiver<(Search, SearchResult)>,
+    receiver: Receiver<Option<Finished>>,
     kind: Option<SearchKind>,
-    stop: Option<StopToken>,
 }
 
 pub(super) struct SearchWorker {
-    search: Option<Search>,
+    engine: Engine,
+    game: GameId,
     pending: Option<PendingSearch>,
 }
 
@@ -40,44 +41,51 @@ impl fmt::Debug for SearchWorker {
 }
 
 impl SearchWorker {
-    pub(super) fn new(search: Search) -> Self {
+    pub(super) fn new(engine: Engine) -> Self {
+        let game = engine.open();
         Self {
-            search: Some(search),
+            engine,
+            game,
             pending: None,
         }
     }
 
     #[must_use]
     pub(super) fn is_available(&self) -> bool {
-        self.search.is_some()
+        self.pending.is_none()
     }
 
     pub(super) fn activity(&self) -> Option<SearchKind> {
         self.pending.as_ref().and_then(|pending| pending.kind)
     }
 
-    /// Starts a search unless a worker still owns the engine.
+    /// Starts a search unless [`Self::poll`] has yet to collect an earlier one.
     pub(super) fn start(&mut self, board: Board, level: Level, kind: SearchKind) -> bool {
-        let Some(mut search) = self.search.take() else {
+        if self.pending.is_some() {
             return false;
+        }
+        let (engine_kind, multi_pv) = match kind {
+            SearchKind::Move => (engine::SearchKind::Move, false),
+            SearchKind::Hint => (engine::SearchKind::Analysis, true),
         };
-        let mut options = SearchRunOptions::with_level(level);
-        let stop = if kind == SearchKind::Hint {
-            let stop = StopToken::new();
-            options = options.multi_pv(true).stop_token(stop.clone());
-            Some(stop)
-        } else {
-            None
-        };
+        let options = SearchRunOptions::with_level(level).multi_pv(multi_pv);
         let (sender, receiver) = mpsc::channel();
-        thread::spawn(move || {
-            let result = search.run(&board, &options);
-            let _ = sender.send((search, result));
-        });
+        let started = self.engine.start(
+            self.game,
+            engine_kind,
+            board,
+            Instant::now(),
+            move |_| options,
+            move |finished| {
+                let _ = sender.send(finished);
+            },
+        );
+        if started.is_err() {
+            return false;
+        }
         self.pending = Some(PendingSearch {
             receiver,
             kind: Some(kind),
-            stop,
         });
         true
     }
@@ -87,29 +95,29 @@ impl SearchWorker {
         if let Some(pending) = &mut self.pending
             && pending.kind == Some(SearchKind::Hint)
         {
-            if let Some(stop) = pending.stop.take() {
-                stop.stop();
-            }
+            self.engine.stop(self.game, engine::SearchKind::Analysis);
             pending.kind = None;
         }
     }
 
-    /// Reclaims the engine and returns only a result that is still wanted.
+    /// Collects a finished search and returns its result only if it is still
+    /// wanted.
     pub(super) fn poll(&mut self) -> Option<(SearchKind, SearchResult)> {
         let pending = self.pending.as_ref()?;
-        let (search, result) = pending.receiver.try_recv().ok()?;
+        let finished = pending.receiver.try_recv().ok()?;
         let kind = pending.kind;
-        self.search = Some(search);
         self.pending = None;
-        kind.map(|kind| (kind, result))
+        kind.zip(finished)
+            .map(|(kind, finished)| (kind, finished.result))
     }
 
-    /// Resets the engine for a new game unless a worker still owns it.
+    /// Resets the engine for a new game unless [`Self::poll`] has yet to
+    /// collect a search.
     pub(super) fn reset(&mut self) -> bool {
-        let Some(search) = &mut self.search else {
+        if self.pending.is_some() {
             return false;
-        };
-        search.init();
+        }
+        self.engine.reset(self.game);
         true
     }
 }
@@ -117,16 +125,15 @@ impl SearchWorker {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::time::{Duration, Instant};
+    use std::thread;
+    use std::time::Duration;
 
     use reversi_core::square::Square;
 
     use super::*;
 
     fn worker() -> SearchWorker {
-        SearchWorker::new(Search::from_shared_resources(
-            &crate::config::test_shared_resources(0, 1),
-        ))
+        SearchWorker::new(crate::config::test_engine(0, 1))
     }
 
     fn wait_until_available(worker: &mut SearchWorker) -> Option<(SearchKind, SearchResult)> {
@@ -138,7 +145,7 @@ mod tests {
             }
             assert!(
                 Instant::now() < deadline,
-                "search worker did not return the engine"
+                "search worker did not finish its search"
             );
             thread::sleep(Duration::from_millis(5));
         }

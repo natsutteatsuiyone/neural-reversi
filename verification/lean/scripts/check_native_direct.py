@@ -17,11 +17,11 @@ use crate::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use crate::level::Level;
 use std::path::Path;
 pub fn run(root: &Path) {
-    let resources = SearchSharedResources::from_eval(Arc::new(Eval::with_weight_files(
+    let resources = crate::engine::Engine::from_eval(Arc::new(Eval::with_weight_files(
         Some(&root.join(EVAL_FILE_NAME)), Some(&root.join(EVAL_SM_FILE_NAME))).unwrap()), 8, Some(4));
-    let mut search = Search::from_shared_resources(&resources);
+    let search = resources.open();
     let board = Board::from_bitboards(0xffffffdfbfffffff,0x40000000);
-    let result = search.run(&board, &SearchRunOptions::with_level(Level::perfect()).multi_pv(true));
+    let result = resources.search(search, &board, &SearchRunOptions::with_level(Level::perfect()).multi_pv(true));
     let SearchResult::BestMove {sq, score, n_nodes, pv_line, depth, selectivity, is_endgame, pv_moves, ..} = result else { panic!("no best move") };
     assert_eq!(pv_line.len(),1);
     assert_eq!(pv_moves.len(),1);

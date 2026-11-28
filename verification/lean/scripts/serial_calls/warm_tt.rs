@@ -10,18 +10,18 @@ pub fn run(root: &Path) {
         Some(&root.join(EVAL_SM_FILE_NAME)),
     )
     .unwrap();
-    let resources = SearchSharedResources::from_eval(Arc::new(eval), 1, Some(4));
+    let resources = crate::engine::Engine::from_eval(Arc::new(eval), 1, Some(4));
     assert!(resources.n_threads() > 1, "at least two workers required");
-    let mut search = Search::from_shared_resources(&resources);
+    let game = resources.open();
     let problems = std::fs::read_to_string(root.join("problem/hard-20.obf")).unwrap();
     let obf = ObfPosition::parse(problems.lines().nth(165).unwrap())
         .unwrap()
         .unwrap();
     let opts = SearchRunOptions::with_level(Level::perfect()).multi_pv(true);
     for session in 0..2 {
-        search.tt().warm_dump(2 * session);
-        let res = search.run(&obf.board, &opts);
-        search.tt().warm_dump(2 * session + 1);
+        resources.warm_table(game).warm_dump(2 * session);
+        let res = resources.search(game, &obf.board, &opts);
+        resources.warm_table(game).warm_dump(2 * session + 1);
         assert!(res.is_endgame());
         assert_eq!(res.selectivity(), Selectivity::None);
         assert_eq!(res.score().unwrap().value(), 6 * 256);

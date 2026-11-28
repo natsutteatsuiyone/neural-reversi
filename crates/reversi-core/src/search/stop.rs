@@ -30,6 +30,11 @@ impl StopToken {
         Self::default()
     }
 
+    /// Returns whether [`StopToken::stop`] was called.
+    pub fn is_stopped(&self) -> bool {
+        self.0.lock().unwrap().stopped
+    }
+
     /// Stops every run that carries this token, now or later.
     ///
     /// Calling it again has no further effect.

@@ -11,224 +11,17 @@ pub mod report;
 pub mod session;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
-use reversi_core::board::Board;
+use reversi_core::engine::{Engine, Finished, GameId, SearchKind};
 use reversi_core::level::{Level, MAX_LEVEL};
+use reversi_core::search::SearchRunOptions;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{self, SearchRunOptions, StopToken, options::SearchOptions};
-use reversi_core::transposition_table::TranspositionTable;
 
 use crate::config::EngineConfig;
 
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(50);
-
-struct SearchPool {
-    shared: search::SearchSharedResources,
-    capacity: usize,
-    login: String,
-    n_threads: usize,
-    engines: Mutex<HashMap<String, EngineSlot>>,
-    ponder_handles: Mutex<HashMap<String, WorkerHandle>>,
-    search_handles: Mutex<HashMap<String, WorkerHandle>>,
-    /// Held around every search and ponder: all engines share one thread
-    /// pool, which runs one search at a time.
-    search_turn: Arc<SearchTurn>,
-}
-
-/// The search lock. Unlike a plain mutex, a cancelled waiter leaves the
-/// queue at once instead of holding its engine and transposition table until
-/// its turn comes.
-#[derive(Default)]
-struct SearchTurn {
-    busy: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl SearchTurn {
-    /// Waits for the turn; `false` when `cancelled` is set first.
-    fn acquire(&self, cancelled: &AtomicBool) -> bool {
-        let mut busy = self.busy.lock().unwrap();
-        while *busy && !cancelled.load(Ordering::Acquire) {
-            busy = self.changed.wait(busy).unwrap();
-        }
-        if *busy {
-            return false;
-        }
-        *busy = true;
-        true
-    }
-
-    fn release(&self) {
-        *self.busy.lock().unwrap() = false;
-        self.changed.notify_all();
-    }
-
-    /// Wakes waiters to recheck their cancellation flag.
-    fn wake(&self) {
-        // Taking the lock orders this after any waiter's flag check.
-        drop(self.busy.lock().unwrap());
-        self.changed.notify_all();
-    }
-}
-
-/// One game's engine.
-#[derive(Clone)]
-struct EngineSlot {
-    search: Arc<Mutex<search::Search>>,
-    /// Set for synchro child games, shared with the sibling's slot.
-    shared_tt: Option<Arc<Mutex<SharedTranspositionTable>>>,
-}
-
-/// Transposition table a synchro pair shares while both games follow the
-/// same moves. The first game whose board leaves that line searches on a
-/// copy from then on.
-struct SharedTranspositionTable {
-    /// Weak so each table lives exactly as long as the engines using it.
-    tt: Weak<TranspositionTable>,
-    /// Game id and the board it left after our latest move.
-    last_left: Option<(String, Board)>,
-    diverged: bool,
-}
-
-impl SharedTranspositionTable {
-    /// Returns a copy of the table for `game_id` once its board is not the one
-    /// the sibling game left after our latest move there. Must be called
-    /// while holding the search lock, which orders table writes across searches.
-    fn split_off(&mut self, game_id: &str, board: &Board) -> Option<TranspositionTable> {
-        let diverged = !self.diverged
-            && self
-                .last_left
-                .as_ref()
-                .is_some_and(|(id, left)| id != game_id && left != board);
-        self.diverged |= diverged;
-        diverged
-            .then(|| self.tt.upgrade())
-            .flatten()
-            // SAFETY: completed searches publish their results before releasing
-            // the search lock, and the caller holds it until after the copy.
-            .map(|tt| unsafe { tt.duplicate() })
-    }
-
-    fn record_move(&mut self, game_id: &str, left: Board) {
-        if !self.diverged {
-            self.last_left = Some((game_id.to_string(), left));
-        }
-    }
-}
-
-/// Cancellation state for one in-flight search or ponder.
-struct WorkerHandle {
-    /// Keeps a worker still waiting for the search lock from ever searching.
-    cancelled: Arc<AtomicBool>,
-    /// Stops the worker's search, even one that is just starting. It never
-    /// reaches another engine's search on the shared pool.
-    stop: StopToken,
-    turn: Arc<SearchTurn>,
-}
-
-/// Cancels a worker: one that has not started never searches, and a running
-/// one stops at once.
-fn stop_worker(handle: WorkerHandle) {
-    handle.cancelled.store(true, Ordering::Release);
-    handle.stop.stop();
-    handle.turn.wake();
-}
-
-fn take_game_handles(handles: &mut HashMap<String, WorkerHandle>, id: &str) -> Vec<WorkerHandle> {
-    handles
-        .extract_if(|game_id, _| session::is_game_of(id, game_id))
-        .map(|(_, handle)| handle)
-        .collect()
-}
-
-impl SearchPool {
-    fn new(options: &SearchOptions, login: &str, capacity: usize) -> Self {
-        let mut shared = search::SearchSharedResources::new(options);
-        shared.share_thread_pool();
-        let n_threads = shared.n_threads();
-        Self {
-            shared,
-            capacity,
-            login: login.to_string(),
-            n_threads,
-            engines: Mutex::new(HashMap::new()),
-            ponder_handles: Mutex::new(HashMap::new()),
-            search_handles: Mutex::new(HashMap::new()),
-            search_turn: Arc::default(),
-        }
-    }
-
-    fn stop_ponder(&self, game_id: &str) {
-        if let Some(handle) = self.ponder_handles.lock().unwrap().remove(game_id) {
-            stop_worker(handle);
-        }
-    }
-
-    fn stop_search(&self, game_id: &str) {
-        if let Some(handle) = self.search_handles.lock().unwrap().remove(game_id) {
-            stop_worker(handle);
-        }
-    }
-
-    fn engine_for(&self, game_id: &str) -> Result<EngineSlot, String> {
-        let mut engines = self.engines.lock().unwrap();
-        if let Some(slot) = engines.get(game_id) {
-            return Ok(slot.clone());
-        }
-        if engines.len() == self.capacity {
-            return Err(format!(
-                "search engine capacity exhausted while starting {game_id}"
-            ));
-        }
-        let sibling = session::synchro_sibling(game_id).map(|sibling| {
-            let shared_tt = engines
-                .get(&sibling)
-                .and_then(|slot| slot.shared_tt.clone());
-            let tt = shared_tt
-                .as_ref()
-                .and_then(|shared_tt| shared_tt.lock().unwrap().tt.upgrade());
-            (shared_tt, tt)
-        });
-        let search = match sibling.as_ref().and_then(|(_, tt)| tt.clone()) {
-            Some(tt) => search::Search::from_shared_resources_with_tt(&self.shared, tt),
-            None => search::Search::from_shared_resources(&self.shared),
-        };
-        let shared_tt = sibling.map(|(shared_tt, _)| {
-            shared_tt.unwrap_or_else(|| {
-                Arc::new(Mutex::new(SharedTranspositionTable {
-                    tt: Arc::downgrade(search.tt()),
-                    last_left: None,
-                    diverged: false,
-                }))
-            })
-        });
-        let slot = EngineSlot {
-            search: Arc::new(Mutex::new(search)),
-            shared_tt,
-        };
-        engines.insert(game_id.to_string(), slot.clone());
-        Ok(slot)
-    }
-
-    /// Drops the engines of `id` (a match id, or a synchro game id from
-    /// `/os: end`) and cancels their running or queued searches; their
-    /// results still arrive and are discarded as stale.
-    fn end_match(&self, id: &str) {
-        self.engines
-            .lock()
-            .unwrap()
-            .retain(|game_id, _| !session::is_game_of(id, game_id));
-        let ended = take_game_handles(&mut self.search_handles.lock().unwrap(), id);
-        for handle in ended {
-            stop_worker(handle);
-        }
-    }
-}
 
 /// Connection, authentication, and presentation settings for GGS mode.
 pub struct GgsOptions<'a> {
@@ -297,7 +90,7 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
     let max_game_slots = max_games * 2;
     let (mut conn, event_tx) = connection::Connection::connect(host, port)
         .map_err(|e| format!("failed to connect to {host}:{port}: {e}"))?;
-    let search_pool = Arc::new(SearchPool::new(&search_options, user, max_game_slots));
+    let mut games = Games::new(Engine::new(&search_options), max_game_slots);
     let mut frontend =
         frontend::Frontend::start(plain, &event_tx, format!("{user}@{host}:{port}"))?;
 
@@ -366,7 +159,7 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
                     let chunk_refs: Vec<&str> = chunk.iter().map(String::as_str).collect();
                     for parsed in protocol::parse_server_messages(&chunk_refs, user) {
                         for action in session.on_event(parsed) {
-                            apply_action(action, &mut conn, &search_pool, &event_tx)?;
+                            apply_action(action, &mut conn, &mut games, user, &event_tx)?;
                         }
                     }
                 }
@@ -414,7 +207,7 @@ pub fn run_ggs(options: GgsOptions<'_>, config: &EngineConfig) -> Result<(), Ggs
             for (game_id, search_id, queued_at, result) in finished_searches.drain(..) {
                 let elapsed = queued_at.elapsed();
                 for action in session.on_search_finished(&game_id, search_id, result, elapsed) {
-                    apply_action(action, &mut conn, &search_pool, &event_tx)?;
+                    apply_action(action, &mut conn, &mut games, user, &event_tx)?;
                 }
             }
         }
@@ -560,7 +353,8 @@ fn unsupported_ask_clock(line: &str) -> Option<&str> {
 fn apply_action(
     action: session::SessionAction,
     conn: &mut connection::Connection,
-    search_pool: &Arc<SearchPool>,
+    games: &mut Games,
+    login: &str,
     event_tx: &Sender<connection::Event>,
 ) -> Result<(), String> {
     match action {
@@ -576,14 +370,18 @@ fn apply_action(
             // `tell $_send` reply; keep the private one.
             for line in [
                 "var _nrsend $_send".to_string(),
-                format!("tell {} {report}", log_channel(&search_pool.login)),
+                format!("tell {} {report}", log_channel(login)),
                 "var _send $_nrsend".to_string(),
             ] {
                 conn.send_line(&line)
                     .map_err(|e| format!("send failed: {e}"))?;
             }
         }
-        session::SessionAction::EndMatch { id } => search_pool.end_match(&id),
+        // `id` is a match id, or a synchro game id from `/os: end`. Results of
+        // the stopped searches still arrive and are discarded as stale.
+        session::SessionAction::EndMatch { id } => {
+            games.close_match(&id);
+        }
         session::SessionAction::StartSearch {
             game_id,
             search_id,
@@ -592,78 +390,68 @@ fn apply_action(
             search_limit,
         } => {
             let queued_at = Instant::now();
-            // Each game id keeps one engine for the full game so its
+            // Each game id keeps one search state for the full game so its
             // endgame-depth tracking cannot leak to or be lost to another
             // concurrently active game.
-            let slot = match search_pool.engine_for(&game_id) {
-                Ok(slot) => slot,
-                Err(error) => {
-                    let _ = event_tx.send(connection::Event::SearchFinished {
-                        game_id,
-                        search_id,
-                        queued_at,
-                        result: Err(error),
-                    });
-                    return Ok(());
-                }
+            let Some(game) = games.open(&game_id) else {
+                let _ = event_tx.send(connection::Event::SearchFinished {
+                    result: Err(capacity_error(&game_id)),
+                    game_id,
+                    search_id,
+                    queued_at,
+                });
+                return Ok(());
             };
-            let shared_tt = slot.shared_tt.clone();
             let job_id = game_id.clone();
             let tx = event_tx.clone();
             let done_id = game_id.clone();
             let log_tx = event_tx.clone();
-            let n_threads = search_pool.n_threads;
-            let login = search_pool.login.clone();
-            let spawned = spawn_worker(
-                search_pool,
-                &search_pool.search_handles,
-                &game_id,
-                slot,
-                move |search, stop| {
-                    if let Some(shared_tt) = &shared_tt
-                        && let Some(tt) = shared_tt.lock().unwrap().split_off(&job_id, &board)
-                    {
-                        search.set_tt(Arc::new(tt));
+            let n_threads = games.engine.n_threads();
+            let login = login.to_string();
+            let spawned = games.engine.start(
+                game,
+                SearchKind::Move,
+                board,
+                queued_at,
+                move |start| {
+                    if start.split_table {
                         let _ = log_tx.send(connection::Event::Log(format!(
                             "{job_id} left the synchro line; searching on a TT copy"
                         )));
                     }
                     // Our clock kept running while another game held the pool.
-                    let waited = queued_at.elapsed();
-                    let search_limit = deduct_wait(search_limit, waited);
-                    let options = build_search_run_options(search_limit).stop_token(stop);
+                    let search_limit = deduct_wait(search_limit, start.waited);
                     let _ = log_tx.send(connection::Event::SearchStarted {
-                        game_id: job_id.clone(),
+                        game_id: job_id,
                         search_id,
                     });
-                    let started = Instant::now();
-                    let result = search.run(&board, &options);
-                    let elapsed = started.elapsed();
-                    let timed_out = search.timed_out();
-                    let mv = result.best_move().zip(result.score());
-                    if let (Some(shared_tt), Some((sq, _))) = (&shared_tt, mv) {
-                        shared_tt
-                            .lock()
-                            .unwrap()
-                            .record_move(&job_id, board.make_move(sq));
-                    }
-                    mv.map(|(sq, score)| session::FoundMove {
-                        report: report::SearchReport {
-                            sq,
-                            score,
-                            depth: result.depth(),
-                            probability: result.probability(),
-                            nodes: result.n_nodes(),
-                            elapsed,
-                            waited,
-                        },
-                        broadcast: report::channel_report(
-                            &login, &job_id, &board, color, &result, elapsed, waited, n_threads,
-                            timed_out,
-                        ),
-                    })
+                    build_search_run_options(search_limit)
                 },
-                move |mv| {
+                move |found| {
+                    let mv = found.map(|found| {
+                        let Finished {
+                            result,
+                            waited,
+                            elapsed,
+                            timed_out,
+                        } = found;
+                        let mv = result.best_move().zip(result.score());
+                        mv.map(|(sq, score)| session::FoundMove {
+                            report: report::SearchReport {
+                                sq,
+                                score,
+                                depth: result.depth(),
+                                probability: result.probability(),
+                                nodes: result.n_nodes(),
+                                elapsed,
+                                waited,
+                            },
+                            broadcast: report::channel_report(
+                                &login, &done_id, &board, color, &result, elapsed, waited,
+                                n_threads, timed_out,
+                            ),
+                        })
+                    });
                     let _ = tx.send(connection::Event::SearchFinished {
                         game_id: done_id,
                         search_id,
@@ -686,35 +474,30 @@ fn apply_action(
             search_id,
             board,
         } => {
-            let slot = match search_pool.engine_for(&game_id) {
-                Ok(slot) => slot,
-                Err(error) => {
-                    let _ = event_tx.send(connection::Event::Log(format!(
-                        "ponder skipped for {game_id}: {error}"
-                    )));
-                    let _ = event_tx.send(connection::Event::PonderFinished { game_id, search_id });
-                    return Ok(());
-                }
+            let Some(game) = games.open(&game_id) else {
+                let _ = event_tx.send(connection::Event::Log(format!(
+                    "ponder skipped for {game_id}: {}",
+                    capacity_error(&game_id)
+                )));
+                let _ = event_tx.send(connection::Event::PonderFinished { game_id, search_id });
+                return Ok(());
             };
             let _ = event_tx.send(connection::Event::Log(format!("pondering {game_id}")));
             let tx = event_tx.clone();
             let done_id = game_id.clone();
             let started_tx = event_tx.clone();
             let started_id = game_id.clone();
-            let spawned = spawn_worker(
-                search_pool,
-                &search_pool.ponder_handles,
-                &game_id,
-                slot,
-                move |search, stop| {
+            let spawned = games.engine.start(
+                game,
+                SearchKind::Analysis,
+                board,
+                Instant::now(),
+                move |_| {
                     let _ = started_tx.send(connection::Event::SearchStarted {
                         game_id: started_id,
                         search_id,
                     });
-                    search.run(
-                        &board,
-                        &SearchRunOptions::with_time(TimeControlMode::Infinite).stop_token(stop),
-                    );
+                    SearchRunOptions::with_time(TimeControlMode::Infinite)
                 },
                 move |_| {
                     let _ = tx.send(connection::Event::PonderFinished {
@@ -731,56 +514,72 @@ fn apply_action(
             }
         }
         session::SessionAction::StopPonder { game_id } => {
-            search_pool.stop_ponder(&game_id);
+            games.stop(&game_id, SearchKind::Analysis);
         }
         session::SessionAction::StopSearch { game_id } => {
-            search_pool.stop_search(&game_id);
+            games.stop(&game_id, SearchKind::Move);
         }
     }
     Ok(())
 }
 
-/// Runs `job` on the game's engine in a new worker thread once it holds the
-/// search lock, then hands its result to `done` after releasing the locks
-/// (`None` when the worker was cancelled before it began). The worker is
-/// registered in `handles` under `game_id` so it can be stopped; `job` must
-/// give its search the stop token it receives.
-fn spawn_worker<T: Send + 'static>(
-    search_pool: &Arc<SearchPool>,
-    handles: &Mutex<HashMap<String, WorkerHandle>>,
-    game_id: &str,
-    slot: EngineSlot,
-    job: impl FnOnce(&mut search::Search, StopToken) -> T + Send + 'static,
-    done: impl FnOnce(Option<T>) + Send + 'static,
-) -> std::io::Result<()> {
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let stop = StopToken::new();
-    handles.lock().unwrap().insert(
-        game_id.to_string(),
-        WorkerHandle {
-            cancelled: Arc::clone(&cancelled),
-            stop: stop.clone(),
-            turn: Arc::clone(&search_pool.search_turn),
-        },
-    );
-    let turn = Arc::clone(&search_pool.search_turn);
-    let spawned = thread::Builder::new().spawn(move || {
-        if !turn.acquire(&cancelled) {
-            drop(slot);
-            done(None);
-            return;
+/// Our GGS games on the engine, by game id.
+struct Games {
+    engine: Engine,
+    /// Most games open at a time; a synchro match takes two.
+    capacity: usize,
+    open: HashMap<String, GameId>,
+}
+
+impl Games {
+    fn new(engine: Engine, capacity: usize) -> Self {
+        Self {
+            engine,
+            capacity,
+            open: HashMap::new(),
         }
-        let mut search = slot.search.lock().unwrap();
-        let result = (!cancelled.load(Ordering::Acquire)).then(|| job(&mut search, stop));
-        drop(search);
-        turn.release();
-        drop(slot);
-        done(result);
-    });
-    if spawned.is_err() {
-        handles.lock().unwrap().remove(game_id);
     }
-    spawned.map(drop)
+
+    /// Returns the engine game of `game_id`, opened on first use, or [`None`]
+    /// when every slot is taken. A synchro game shares the transposition
+    /// table of its sibling until their lines diverge.
+    fn open(&mut self, game_id: &str) -> Option<GameId> {
+        if let Some(&game) = self.open.get(game_id) {
+            return Some(game);
+        }
+        if self.open.len() == self.capacity {
+            return None;
+        }
+        let game = match session::synchro_sibling(game_id) {
+            Some(sibling) => self.engine.open_sharing(self.open.get(&sibling).copied()),
+            None => self.engine.open(),
+        };
+        self.open.insert(game_id.to_string(), game);
+        Some(game)
+    }
+
+    /// Stops the search of `kind` that `game_id` started last.
+    fn stop(&self, game_id: &str, kind: SearchKind) {
+        if let Some(&game) = self.open.get(game_id) {
+            self.engine.stop(game, kind);
+        }
+    }
+
+    /// Closes the games of match `id` (or the synchro game `id`) and stops
+    /// their searches.
+    fn close_match(&mut self, id: &str) {
+        self.open.retain(|game_id, game| {
+            let ended = session::is_game_of(id, game_id);
+            if ended {
+                self.engine.close(*game);
+            }
+            !ended
+        });
+    }
+}
+
+fn capacity_error(game_id: &str) -> String {
+    format!("search engine capacity exhausted while starting {game_id}")
 }
 
 /// Takes the time spent waiting for the shared pool off the clock's main time.
@@ -808,9 +607,20 @@ fn build_search_run_options(search_limit: session::SearchLimit) -> SearchRunOpti
 
 #[cfg(test)]
 mod tests {
-    use reversi_core::square::Square;
 
     use super::*;
+
+    #[test]
+    fn a_full_engine_takes_no_new_game_until_a_match_ends() {
+        let mut games = Games::new(crate::config::test_engine(1, 1), 3);
+        let [first, _, plain] = [".5.0", ".5.1", ".6"].map(|id| games.open(id).unwrap());
+        assert_eq!(games.open(".5.0"), Some(first));
+        assert_eq!(games.open(".7"), None);
+
+        games.close_match(".5");
+        assert!(games.open(".7").is_some());
+        assert_eq!(games.open(".6"), Some(plain));
+    }
 
     #[test]
     fn startup_logs_in_then_normalizes_modes() {
@@ -927,84 +737,5 @@ mod tests {
             Some(".42")
         );
         assert_eq!(unsupported_ask_clock("tell /os ask 8"), None);
-    }
-
-    #[test]
-    fn synchro_pair_splits_tt_only_when_a_board_leaves_the_sibling_line() {
-        let tt = Arc::new(TranspositionTable::new(0));
-        let mut shared = SharedTranspositionTable {
-            tt: Arc::downgrade(&tt),
-            last_left: None,
-            diverged: false,
-        };
-        let start = Board::new();
-        let [a, b] = [Square::D3, Square::C4].map(|sq| start.make_move(sq));
-
-        assert!(shared.split_off(".5.0", &start).is_none());
-        shared.record_move(".5.0", a);
-        // Same game again (the opponent passed there): no comparison yet.
-        assert!(shared.split_off(".5.0", &b).is_none());
-        // The opponent repeated our move in the sibling game.
-        assert!(shared.split_off(".5.1", &a).is_none());
-        shared.record_move(".5.1", a.make_move(Square::C3));
-
-        assert!(shared.split_off(".5.0", &a.make_move(Square::E3)).is_some());
-        assert!(shared.diverged);
-        // Only the engines keep the original table alive.
-        drop(tt);
-        assert!(shared.tt.upgrade().is_none());
-        assert!(shared.split_off(".5.1", &b).is_none());
-    }
-
-    #[test]
-    fn cancelled_waiter_leaves_a_busy_search_turn() {
-        let turn = Arc::new(SearchTurn::default());
-        let never = AtomicBool::new(false);
-        assert!(turn.acquire(&never));
-
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let waiter = thread::spawn({
-            let turn = Arc::clone(&turn);
-            let cancelled = Arc::clone(&cancelled);
-            move || turn.acquire(&cancelled)
-        });
-        cancelled.store(true, Ordering::Release);
-        turn.wake();
-        assert!(!waiter.join().unwrap());
-
-        // The turn is still held, so a live waiter gets it only on release.
-        assert!(*turn.busy.lock().unwrap());
-        turn.release();
-        assert!(turn.acquire(&never));
-    }
-
-    #[test]
-    fn match_end_cancels_only_its_queued_searches() {
-        let mut handles: HashMap<String, WorkerHandle> = [".5", ".5.0", ".5.1", ".50", ".6"]
-            .into_iter()
-            .map(|id| {
-                let handle = WorkerHandle {
-                    cancelled: Arc::new(AtomicBool::new(false)),
-                    stop: StopToken::new(),
-                    turn: Arc::default(),
-                };
-                (id.to_string(), handle)
-            })
-            .collect();
-
-        let ended = take_game_handles(&mut handles, ".5");
-        let cancelled: Vec<_> = ended
-            .iter()
-            .map(|handle| Arc::clone(&handle.cancelled))
-            .collect();
-        for handle in ended {
-            stop_worker(handle);
-        }
-
-        assert_eq!(cancelled.len(), 3);
-        assert!(cancelled.iter().all(|flag| flag.load(Ordering::Acquire)));
-        let mut remaining: Vec<_> = handles.keys().map(String::as_str).collect();
-        remaining.sort_unstable();
-        assert_eq!(remaining, [".50", ".6"]);
     }
 }

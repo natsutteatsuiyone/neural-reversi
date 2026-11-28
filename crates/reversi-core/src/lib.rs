@@ -7,6 +7,7 @@ pub mod bitboard;
 pub mod board;
 pub mod constants;
 pub mod disc;
+pub mod engine;
 pub mod eval;
 pub mod flip;
 pub mod game_state;

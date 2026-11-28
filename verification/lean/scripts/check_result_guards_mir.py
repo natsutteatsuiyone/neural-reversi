@@ -16,7 +16,8 @@ from extract_header import ordinary
 
 
 RESULT = "search-result-"
-SEARCH = "search-{impl#2}-"
+SEARCH = "search-{impl#1}-"
+ENGINE_SEARCH = "engine-games-{impl#0}-search"
 FINISH = RESULT + "{impl#1}-into_result"
 CACHED = RESULT + "tt_move"
 QUICK = RESULT + "quick_move"
@@ -243,6 +244,28 @@ _0 = copy _3; goto 4;
 _0 = copy _2; goto 4;
 return;
 """,
+    # The public entry: it forwards the caller's board and options to the record of the game.
+    ENGINE_SEARCH: """
+_8 = &(*_1); _9 = copy _2; _7 = games::<impl Engine>::record(move _8, move _9) => 1;
+_5 = move (_7.0: std::sync::Arc<std::sync::Mutex<search::Search>>); _6 = move (_7.1: std::sync::Arc<engine::turn::TurnState>); drop(_7) => 2;
+_11 = &_6; _10 = TurnState::wait(move _11) => 3;
+_16 = &_5; _15 = <Arc<std::sync::Mutex<Search>> as Deref>::deref(move _16) => 4;
+_14 = &(*_15); _13 = std::sync::Mutex::<Search>::lock(move _14) => 5;
+_12 = Result::<std::sync::MutexGuard<'_, Search>, PoisonError<std::sync::MutexGuard<'_, Search>>>::unwrap(move _13) => 6;
+_19 = &mut _12; _18 = <std::sync::MutexGuard<'_, Search> as DerefMut>::deref_mut(move _19) => 7;
+_17 = &mut (*_18); _20 = &(*_3); _21 = &(*_4); _0 = Search::run(move _17, move _20, move _21) => 8;
+drop(_12) => 9;
+drop(_10) => 10;
+drop(_6) => 11;
+drop(_5) => 12;
+return;
+""",
+    SEARCH + "run": """
+_5 = &((*_1).6: std::sync::Arc<engine::turn::TurnState>); _4 = TurnState::wait(move _5) => 1;
+_6 = &mut (*_1); _8 = &_4; _7 = &(*_8); _9 = &(*_2); _10 = &(*_3); _0 = Search::run_in_turn(move _6, move _7, move _9, move _10) => 2;
+drop(_4) => 3;
+return;
+""",
     RECV: """
 _7 = &((*_1).0: std::sync::Arc<transposition_table::TranspositionTable>); _6 = <Arc<TranspositionTable> as Deref>::deref(move _7) => 1;
 _5 = &(*_6); _4 = TranspositionTable::increment_generation(move _5) => 2;
@@ -360,40 +383,42 @@ _2 = Shl(const 1_u64, move _3); _0 = Bitboard(move _2); return;
 
 
 # Follow the search receiver, the clone of its resident table, the root board
-# and the returned result. Both timed-phase helpers access only tracking data.
-RUN_PLACES = r"_(?:0|1|59|75|76|79|80|93|94|95|110|111|115|117|118)"
+# and the returned result. The turn check reads only the turn field, and both
+# timed-phase helpers access only tracking data.
+RUN_PLACES = r"_(?:0|1|68|84|85|88|89|102|103|104|119|120|124|126|127)"
 RUN_SLICE = """
-_54 = &((*_1).1: std::sync::Arc<search::threading::pool::ThreadPool>);
-_59 = &(*_1);
-_58 = Search::timed_root_phase(move _59, move _60) => 26;
-_76 = copy (*_2);
-_80 = &((*_1).0: std::sync::Arc<transposition_table::TranspositionTable>);
-_79 = <Arc<TranspositionTable> as Clone>::clone(move _80) => 46;
-_82 = &((*_1).1: std::sync::Arc<search::threading::pool::ThreadPool>);
-_84 = &((*_1).2: std::sync::Arc<eval::Eval>);
-_92 = &((*_1).3: std::sync::Arc<search::correction_history::CorrectionHistories>);
-_75 = SearchTask { board: move _76, mid_selectivity: move _77, tt: move _79, pool: move _81, eval: move _83, phase: move _85, multi_pv: move _86, callback: move _87, time_manager: move _89, eval_mode: move _90, corrections: move _91 };
-drop(_79) => 56;
-_94 = &mut (*_1);
-_95 = move _75;
-_93 = Search::execute_search(move _94, move _95, move _96) => 58;
-((*_1).5: bool) = move _98;
-_111 = &_93;
-_110 = &(*_111);
-_109 = SearchProgress::from_result(move _110) => 63;
-_115 = &mut (*_1);
-_118 = &_93;
-_117 = &(*_118);
-_114 = Search::update_endgame_tracking(move _115, move _116, move _117) => 70;
-_0 = move _93;
-drop(_93) => 73;
-drop(_75) => 74;
+_9 = &((*_1).6: std::sync::Arc<engine::turn::TurnState>);
+_63 = &((*_1).1: std::sync::Arc<search::threading::pool::ThreadPool>);
+_68 = &(*_1);
+_67 = Search::timed_root_phase(move _68, move _69) => 30;
+_85 = copy (*_3);
+_89 = &((*_1).0: std::sync::Arc<transposition_table::TranspositionTable>);
+_88 = <Arc<TranspositionTable> as Clone>::clone(move _89) => 50;
+_91 = &((*_1).1: std::sync::Arc<search::threading::pool::ThreadPool>);
+_93 = &((*_1).2: std::sync::Arc<eval::Eval>);
+_101 = &((*_1).3: std::sync::Arc<search::correction_history::CorrectionHistories>);
+_84 = SearchTask { board: move _85, mid_selectivity: move _86, tt: move _88, pool: move _90, eval: move _92, phase: move _94, multi_pv: move _95, callback: move _96, time_manager: move _98, eval_mode: move _99, corrections: move _100 };
+drop(_88) => 60;
+_103 = &mut (*_1);
+_104 = move _84;
+_102 = Search::execute_search(move _103, move _104, move _105) => 62;
+((*_1).5: bool) = move _107;
+_120 = &_102;
+_119 = &(*_120);
+_118 = SearchProgress::from_result(move _119) => 67;
+_124 = &mut (*_1);
+_127 = &_102;
+_126 = &(*_127);
+_123 = Search::update_endgame_tracking(move _124, move _125, move _126) => 74;
+_0 = move _102;
+drop(_102) => 77;
+drop(_84) => 78;
 """
 
 
 # Each row lists every access to the result, channel or task registers named in its pattern.
 RETURN_SLICES = {
-    SEARCH + "run": (RUN_PLACES, RUN_SLICE),
+    SEARCH + "run_in_turn": (RUN_PLACES, RUN_SLICE),
     SEARCH + "timed_root_phase": (r"_1", """
 _4 = copy ((*_1).4: std::option::Option<u32>);
 """),
@@ -523,7 +548,7 @@ def check_mutants(dump):
          "BitAnd(move _3, const 63_u8)"),
         (RECV, "TranspositionTable::increment_generation(move _5)",
          "TranspositionTable::reset_generation(move _5)"),
-        (SEARCH + "run", "<Arc<TranspositionTable> as Clone>::clone(move _80)", "TranspositionTable::duplicate(move _80)"),
+        (SEARCH + "run_in_turn", "<Arc<TranspositionTable> as Clone>::clone(move _89)", "TranspositionTable::duplicate(move _89)"),
         (CACHED, "_21 = transposition_table::Bound::Exact;", "_21 = transposition_table::Bound::Lower;"),
         (CACHED, "0: bb12, otherwise: bb11", "0: bb11, otherwise: bb12"),
         (CACHED, "(move _32, move _35)", "(const true, move _35)"),
@@ -540,7 +565,12 @@ def check_mutants(dump):
         (FINISH, "_0 = move _18;", "_18 = SearchResult::NoLegalMove;\n        _0 = move _18;"),
         (RECV, "_0 = move _15;", "_0 = SearchResult::NoLegalMove;"),
         (RECV + "-{closure#0}", "quick_move(move _3, move _5)", "random_move(move _3, move _5)"),
-        (SEARCH + "run", "_0 = move _93;", "_0 = SearchResult::NoLegalMove;"),
+        (SEARCH + "run_in_turn", "_0 = move _102;", "_0 = SearchResult::NoLegalMove;"),
+        (SEARCH + "run", "move _9, move _10", "move _10, move _9"),
+        (ENGINE_SEARCH, "move _20, move _21", "move _21, move _20"),
+        (ENGINE_SEARCH, "_20 = &(*_3);", "_20 = &(*_3);\n        _0 = SearchResult::NoLegalMove;"),
+        (ENGINE_SEARCH, "drop(_12) -> [return: bb9, unwind: bb15];",
+         "_0 = SearchResult::NoLegalMove;\n        drop(_12) -> [return: bb9, unwind: bb15];"),
         ("score-{impl#5}-value", "_0 = copy (_1.0: i32);", "_0 = const 0_i32;"),
     ]
     names = callback_names(dump)

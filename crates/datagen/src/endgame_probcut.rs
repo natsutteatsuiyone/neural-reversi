@@ -25,10 +25,11 @@ use reversi_core::{
 };
 #[cfg(feature = "trace")]
 use reversi_core::{
+    engine::{Engine, GameId},
     eval::EvalMode,
     level::Level,
     probcut::uses_small_network,
-    search::{Search, SearchRunOptions, SearchSharedResources, options::SearchOptions},
+    search::{SearchRunOptions, options::SearchOptions},
 };
 #[cfg(any(feature = "trace", test))]
 use reversi_core::{probcut::Selectivity, score::Score};
@@ -342,24 +343,28 @@ fn parse_trace_row(line: &str, line_number: usize) -> anyhow::Result<TraceRow> {
 /// The first two are computed as endgame ProbCut sees them: the network
 /// [`uses_small_network`] selects, no selective pruning.
 #[cfg(feature = "trace")]
-fn label(search: &mut Search, board: &Board) -> ([Score; 2], i32) {
-    search.init();
+fn label(engine: &Engine, search: GameId, board: &Board) -> ([Score; 2], i32) {
+    engine.reset(search);
     let eval_mode = if uses_small_network(board.empty_count()) {
         EvalMode::Small
     } else {
         EvalMode::Main
     };
-    let eval = search.eval().evaluate_simple(board, eval_mode);
+    let eval = engine.eval().evaluate_simple(board, eval_mode);
     let options = SearchRunOptions::with_level(Level::uniform(VERIFY_DEPTH, VERIFY_DEPTH))
         .disable_probcut()
         .with_eval_mode(eval_mode);
-    let score = search
-        .run(board, &options)
+    let score = engine
+        .search(search, board, &options)
         .score()
         .expect("sampled positions have a legal move");
-    search.init();
-    let exact = search
-        .run(board, &SearchRunOptions::with_level(Level::perfect()))
+    engine.reset(search);
+    let exact = engine
+        .search(
+            search,
+            board,
+            &SearchRunOptions::with_level(Level::perfect()),
+        )
         .score()
         .expect("sampled positions have a legal move")
         .to_disc_diff()
@@ -410,14 +415,15 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
     // Roots run one at a time with every thread, so each drained batch of
     // records belongs to the root that produced it.
     probcut::trace::set_sampling(options.one_in, options.sample_empties.clone());
-    let mut search =
-        Search::new(&SearchOptions::new(SEARCH_TT_MB).with_threads(Some(options.threads.max(1))));
+    let engine =
+        Engine::new(&SearchOptions::new(SEARCH_TT_MB).with_threads(Some(options.threads.max(1))));
+    let search = engine.open();
     let mut traced: Vec<(usize, TraceRecord)> = Vec::new();
     for (index, &(game, board)) in root_boards.iter().enumerate() {
         let n_empties = board.empty_count();
         let level = Level::uniform(n_empties, n_empties).stopping_at(Selectivity::Level4);
-        search.init();
-        search.run(&board, &SearchRunOptions::with_level(level));
+        engine.reset(search);
+        engine.search(search, &board, &SearchRunOptions::with_level(level));
         traced.extend(probcut::trace::take().into_iter().map(|r| (game, r)));
         if index.is_multiple_of(50) {
             eprintln!("Traced {index}/{} roots", root_boards.len());
@@ -455,7 +461,7 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
     let labels: Mutex<HashMap<Board, ([Score; 2], i32)>> = Mutex::new(HashMap::new());
     let started = std::time::Instant::now();
     for (index, board) in large.iter().enumerate() {
-        let label = label(&mut search, board);
+        let label = label(&engine, search, board);
         labels.lock().unwrap().insert(*board, label);
         if index.is_multiple_of(10) {
             eprintln!(
@@ -466,21 +472,21 @@ pub(crate) fn trace(input: &Path, output: &Path, options: &TraceOptions) -> anyh
             );
         }
     }
-    drop(search);
-    let next = AtomicUsize::new(0);
     // One copy of the network for every worker.
-    let shared =
-        SearchSharedResources::new(&SearchOptions::new(WORKER_TT_MB).with_threads(Some(1)));
+    let eval = engine.eval().clone();
+    drop(engine);
+    let next = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..options.threads.max(1) {
             scope.spawn(|| {
-                let mut search = Search::from_shared_resources(&shared);
+                let engine = Engine::from_eval(eval.clone(), WORKER_TT_MB, Some(1));
+                let search = engine.open();
                 loop {
                     let index = next.fetch_add(1, Ordering::Relaxed);
                     let Some(board) = unique.get(index) else {
                         break;
                     };
-                    let label = label(&mut search, board);
+                    let label = label(&engine, search, board);
                     labels.lock().unwrap().insert(*board, label);
                     if index.is_multiple_of(1000) {
                         eprintln!("Labeled {index}/{} positions", unique.len());

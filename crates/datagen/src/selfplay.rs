@@ -13,10 +13,11 @@ use anyhow::Context;
 use rand::RngExt;
 use rand::seq::IteratorRandom;
 use reversi_core::board::Board;
+use reversi_core::engine::{Engine, GameId};
 use reversi_core::game_state::GameState;
 use reversi_core::level::Level;
+use reversi_core::search::SearchRunOptions;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 use reversi_core::types::Depth;
 
@@ -155,7 +156,8 @@ pub(crate) fn execute(
 
     let options = SearchOptions::new(hash_size);
 
-    let mut search = search::Search::new(&options);
+    let engine = Engine::new(&options);
+    let search = engine.open();
     let mut record_cache: HashMap<Board, GameRecord> = HashMap::new();
     let mut file_state = FileState::new(prefix, output_dir, games_per_file)?;
 
@@ -167,11 +169,12 @@ pub(crate) fn execute(
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
             rng.random_range(MIN_RANDOM_MOVES..MAX_RANDOM_MOVES),
         );
-        let opening_sequence = generate_random_opening(num_random, &mut search, random_choice);
+        let opening_sequence = generate_random_opening(num_random, &engine, search, random_choice);
 
         let game_records = play_game(
             &opening_sequence,
-            &mut search,
+            &engine,
+            search,
             level,
             game_id,
             &mut record_cache,
@@ -199,7 +202,8 @@ pub(crate) fn execute_with_openings(
 
     let options = SearchOptions::new(hash_size);
 
-    let mut search = search::Search::new(&options);
+    let engine = Engine::new(&options);
+    let search = engine.open();
     let mut record_cache: HashMap<Board, GameRecord> = HashMap::new();
     let mut file_state = FileState::new(prefix, output_dir, games_per_file)?;
 
@@ -223,7 +227,8 @@ pub(crate) fn execute_with_openings(
         let game_id = file_state.next_game_id();
         let game_records = play_game(
             opening_sequence,
-            &mut search,
+            &engine,
+            search,
             level,
             game_id,
             &mut record_cache,
@@ -239,7 +244,8 @@ pub(crate) fn execute_with_openings(
 /// the remaining moves via [`candidate_move`].
 fn generate_random_opening(
     num_moves: u8,
-    search: &mut search::Search,
+    engine: &Engine,
+    search: GameId,
     choice: RandomMoveChoice,
 ) -> Vec<Square> {
     let mut opening = Vec::new();
@@ -249,7 +255,7 @@ fn generate_random_opening(
         let sq = if opening.len() < usize::from(choice.uniform_moves) {
             random_move(game.board())
         } else {
-            candidate_move(game.board(), search, choice)
+            candidate_move(game.board(), engine, search, choice)
         };
         game.make_move(sq).expect("random moves are legal");
         opening.push(sq);
@@ -261,13 +267,14 @@ fn generate_random_opening(
 /// Plays a single game starting from `opening_sequence` and returns its [`GameRecord`] entries.
 fn play_game(
     opening_sequence: &[Square],
-    search: &mut search::Search,
+    engine: &Engine,
+    search: GameId,
     lv: Level,
     game_id: u16,
     record_cache: &mut HashMap<Board, GameRecord>,
 ) -> Vec<GameRecord> {
     let game_start = Instant::now();
-    search.init();
+    engine.reset(search);
 
     let mut game = GameState::new();
     let mut game_records = Vec::new();
@@ -279,7 +286,7 @@ fn play_game(
 
         let mut record = record_cache
             .entry(*game.board())
-            .or_insert_with(|| search_record(search, &game, lv, game_id, true))
+            .or_insert_with(|| search_record(engine, search, &game, lv, game_id, true))
             .clone();
         record.game_id = game_id;
         record.side_to_move = game.side_to_move();
@@ -293,7 +300,7 @@ fn play_game(
     }
 
     while !game.is_game_over() {
-        let record = search_record(search, &game, lv, game_id, false);
+        let record = search_record(engine, search, &game, lv, game_id, false);
         game.make_move(record.sq)
             .expect("search returned an illegal move");
         game_records.push(record);
@@ -334,14 +341,15 @@ fn play_game(
 
 /// Searches the current position of `game` and returns a [`GameRecord`] with `game_score: None`.
 fn search_record(
-    search: &mut search::Search,
+    engine: &Engine,
+    search: GameId,
     game: &GameState,
     lv: Level,
     game_id: u16,
     is_random: bool,
 ) -> GameRecord {
     let board = *game.board();
-    let result = search.run(&board, &SearchRunOptions::with_level(lv));
+    let result = engine.search(search, &board, &SearchRunOptions::with_level(lv));
     GameRecord {
         game_id,
         ply: 60 - board.empty_count() as u8,
@@ -365,9 +373,18 @@ fn random_move(board: &Board) -> Square {
 
 /// Draws a move uniformly from the best `choice.top` moves of a Multi-PV
 /// search that score within `choice.margin` discs of the best move.
-fn candidate_move(board: &Board, search: &mut search::Search, choice: RandomMoveChoice) -> Square {
+fn candidate_move(
+    board: &Board,
+    engine: &Engine,
+    search: GameId,
+    choice: RandomMoveChoice,
+) -> Square {
     let level = Level::uniform(choice.depth, choice.depth);
-    let result = search.run(board, &SearchRunOptions::with_level(level).multi_pv(true));
+    let result = engine.search(
+        search,
+        board,
+        &SearchRunOptions::with_level(level).multi_pv(true),
+    );
     let moves = result.pv_moves();
     let best_score = moves
         .first()

@@ -13,12 +13,13 @@ use anyhow::Context;
 use reversi_core::{
     board::Board,
     constants::INITIAL_EMPTY_COUNT,
-    eval::{Eval, EvalMode},
+    engine::{Engine, GameId},
+    eval::EvalMode,
     game_state::GameState,
     level::Level,
     player_color::PlayerColor,
     score::Score,
-    search::{Search, SearchRunOptions, options::SearchOptions},
+    search::{SearchRunOptions, options::SearchOptions},
     square::Square,
     types::Depth,
 };
@@ -209,8 +210,8 @@ fn insert_midgame_position(visited: &mut HashSet<Board>, board: &Board) -> bool 
 /// Depth `0` uses static evaluation rather than a one-ply search, matching how
 /// the engine resolves a shallow depth of `0`.
 fn depth_scores(
-    search: &mut Search,
-    eval: &Eval,
+    engine: &Engine,
+    search: GameId,
     board: &Board,
     max_depth: Depth,
 ) -> Vec<(Depth, Score)> {
@@ -220,14 +221,14 @@ fn depth_scores(
         .filter(|&depth| depth < n_empties)
         .map(|depth| {
             let score = if depth == 0 {
-                eval.evaluate_simple(board, EvalMode::Main)
+                engine.eval().evaluate_simple(board, EvalMode::Main)
             } else {
                 let level = Level::uniform(depth, depth);
                 let run_options = SearchRunOptions::with_level(level)
                     .disable_probcut()
                     .with_eval_mode(EvalMode::Main);
-                search
-                    .run(board, &run_options)
+                engine
+                    .search(search, board, &run_options)
                     .score()
                     .expect("search returned no legal move")
             };
@@ -241,8 +242,8 @@ pub(crate) fn execute(input: &Path, output: &Path) -> anyhow::Result<()> {
     let mut writer = MidgameCsvWriter::create(output)?;
 
     let options = SearchOptions::new(TT_SIZE_MB);
-    let mut search = Search::new(&options);
-    let eval = search.eval().clone();
+    let engine = Engine::new(&options);
+    let search = engine.open();
     let mut visited: HashSet<Board> = HashSet::new();
 
     read_game_lines(reader, input, |game, moves| {
@@ -254,8 +255,8 @@ pub(crate) fn execute(input: &Path, output: &Path) -> anyhow::Result<()> {
 
             // A fresh TT per position keeps deep results of previously analyzed
             // positions from leaking into the shallow searches.
-            search.init();
-            let depth_scores = depth_scores(&mut search, &eval, board, MAX_SEARCH_DEPTH);
+            engine.reset(search);
+            let depth_scores = depth_scores(&engine, search, board, MAX_SEARCH_DEPTH);
 
             let ply = INITIAL_EMPTY_COUNT as u32 - board.empty_count();
             for (shallow_depth, shallow_score) in depth_scores

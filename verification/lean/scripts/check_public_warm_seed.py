@@ -19,9 +19,9 @@ use crate::eval::{EVAL_FILE_NAME, EVAL_SM_FILE_NAME};
 use crate::level::Level;
 use crate::square::Square;
 pub fn run(root: &std::path::Path) {
-    let resources = SearchSharedResources::from_eval(Arc::new(Eval::with_weight_files(
+    let resources = crate::engine::Engine::from_eval(Arc::new(Eval::with_weight_files(
         Some(&root.join(EVAL_FILE_NAME)),Some(&root.join(EVAL_SM_FILE_NAME))).unwrap()),0,Some(4));
-    let mut engine = Search::from_shared_resources(&resources);
+    let engine = resources.open();
     println!("endian {}",cfg!(target_endian="big") as u8);
     let mut board = Board::new();
     for n in GAME {
@@ -32,7 +32,7 @@ pub fn run(root: &std::path::Path) {
     assert_eq!(board.empty_count(),1);
     for (i,level) in [Level::with_depths(1,[1,1,0,0,0]),Level::perfect()].into_iter().enumerate() {
         println!("session {i}");
-        let result = engine.run(&board,&SearchRunOptions::with_level(level).multi_pv(true));
+        let result = resources.search(engine, &board,&SearchRunOptions::with_level(level).multi_pv(true));
         let SearchResult::BestMove {sq,score,n_nodes,pv_line,depth,selectivity,is_endgame,pv_moves,..} = result else { panic!() };
         assert_eq!(pv_moves.len(),1);
         assert_eq!(pv_line.len(),1);

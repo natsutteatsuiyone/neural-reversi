@@ -182,7 +182,7 @@ fn tt_move(board: &Board, tt: &TranspositionTable) -> Option<SearchResult> {
 
 /// Selects a move by a shallow 1-ply search, for when there is no time or
 /// no completed iteration to report.
-pub(super) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
+pub(crate) fn quick_move(board: &Board, eval: &Eval) -> SearchResult {
     let moves = board.legal_moves();
     let Some((best_move, best_score)) = moves
         .iter()

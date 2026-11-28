@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use reversi_core::analysis::{self, GameAnalysisMove, GameAnalysisProgress};
 use reversi_core::board::Board;
+use reversi_core::engine::{Engine as NativeEngine, GameId};
 use reversi_core::level::Level;
 use reversi_core::probcut::Selectivity;
 use reversi_core::score::Score;
@@ -23,7 +24,7 @@ use reversi_core::score::Score;
 use reversi_core::search::options::SearchOptions;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchProgress, SearchRunOptions, StopToken};
+use reversi_core::search::{SearchProgress, SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 
 #[derive(Debug)]
@@ -237,7 +238,7 @@ fn worker(
         events: events.clone(),
         generation: generation.clone(),
     };
-    let mut search = None;
+    let mut engine = None;
     let mut job = Job {
         id: 0,
         request: Request::Initialize { hash_size },
@@ -246,7 +247,7 @@ fn worker(
     loop {
         if should_execute(&job, &generation) {
             let active_id = job.id;
-            match execute(job, &mut search, &events, &generation) {
+            match execute(job, &mut engine, &events, &generation) {
                 Ok((id, kind)) => emit(&events, &generation, id, kind),
                 Err(error) => {
                     // `execute` returns only errors for the job being processed;
@@ -270,11 +271,10 @@ fn should_execute(job: &Job, generation: &AtomicU64) -> bool {
 }
 
 #[cfg(test)]
-fn search_for_tests(hash_size: usize) -> Search {
+fn engine_for_tests(hash_size: usize) -> NativeEngine {
     use std::sync::OnceLock;
 
     use reversi_core::eval::Eval;
-    use reversi_core::search::SearchSharedResources;
 
     static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
     let eval = EVAL
@@ -284,39 +284,41 @@ fn search_for_tests(hash_size: usize) -> Search {
             )
         })
         .clone();
-    let shared = SearchSharedResources::from_eval(eval, hash_size, Some(1));
-    Search::from_shared_resources(&shared)
+    NativeEngine::from_eval(eval, hash_size, Some(1))
 }
 
 #[cfg(not(test))]
-fn create_search(hash_size: usize) -> Search {
-    Search::new(&SearchOptions::new(hash_size))
+fn create_engine(hash_size: usize) -> NativeEngine {
+    NativeEngine::new(&SearchOptions::new(hash_size))
 }
 
 #[cfg(test)]
-fn create_search(hash_size: usize) -> Search {
-    search_for_tests(hash_size)
+fn create_engine(hash_size: usize) -> NativeEngine {
+    engine_for_tests(hash_size)
 }
 
 fn execute(
     job: Job,
-    search: &mut Option<Search>,
+    engine: &mut Option<(NativeEngine, GameId)>,
     events: &Sender<Event>,
     generation: &Arc<AtomicU64>,
 ) -> Result<(u64, EventKind), EngineError> {
     let Job { id, request, stop } = job;
     if let Request::Initialize { hash_size } = request {
-        if let Some(search) = search {
-            search.resize_tt(hash_size);
-            search.init();
+        if let Some((engine, game)) = engine {
+            engine.resize_tt(*game, hash_size);
+            engine.reset(*game);
         } else {
-            *search = Some(create_search(hash_size));
+            let native = create_engine(hash_size);
+            let game = native.open();
+            *engine = Some((native, game));
         }
         return Ok((id, EventKind::Ready));
     }
-    let search = search
-        .as_mut()
+    let (engine, game) = engine
+        .as_ref()
         .expect("the worker runs Initialize before any other job");
+    let game = *game;
     let start = Instant::now();
     let (board, options) = match request {
         Request::Move {
@@ -361,7 +363,7 @@ fn execute(
                     if !is_current(generation, id) {
                         return Err(String::new());
                     }
-                    let result = search.run(board, &options);
+                    let result = engine.search(game, board, &options);
                     match (result.best_move(), result.score()) {
                         (Some(best_move), Some(score)) => Ok(analysis::Analysis {
                             pv: result.pv_line().to_vec(),
@@ -400,7 +402,7 @@ fn execute(
             EventKind::Progress(progress_payload(progress, start.elapsed())),
         );
     });
-    let result = search.run(&board, &options);
+    let result = engine.search(game, &board, &options);
     Ok((id, EventKind::Finished(outcome(&result, start))))
 }
 

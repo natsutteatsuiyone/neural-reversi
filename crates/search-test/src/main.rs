@@ -16,12 +16,13 @@ use colored::Colorize;
 use num_format::{Locale, ToFormattedString};
 use reversi_core::{
     board::Board,
+    engine::{Engine, GameId},
     level::Level,
     player_color::PlayerColor,
     probcut::Selectivity,
     score::{DiscScore, Score},
     search::{
-        self, SearchConstraint, SearchProgress, SearchRunOptions,
+        SearchConstraint, SearchProgress, SearchRunOptions,
         counters::SearchCounters,
         options::SearchOptions,
         result::{PvMove, SearchResult},
@@ -598,7 +599,8 @@ fn colorize_move(move_str: String, accuracy: MoveAccuracy) -> colored::ColoredSt
 /// Execute a single test case and return the result
 fn execute_test_case(
     test_case: &TestCase,
-    search: &mut search::Search,
+    engine: &Engine,
+    game: GameId,
     constraint: &SearchConstraint,
     verbose: bool,
     multipv: bool,
@@ -610,7 +612,7 @@ fn execute_test_case(
     } else {
         board
     };
-    search.init();
+    engine.reset(game);
 
     let start = Instant::now();
     let log = Arc::new(Mutex::new(IterationLog {
@@ -631,11 +633,11 @@ fn execute_test_case(
                 .record(progress, Instant::now());
         });
 
-    let result = search.run(&search_board, &options);
+    let result = engine.search(game, &search_board, &options);
     let elapsed = start.elapsed();
     // Usage scans the table, so only verbose output pays for it.
     let tt_fill = if verbose {
-        search.tt().usage_rate()
+        engine.tt_usage_rate(game)
     } else {
         0.0
     };
@@ -670,7 +672,7 @@ fn execute_test_case(
     };
 
     let mut iterations = std::mem::take(&mut log.lock().unwrap().iterations);
-    // `Search::run` appends a final summary callback from `SearchResult` after
+    // `Engine::search` appends a final summary callback from `SearchResult` after
     // the search finishes; drop it so `iterations` holds only completed iterations.
     iterations.pop();
     (test_result, iterations)
@@ -1110,7 +1112,8 @@ fn print_multipv_test_result(test_case: &TestCase, result: &TestResult) {
 /// The best move's value is already known (the OBF score, or `reference`
 /// if given). Other moves are solved exactly after the timed search.
 fn exact_move_values(
-    search: &mut search::Search,
+    engine: &Engine,
+    game: GameId,
     test_case: &TestCase,
     iterations: &[IterationData],
     reference: Option<&IterationData>,
@@ -1140,9 +1143,13 @@ fn exact_move_values(
             };
             match opponent {
                 Some(position) => {
-                    search.init();
-                    let score = search
-                        .run(&position, &SearchRunOptions::with_level(Level::perfect()))
+                    engine.reset(game);
+                    let score = engine
+                        .search(
+                            game,
+                            &position,
+                            &SearchRunOptions::with_level(Level::perfect()),
+                        )
                         .score()
                         .expect("position has a legal move");
                     if position == child { -score } else { score }
@@ -1159,7 +1166,8 @@ fn exact_move_values(
 fn execute_section(
     section_name: &str,
     test_cases: &[TestCase],
-    search: &mut search::Search,
+    engine: &Engine,
+    game: GameId,
     constraint: &SearchConstraint,
     args: &Args,
 ) -> SearchStats {
@@ -1189,7 +1197,7 @@ fn execute_section(
 
     for test_case in test_cases {
         let (result, iterations) =
-            execute_test_case(test_case, search, constraint, verbose, multipv);
+            execute_test_case(test_case, engine, game, constraint, verbose, multipv);
         stats.update(&result);
         if multipv {
             stats.update_multipv(&result.pv_moves, test_case);
@@ -1209,7 +1217,7 @@ fn execute_section(
         // Without the run's own exact solve there is nothing to judge against.
         if !solve_reference || reference.is_some() {
             let move_values = if move_loss && !test_case.is_pass() {
-                exact_move_values(search, test_case, &iterations, reference)
+                exact_move_values(engine, game, test_case, &iterations, reference)
             } else {
                 std::collections::HashMap::new()
             };
@@ -1330,7 +1338,8 @@ fn main() {
     }
 
     let search_options = SearchOptions::new(args.hash_size as usize).with_threads(args.threads);
-    let mut search = search::Search::new(&search_options);
+    let engine = Engine::new(&search_options);
+    let game = engine.open();
     let constraint = build_constraint(&args);
 
     let mut overall_stats = SearchStats::default();
@@ -1339,7 +1348,8 @@ fn main() {
         let stats = execute_section(
             &problem_set.name,
             &problem_set.cases,
-            &mut search,
+            &engine,
+            game,
             &constraint,
             &args,
         );
@@ -1363,7 +1373,7 @@ mod tests {
 
     use super::*;
 
-    fn test_search(n_threads: usize) -> search::Search {
+    fn test_engine(n_threads: usize) -> Engine {
         static EVAL: OnceLock<Arc<Eval>> = OnceLock::new();
         let eval = EVAL
             .get_or_init(|| {
@@ -1373,8 +1383,7 @@ mod tests {
                 )
             })
             .clone();
-        let shared = search::SearchSharedResources::from_eval(eval, 1, Some(n_threads));
-        search::Search::from_shared_resources(&shared)
+        Engine::from_eval(eval, 1, Some(n_threads))
     }
 
     #[test]
@@ -1385,7 +1394,8 @@ mod tests {
         .unwrap()
         .unwrap();
         let case = TestCase::new(1, position).unwrap();
-        let mut search = test_search(4);
+        let engine = test_engine(4);
+        let game = engine.open();
         let reports = Arc::new(Mutex::new(Vec::new()));
         let callback_reports = reports.clone();
         let options =
@@ -1396,7 +1406,7 @@ mod tests {
                     .push((Instant::now(), progress));
             });
         let start = Instant::now();
-        let result = search.run(&case.board(), &options);
+        let result = engine.search(game, &case.board(), &options);
         let mut reports = reports.lock().unwrap();
         reports.pop().unwrap();
         let mut log = IterationLog {
@@ -1499,7 +1509,8 @@ mod tests {
 
     #[test]
     fn timed_search_aborts_cleanly_and_counts_completed_endgame_levels_once() {
-        let mut search = test_search(1);
+        let engine = test_engine(1);
+        let game = engine.open();
 
         let midgame_pos = ObfPosition::parse(
             "--OOOO----OOOO---XOXXXX-XOXXOXXXOOOOXOX---OOOOO----------------- X; A6:+8;",
@@ -1511,9 +1522,9 @@ mod tests {
             time_per_move_ms: 50,
         });
         let (mid_res, mid_iters) =
-            execute_test_case(&midgame_tc, &mut search, &midgame_constraint, true, false);
+            execute_test_case(&midgame_tc, &engine, game, &midgame_constraint, true, false);
         assert!(
-            search.timed_out() || mid_res.depth < midgame_tc.board().empty_count(),
+            engine.timed_out(game) || mid_res.depth < midgame_tc.board().empty_count(),
             "expected timed search to stop before reaching full depth"
         );
         assert!(mid_res.nodes > 0);
@@ -1537,7 +1548,7 @@ mod tests {
             time_per_move_ms: 500,
         });
         let (pass_res, pass_iters) =
-            execute_test_case(&pass_tc, &mut search, &pass_constraint, false, false);
+            execute_test_case(&pass_tc, &engine, game, &pass_constraint, false, false);
         assert!(
             pass_res.score_difference < 0.05,
             "unexpected pass score difference: {} (score {})",

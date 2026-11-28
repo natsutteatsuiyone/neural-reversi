@@ -3,12 +3,13 @@ use std::sync::{Arc, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use reversi_core::board::Board;
+use reversi_core::engine::{Engine, GameId};
 use reversi_core::eval::Eval;
 use reversi_core::level::Level;
 use reversi_core::player_color::PlayerColor;
 use reversi_core::search::result::SearchResult;
 use reversi_core::search::time_control::TimeControlMode;
-use reversi_core::search::{Search, SearchRunOptions, SearchSharedResources, StopToken};
+use reversi_core::search::{SearchRunOptions, StopToken};
 use reversi_core::square::Square;
 
 const BOARD_20_EMPTIES: &str = "-XXXXX-----OXX---OOOOOO-XXOOXOO-XXXOXOO-XXXXXOOO--XXXO----OXXO--";
@@ -39,12 +40,14 @@ fn shared_eval() -> Arc<Eval> {
     .clone()
 }
 
-fn shared_resources(n_threads: usize) -> SearchSharedResources {
-    SearchSharedResources::from_eval(shared_eval(), TEST_TT_MB_SIZE, Some(n_threads))
+fn engine(n_threads: usize) -> Engine {
+    Engine::from_eval(shared_eval(), TEST_TT_MB_SIZE, Some(n_threads))
 }
 
-fn search(n_threads: usize) -> Search {
-    Search::from_shared_resources(&shared_resources(n_threads))
+fn open_game(n_threads: usize) -> (Engine, GameId) {
+    let engine = engine(n_threads);
+    let game = engine.open();
+    (engine, game)
 }
 
 fn score(result: &SearchResult) -> i32 {
@@ -57,10 +60,10 @@ fn score(result: &SearchResult) -> i32 {
 
 /// Solves `board_str` with `n_threads` and asserts the exact score.
 fn assert_parallel_solve(board_str: &str, side: PlayerColor, n_threads: usize, expected: i32) {
-    let mut search = search(n_threads);
+    let (engine, game) = open_game(n_threads);
     let board = Board::from_string(board_str, side).unwrap();
     let options = SearchRunOptions::with_level(Level::perfect());
-    let result = search.run(&board, &options);
+    let result = engine.search(game, &board, &options);
     assert_eq!(score(&result), expected, "threads={n_threads}");
 }
 
@@ -71,21 +74,21 @@ fn parallel_solve_matches_known_score_20_empties() {
 
 #[test]
 fn parallel_solve_reused_search_instance_is_consistent() {
-    let mut search = search(4);
+    let (engine, game) = open_game(4);
     let board = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
     assert_eq!(board.empty_count(), 16);
     let options = SearchRunOptions::with_level(Level::perfect());
 
     // The second run hits a warm transposition table.
     for run in 0..2 {
-        let result = search.run(&board, &options);
+        let result = engine.search(game, &board, &options);
         assert_eq!(score(&result), 8, "run={run}");
     }
 }
 
 #[test]
 fn timed_search_terminates_within_deadline_margin() {
-    let mut search = search(4);
+    let (engine, game) = open_game(4);
     with_watchdog(
         "timed_search_terminates_within_deadline_margin",
         move || {
@@ -95,7 +98,7 @@ fn timed_search_terminates_within_deadline_margin() {
             });
 
             let start = Instant::now();
-            let result = search.run(&board, &options);
+            let result = engine.search(game, &board, &options);
             let elapsed = start.elapsed();
 
             // Generous margin: this guards against a hung abort/timer, not
@@ -118,8 +121,8 @@ fn timed_search_terminates_within_deadline_margin() {
 fn parallel_midgame_score_matches_single_threaded() {
     const DEPTH: u32 = 8;
     let options = SearchRunOptions::with_level(Level::uniform(DEPTH, 0)).disable_probcut();
-    let mut single = search(1);
-    let mut parallel = search(4);
+    let (single_engine, single) = open_game(1);
+    let (parallel_engine, parallel) = open_game(4);
 
     for moves in ["f5", "f5d6", "f5f6", "f5f6e6"] {
         let board = Square::parse_sequence(moves)
@@ -127,8 +130,8 @@ fn parallel_midgame_score_matches_single_threaded() {
             .into_iter()
             .fold(Board::new(), |board, sq| board.make_move(sq));
 
-        let expected = single.run(&board, &options);
-        let actual = parallel.run(&board, &options);
+        let expected = single_engine.search(single, &board, &options);
+        let actual = parallel_engine.search(parallel, &board, &options);
 
         for result in [&expected, &actual] {
             assert_eq!(result.depth(), DEPTH, "moves={moves}");
@@ -142,7 +145,7 @@ fn parallel_midgame_score_matches_single_threaded() {
 /// keep deepening until stopped.
 #[test]
 fn infinite_search_keeps_deepening_a_forced_move() {
-    let mut search = search(4);
+    let (engine, game) = open_game(4);
     let stop = StopToken::new();
     let callback_stop = stop.clone();
     let board = Square::parse_sequence("d3e3f6c2d2c3f2f3b2g1g2d1e1f1f4h3")
@@ -158,18 +161,17 @@ fn infinite_search_keeps_deepening_a_forced_move() {
                 callback_stop.stop();
             }
         });
-    let result = search.run(&board, &options);
+    let result = engine.search(game, &board, &options);
 
     assert!(result.depth() > 4, "stopped at depth {}", result.depth());
 }
 
 #[test]
 fn fixed_depth_search_reuses_pool_after_stopping_midgame_helpers() {
-    let mut shared = shared_resources(4);
-    shared.share_thread_pool();
-    let mut timed = Search::from_shared_resources(&shared);
-    let mut parallel = Search::from_shared_resources(&shared);
-    let mut single = search(1);
+    let shared = engine(4);
+    let timed = shared.open();
+    let parallel = shared.open();
+    let (single_engine, single) = open_game(1);
     with_watchdog(
         "fixed_depth_search_reuses_pool_after_stopping_midgame_helpers",
         move || {
@@ -183,56 +185,81 @@ fn fixed_depth_search_reuses_pool_after_stopping_midgame_helpers() {
                         callback_stop.stop();
                     }
                 });
-            let stopped = timed.run(&board, &options);
+            let stopped = shared.search(timed, &board, &options);
             let best_move = stopped.best_move().unwrap();
             assert!(board.legal_moves().contains(best_move));
 
             let next = board.make_move(best_move);
             let fixed = SearchRunOptions::with_level(Level::uniform(5, 0)).disable_probcut();
-            let reused = parallel.run(&next, &fixed);
+            let reused = shared.search(parallel, &next, &fixed);
             assert_eq!(reused.depth(), 5);
-            assert_eq!(reused.score(), single.run(&next, &fixed).score());
+            assert_eq!(
+                reused.score(),
+                single_engine.search(single, &next, &fixed).score()
+            );
         },
     );
 }
 
-/// Two engines from one `SearchSharedResources` share only the evaluation
-/// network; concurrent solves must both stay exact.
+/// Two engines over one copy of the networks search concurrently; both
+/// solves must stay exact.
 #[test]
-fn concurrent_engines_from_shared_resources_solve_correctly() {
+fn concurrent_engines_over_one_eval_solve_correctly() {
     let options = SearchRunOptions::with_level(Level::perfect());
 
     std::thread::scope(|s| {
         let first = s.spawn(|| {
-            let mut search = search(2);
+            let (engine, game) = open_game(2);
             let board = Board::from_string(BOARD_20_EMPTIES, PlayerColor::Black).unwrap();
-            score(&search.run(&board, &options))
+            score(&engine.search(game, &board, &options))
         });
         let second = s.spawn(|| {
-            let mut search = search(2);
+            let (engine, game) = open_game(2);
             let board = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
-            score(&search.run(&board, &options))
+            score(&engine.search(game, &board, &options))
         });
         assert_eq!(first.join().unwrap(), 6);
         assert_eq!(second.join().unwrap(), 8);
     });
 }
 
-/// Engines from a `share_thread_pool` bundle reuse one pool but keep their own
-/// transposition tables, so searches taking turns on the pool stay exact.
+/// Two games of one engine searched from two threads take turns on its
+/// pool; both solves must stay exact.
 #[test]
-fn engines_sharing_a_pool_search_in_turn() {
-    let mut shared = shared_resources(2);
-    shared.share_thread_pool();
-    let mut first = Search::from_shared_resources(&shared);
-    let mut second = Search::from_shared_resources(&shared);
-    assert!(!std::sync::Arc::ptr_eq(first.tt(), second.tt()));
+fn concurrent_games_of_one_engine_take_turns() {
+    let shared = engine(2);
+    let first = shared.open();
+    let second = shared.open();
+    with_watchdog("concurrent_games_of_one_engine_take_turns", move || {
+        let options = SearchRunOptions::with_level(Level::perfect());
+        std::thread::scope(|s| {
+            let first = s.spawn(|| {
+                let board = Board::from_string(BOARD_20_EMPTIES, PlayerColor::Black).unwrap();
+                score(&shared.search(first, &board, &options))
+            });
+            let second = s.spawn(|| {
+                let board = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
+                score(&shared.search(second, &board, &options))
+            });
+            assert_eq!(first.join().unwrap(), 6);
+            assert_eq!(second.join().unwrap(), 8);
+        });
+    });
+}
+
+/// Games of one engine share its pool but keep their own transposition
+/// tables, so searches taking turns on the pool stay exact.
+#[test]
+fn games_of_one_engine_search_in_turn() {
+    let shared = engine(2);
+    let first = shared.open();
+    let second = shared.open();
 
     let options = SearchRunOptions::with_level(Level::perfect());
     let board_20 = Board::from_string(BOARD_20_EMPTIES, PlayerColor::Black).unwrap();
     let board_16 = Board::from_string(BOARD_16_EMPTIES, PlayerColor::Black).unwrap();
     for _ in 0..2 {
-        assert_eq!(score(&first.run(&board_20, &options)), 6);
-        assert_eq!(score(&second.run(&board_16, &options)), 8);
+        assert_eq!(score(&shared.search(first, &board_20, &options)), 6);
+        assert_eq!(score(&shared.search(second, &board_16, &options)), 8);
     }
 }

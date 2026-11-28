@@ -12,11 +12,12 @@ use std::time::Duration;
 use anyhow::Context;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use reversi_core::board::Board;
+use reversi_core::engine::Engine;
 use reversi_core::level::Level;
 use reversi_core::move_list::MoveList;
 use reversi_core::player_color::PlayerColor;
+use reversi_core::search::SearchRunOptions;
 use reversi_core::search::options::SearchOptions;
-use reversi_core::search::{self, SearchRunOptions};
 use reversi_core::square::Square;
 
 use crate::record::{
@@ -57,7 +58,8 @@ pub(crate) fn execute(
     };
 
     let options = SearchOptions::new(hash_size);
-    let mut search = search::Search::new(&options);
+    let engine = Engine::new(&options);
+    let search = engine.open();
     let run_options = SearchRunOptions::with_level(level);
 
     let total = positions.len();
@@ -83,7 +85,7 @@ pub(crate) fn execute(
             continue;
         }
 
-        let result = search.run(&board, &run_options);
+        let result = engine.search(search, &board, &run_options);
         let ply = 60 - board.empty_count() as u8;
         let score = result
             .score()

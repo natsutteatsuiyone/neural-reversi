@@ -122,13 +122,13 @@ pub fn run(root: &Path) {
         Some(&root.join(EVAL_SM_FILE_NAME)),
     )
     .unwrap();
-    let resources = SearchSharedResources::from_eval(Arc::new(eval), 1, Some(1));
-    let mut engine = Search::from_shared_resources(&resources);
+    let resources = crate::engine::Engine::from_eval(Arc::new(eval), 1, Some(1));
+    let engine = resources.open();
     let board = Board::from_bitboards(0x2101072397ef7e7c, 0x0e76685c28108181);
     let options = SearchRunOptions::with_level(Level::preset(30));
     for second in [false, true] {
         SECOND.store(second, Ordering::Relaxed);
-        match engine.run(&board, &options) {
+        match resources.search(engine, &board, &options) {
             SearchResult::BestMove {
                 score,
                 is_endgame: true,
