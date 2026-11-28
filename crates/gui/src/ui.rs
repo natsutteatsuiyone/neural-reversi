@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use nsh_core::element::desktop::{self, current_window};
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use reversi_core::player_color::PlayerColor;
@@ -180,7 +181,7 @@ impl Ui {
             notification.show_error(tr!("settings_load_failed").to_string(), error);
         }
         let session = Session::new(&settings);
-        let viewport = window();
+        let viewport = current_viewport();
         Self {
             app: stored(ReversiApp {
                 draft: settings.clone(),
@@ -419,9 +420,19 @@ impl Ui {
     }
 }
 
+pub(super) fn current_viewport() -> Size<Points> {
+    current_window()
+        .state()
+        .map_or_else(window, |state| state.content_bounds.size)
+}
+
 #[component]
 pub fn App() -> impl IntoElement {
-    Ui::new().render()
+    desktop::window()
+        .id("main")
+        .title("Neural Reversi")
+        .default_size(size(px(1100.), px(920.)))
+        .content(|| Ui::new().render())
 }
 
 impl Ui {
@@ -430,7 +441,7 @@ impl Ui {
         ui.bind_keys();
         set_interval(Duration::from_millis(40), move || ui.tick());
         effect(move || {
-            let viewport = window();
+            let viewport = current_viewport();
             ui.update(|app| {
                 let was_open = app.analysis_open();
                 app.viewport = viewport;

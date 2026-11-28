@@ -214,7 +214,7 @@ fn control_tooltip(ui: Ui, title: Memo<SharedString>) -> impl IntoElement {
                 .anchor_point(move || {
                     let at = shown_at.get();
                     let extent = measured.get();
-                    let viewport = window();
+                    let viewport = super::current_viewport();
                     let coordinate = |at: f32, length: f32, limit: f32| {
                         if at + 1. + length > limit {
                             (at - length - 1.).max(0.)

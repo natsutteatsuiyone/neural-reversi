@@ -53,7 +53,7 @@ impl Ui {
         self.changed
             .update(|revision| *revision = revision.wrapping_add(1));
         if let Some(copy) = copy {
-            set_clipboard(copy);
+            drop(set_clipboard(copy));
         }
         self.scroll_updates(updates);
         if next != previous {

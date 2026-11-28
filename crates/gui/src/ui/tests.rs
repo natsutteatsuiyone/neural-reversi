@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 use nsh_core::prelude::*;
 use nsh_core::{Checked, MountItem, ViewKind};
 use nsh_engine::{Clock, EngineConfig, Environment, Idiom, Os, Root};
-use nsh_testing::{Headless, LayoutNode};
+use nsh_testing::{Headless, LayoutNode, windowed_root};
 
 use super::Ui;
 use crate::settings::{GameMode, Language, Settings};
@@ -50,7 +50,7 @@ fn TestApp() -> impl IntoElement {
 }
 
 fn headless_config() -> EngineConfig {
-    headless_config_with_motion(Root::of::<TestApp>(), true)
+    headless_config_with_motion(windowed_root::<TestApp>(), true)
 }
 
 fn headless_config_with_motion(root: Root, reduce_motion: bool) -> EngineConfig {
@@ -328,7 +328,7 @@ fn FlipModalTestApp() -> impl IntoElement {
 fn headless_flip_animation_completes_after_opening_and_cancelling_modal() -> Result<(), String> {
     let _locale = lock_locale();
     let mut app = Headless::start(headless_config_with_motion(
-        Root::of::<FlipModalTestApp>(),
+        windowed_root::<FlipModalTestApp>(),
         false,
     ))
     .map_err(|error| error.to_string())?;
@@ -417,7 +417,7 @@ fn headless_unmounting_board_does_not_panic() -> Result<(), Box<dyn std::error::
         std::process::exit(1);
     }));
     let mut app = Headless::start(headless_config_with_motion(
-        Root::of::<UnmountableBoardApp>(),
+        windowed_root::<UnmountableBoardApp>(),
         false,
     ))?;
     app.wait_for("id:board-grid")?;

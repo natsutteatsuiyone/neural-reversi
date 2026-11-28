@@ -29,7 +29,7 @@ byteorder.workspace = true
 getrandom = { version = "0.4", features = ["wasm_js"] }
 reversi-core.workspace = true
 rand.workspace = true
-js-sys = "0.3.95"
+js-sys = "0.3"
 zstd.workspace = true
 console_error_panic_hook = "0.1.7"
 

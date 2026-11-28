@@ -17,6 +17,32 @@ macro_rules! eval_weights_literal {
     };
 }
 
+fn embedded_weights() -> &'static [u8] {
+    #[cfg(any(not(debug_assertions), target_arch = "wasm32"))]
+    {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../",
+            eval_weights_literal!()
+        ))
+    }
+
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+    {
+        static BYTES: std::sync::OnceLock<Box<[u8]>> = std::sync::OnceLock::new();
+        BYTES.get_or_init(|| {
+            let path = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../",
+                eval_weights_literal!()
+            );
+            std::fs::read(path)
+                .unwrap_or_else(|err| panic!("failed to read weight file \"{path}\": {err}"))
+                .into_boxed_slice()
+        })
+    }
+}
+
 /// Neural network evaluator with a set-associative evaluation cache.
 pub struct Eval {
     network: Arc<Network>,
@@ -32,11 +58,7 @@ impl Eval {
     ///
     /// [`io::Error`]: std::io::Error
     pub fn new() -> io::Result<Self> {
-        let network = Arc::new(Network::from_bytes(include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../",
-            eval_weights_literal!()
-        )))?);
+        let network = Arc::new(Network::from_bytes(embedded_weights())?);
         Ok(Eval {
             network,
             cache: EvalCache::new(17),
@@ -52,12 +74,8 @@ impl Eval {
         let network = NETWORK
             .get_or_init(|| {
                 Arc::new(
-                    Network::from_bytes(include_bytes!(concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/../../",
-                        eval_weights_literal!()
-                    )))
-                    .expect("embedded wasm evaluation weights must load"),
+                    Network::from_bytes(embedded_weights())
+                        .expect("embedded wasm evaluation weights must load"),
                 )
             })
             .clone();
@@ -204,11 +222,7 @@ mod tests {
     #[test]
     fn network_matches_reference_on_random_games() {
         let eval = Eval::new().unwrap();
-        let reference = ReferenceNetwork::load(include_bytes!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../",
-            eval_weights_literal!()
-        )));
+        let reference = ReferenceNetwork::load(embedded_weights());
         let mut rng = StdRng::seed_from_u64(0xE7A1);
         let mut n_positions = 0;
 

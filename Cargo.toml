@@ -26,10 +26,10 @@ colored = "3"
 eval-weights = { path = "crates/eval-weights" }
 indicatif = "0.18"
 num-format = "0.4"
-rand = "0.10.1"
+rand = "0.10"
 reversi-core = { path = "crates/reversi-core" }
-windows-sys = "0.61.0"
-zstd = "0.14.3"
+windows-sys = "0.61"
+zstd = "0.14"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
@@ -55,7 +55,19 @@ debug = "line-tables-only"
 strip = false
 lto = "thin"
 
-[profile.dev.package."*"]
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package.zstd-sys]
+opt-level = 3
+
+[profile.dev.package.zstd-safe]
+opt-level = 3
+
+[profile.dev.package.zstd]
+opt-level = 3
+
+[profile.dev.package.rapidhash]
 opt-level = 3
 
 [profile.test]
