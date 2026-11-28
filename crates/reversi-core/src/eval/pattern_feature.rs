@@ -22,7 +22,7 @@ use crate::search::side_to_move::SideToMove;
 use crate::square::Square;
 #[path = "pattern_table_data.rs"]
 mod pattern_table_data;
-pub use pattern_table_data::NUM_PATTERN_FEATURES;
+pub(crate) use pattern_table_data::NUM_PATTERN_FEATURES;
 use pattern_table_data::{EVAL_F2X_RAW, FEATURE_VECTOR_SIZE, compute_pattern_feature_index_raw};
 
 const _: () = assert!(BOARD_SQUARES == pattern_table_data::BOARD_SQUARES);
@@ -71,11 +71,11 @@ const FLIP_U16_MASK: u64 = (FLIP_U16_VALUES as u64) - 1;
 /// Each pattern feature examines a specific set of board squares.
 /// This struct defines which squares belong to each pattern.
 #[derive(Debug, Clone, Copy)]
-pub struct FeatureToCoordinate {
+pub(crate) struct FeatureToCoordinate {
     /// Number of squares in this pattern (up to 10).
-    pub n_square: usize,
+    pub(crate) n_square: usize,
     /// Squares of this pattern; only the first `n_square` slots are used.
-    pub squares: [Square; 10],
+    pub(crate) squares: [Square; 10],
 }
 
 /// Storage for pattern features.
@@ -120,15 +120,6 @@ impl PatternFeature {
             "pattern feature value out of range"
         );
         self.data[idx] = value;
-    }
-
-    /// Returns the feature value at `idx` without bounds checking.
-    ///
-    /// # Safety
-    ///
-    /// `idx` must be less than `FEATURE_VECTOR_SIZE`.
-    pub unsafe fn get_unchecked(&self, idx: usize) -> u16 {
-        *unsafe { self.data.get_unchecked(idx) }
     }
 }
 
@@ -229,10 +220,10 @@ const fn build_eval_f2x() -> [FeatureToCoordinate; NUM_PATTERN_FEATURES] {
 
 /// Board squares that make up each pattern. Source of truth lives in
 /// `pattern_table_data::EVAL_F2X_RAW`; this is the typed wrapper.
-pub const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = build_eval_f2x();
+pub(crate) const EVAL_F2X: [FeatureToCoordinate; NUM_PATTERN_FEATURES] = build_eval_f2x();
 
 /// Calculates the size of a pattern feature (3^n where n is the number of squares).
-pub const fn calc_pattern_size(pattern_index: usize) -> usize {
+pub(crate) const fn calc_pattern_size(pattern_index: usize) -> usize {
     PATTERN_FEATURE_SIZES[pattern_index] as usize
 }
 
@@ -262,7 +253,7 @@ const fn sum_eval_f2x() -> usize {
 /// Total number of input feature dimensions for the neural network.
 ///
 /// This is the sum of all pattern feature sizes (3^n for n-square patterns).
-pub const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
+pub(crate) const INPUT_FEATURE_DIMS: usize = sum_eval_f2x();
 
 /// Precomputes the starting offset for each pattern feature in the feature vector.
 const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
@@ -278,7 +269,7 @@ const fn calc_feature_offsets() -> [usize; NUM_PATTERN_FEATURES] {
 }
 
 /// Precomputed offsets for each pattern feature in the feature vector.
-pub const PATTERN_FEATURE_OFFSETS: [usize; NUM_PATTERN_FEATURES] = calc_feature_offsets();
+pub(crate) const PATTERN_FEATURE_OFFSETS: [usize; NUM_PATTERN_FEATURES] = calc_feature_offsets();
 
 /// Generates the EVAL_FEATURE lookup table at compile time.
 const fn generate_eval_feature() -> [PatternFeature; BOARD_SQUARES] {
@@ -456,8 +447,7 @@ impl PatternFeatures {
     /// Returns a reference to the player's pattern feature at the given ply.
     ///
     /// The features describe a board only at the ply the container was
-    /// created with and at the plies [`update`](Self::update) has reached
-    /// from there.
+    /// created with and at any plies reached via incremental updates.
     ///
     /// # Panics
     ///
@@ -475,7 +465,7 @@ impl PatternFeatures {
     ///
     /// Panics if `ply` is not less than [`MAX_PLY`].
     #[inline(always)]
-    pub fn o_feature(&self, ply: usize) -> &PatternFeature {
+    pub(crate) fn o_feature(&self, ply: usize) -> &PatternFeature {
         &self.o_features[ply]
     }
 
@@ -483,7 +473,7 @@ impl PatternFeatures {
     ///
     /// This avoids the full board scan of [`PatternFeatures::new`] by reusing
     /// features that were already computed (e.g., from the split point owner's context).
-    pub fn from_features(
+    pub(crate) fn from_features(
         ply: usize,
         p_feature: &PatternFeature,
         o_feature: &PatternFeature,
@@ -522,7 +512,13 @@ impl PatternFeatures {
     ///
     /// Panics if the move flips no discs or `ply + 1` is outside the feature slots.
     #[inline(always)]
-    pub fn update(&mut self, sq: Square, flipped: Bitboard, ply: usize, side_to_move: SideToMove) {
+    pub(crate) fn update(
+        &mut self,
+        sq: Square,
+        flipped: Bitboard,
+        ply: usize,
+        side_to_move: SideToMove,
+    ) {
         assert!(ply < MAX_PLY - 1, "pattern update requires a successor ply");
         assert!(!flipped.is_empty(), "a move must flip at least one disc");
 

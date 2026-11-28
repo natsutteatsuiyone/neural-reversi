@@ -40,7 +40,7 @@ pub fn solve(
 
     let engine = Engine::new(&search_options);
 
-    print_header(file_path, search_options.tt_mb_size, engine.n_threads());
+    print_header(file_path, search_options.tt_mb_size(), engine.n_threads());
 
     let game = engine.open();
     let level_config = if exact {

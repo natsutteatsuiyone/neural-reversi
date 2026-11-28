@@ -13,7 +13,7 @@ impl MoveList {
 }
 
 /// Thread-safe iterator for distributing moves across multiple search threads.
-pub struct ConcurrentMoveIterator {
+pub(crate) struct ConcurrentMoveIterator {
     move_list: MoveList,
     current: AtomicUsize,
 }

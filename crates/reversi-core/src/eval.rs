@@ -19,7 +19,7 @@ use crate::score::Score;
 use self::network_small::ENDGAME_START_PLY;
 use self::pattern_feature::PatternFeature;
 
-pub mod eval_cache;
+pub(crate) mod eval_cache;
 mod network;
 mod network_small;
 pub mod pattern_feature;
@@ -124,7 +124,7 @@ impl Eval {
     /// Returns whether the main network (and thus the eval cache) is used
     /// for the given `(eval_mode, ply)` pair.
     #[inline(always)]
-    pub fn should_use_main_network(eval_mode: EvalMode, ply: usize) -> bool {
+    pub(crate) fn should_use_main_network(eval_mode: EvalMode, ply: usize) -> bool {
         eval_mode == EvalMode::Main || ply < ENDGAME_START_PLY
     }
 
@@ -135,7 +135,7 @@ impl Eval {
     /// [`prefetch`](Self::prefetch) the cache line first.
     /// Intended for the main-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn evaluate_main(
+    pub(crate) fn evaluate_main(
         &self,
         feature: &PatternFeature,
         board: &Board,
@@ -151,13 +151,13 @@ impl Eval {
     /// `feature` must be the side to move's pattern feature at `ply`.
     /// Intended for the small-network path — see [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn evaluate_small(&self, feature: &PatternFeature, ply: usize) -> Score {
+    pub(crate) fn evaluate_small(&self, feature: &PatternFeature, ply: usize) -> Score {
         self.network_sm.evaluate(feature, ply)
     }
 
     /// Evaluates a position from scratch, building the pattern features on the fly.
     ///
-    /// Selects the network via [`should_use_main_network`](Self::should_use_main_network),
+    /// Selects the main or small network according to `eval_mode` and ply,
     /// bypasses the eval cache, and returns the exact final score when the board
     /// has no empties.
     pub fn evaluate_simple(&self, board: &Board, eval_mode: EvalMode) -> Score {
@@ -184,7 +184,7 @@ impl Eval {
     /// useful when the next eval call will probe the cache — see
     /// [`should_use_main_network`](Self::should_use_main_network).
     #[inline(always)]
-    pub fn prefetch(&self, key: u64) {
+    pub(crate) fn prefetch(&self, key: u64) {
         self.cache.prefetch(key);
     }
 

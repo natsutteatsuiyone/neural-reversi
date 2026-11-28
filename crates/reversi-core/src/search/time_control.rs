@@ -339,7 +339,7 @@ impl TimeSettings {
 
 /// Time allocation and tracking during a search.
 #[derive(Debug)]
-pub struct TimeManager {
+pub(crate) struct TimeManager {
     /// Time control mode for the current game.
     mode: TimeControlMode,
 

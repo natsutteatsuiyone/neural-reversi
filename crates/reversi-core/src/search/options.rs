@@ -19,10 +19,10 @@ pub(crate) fn available_cpus() -> usize {
 
 /// Configuration options for search initialization.
 pub struct SearchOptions {
-    pub tt_mb_size: usize,
-    pub n_threads: usize,
-    pub eval_path: Option<PathBuf>,
-    pub eval_sm_path: Option<PathBuf>,
+    pub(crate) tt_mb_size: usize,
+    pub(crate) n_threads: usize,
+    pub(crate) eval_path: Option<PathBuf>,
+    pub(crate) eval_sm_path: Option<PathBuf>,
 }
 
 impl SearchOptions {
@@ -56,6 +56,12 @@ impl SearchOptions {
         self.eval_sm_path = eval_sm_path.map(Path::to_path_buf);
         self
     }
+
+    /// Returns the transposition table size in MiB.
+    #[must_use]
+    pub const fn tt_mb_size(&self) -> usize {
+        self.tt_mb_size
+    }
 }
 
 impl Default for SearchOptions {
@@ -77,12 +83,12 @@ pub enum SearchConstraint {
 
 /// Options for a single search run.
 pub struct SearchRunOptions {
-    pub constraint: SearchConstraint,
-    pub multi_pv: bool,
-    pub callback: Option<Arc<SearchProgressCallback>>,
-    pub eval_mode: Option<EvalMode>,
-    pub probcut_disabled: bool,
-    pub stop_token: Option<StopToken>,
+    pub(super) constraint: SearchConstraint,
+    pub(super) multi_pv: bool,
+    pub(super) callback: Option<Arc<SearchProgressCallback>>,
+    pub(super) eval_mode: Option<EvalMode>,
+    pub(super) probcut_disabled: bool,
+    pub(super) stop_token: Option<StopToken>,
 }
 
 impl SearchRunOptions {

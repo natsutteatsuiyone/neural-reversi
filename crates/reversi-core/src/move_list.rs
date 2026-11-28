@@ -16,7 +16,8 @@ use crate::flip;
 use crate::legal_moves::{LegalMoves, NonEmptyLegalMoves};
 use crate::square::Square;
 
-pub use iterator::{BestFirstMoveIterator, ConcurrentMoveIterator};
+pub use iterator::BestFirstMoveIterator;
+pub(crate) use iterator::ConcurrentMoveIterator;
 use move_array::MoveArray;
 pub(crate) use ordering::fast_move_value;
 

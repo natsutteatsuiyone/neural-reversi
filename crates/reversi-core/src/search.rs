@@ -5,7 +5,7 @@
 //! keeps the state of one game that outlives one.
 
 mod aspiration;
-pub mod context;
+pub(crate) mod context;
 pub(crate) mod correction_history;
 pub mod counters;
 mod endgame;
@@ -15,11 +15,11 @@ pub mod options;
 pub mod progress;
 mod pvs;
 pub mod result;
-pub mod root_move;
-pub mod side_to_move;
-pub mod stack;
+pub(crate) mod root_move;
+pub(crate) mod side_to_move;
+pub(crate) mod stack;
 mod stop;
-pub mod strategy;
+pub(crate) mod strategy;
 pub(crate) mod threading;
 pub mod time_control;
 
